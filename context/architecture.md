@@ -4,10 +4,13 @@
 
 | Layer | Technology | Role |
 |-------|-----------|------|
-| Framework | Next.js 16 + TypeScript | SSR/SSG React framework |
-| UI | Tailwind CSS v4 + shadcn/ui | Styling system + component primitives |
-| Animation | Motion (Framer Motion) + GSAP | Scroll reveals, micro-interactions |
-| Icons | lucide-react | Icon system |
+| Mobile | Flutter (Android only, v1) — user app + vendor app | Customer ordering + delivery ops |
+| Framework | Next.js 16 + TypeScript | Super Admin website (SSR/SSG) |
+| Backend | Python on Cloudflare Workers (Python Workers, beta) | Shared API for Flutter apps + Admin web (auth, orders, jars, billing) |
+| Database | Cloudflare D1 (SQLite, edge) | Users, login/sessions, orders, jar ledger, dues — single source of truth |
+| UI | Tailwind CSS v4 + shadcn/ui | Super Admin web styling + primitives |
+| Animation | Motion (Framer Motion) + GSAP | Scroll reveals, micro-interactions (web only) |
+| Icons | lucide-react | Icon system (web); Material Icons on Flutter |
 | Fonts | Geist Sans + Geist Mono (default) | Primary and monospace typefaces |
 
 ## Frontend Structure — Feature-First
@@ -87,7 +90,16 @@ NEVER: entities/ → features/
 
 ## Auth and Access Model
 
-[Describe auth — authentication, authorization, public vs private routes]
+- D1 tables: `users` (phone PK, role user/vendor/admin, OTP hash, created_at), `sessions` (token hash, user_id, expires_at, revoked), `otp_codes` (phone, code hash, attempts, expires 5 min).
+- Flutter user/vendor: OTP login (phone → D1 otp_codes → session token in Secure Storage) → Bearer on every Workers API call. Vendor role gate on delivery endpoints.
+- Super Admin web (Next.js): same Workers auth API (phone+OTP or email+password for admin seed), HttpOnly cookie session, middleware checks role=admin for /admin routes.
+- All auth writes go Workers → D1 binding (no direct D1 from clients). Secrets (OTP provider key) only in Workers vars.
+
+## Backend Boundaries (Workers + D1)
+
+- `workers/api/` — Python Workers entry (one Worker, routes: /auth/*, /orders/*, /jars/*, /billing/*, /admin/*) → service layer → D1 binding via `env.DB`.
+- Invariants: stateless handlers (no local disk), all state in D1; idempotency key on POST /orders; never-negative jar `held`; money/deposit edits audited.
+- Limits to respect: Python Workers beta (no native C extensions, cold-start + CPU-time caps) — keep deps pure-Python; D1 10GB/db, single-writer semantics, batch writes for reconciliation.
 
 ## Invariants
 

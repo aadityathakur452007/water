@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0891b2">
+<title>PaniBox — Water Can Booking App · UI Layout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800&family=Azeret+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#faf7f5;
+  --surface:#ffffff;
+  --border:rgba(31,42,46,.10);
+  --ink:#1f2a2e;
+  --dim:#5f7076;
+  --teal:#0891b2;
+  --teal-deep:#0369a1;
+  --teal-tint:#e6f4f7;
+  --amber:#d97706;
+  --amber-tint:#fdf3e3;
+  --green:#059669;
+  --shadow:0 10px 30px rgba(3,105,161,.10);
+  --font-body:'Plus Jakarta Sans',system-ui,sans-serif;
+  --font-mono:'Azeret Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e1a1f;
+    --surface:#132229;
+    --border:rgba(255,255,255,.09);
+    --ink:#e8eef0;
+    --dim:#8fa3ab;
+    --teal:#22b8d4;
+    --teal-deep:#4cc4dc;
+    --teal-tint:#12333d;
+    --amber:#e8a13c;
+    --amber-tint:#2e2314;
+    --green:#34c08c;
+    --shadow:0 10px 30px rgba(0,0,0,.4);
+  }
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:var(--font-body);
+  background:var(--bg);
+  color:var(--ink);
+  background-image:radial-gradient(circle at 15% 10%, rgba(8,145,178,.06), transparent 40%),
+                   radial-gradient(circle at 90% 85%, rgba(217,119,6,.05), transparent 35%);
+  min-height:100vh;
+  line-height:1.55;
+}
+.wrap{max-width:760px;margin:0 auto;padding:44px 24px 70px}
+
+/* ---------- header ---------- */
+.masthead{text-align:center;margin-bottom:34px}
+.kicker{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--teal-deep);display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;
+}
+.kicker::before,.kicker::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--teal)}
+h1{font-size:clamp(24px,4vw,32px);font-weight:800;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
+.sub{font-size:14.5px;color:var(--dim);max-width:480px;margin:0 auto}
+
+/* ---------- phone ---------- */
+.stage{display:flex;justify-content:center}
+.phone{
+  width:360px;max-width:100%;height:760px;border-radius:44px;background:#10181c;
+  padding:10px;box-shadow:0 24px 60px rgba(3,105,161,.22), 0 4px 16px rgba(0,0,0,.25);
+  position:relative;
+}
+.screen{
+  width:100%;height:100%;border-radius:34px;background:#f6f9fa;overflow:hidden;position:relative;
+  display:flex;flex-direction:column;color:#17262b;
+}
+.notch{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);width:120px;height:26px;
+  background:#10181c;border-radius:0 0 16px 16px;z-index:60;
+}
+.statusbar{
+  height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;
+  font-family:var(--font-mono);font-size:12px;font-weight:500;color:#17262b;flex-shrink:0;
+}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 18px 10px;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;letter-spacing:-.01em}
+.brand .drop{width:22px;height:22px}
+.acct{
+  width:36px;height:36px;border-radius:50%;background:#dbeef3;color:#0369a1;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;
+  border:none;cursor:pointer;position:relative;
+}
+.acct-pop{
+  position:absolute;top:44px;right:0;width:224px;background:#fff;border-radius:16px;
+  box-shadow:0 12px 32px rgba(3,25,35,.18);border:1px solid rgba(31,42,46,.08);
+  padding:14px;display:none;z-index:70;
+}
+.acct-pop.open{display:block;animation:popIn .18s ease-out}
+.acct-pop .who{font-weight:700;font-size:14px}
+.acct-pop .ph{font-family:var(--font-mono);font-size:11px;color:#5f7076;margin-bottom:10px}
+.acct-pop a{
+  display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:#17262b;
+  font-size:13px;font-weight:500;padding:9px 8px;border-radius:9px;cursor:pointer;
+}
+.acct-pop a:hover{background:#f0f6f8}
+.acct-pop a span{color:#8aa0a8;font-size:11px}
+.acct-pop a.danger{color:#b3403f}
+
+/* address bar */
+.addrbar{
+  margin:2px 16px 6px;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid rgba(31,42,46,.09);
+  border-radius:14px;padding:10px 12px;cursor:pointer;flex-shrink:0;transition:box-shadow .15s;
+}
+.addrbar:hover{box-shadow:0 4px 14px rgba(3,105,161,.10)}
+.addrbar .pin{width:18px;height:18px;flex-shrink:0}
+.addrbar .atxt{flex:1;min-width:0}
+.addrbar .albl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5f7076}
+.addrbar .aval{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.addrbar .chev{color:#8aa0a8;flex-shrink:0}
+
+/* app body */
+.app-body{flex:1;overflow-y:auto;padding:6px 16px 16px;display:flex;flex-direction:column;gap:14px}
+.app-body::-webkit-scrollbar{display:none}
+
+/* hero */
+.hero{display:flex;flex-direction:column;align-items:center;padding:10px 0 2px;text-align:center}
+.bigbtn{
+  width:200px;height:200px;border-radius:50%;border:none;cursor:pointer;
+  background:radial-gradient(circle at 32% 28%, #22b8d4, #0891b2 52%, #066e8c);
+  color:#fff;box-shadow:0 16px 40px rgba(8,145,178,.35), inset 0 2px 8px rgba(255,255,255,.28);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  transition:transform .15s ease;position:relative;
+}
+.bigbtn:hover{transform:scale(1.03)}
+.bigbtn:active{transform:scale(.97)}
+.bigbtn .next-lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;opacity:.85}
+.bigbtn .next-val{font-size:13px;font-weight:700;opacity:.95;margin-bottom:7px}
+.bigbtn .divider{width:52px;height:1px;background:rgba(255,255,255,.4);margin:0 auto 7px}
+.bigbtn .go{font-size:25px;font-weight:800;letter-spacing:.04em}
+.bigbtn .tap{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.16em;opacity:.75;margin-top:3px}
+
+/* ---------- product cards ---------- */
+.plabel{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:#5f7076;margin:-2px 0 -4px 2px;
+}
+.products{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pcard{
+  background:#fff;border:1.5px solid rgba(31,42,46,.09);border-radius:16px;padding:12px 12px 10px;
+  display:flex;flex-direction:column;align-items:center;text-align:center;transition:all .15s;gap:2px;
+}
+.pcard.active{border-color:#0891b2;background:#f4fbfd;box-shadow:0 4px 14px rgba(8,145,178,.13)}
+.pcard .pimg{height:74px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:3px}
+.pcard .pvol{
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;color:#8aa0a8;
+}
+.pcard .pname{font-size:12.5px;font-weight:700;line-height:1.3}
+.pcard .pname small{display:block;font-size:9.5px;color:#8aa0a8;font-weight:500;letter-spacing:.01em}
+.pcard .pprice{font-size:13px;font-weight:800;color:#0369a1;margin:2px 0 8px}
+.pcard .pprice small{font-size:9px;font-weight:600;color:#8aa0a8}
+.pstepper{display:flex;align-items:center;gap:12px;background:#f2f7f8;border-radius:11px;padding:5px 7px}
+.pstepper button{
+  width:28px;height:28px;border-radius:9px;border:1px solid rgba(31,42,46,.12);background:#fff;
+  font-size:17px;font-weight:700;color:#0369a1;cursor:pointer;line-height:1;transition:background .12s;
+}
+.pstepper button:hover{background:#e6f4f7}
+.pstepper button:active{transform:scale(.92)}
+.pstepper .pv{font-size:16px;font-weight:800;min-width:22px;text-align:center}
+
+/* status card */
+.status-card{background:#fff;border:1px solid rgba(31,42,46,.09);border-radius:18px;padding:15px;flex-shrink:0}
+.sc-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.sc-title{font-size:13px;font-weight:800}
+.sc-id{font-family:var(--font-mono);font-size:10.5px;color:#8aa0a8}
+.sc-row{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
+.sc-row .qty{font-weight:600}
+.sc-row .eta{color:#0369a1;font-weight:700;font-size:12.5px}
+.tracker{display:flex;align-items:flex-start;margin-top:13px;gap:0}
+.tstep{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
+.tstep .dot{width:16px;height:16px;border-radius:50%;background:#e2ecef;border:3px solid #e2ecef;z-index:2}
+.tstep.done .dot{background:#059669;border-color:#d3ece1}
+.tstep.now .dot{background:#fff;border:4px solid #0891b2;box-shadow:0 0 0 4px rgba(8,145,178,.18)}
+.tstep:not(:last-child)::after{
+  content:'';position:absolute;top:7px;left:calc(50% + 8px);width:calc(100% - 16px);height:2px;background:#e2ecef;
+}
+.tstep.done:not(:last-child)::after,.tstep.now:not(:last-child)::after{background:#0891b2}
+.tstep .tlbl{font-size:9.5px;font-weight:600;color:#8aa0a8;text-align:center;line-height:1.25}
+.tstep.done .tlbl,.tstep.now .tlbl{color:#17262b}
+.tstep.now .tlbl{color:#0369a1}
+
+/* quick row */
+.quickrow{display:flex;gap:10px}
+.qbtn{
+  flex:1;background:#fff;border:1px solid rgba(31,42,46,.09);border-radius:14px;padding:11px 8px;
+  display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;font-family:inherit;
+  font-size:11.5px;font-weight:600;color:#17262b;transition:box-shadow .15s;
+}
+.qbtn:hover{box-shadow:0 4px 14px rgba(3,105,161,.10)}
+.qbtn svg{width:19px;height:19px}
+
+.homebar{width:120px;height:5px;border-radius:3px;background:#c6d4da;margin:8px auto 10px;flex-shrink:0}
+
+/* ---------- sheets ---------- */
+.sheet-veil{
+  position:absolute;inset:0;background:rgba(10,25,32,.45);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:80;
+}
+.sheet-veil.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:24px 24px 0 0;
+  padding:14px 18px 22px;z-index:90;transform:translateY(105%);transition:transform .28s cubic-bezier(.32,.72,.29,1);
+  max-height:86%;overflow-y:auto;box-shadow:0 -12px 40px rgba(3,25,35,.25);
+}
+.sheet::-webkit-scrollbar{display:none}
+.sheet.on{transform:translateY(0)}
+.grab{width:40px;height:4px;border-radius:2px;background:#d8e3e7;margin:0 auto 14px}
+.sheet h3{font-size:16px;font-weight:800;margin-bottom:2px}
+.sheet .sh-sub{font-size:12px;color:#5f7076;margin-bottom:16px}
+
+/* order summary in book sheet */
+.osum{background:#f2f7f8;border-radius:14px;padding:12px 14px;margin-bottom:14px;font-size:12.5px}
+.osum .row{display:flex;justify-content:space-between;padding:3px 0;font-weight:600}
+.osum .row span:last-child{font-family:var(--font-mono);font-size:12px;color:#5f7076}
+.osum .tot{border-top:1px dashed #c9dbe0;margin-top:7px;padding-top:8px;font-weight:800;font-size:14px;color:#0369a1}
+.osum .tot span:last-child{color:#0369a1}
+.osum .chg{font-size:10.5px;color:#8aa0a8;text-align:right;margin-top:5px;text-decoration:underline;cursor:pointer}
+
+/* chips */
+.lbl-mono{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#5f7076;margin:0 0 8px 2px}
+.chips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.chip{
+  border:1.5px solid rgba(31,42,46,.12);border-radius:12px;padding:9px 10px;cursor:pointer;background:#fff;
+  font-family:inherit;font-size:12px;font-weight:600;color:#17262b;text-align:left;transition:all .12s;
+}
+.chip small{display:block;font-size:10px;color:#8aa0a8;font-weight:500}
+.chip.sel{border-color:#0891b2;background:#e6f4f7;color:#0369a1}
+.chip.sel small{color:#0891b2}
+.confirm{
+  width:100%;border:none;border-radius:14px;padding:14px;background:#0891b2;color:#fff;
+  font-family:inherit;font-size:15px;font-weight:800;cursor:pointer;letter-spacing:.02em;transition:background .15s;
+}
+.confirm:hover{background:#067d9c}
+.confirm:active{transform:scale(.985)}
+
+/* address sheet */
+.arow{
+  display:flex;align-items:center;gap:12px;border:1.5px solid rgba(31,42,46,.12);border-radius:14px;
+  padding:12px;margin-bottom:10px;cursor:pointer;background:#fff;transition:all .12s;
+}
+.arow.sel{border-color:#0891b2;background:#e6f4f7}
+.arow .radio{width:18px;height:18px;border-radius:50%;border:2px solid #c6d4da;flex-shrink:0}
+.arow.sel .radio{border-color:#0891b2;background:radial-gradient(circle,#0891b2 45%,#e6f4f7 50%)}
+.arow .ainfo{flex:1;min-width:0}
+.arow .atag{font-size:12.5px;font-weight:700}
+.arow .atag .default{font-size:9px;font-family:var(--font-mono);color:#0891b2;background:#dff0f4;border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:.06em}
+.arow .aaddr{font-size:11px;color:#5f7076;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow .edit{border:none;background:none;cursor:pointer;color:#0369a1;font-family:inherit;font-size:12px;font-weight:700;padding:6px}
+.gps-btn{
+  width:100%;border:1.5px dashed #0891b2;border-radius:14px;padding:12px;background:#f2fbfd;color:#0369a1;
+  font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.gps-btn:hover{background:#e6f4f7}
+.gps-btn svg{width:16px;height:16px}
+.mapbox{
+  margin-top:12px;border-radius:14px;overflow:hidden;border:1px solid rgba(31,42,46,.1);display:none;
+  position:relative;height:130px;
+}
+.mapbox.show{display:block;animation:fadeUp .3s ease-out}
+.map-art{
+  height:100%;background:
+    linear-gradient(90deg,transparent 23%,#dcebec 23%,#dcebec 25%,transparent 25%),
+    linear-gradient(0deg,transparent 38%,#dcebec 38%,#dcebec 40%,transparent 40%),
+    linear-gradient(0deg,transparent 68%,#e3f0f1 68%,#e3f0f1 70%,transparent 70%),
+    repeating-linear-gradient(45deg,#eef6f7 0 14px,#e8f2f4 14px 28px);
+  position:relative;
+}
+.mappin{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-100%);z-index:3;
+  filter:drop-shadow(0 3px 4px rgba(0,40,60,.3));animation:dropIn .4s ease-out;
+}
+@keyframes dropIn{from{transform:translate(-50%,-160%);opacity:0}to{transform:translate(-50%,-100%);opacity:1}}
+.pulse{
+  position:absolute;top:50%;left:50%;width:14px;height:14px;border-radius:50%;background:rgba(8,145,178,.35);
+  transform:translate(-50%,-50%);animation:ripple 1.6s ease-out infinite;
+}
+@keyframes ripple{0%{width:14px;height:14px;opacity:.7}100%{width:56px;height:56px;opacity:0}}
+.map-lbl{
+  position:absolute;bottom:8px;left:8px;right:8px;background:rgba(255,255,255,.94);border-radius:10px;
+  padding:7px 10px;font-size:10.5px;font-weight:600;z-index:4;display:flex;gap:6px;align-items:center;
+}
+.map-lbl svg{width:13px;height:13px;flex-shrink:0}
+.gps-found{color:#0369a1}
+
+/* feedback sheet */
+.seg{display:flex;background:#f0f5f6;border-radius:11px;padding:3px;margin-bottom:14px}
+.seg button{
+  flex:1;border:none;background:none;padding:8px;border-radius:9px;font-family:inherit;font-size:12.5px;
+  font-weight:700;color:#5f7076;cursor:pointer;transition:all .12s;
+}
+.seg button.on{background:#fff;color:#17262b;box-shadow:0 2px 8px rgba(3,25,35,.12)}
+.fbox{width:100%;border:1.5px solid rgba(31,42,46,.14);border-radius:12px;padding:11px;font-family:inherit;
+  font-size:13px;resize:none;height:88px;color:#17262b;background:#fff}
+.fbox:focus{outline:none;border-color:#0891b2}
+.droprate{display:flex;gap:10px;margin:14px 0 16px;justify-content:center}
+.drop-btn{background:none;border:none;cursor:pointer;padding:2px;transition:transform .12s}
+.drop-btn:hover{transform:scale(1.15)}
+.drop-btn svg{width:27px;height:27px}
+.drop-btn svg path{fill:#cfdee2;transition:fill .15s}
+.drop-btn.filled svg path{fill:#0891b2}
+
+/* toast */
+.toast{
+  position:absolute;top:56px;left:50%;transform:translateX(-50%) translateY(-16px);background:#10333d;color:#fff;
+  padding:10px 18px;border-radius:12px;font-size:12.5px;font-weight:600;z-index:100;opacity:0;
+  transition:all .25s;pointer-events:none;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.3);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.caption{text-align:center;font-size:12.5px;color:var(--dim);margin-top:26px}
+.caption code{font-family:var(--font-mono);font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+
+/* v3 additions */
+.stepper{display:flex;align-items:center;gap:10px}
+.stepper button{width:30px;height:30px;border-radius:9px;border:1px solid rgba(31,42,46,.12);background:#fff;font-size:17px;font-weight:700;color:#0369a1;cursor:pointer;line-height:1;transition:background .12s}
+.stepper button:hover{background:#e6f4f7}
+.stepper .qv{font-size:16px;font-weight:800;min-width:20px;text-align:center}
+.pauselink{background:none;border:none;font-family:inherit;font-size:11.5px;font-weight:600;color:#5f7076;cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:6px 10px;text-decoration:underline;text-underline-offset:3px}
+.pauselink:hover{color:#0369a1}
+.exch{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff8ec;border:1.5px dashed #e0b26a;border-radius:14px;padding:10px 14px;margin-bottom:14px}
+.exch .el{font-size:12.5px;font-weight:700}
+.exch .el small{display:block;font-size:10px;color:#9a7b4f;font-weight:500;margin-top:2px;line-height:1.4}
+.rider{display:flex;align-items:center;gap:8px;margin-top:11px;padding-top:10px;border-top:1px dashed #e4edf0;font-size:12px;color:#5f7076}
+.rider b{color:#17262b;font-weight:700}
+.rider .call{margin-left:auto;flex-shrink:0;width:32px;height:32px;border-radius:50%;background:#e6f4f7;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s}
+.rider .call:hover{background:#d3ecf3}
+.qline{display:flex;align-items:center;justify-content:center;gap:7px;font-size:11px;color:#5f7076;margin-top:-2px}
+.qline svg{width:14px;height:14px;flex-shrink:0}
+.qline b{color:#0369a1;font-weight:700;cursor:pointer}
+
+/* ---------- app fullscreen DEFAULT (phones pe hamesha) ---------- */
+body{background:#f6f9fa;background-image:none;margin:0;overflow:hidden}
+.wrap{padding:0;max-width:none;margin:0}
+.masthead,.caption{display:none}
+.stage{display:block}
+.phone{width:100%;max-width:100%;height:100vh;height:100dvh;border-radius:0;padding:0;background:transparent;box-shadow:none}
+.screen{border-radius:0}
+.notch{display:none}
+.statusbar{display:none}
+
+/* ---------- desktop showcase: framed mockup ---------- */
+@media (min-width:701px){
+  body{
+    background:var(--bg);
+    background-image:radial-gradient(circle at 15% 10%, rgba(8,145,178,.06), transparent 40%),
+                     radial-gradient(circle at 90% 85%, rgba(217,119,6,.05), transparent 35%);
+    overflow:auto;
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:44px 24px 70px}
+  .masthead{display:block}
+  .caption{display:block}
+  .stage{display:flex;justify-content:center}
+  .phone{width:360px;max-width:100%;height:760px;border-radius:44px;background:#10181c;padding:10px;box-shadow:0 24px 60px rgba(3,105,161,.22), 0 4px 16px rgba(0,0,0,.25)}
+  .screen{border-radius:34px}
+  .notch{display:block}
+  .statusbar{display:flex}
+}
+@keyframes popIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">UI Layout · v3</div>
+    <h1>PaniBox — Water Booking, One-Tap Simple</h1>
+    <p class="sub">Jar ya Container chuno, quantity set karo, ek bade button se book karo. Interactive mockup — sab tap karke dekho.</p>
+  </header>
+
+  <div class="stage">
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="screen">
+
+      <div class="statusbar"><span>9:41</span><span>●●● 5G ▮</span></div>
+
+      <!-- top bar -->
+      <div class="topbar">
+        <div class="brand">
+          <svg class="drop" viewBox="0 0 24 24" fill="none"><path d="M12 2.7c3.6 4.4 6.4 8.2 6.4 11.6a6.4 6.4 0 1 1-12.8 0C5.6 10.9 8.4 7.1 12 2.7z" fill="#0891b2"/><path d="M12 6.2c-2.2 2.9-3.8 5.4-3.8 7.5a3.8 3.8 0 0 0 2.2 3.4c-.7-1-1-2.1-.9-3.3.2-2 1.3-4.2 2.5-7.6z" fill="#fff" opacity=".35"/></svg>
+          PaniBox
+        </div>
+        <button class="acct" id="acctBtn" aria-label="Account">RS
+          <div class="acct-pop" id="acctPop">
+            <div class="who">Ravi Sharma</div>
+            <div class="ph">+91 98XXX XX210</div>
+            <a onclick="toast('Order history (demo)')">Order history <span>›</span></a>
+            <a onclick="closeAll();openSheet('sheetFb')">Feedback & Complaint <span>›</span></a>
+            <a onclick="toast('Help (demo)')">Help <span>›</span></a>
+            <a onclick="toast('WhatsApp support (demo)')">WhatsApp Support <span>›</span></a>
+            <a class="danger" onclick="toast('Logout (demo)')">Logout</a>
+          </div>
+        </button>
+      </div>
+
+      <!-- address bar -->
+      <div class="addrbar" onclick="openSheet('sheetAddr')">
+        <svg class="pin" viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-5.9-7-11a7 7 0 1 1 14 0c0 5.1-7 11-7 11z" stroke="#0891b2" stroke-width="2"/><circle cx="12" cy="10" r="2.6" fill="#0891b2"/></svg>
+        <div class="atxt">
+          <div class="albl">Deliver to</div>
+          <div class="aval" id="addrLabel">Home · 42, Shastri Nagar, Lane 3</div>
+        </div>
+        <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+
+      <!-- app body -->
+      <div class="app-body">
+
+        <div class="hero">
+          <button class="bigbtn" onclick="openSheet('sheetBook')" aria-label="Book water now">
+            <span class="next-lbl">Next auto delivery</span>
+            <span class="next-val" id="nextVal">Tue · 7:00 AM</span>
+            <span class="divider"></span>
+            <span class="go">BOOK NOW</span>
+            <span class="tap" id="tapLine">2 JARS · ₹56</span>
+          </button>
+          <button class="pauselink" onclick="togglePause()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 5v14M15 5v14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+            <span id="pauseTxt">Pause auto-delivery</span>
+          </button>
+        </div>
+
+        <!-- product cards -->
+        <div class="plabel">Kya chahiye?</div>
+        <div class="products">
+
+          <!-- JAR -->
+          <div class="pcard" id="cardJar">
+            <div class="pimg">
+              <svg width="56" height="72" viewBox="0 0 48 60" fill="none">
+                <path d="M17 7c0-2 3-4 7-4s7 2 7 4" stroke="#8aa0a8" stroke-width="2.4" stroke-linecap="round"/>
+                <rect x="14" y="7" width="20" height="6" rx="2" fill="#7ec3d6"/>
+                <rect x="11" y="13" width="26" height="42" rx="5" fill="#b8e2ee"/>
+                <rect x="11" y="13" width="26" height="42" rx="5" stroke="#7ec3d6" stroke-width="1.5"/>
+                <path d="M15 24h18M15 31h18M15 38h18M15 45h18" stroke="#8fd2e2" stroke-width="2"/>
+                <path d="M11 40c0 6 4 11 8 13h-8V40z" fill="#fff" opacity=".45"/>
+              </svg>
+            </div>
+            <div class="pvol">20 LITRES</div>
+            <div class="pname">Water Jar <small>Refill · empty jar dena hoga</small></div>
+            <div class="pprice">₹28 <small>/ can</small></div>
+            <div class="pstepper">
+              <button onclick="stepQty('jar',-1)" aria-label="kam karo">−</button>
+              <span class="pv" id="pvJar">2</span>
+              <button onclick="stepQty('jar',1)" aria-label="zyada karo">+</button>
+            </div>
+          </div>
+
+          <!-- CONTAINER -->
+          <div class="pcard" id="cardCont">
+            <div class="pimg">
+              <svg width="64" height="72" viewBox="0 0 52 60" fill="none">
+                <rect x="18" y="2" width="16" height="8" rx="2.5" fill="#a9713f"/>
+                <rect x="16" y="9" width="20" height="14" rx="3" fill="#8ecfe2"/>
+                <rect x="16" y="9" width="20" height="14" rx="3" stroke="#6fb6cc" stroke-width="1.4"/>
+                <rect x="8" y="23" width="36" height="33" rx="5" fill="#e9dcc7"/>
+                <rect x="8" y="23" width="36" height="6" rx="3" fill="#a9713f"/>
+                <rect x="8" y="47" width="36" height="9" rx="4" fill="#a9713f"/>
+                <rect x="20" y="33" width="12" height="9" rx="2" fill="#0369a1"/>
+                <rect x="23.5" y="42" width="5" height="3.5" rx="1" fill="#024d75"/>
+                <rect x="13" y="27" width="5" height="12" rx="2" fill="#fff" opacity=".55"/>
+              </svg>
+            </div>
+            <div class="pvol">20 LITRES</div>
+            <div class="pname">Jar + Container <small>dispenser ke saath</small></div>
+            <div class="pprice">₹30 <small>/ can</small></div>
+            <div class="pstepper">
+              <button onclick="stepQty('cont',-1)" aria-label="kam karo">−</button>
+              <span class="pv" id="pvCont">0</span>
+              <button onclick="stepQty('cont',1)" aria-label="zyada karo">+</button>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="qline">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V6l7-3z" stroke="#059669" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>RO + UV purified · har hafte lab test · <b onclick="toast('Water quality report (demo)')">water report dekho</b></span>
+        </div>
+
+        <!-- status card -->
+        <div class="status-card">
+          <div class="sc-head">
+            <div class="sc-title">Aaj ka order</div>
+            <div class="sc-id" id="scId">#PB-1042</div>
+          </div>
+          <div class="sc-row">
+            <span class="qty" id="scQty">2 jars · ₹56</span>
+            <span class="eta" id="scEta">Arriving ~9:15 AM</span>
+          </div>
+          <div class="rider">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5 20c.8-3.4 3.6-5 7-5s6.2 1.6 7 5" stroke="#5f7076" stroke-width="2" stroke-linecap="round"/></svg>
+            <span><b>Mahesh</b> laakar dega · window 9–9:30 AM</span>
+            <button class="call" onclick="callRider()" aria-label="Call delivery partner">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" fill="#0369a1"/></svg>
+            </button>
+          </div>
+          <div class="tracker" id="tracker">
+            <div class="tstep done"><div class="dot"></div><div class="tlbl">Confirmed</div></div>
+            <div class="tstep done"><div class="dot"></div><div class="tlbl">Packed</div></div>
+            <div class="tstep now"><div class="dot"></div><div class="tlbl">Out for<br>delivery</div></div>
+            <div class="tstep"><div class="dot"></div><div class="tlbl">Delivered</div></div>
+          </div>
+        </div>
+
+        <!-- quick row -->
+        <div class="quickrow">
+          <button class="qbtn" onclick="toast('Order history (demo)')">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="#0369a1" stroke-width="2" stroke-linecap="round"/></svg>
+            Past orders
+          </button>
+          <button class="qbtn" onclick="openSheet('sheetFb')">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16v11H9l-5 4V5z" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/><path d="M8 10h8" stroke="#0369a1" stroke-width="2" stroke-linecap="round"/></svg>
+            Feedback / Complaint
+          </button>
+          <button class="qbtn" onclick="toast('WhatsApp support (demo)')">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 20l1.3-3.8A7.7 7.7 0 0 1 4 12.3C4 8 7.6 4.5 12 4.5s8 3.5 8 7.8-3.6 7.8-8 7.8c-1.3 0-2.6-.3-3.7-.9L4 20z" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/><path d="M9 11.5h.01M12 11.5h.01M15 11.5h.01" stroke="#0369a1" stroke-width="2.6" stroke-linecap="round"/></svg>
+            WhatsApp help
+          </button>
+        </div>
+
+      </div>
+
+      <div class="homebar"></div>
+
+      <!-- ============ SHEETS ============ -->
+      <div class="sheet-veil" id="veil" onclick="closeAll()"></div>
+
+      <!-- BOOK sheet -->
+      <div class="sheet" id="sheetBook">
+        <div class="grab"></div>
+        <h3>Confirm order</h3>
+        <div class="sh-sub">Time chuno aur done — bas itna hi</div>
+
+        <div class="osum" id="osum">
+          <div class="row" id="rowJar"><span>20L Jar (refill)</span><span id="osJar">2 × ₹28 = ₹56</span></div>
+          <div class="row" id="rowCont" style="display:none"><span>Jar + Container</span><span id="osCont"></span></div>
+          <div class="tot"><span>Total</span><span id="osTot">₹56</span></div>
+          <div class="chg" onclick="closeAll()">✎ quantity badalni hai? cards par +/− karo</div>
+        </div>
+
+        <div class="exch">
+          <div class="el">Empty jars exchange <small>Ghar par jitne empty jars hain, delivery boy saath me le jayega. Bina jar par ₹150 deposit.</small></div>
+          <div class="stepper">
+            <button onclick="stepExch(-1)" aria-label="kam karo">−</button>
+            <span class="qv" id="exVal">2</span>
+            <button onclick="stepExch(1)" aria-label="zyada karo">+</button>
+          </div>
+        </div>
+
+        <div class="lbl-mono">Delivery kab?</div>
+        <div class="chips" id="timeChips">
+          <button class="chip sel" data-v="Kal subah 7–9">Kal subah <small>7:00 – 9:00 AM</small></button>
+          <button class="chip" data-v="Kal shaam 5–7">Kal shaam <small>5:00 – 7:00 PM</small></button>
+          <button class="chip" data-v="Aaj hi (2 hrs)">Jaldi bhejo <small>aaj hi, ~2 ghante</small></button>
+          <button class="chip" data-v="Custom slot">Koi aur din <small>date & time chuno</small></button>
+        </div>
+
+        <div class="lbl-mono">Payment kaise?</div>
+        <div class="chips" id="payChips">
+          <button class="chip sel" data-v="UPI">UPI <small>GPay / PhonePe / Paytm</small></button>
+          <button class="chip" data-v="COD">Cash on delivery <small>doorstep par dena</small></button>
+        </div>
+
+        <button class="confirm" onclick="placeOrder()">Confirm · <span id="amt">₹56</span></button>
+      </div>
+
+      <!-- ADDRESS sheet -->
+      <div class="sheet" id="sheetAddr">
+        <div class="grab"></div>
+        <h3>Delivery address</h3>
+        <div class="sh-sub">Edit karo, ya current location se bhejo</div>
+
+        <div class="arow sel" onclick="pickAddr(this,'Home · 42, Shastri Nagar, Lane 3','42, Shastri Nagar, Lane 3')">
+          <div class="radio"></div>
+          <div class="ainfo">
+            <div class="atag">Home <span class="default">DEFAULT</span></div>
+            <div class="aaddr">42, Shastri Nagar, Lane 3, Jaipur 302001</div>
+          </div>
+          <button class="edit" onclick="event.stopPropagation();toast('Edit address (demo)')">Edit</button>
+        </div>
+        <div class="arow" onclick="pickAddr(this,'Office · Tech Park, Tower B','Tech Park, Tower B, 4th Floor')">
+          <div class="radio"></div>
+          <div class="ainfo">
+            <div class="atag">Office</div>
+            <div class="aaddr">Tech Park, Tower B, 4th Floor, Sitapura</div>
+          </div>
+          <button class="edit" onclick="event.stopPropagation();toast('Edit address (demo)')">Edit</button>
+        </div>
+
+        <button class="gps-btn" onclick="useGps()">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M21 3L10 21l-2-8-8-2L21 3z" stroke="#0369a1" stroke-width="2" stroke-linejoin="round"/></svg>
+          Current location use karo (GPS)
+        </button>
+
+        <div class="mapbox" id="mapbox">
+          <div class="map-art">
+            <div class="pulse"></div>
+            <svg class="mappin" width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M12 22s-7.5-6.3-7.5-11.8a7.5 7.5 0 1 1 15 0C19.5 15.7 12 22 12 22z" fill="#0891b2" stroke="#fff" stroke-width="1.4"/><circle cx="12" cy="10" r="2.8" fill="#fff"/></svg>
+            <div class="map-lbl">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-5.9-7-11a7 7 0 1 1 14 0c0 5.1-7 11-7 11z" stroke="#0891b2" stroke-width="2"/><circle cx="12" cy="10" r="2.4" fill="#0891b2"/></svg>
+              <span class="gps-found">Location detected — C-Scheme, Jaipur 302001</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:14px"></div>
+        <button class="confirm" onclick="toast('Address saved');closeAll()">Save address</button>
+      </div>
+
+      <!-- FEEDBACK sheet -->
+      <div class="sheet" id="sheetFb">
+        <div class="grab"></div>
+        <h3>Feedback / Complaint</h3>
+        <div class="sh-sub">Aapki awaaz seedha delivery partner tak</div>
+
+        <div class="seg" id="fbSeg">
+          <button class="on" onclick="fbType(this,'Suggestion')">Suggestion</button>
+          <button onclick="fbType(this,'Complaint')">Complaint</button>
+        </div>
+
+        <textarea class="fbox" id="fbText" placeholder="Kya accha laga, kya nahi? Ya koi problem hui…"></textarea>
+
+        <div class="lbl-mono" style="text-align:center;margin-top:14px">Pani ki quality rate karo</div>
+        <div class="droprate" id="drops">
+          <button class="drop-btn" onclick="rate(this,1)" aria-label="1"><svg viewBox="0 0 24 24"><path d="M12 2.7c3.6 4.4 6.4 8.2 6.4 11.6a6.4 6.4 0 1 1-12.8 0C5.6 10.9 8.4 7.1 12 2.7z"/></svg></button>
+          <button class="drop-btn" onclick="rate(this,2)" aria-label="2"><svg viewBox="0 0 24 24"><path d="M12 2.7c3.6 4.4 6.4 8.2 6.4 11.6a6.4 6.4 0 1 1-12.8 0C5.6 10.9 8.4 7.1 12 2.7z"/></svg></button>
+          <button class="drop-btn" onclick="rate(this,3)" aria-label="3"><svg viewBox="0 0 24 24"><path d="M12 2.7c3.6 4.4 6.4 8.2 6.4 11.6a6.4 6.4 0 1 1-12.8 0C5.6 10.9 8.4 7.1 12 2.7z"/></svg></button>
+          <button class="drop-btn" onclick="rate(this,4)" aria-label="4"><svg viewBox="0 0 24 24"><path d="M12 2.7c3.6 4.4 6.4 8.2 6.4 11.6a6.4 6.4 0 1 1-12.8 0C5.6 10.9 8.4 7.1 12 2.7z"/></svg></button>
+          <button class="drop-btn" onclick="rate(this,5)" aria-label="5"><svg viewBox="0 0 24 24"><path d="M12 2.7c3.6 4.4 6.4 8.2 6.4 11.6a6.4 6.4 0 1 1-12.8 0C5.6 10.9 8.4 7.1 12 2.7z"/></svg></button>
+        </div>
+
+        <button class="confirm" onclick="toast('Feedback bhej diya — shukriya!');closeAll()">Send</button>
+      </div>
+
+      <!-- toast -->
+      <div class="toast" id="toast"><span id="toastMsg"></span></div>
+
+    </div>
+  </div>
+  </div>
+
+  <p class="caption">Interactive mockup — jar/container cards par <code>+ −</code> se quantity set karo, phir bada green button dabao. Pure HTML/CSS/vanilla JS.</p>
+
+</div>
+
+<script>
+/* ---------- state ---------- */
+const PRICE = { jar: 28, cont: 30 };
+let qty = { jar: 2, cont: 0 };
+let slot = 'Kal subah 7–9';
+
+/* ---------- sheets ---------- */
+const veil = document.getElementById('veil');
+function openSheet(id){
+  closeAll();
+  veil.classList.add('on');
+  document.getElementById(id).classList.add('on');
+  if(id === 'sheetBook') renderSummary();
+}
+function closeAll(){
+  veil.classList.remove('on');
+  document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('on'));
+  document.getElementById('acctPop').classList.remove('open');
+}
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* ---------- account pop ---------- */
+document.getElementById('acctBtn').addEventListener('click', function(e){
+  e.stopPropagation();
+  const p = document.getElementById('acctPop');
+  const isOpen = p.classList.contains('open');
+  closeAll();
+  if(!isOpen) p.classList.add('open');
+});
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.acct')) document.getElementById('acctPop').classList.remove('open');
+});
+
+/* ---------- quantity ---------- */
+function totalQty(){ return qty.jar + qty.cont; }
+function totalAmt(){ return qty.jar * PRICE.jar + qty.cont * PRICE.cont; }
+
+function stepQty(type, d){
+  qty[type] = Math.min(20, Math.max(0, qty[type] + d));
+  if(totalQty() === 0){ qty[type] = 1; }   /* kabhi zero nahi — kam se kam 1 item */
+  render();
+}
+function render(){
+  document.getElementById('pvJar').textContent = qty.jar;
+  document.getElementById('pvCont').textContent = qty.cont;
+  document.getElementById('cardJar').classList.toggle('active', qty.jar > 0);
+  document.getElementById('cardCont').classList.toggle('active', qty.cont > 0);
+
+  /* button par live selection */
+  const parts = [];
+  if(qty.jar) parts.push(qty.jar + (qty.jar > 1 ? ' JARS' : ' JAR'));
+  if(qty.cont) parts.push(qty.cont + (qty.cont > 1 ? ' CONTAINERS' : ' CONTAINER'));
+  document.getElementById('tapLine').textContent = parts.join(' + ') + ' · ₹' + totalAmt();
+  document.getElementById('amt').textContent = '₹' + totalAmt();
+}
+function renderSummary(){
+  document.getElementById('rowJar').style.display = qty.jar ? 'flex' : 'none';
+  document.getElementById('rowCont').style.display = qty.cont ? 'flex' : 'none';
+  document.getElementById('osJar').textContent = qty.jar + ' × ₹' + PRICE.jar + ' = ₹' + (qty.jar * PRICE.jar);
+  document.getElementById('osCont').textContent = qty.cont + ' × ₹' + PRICE.cont + ' = ₹' + (qty.cont * PRICE.cont);
+  document.getElementById('osTot').textContent = '₹' + totalAmt();
+}
+
+/* ---------- time chips ---------- */
+document.getElementById('timeChips').addEventListener('click', function(e){
+  const c = e.target.closest('.chip');
+  if(!c) return;
+  this.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel'));
+  c.classList.add('sel');
+  slot = c.dataset.v;
+});
+
+/* ---------- place order ---------- */
+function placeOrder(){
+  const nextMap = {
+    'Kal subah 7–9':'Tomorrow · 7:00 AM',
+    'Kal shaam 5–7':'Tomorrow · 5:00 PM',
+    'Aaj hi (2 hrs)':'Today · within 2 hrs',
+    'Custom slot':'Custom slot'
+  };
+  document.getElementById('nextVal').textContent = nextMap[slot];
+
+  const desc = [];
+  if(qty.jar) desc.push(qty.jar + (qty.jar > 1 ? ' jars' : ' jar'));
+  if(qty.cont) desc.push(qty.cont + (qty.cont > 1 ? ' containers' : ' container'));
+  document.getElementById('scQty').textContent = desc.join(' + ') + ' · ₹' + totalAmt();
+  document.getElementById('scEta').textContent = slot.includes('Aaj') ? 'Arriving ~2 hrs' : slot;
+  document.getElementById('scId').textContent = '#PB-' + (1043 + Math.floor(Math.random()*50));
+
+  const tr = document.getElementById('tracker');
+  tr.children[2].className = 'tstep';
+  tr.children[1].className = 'tstep now';
+
+  var ex = exchQty > 0 ? ' · ' + exchQty + ' empty jar exchange' : '';
+  closeAll();
+  toast('✓ Order confirmed! ' + desc.join(' + ') + ' · ' + slot + ' · ' + pay + ex);
+}
+
+/* ---------- address ---------- */
+function pickAddr(el, label, line){
+  el.parentElement.querySelectorAll('.arow').forEach(r=>r.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('addrLabel').textContent = label;
+}
+function useGps(){
+  document.getElementById('mapbox').classList.add('show');
+  toast('📍 Current location detect ho gayi');
+}
+
+/* ---------- feedback ---------- */
+function fbType(btn, type){
+  document.getElementById('fbSeg').querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('fbText').placeholder =
+    type === 'Complaint' ? 'Kya problem hui? Jaise: late delivery, can leak, ganda paani…' : 'Kya accha laga, kya behtar ho sakta hai?';
+}
+function rate(btn, n){
+  const drops = document.getElementById('drops').children;
+  for(let i=0;i<drops.length;i++){
+    drops[i].classList.toggle('filled', i < n);
+  }
+}
+
+/* ---------- empty jar exchange ---------- */
+let exchQty = 2;
+function stepExch(d){
+  exchQty = Math.min(10, Math.max(0, exchQty + d));
+  document.getElementById('exVal').textContent = exchQty;
+}
+
+/* ---------- payment ---------- */
+let pay = 'UPI';
+document.getElementById('payChips').addEventListener('click', function(e){
+  const c = e.target.closest('.chip');
+  if(!c) return;
+  this.querySelectorAll('.chip').forEach(x=>x.classList.remove('sel'));
+  c.classList.add('sel');
+  pay = c.dataset.v;
+});
+
+/* ---------- pause subscription ---------- */
+let paused = false;
+function togglePause(){
+  paused = !paused;
+  if(paused){
+    document.getElementById('nextVal').textContent = 'Paused';
+    document.getElementById('pauseTxt').textContent = 'Resume auto-delivery';
+    toast('Auto-delivery pause ho gayi');
+  } else {
+    document.getElementById('nextVal').textContent = 'Tue · 7:00 AM';
+    document.getElementById('pauseTxt').textContent = 'Pause auto-delivery';
+    toast('Auto-delivery resume — Tue 7 AM');
+  }
+}
+
+/* ---------- rider call ---------- */
+function callRider(){ toast('Mahesh ko call ho raha hai…'); }
+
+render();
+</script>
+</body>
+</html>
