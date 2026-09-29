@@ -138,7 +138,10 @@ def test_error_codes():
 
 
 def test_real_verifier_without_project_502(monkeypatch):
+    # Hermetic vs local .env (ADR-024 wires a real project there): env outranks
+    # the .env file in pydantic-settings, so blanking forces unconfigured.
     monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", "")
     with pytest.raises(UpstreamError) as e:
         RealVerifier(project_id=None).verify_id_token("anything")
     assert (e.value.code, e.value.status_code) == ("UPSTREAM_FAIL", 502)

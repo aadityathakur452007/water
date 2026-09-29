@@ -20,8 +20,15 @@ class Settings(BaseSettings):
     cap_charge_paise: int = 300
     quote_ttl_minutes: int = 15
     firebase_project_id: str | None = None
-    upi_provider: str = "fake"  # fake|real (razorpay-shaped HMAC skeleton)
+    upi_provider: str = "fake"  # fake|razorpay (RealUpiProvider REST Orders API)
     upi_key_id: str | None = None
     upi_key_secret: str | None = None
     upi_webhook_secret: str | None = None
     agency_upi_vpa: str | None = None  # required before payee lock enforces
+    cors_origins: str = ""  # comma-separated allowlist (CORS_ORIGINS); empty = deny credentialed cross-origin
+    body_max_bytes: int = 1_000_000  # JSON body cap → 413 (ssdlc Phase 6)
+    throttle_anon_per_min: int = 120  # anon GETs (catalog/windows/serviceability) per IP/min → 429
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -14,6 +14,8 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 
 ## Completed
 
+- Slice-4 backend COMPLETE (2026-09-29, ADR-025): Razorpay Orders REST live in test mode (order created, Rs 1, no money), hardening (headers/CORS/body-cap/throttle + 8 tests), scheduler jobs + CLI, 10-step E2E on fakes. 145 green, 72 paths live. Still dormant: webhook secret, agency VPA, Maps key, WhatsApp provider, service account.
+
 - Credentials wired (2026-09-29, ADR-024): Firebase project live in RealVerifier (garbage→401 real path), Razorpay test keys in local .env (fake provider active until UPI_PROVIDER=real), admin seeded + verified, Google-sign-in-without-phone fails loudly toward phone OTP. 127 green, 72 paths live. Secrets in gitignored .env only; data/ ignored. Still needed: webhook secret, agency VPA, service-account JSON (optional), Maps key, WhatsApp provider.
 
 - Slice-3 backend COMPLETE (2026-09-29, branch 002-backend-foundation, ADR-023): payments (fake/real UPI adapter, webhook HMAC, refunds claim-lock, dues/invoices), vendor ops (duty/routes/triple/PoD/sync/earnings/complaint-verify), subs/returns/complaints/ratings/devices/FCM fakes, zones/dispatch/admin (assign, routes-generate, ledger adjust, reconcile, queues, config, metrics). 127 pytest green, migrations 002–007 idempotent, 72 paths live. Keys guide: `Feature_docs/backend/api-keys-guide.md`. Next: provider ids + Flutter apps.

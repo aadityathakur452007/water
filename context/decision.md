@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-025 | 2026-09-29 | Slice-4: Razorpay-real, hardening, scheduler, E2E — 145 green | Accepted | workers/api/, live test keys |
 | ADR-024 | 2026-09-29 | Test credentials wired locally: Razorpay test + Firebase project + admin seed | Accepted | workers/api/.env (untracked), live dev DB |
 | ADR-023 | 2026-09-29 | Slice-3 complete: payments + vendor + dispatch + admin, all-stubbed | Accepted | workers/api/, slice-4 apps |
 | ADR-021 | 2026-09-29 | C1 slice-2 auth: RealVerifier adapter, session families, in-memory limits, LOG-ONLY integrity | Accepted | workers/api/auth, sessions, tests |
@@ -79,6 +80,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-025: Slice-4 hardening + Razorpay-real + scheduler + E2E
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: 4 parallel builders (E1 Razorpay REST, E2 headers/CORS/throttle, E3 scheduler jobs, E4 full-lifecycle E2E) + integrator pass. Live test credentials available in untracked local `.env` (ADR-024).
+- **Options considered**: Real network in pytest (rejected — monkeypatched transport only; live check is a manual wirecheck script, deleted after); per-agent context edits (tolerated once, reviewed).
+- **Decision**: RealUpiProvider calls Razorpay Orders REST (test mode) when `UPI_PROVIDER=razorpay`, fake default; centralized `_setting()` (real env > `.env` file > default) after finding adapters blind to `.env`; hermetic tests blank vars instead of deleting; payments provider stays module-global seam (E4's Depends suggestion declined — monkeypatch works, zero churn); scheduler as callable jobs + CLI (no cron infra); E2E covers 10-step lifecycle incl. abuse cases.
+- **Why**: Live handshake proved (`order_ThqdP4urO7CtXd` created in test mode, Rs 1, no money); 145/145 green; 72 paths live.
+- **Consequences**: Webhook verify still 502 until webhook secret lands; payee lock dormant until agency VPA; Flutter apps are the next build.
+- **Affects**: `workers/api/app/adapters/upi.py`, middleware, jobs, tests, live test-mode proof
 
 ### ADR-024: Test credentials wired locally (Firebase project + Razorpay test + admin seed)
 - **Date**: 2026-09-29
