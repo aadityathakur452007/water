@@ -189,7 +189,7 @@ flowchart TD
         C1([Delivered - issue?]) --> C2[Rating prompt: low score offers Raise complaint]
         C2 --> C3{Within 3 days?}
         C3 -- No --> C4[Window expired<br/>show hours + WhatsApp help]
-        C3 -- Yes --> C5[Report issue: type + photos optional<br/>order pre-attached]
+        C3 -- Yes --> C5[Report issue: reason code + text<br/>order pre-attached, photos v2]
         C5 --> C6[Ticket status: open - in progress - resolved]
         C6 --> C7[Resolution push + in-app update]
     end

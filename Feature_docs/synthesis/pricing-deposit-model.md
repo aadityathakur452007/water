@@ -37,7 +37,7 @@ refund_on_return = returned_jars × 150 → Phase-1 UPI/manual; wallet rails v2
 
 ## 3. Rs 28/30 vs Rs 72→98 QC gap — UNVERIFIED, different business
 
-- Delhi quick-commerce band **Rs 72 → Rs 98** (Actowiz/F-market per brief): flag **UNVERIFIED** — vendor marketing, no disclosed methodology (ADR-007: F-market). Never quote as anchor without the caveat.
+- Delhi quick-commerce band **Rs 72 → Rs 98** (Actowiz/F-market per brief): flag **UNVERIFIED** — vendor marketing, no disclosed methodology (ADR-007b: F-market). Never quote as anchor without the caveat.
 - **Why it must not set Shodasha price**: different product (brands/packaged lots vs local 20L refill loop), different channel/city (Delhi QC 10-min vs local route), and F1's "separate business" rule forbids blending bare vs delivered cuts. The 3.3–3.5× gap is quoted **only with the "different business" caveat**.
 - **City band context (also unverified, Rekart guide C2 §5)**: retail 20L most cities **Rs 40–120**; wholesale tie-up **Rs 15–35/jar**; new food-grade jar asset **Rs 200–400**. Shodasha Rs 28–30 sits **below** the C2 retail band — price advantage is real on paper but unvalidated locally; the survey (§8) must confirm willingness before lock.
 - **Shodasha posture**: win on **reliability cues** (confirmation ID/time/amount, window adherence, WhatsApp proof), not a price war (C3 UX note; project-overview goal 3).
@@ -88,7 +88,7 @@ Money always lands in the **agency's own bank** (own-bank UPI QR, zero-fee patte
 | Hold/resume | Date-range hold; resume **≥24h before** delivery + pick preferred date | E R9/R10 |
 | Hold-limit | Outstanding **> 3 → pause / ask deposit**; alert at 5+ jars / 3+ days | C2 §8; B3 §13; VR-12 |
 
-## 8. Local survey validation plan (price lock gate per ADR-007)
+## 8. Local survey validation plan (price lock gate per ADR-007b)
 
 Lock Rs 28/30 + Rs 150 **only after** filing under `Feature_docs/research/F-market/`:
 

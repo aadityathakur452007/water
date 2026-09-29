@@ -35,14 +35,19 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-018 | 2026-09-29 | Contract audit run-1: 16 vuln fixes + 25 traceability fixes, 6 simplifications rejected | Accepted | api-contract, context, synthesis |
+| ADR-017 | 2026-09-29 | No-photo v1: reason-code complaints + vendor verification protocol | Accepted | api-contract, complaints/quality flows |
+| ADR-016 | 2026-09-29 | Trust & safety: suspend ladder + strikes + quality/batch + custody-guarded replacement | Accepted | workers/api/, admin trust board |
+| ADR-015 | 2026-09-29 | Multi-vendor zones + capacity + cancellation settlement + 3-purse money model | Accepted | workers/api/, D1 schema, all clients |
+| ADR-014 | 2026-09-29 | Backend API contract v1 spec (D1 schema + RBAC + endpoints) | Proposed | workers/api/, Feature_docs/backend/ |
 | ADR-013 | 2026-09-29 | FastAPI + Firebase Auth OTP (FCM push only) + security/edge-case spec | Accepted | workers/api/, auth flow, Feature_docs/security/ |
 | ADR-012 | 2026-09-29 | Backend: Python on Cloudflare Workers + D1 SQLite for auth/users | Accepted | workers/api/, D1 schema, Flutter apps, Admin web |
 | ADR-011 | 2026-09-29 | SYN-2 synthesis: vendor-reqs VR-01…VR-14 + pricing-deposit model accepted as proposed | Proposed | Feature_docs/synthesis/, Series-3 spec lock |
 | ADR-010 | 2026-09-29 | Group-B operations research done; jar ledger + billing flows locked for Series-3 | Accepted | Feature_docs/research/B-operations/, Series-3 synthesis |
 | ADR-009 | 2026-09-29 | Group-C competitor research done; copy-vs-differentiate locked | Accepted | Feature_docs/research/C-competitors/, Series-3 synthesis |
 | ADR-008 | 2026-09-29 | Group-A UX research done; A3 cited secondary-only; top-8 user-app rules | Accepted | Feature_docs/research/A-ux-case-studies/, Series-3 synthesis |
-| ADR-007 | 2026-09-29 | Group-D: canonical order-state machine + MVP/v2 split proposed | Proposed | Feature_docs/research/D-dev-guides/, Series-3 synthesis |
-| ADR-007 | 2026-09-29 | F-market: all Actowiz figures UNVERIFIED, price lock gated on local survey | Accepted | Feature_docs/research/F-market/, pricing |
+| ADR-007c | 2026-09-29 | Group-D: canonical order-state machine + MVP/v2 split proposed | Proposed | Feature_docs/research/D-dev-guides/, Series-3 synthesis |
+| ADR-007b | 2026-09-29 | F-market: all Actowiz figures UNVERIFIED, price lock gated on local survey | Accepted | Feature_docs/research/F-market/, pricing |
 | ADR-006 | 2026-09-29 | specify-cli install mandated | Accepted | repo root, SDLC workflow |
 | ADR-005 | 2026-09-29 | Feature_docs/ at root in English full deep-dive with browseros-neo reading | Accepted | Feature_docs/, Series-2/3 research |
 | ADR-004 | 2026-09-29 | Shodasha 3-surface split (2x Flutter Android + Next.js web super-admin) | Accepted | user app, vendor app, super-admin web |
@@ -69,6 +74,56 @@
 
 ## Decision Entries
 
+### ADR-018: Contract audit run-1 (security-audit skill, guidance mode + finder teams)
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: User ordered a senior self-review (gaps/overwrites/overcomplications) plus global install of Cloudflare's security-audit skill and a vulnerability pass over the API contract. Installed via `npx skills add … --skill security-audit --global` (copied to `~\.agents\skills\security-audit` for all agents; PromptScript global quirk noted, skill readable and loaded).
+- **Options considered**: Full-audit mode with external output dir (rejected — no executable code exists; sandbox runs N/A; findings are contract-logic, evidenced by spec text; report kept in-repo per project convention, deviation logged in the report).
+- **Decision**: Ran 3 read-only finder teams (traceability / contract-logic vulns / complexity+ops) + parent adversarial verification; patched all confirmed items; logged rejections with reasons and open external facts. Report: `Feature_docs/security/api-contract-audit.md`.
+- **Why**: 16 logic flaws (suspend bypasses, refund races, assignment races, quote replay, idempotency scope, CSRF, refresh race, FCM scoping, GPS spoof, custody integrity, device farms, reassign races, refund double-pay, webhook replay) + 25 traceability gaps (missing endpoints/tables, stale OTP text, ADR-007 triple-use, photo contradictions) were real on re-read; 6 simplification proposals were worse than the status quo on senior review.
+- **Consequences**: Contract is now buildable without known logic holes; remaining gates are external facts (§8 + audit OPEN list) + Phase-2 executable re-audit once code exists.
+- **Affects**: api-contract §§0–15, schema, synthesis rows, architecture auth, decision index, progress tracker
+
+### ADR-017: No-photo v1 — reason-code complaints + vendor verification protocol
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: No object storage in v1, so every photo in the contract (PoD, complaint, evidence) had to go. User asked for the replacement: reason codes + vendor verification + return policy that works on words.
+- **Options considered**: Free-text-only complaints (rejected — untriagable, unreportable); vendor auto-approves all returns (rejected — invites false claims); admin decides everything (rejected — doesn't scale, slow).
+- **Decision**: 11-code reason catalog; quantity/deposit disputes auto-resolve from ledger records; quality claims go through vendor door/pickup verification (agree → auto redelivery/refund; disagree → frozen statements + 48h admin triage); sealed-intact = full reversal, opened = quality-path only; ≥3 false claims/90d → abuse strike. PoD/complaint `photos` columns kept NULL in v1, activated with object storage in v2. Overrides FR-20 "photo required" (contract is the authority).
+- **Why**: Triage without images needs structure (codes) + a trusted second pair of eyes (vendor at the door) + a bounded escalation (48h admin) + a fraud backstop (abuse strikes). The sealed/opened line answers the hygiene question photos used to dodge.
+- **Consequences**: Complaints/quality endpoints + tables updated (§§4.7/4.9/14.3/14.4 + schema); security spec EC-V02..V04 aligned; avatar + PoD photo become v2 object-storage items.
+- **Affects**: api-contract §§4.7/4.9/14.3–14.5, complaints + quality_incidents tables, vendor verify task UI
+
+### ADR-016: Trust & safety — suspend ladder, strikes, quality/batch incidents, custody-guarded replacement
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: User asked for super-admin power over misbehaving vendors/users, subscription-cancel money recovery, muddy-water returns, and vendor replacement per zone — plus unthought-of real cases. Research: BIS issues real packaged-water recall orders for failed batches (IS 14543); Indian case files show mid-route swaps, fake-collector UPI fraud, COD impersonation.
+- **Options considered**: Auto-remove vendors at strike thresholds (rejected — auto-removal is an abuse/error vector; human confirms); delete-offender accounts (rejected — destroys evidence; suspend preserves); allow vendor personal UPI collection (rejected — enables fake-collector fraud; agency-QR lock chosen); hard GPS block (already rejected in ADR-015).
+- **Decision**: Graduated warn→restrict→suspend→terminate with instant session revocation (vendor suspend also kills Firebase user); strikes + 24h quality window (reason-code + vendor verification, ADR-017 — no photos in v1) + free redelivery/refund; batch rule (≥3/7d → under_review + batch hold + user notices); subscription-cancel deposit offset + dues dunning ladder + audited write-off; custody-zero guard on zone detachment; UPI payee lock + per-order OTP + seal check as anti-fraud triple lock.
+- **Why**: Every control maps to a documented real failure (recall orders, swap cases, fake collectors); money recovery is event-sourced like §10 so it inherits the no-over/no-under guarantee.
+- **Consequences**: D1 gains suspend columns + strikes + quality_incidents; ~10 new admin endpoints (§14.5); admin trust board becomes a Phase-2 build item.
+- **Affects**: `workers/api/`, admin trust board UI, vendor/user suspension screens
+
+### ADR-015: Multi-vendor zones + capacity + cancellation settlement + 3-purse money model
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: User challenged the v1 contract: it modelled isolation but not vendor↔user linkage (who serves whom), not per-vendor quantity control, not cancellation billing accuracy, not vendor-vs-user money. Correct — those were missing.
+- **Options considered**: Manual admin assignment per order (rejected — doesn't scale past ~20 orders/day); vendor self-pickup pool (rejected — cherry-picking, no load balance, breaks isolation); zone router + deterministic least-loaded assignment + admin override (chosen). Visit fee on late cancel (rejected for v1 — dispute cost > revenue); GPS hard-block on PoD drift (rejected — fails real deliveries; soft-flag chosen).
+- **Decision**: Zones own geography; vendors attach to zones with priority + tunable per-vendor caps; deterministic assignment with unassigned SLA queue; users/vendors never address each other (zone router introduces per order). Cancellation settles by state×money-moved matrix with compensating ledger events + refund rows (UNIQUE per payment). Three purses: user (dues/deposit), vendor custody (in_hand must zero at shift close), agency books (deposits carried as liability, not revenue). Per-stop-fee payouts coexist with salary model.
+- **Why**: Removes the three production failure modes that kill water-delivery ops: misrouted orders (zones), over/under-charging on cancel (event-sourced settlement), and cash leakage (custody tracking). Every rule is a server invariant, not UI convention.
+- **Consequences**: D1 gains zones/vendor_zones/vendor_profile/shifts/refunds/payouts tables; ~12 new endpoints (spec §§9–14); needs payout-model + visit-fee + GPS answers in §8.4 before scaffold.
+- **Affects**: `workers/api/`, D1 schema, vendor app (meters/queues), user app (cancel/rider/bill states), admin (zone board, day-close, queues)
+
+### ADR-014: Backend API contract v1 spec (proposed)
+- **Date**: 2026-09-29
+- **Status**: Proposed
+- **Context**: User asked for the API contract first: backend logic + request map + D1 schema with user/vendor/admin restrictions, covering every FR (01..37) + SEC/EC controls, before any app scaffold.
+- **Options considered**: Code-first scaffold (rejected — 3 clients share one ledger; contract drift = rewrites); UI-first (rejected — same reason + auth shape unknown); contract-first spec with D1 schema + RBAC matrix + error catalog (chosen).
+- **Decision**: Spec at `Feature_docs/backend/api-contract.md`: conventions (envelope, idempotency, cursor paging, rate limits), module map (Layered/Repository/DTO/State-Machine/Adapter/Strategy named), 15-table D1 schema, per-table view matrix, ~45 endpoints (auth/quote/orders/subs/payments/vendor/jars/complaints/devices/admin/webhooks), 2 mermaid sequences, error catalog, prod notes. Server computes all money; clients never send totals/roles.
+- **Why**: Every endpoint traces to an FR/VR/UR/SEC/EC id; state machine + ledger invariants + hold-block + over-limit tanker stops + IDOR rules are enforced server-side so Flutter/Next build in parallel against staging mocks.
+- **Consequences**: Needs approval + 3 answers (ASGI spike, tunables, UPI provider) before `workers/api/` scaffold; flow.md untouched (spec-only, no code).
+- **Affects**: `workers/api/`, D1 schema, all 3 clients, Phase-2 build order
+
 ### ADR-013: FastAPI + Firebase Auth OTP (FCM push only) + security spec
 - **Date**: 2026-09-29
 - **Status**: Accepted
@@ -84,7 +139,7 @@
 - **Status**: Accepted
 - **Context**: User locked backend: Cloudflare Workers hosts Python backend, D1 SQLite manages application user login etc. Surfaces: 2x Flutter Android (user/vendor) + Next.js Super Admin web share one API + one DB.
 - **Options considered**: Vercel/Next API + Postgres Neon/Supabase (rejected — user has Cloudflare infra, wants edge SQLite ops simplicity); Durable containers / Railway FastAPI (rejected — more ops, cost); Workers JS/Hono + D1 (rejected as primary — team wants Python, keep as fallback if Python beta blocks us).
-- **Decision**: One Python Worker (`workers/api/`, pure-Python deps only) exposing /auth /orders /jars /billing /admin → D1 binding (`env.DB`). Auth = phone OTP → D1 `users/sessions/otp_codes`; Flutter uses Bearer token, Admin web HttpOnly cookie same API.
+- **Decision**: One Python Worker (`workers/api/`, pure-Python deps only) exposing /auth /orders /jars /billing /admin → D1 binding (`env.DB`). Auth = Firebase phone OTP → D1 `users/sessions` (the `otp_codes` path in this line is superseded by ADR-013 — Firebase is the verifier); Flutter uses Bearer token, Admin web HttpOnly cookie same API.
 - **Why**: Single edge API serves all 3 surfaces; D1 SQLite fits jar ledger + dues relational model at v1 scale with zero DB ops; tech-selection Step 0 classifies this as fullstack product-service (auth+orders+billing) so backend+DB justified — smallest thing that does the job.
 - **Consequences**: Python Workers is beta — no native C extensions (no psycopg, bcrypt-C; use pure-Python/hashing via Workers crypto), CPU-time/memory caps, stateless only. D1: 10GB/db, single-writer, batch reconciliation writes. Mitigation: keep deps stdlib+pure-Python, idempotency keys, audit table for money edits. If FastAPI ASGI adapter fails on Workers, fallback to Flask-style handlers or JS Hono port (trigger documented).
 - **Affects**: `workers/api/`, D1 schema (users/sessions/otp/jars/orders), Flutter auth clients, Next.js admin middleware, context/architecture.md
@@ -95,7 +150,7 @@
 - **Context**: Series-3 needs buildable vendor + pricing contracts from B (all 5) + C2 + D2/D3 + E-summary + project-overview.
 - **Options considered**: Full vendor-matrix prose per source (rejected — Series-3 needs atomic IDs with acceptance); atomic VR-01…VR-14 with source/priority/acceptance + v1/v2 split and a separate pricing-deposit model with UNVERIFIED flags + survey gate (chosen).
 - **Decision**: Accept `Feature_docs/synthesis/vendor-requirements.md` (VR-01 triple, VR-02 offline, VR-03 ledger never-negative, VR-04 Rs150 + closure, VR-05 Rs3 cap, VR-06 pause/resume ≥24h, VR-07 route+loading sheets, VR-08 WhatsApp + own-bank QR + carry-forward, VR-09 evening reconcile, VR-10 Hindi v1, VR-11 audit, VR-12 hold>3 block, VR-13 breakage v2, VR-14 GPS-lite) and `pricing-deposit-model.md` (deposit (N−E)*150, Rs28/30 vs Rs72→98 UNVERIFIED gap with different-business caveat, Paniwale-tier translation S10/20/30 @28 = 252/476/672 proposed, wallet-v2 vs UPI+COD-v1, RWA 50–200 + office 20–30/floor/mo, 2.5–3 buffer, 8-8 Sun-closed, 10-day return, 3-day dispute, survey gate).
-- **Why**: Every rule traces to a fetched source line (E rulebook for deposit/hold/return, B-matrix for ledger/billing/offline, C2 for buffer/RWA/deposit-band, C3 for tiers, D for PoD/state-machine/MVP-split); unverified numbers stay flagged per ADR-007 §06 rule so price lock waits on the local survey.
+- **Why**: Every rule traces to a fetched source line (E rulebook for deposit/hold/return, B-matrix for ledger/billing/offline, C2 for buffer/RWA/deposit-band, C3 for tiers, D for PoD/state-machine/MVP-split); unverified numbers stay flagged per ADR-007b §06 rule so price lock waits on the local survey.
 - **Consequences**: Series-3 must lock offline conflict semantics, skip-one vs pause-all, hold-limit default (3), and run the §8 survey before Rs 28/30 + Rs 150 lock.
 - **Affects**: Feature_docs/synthesis/, vendor app + admin spec, pricing lock
 
@@ -129,7 +184,7 @@
 - **Consequences**: Series-3 must retry A3 via signed-in browser (browseros-neo) or author contact; flow.md untouched (research-only task, no functions/routes changed).
 - **Affects**: Feature_docs/research/A-ux-case-studies/, Series-3 synthesis, user/vendor/super-admin surfaces
 
-### ADR-007: Group-D — canonical order-state machine + MVP/v2 split (proposed)
+### ADR-007c: Group-D — canonical order-state machine + MVP/v2 split (proposed)
 - **Date**: 2026-09-29
 - **Status**: Proposed
 - **Context**: Group-D dev-guide research (Octal/Goteso/Appinop/WDS) converged on a tri-app model and an order lifecycle; Series-3 needs one canonical machine to spec against.
@@ -143,7 +198,7 @@
      the living memory of the project. Delete the two example entries below once you
      have real decisions. -->
 
-### ADR-007: F-market — all Actowiz figures UNVERIFIED, price lock gated on local survey
+### ADR-007b: F-market — all Actowiz figures UNVERIFIED, price lock gated on local survey
 - **Date**: 2026-09-29
 - **Status**: Accepted
 - **Context**: Group F research (R-F) read F1 + F2 fully. F1 is a method pre-registration with no findings yet; F2 is vendor marketing with no disclosed methodology, an "illustrative figures" footer disclaimer, and an internal 2026 volume inconsistency (region splits sum to 3.24M vs 7.4M headline).

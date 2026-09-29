@@ -219,7 +219,7 @@ MoSCoW: Must = v1 ship blocker · Should = v1 expected, deferrable only with app
 - **Priority**: Must
 - **Acceptance criteria**:
   - [ ] "Report issue" entry on order for 3 days post-delivery; after expiry shows hours + help contact (no silent removal).
-  - [ ] Complaint creates ticket with order ID + type (late/short/dirty/cap/deposit) + photos optional, visible status (open → resolved).
+   - [ ] Complaint creates ticket with order ID + reason code (11-code catalog, §14.3) + text ≤500 chars (photos join in v2 with object storage — ADR-017), visible status (open → under review → resolved).
   - [ ] Resolution push + in-app update; unresolved > SLA escalates in admin queue (admin surface).
 
 ## UR-21 — Quality trust line: RO+UV + lab date + report

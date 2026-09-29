@@ -90,8 +90,8 @@ NEVER: entities/ → features/
 
 ## Auth and Access Model
 
-- D1 tables: `users` (phone PK, role user/vendor/admin, OTP hash, created_at), `sessions` (token hash, user_id, expires_at, revoked), `otp_codes` (phone, code hash, attempts, expires 5 min).
-- Flutter user/vendor: OTP login (phone → D1 otp_codes → session token in Secure Storage) → Bearer on every Workers API call. Vendor role gate on delivery endpoints.
+- D1 tables: `users` (phone, firebase_uid, role user/vendor/admin, kyc_status, language, suspended*), `sessions` (token/refresh hashes, role, device_fp, expiry, revocation). OTP verification is Firebase Auth's job (ADR-013) — no `otp_codes` table.
+- Flutter user/vendor: Firebase phone OTP → Workers verifies ID token → D1 session token in Secure Storage → Bearer on every Workers API call. Vendor role gate on delivery endpoints.
 - Super Admin web (Next.js): same Workers auth API (phone+OTP or email+password for admin seed), HttpOnly cookie session, middleware checks role=admin for /admin routes.
 - All auth writes go Workers → D1 binding (no direct D1 from clients). Secrets (OTP provider key) only in Workers vars.
 

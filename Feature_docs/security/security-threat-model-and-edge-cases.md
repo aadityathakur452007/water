@@ -73,16 +73,16 @@ Acceptance: server rejects over-limit even with tampered client; each block emit
 | EC-S02 | "Don't send today" | One-tap skip before cutoff (e.g. 9 PM prior day). Vendor route sheet next morning shows **SKIP list** (greyed, no dispatch). Late skip → `late_skip` + vendor call button, no silent no-show. |
 | EC-S03 | Pause range (vacation) | Date-range hold (Bisleri pattern, E1): auto-resume date; FCM reminder day before resume. |
 | EC-S04 | Autopay failure | Order stays `payment_pending`, no dispatch, retry link + COD fallback offered. Never negative-ledger or free-dispatch on failed mandate. |
-| EC-S05 | User cancels after dispatch | State machine decides: pre-dispatch → free cancel; dispatched → cancel creates vendor callback + return-fee rule shown **before** confirm (quote-lock principle). |
+| EC-S05 | User cancels after dispatch | State machine decides: pre-dispatch → free cancel; dispatched → cancel needs dispatcher override + vendor callback ticket. **No visit fee in v1** (contract §10 — visit fees cost more disputes than revenue). |
 
 ## 7. Vendor-side failures (EC-V series)
 
 | ID | Scenario | Handling |
 |----|----------|----------|
 | EC-V01 | Vendor never receives order (push lost / offline) | FCM + in-app polling fallback; vendor queue is server source of truth. Unacknowledged order escalates (re-push → SMS/vendor call → reassign) with SLA timer visible in admin. |
-| EC-V02 | Vendor offline at stop | Offline-first queue: triple (fulls/empties/cash-UPI) cached, synced on reconnect with conflict rule (server wins on ledger, vendor wins on PoD photo/OTP). No silent drop — pending-sync badge. |
-| EC-V03 | Delivered but marked failed (or vice versa) | PoD = OTP + photo + empties count. State transitions append-only; reversal needs reason code + admin-visible entry. |
-| EC-V04 | Empty-jar dispute (cap missing, brand mismatch) | Rs 3/jar cap rule + photo evidence at door; deposit math `(N−E)×150` recomputed server-side, shown to both sides. |
+| EC-V02 | Vendor offline at stop | Offline-first queue: triple (fulls/empties/cash-UPI) cached, synced on reconnect with conflict rule (server wins on ledger, vendor wins on PoD OTP/counts; photo joins v2 — no object storage in v1). No silent drop — pending-sync badge. |
+| EC-V03 | Delivered but marked failed (or vice versa) | PoD = OTP + empties count + seal flag (photo joins v2). State transitions append-only; reversal needs reason code + admin-visible entry. |
+| EC-V04 | Empty-jar dispute (cap missing, brand mismatch) | Rs 3/jar cap rule + vendor seal/count check at door (photo evidence joins v2); deposit math `(N−E)×150` recomputed server-side, shown to both sides. |
 
 ## 8. Payments: UPI + COD (SEC-P series)
 
