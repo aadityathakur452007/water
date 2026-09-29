@@ -35,6 +35,10 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-024 | 2026-09-29 | Test credentials wired locally: Razorpay test + Firebase project + admin seed | Accepted | workers/api/.env (untracked), live dev DB |
+| ADR-023 | 2026-09-29 | Slice-3 complete: payments + vendor + dispatch + admin, all-stubbed | Accepted | workers/api/, slice-4 apps |
+| ADR-021 | 2026-09-29 | C1 slice-2 auth: RealVerifier adapter, session families, in-memory limits, LOG-ONLY integrity | Accepted | workers/api/auth, sessions, tests |
+| ADR-022 | 2026-09-29 | Slice-2 complete: auth + addresses + orders, 74 tests green | Accepted | workers/api/ |
 | ADR-020 | 2026-09-29 | Slice-1 complete: stdlib-sqlite Repository seam + paise + 20 tests green | Accepted | workers/api/ |
 | ADR-019 | 2026-09-29 | B2 slice-1: align to landed B1 interfaces; OverLimitError subclass; validation=400 truth | Accepted | workers/api/app/api/v1/, tests |
 | ADR-018 | 2026-09-29 | Contract audit run-1: 16 vuln fixes + 25 traceability fixes, 6 simplifications rejected | Accepted | api-contract, context, synthesis |
@@ -75,6 +79,46 @@
 ---
 
 ## Decision Entries
+
+### ADR-024: Test credentials wired locally (Firebase project + Razorpay test + admin seed)
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: User provided Firebase project (ID + phone/Google sign-in enabled), Razorpay test key pair, and admin phone. Values live in untracked local `.env` only (verified by repo-wide secret scan 2026-09-29: all values present in `.env`, zero hits elsewhere). Instruction: wire now, verify on dummies + live paths, no secrets in git.
+- **Options considered**: Committing `.env` for convenience (rejected — secrets hygiene, ssdlc blocking gate); hardcoding in config (rejected — same); local untracked `.env` + `.env.example` placeholders only (chosen).
+- **Decision**: `workers/api/.env` (gitignored, verified absent from status) holds test values; config gained optional `upi_*`/`agency_upi_vpa` fields; Google-sign-in tokens without phone claims fail loudly with phone-OTP direction (v1 accounts are phone-keyed); admin seeded live and verified; `data/` added to `.gitignore` (dev DB holds a real phone).
+- **Why**: Verification proved the wiring (project picked up, garbage→401 real path, seed row live) while keeping every secret out of version control; payee lock stays dormant until the business VPA arrives rather than enforcing against a guessed value.
+- **Consequences**: Webhook verify stays 502 until the webhook secret arrives; payee lock dormant until agency VPA arrives; service-account JSON still pending for cert-independent ops (not needed for verification path).
+- **Affects**: local dev only; no committed secrets
+
+### ADR-023: Slice-3 payments + vendor ops + dispatch + admin (all keys stubbed)
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: 4 parallel builders (D1 payments, D2 vendor, D3 subs/returns/complaints/devices, D4 zones/dispatch/admin) on `002-backend-foundation`; integrator renumbered migrations (005 payments/006 aftermath/007 ops), mounted 8 routers, fixed test filename refs, migrated nothing else.
+- **Options considered**: Real keys now (rejected — user provides later; adapters shaped for drop-in); Firebase Admin SDK (rejected — native-dep risk on Workers; PyJWT + certs).
+- **Decision**: Fake providers (UPI/Auth/FCM) + stub seams (Google/WhatsApp) with full test coverage; keys guide at `Feature_docs/backend/api-keys-guide.md`. Full suite 127 green; migrations 002–007 idempotent; 72 paths live-booted.
+- **Why**: Every external boundary is an interface with a fake; real credentials change env only, never code.
+- **Consequences**: Backend API functionally complete per contract; remaining: provider selection (UPI/WhatsApp), Firebase/Maps ids, Flutter apps + admin web.
+- **Affects**: `workers/api/`, `Feature_docs/backend/api-keys-guide.md`, slice-4
+
+### ADR-022: Slice-2 integration — mounts, migrate runner, Bearer test migration
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: C1/C2/C3 landed disjoint slices; integration needed router mounts, test hook, migration runner, and orders-test auth migration (C1's landing retired the X-User-Id stub → 3 tests 401).
+- **Options considered**: `app/db/migrate.py` (rejected — `app.db` is a module, submodule unimportable); per-agent context edits mid-flight (tolerated once — B2/C1 entries reviewed, accurate, kept).
+- **Decision**: `app/migrate.py` runner (idempotent via schema_migrations); `set_test_connection` hook in deps.py; orders router tests use dependency-overridden canned Bearer sessions; C3 deviations accepted (refund payment_id=order id, idempotency_keys table, literal 409 replay); pyjwt+cryptography added local-dev-only. Full suite 74 green; 16 paths live-booted.
+- **Why**: Minimal unblocking diffs; every deviation evidence-backed and verified.
+- **Consequences**: Slice-3 = payments + vendor ops + dispatch; needs Firebase project ID + admin phone + UPI provider.
+- **Affects**: `workers/api/`, slice-3 plan
+
+### ADR-021: C1 slice-2 auth — RealVerifier adapter, session families, in-memory limits, LOG-ONLY integrity
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: Approved C1 design (6 answers) on branch 002-backend-foundation: Firebase OTP → D1 sessions for user/vendor/admin.
+- **Options considered**: firebase-admin SDK (rejected — grpc/native deps risk on Python Workers beta; PyJWT+Google certs is pure-Python); D1 rate counters now (rejected — per approved answer, in-memory + TODO slice-3); blocking Play Integrity (rejected — LOG-ONLY per approved answer); new schemas/auth.py (rejected — DTOs co-located in the router, 9-file slice stays 9).
+- **Decision**: `adapters/firebase.py:RealVerifier` (aud+exp+sig; missing project → 502 UPSTREAM_FAIL, bad token → 401 UNAUTH); sha256-hashed opaque tokens (30m access + 7d rotating refresh, family_id + burned table, reuse kills family); suspended GET me → 200 + restrictions, writes via require_active_user/require_role; `scripts/seed_admin.py` refuses once an admin exists; tests assume `app.api.deps.set_test_connection` (2 hook tests xfail until integrator lands it).
+- **Why**: Every approved answer is implemented literally; the Adapter + Repository + DI seams keep the Workers move (cert fetch, D1 counters) as isolated swaps; landing `auth_deps` retires the orders/addresses ImportError stubs by design.
+- **Consequences**: Integrator must mount the auth router under /v1, add `set_test_connection` to deps.py, and move C3 order router tests to Bearer (3 currently 401 on X-User-Id headers — verified pre-existing green without auth_deps, untouched per instructions).
+- **Affects**: `workers/api/app/{adapters/firebase.py,api/auth_deps.py,api/v1/auth.py,repositories/user_repo.py,repositories/session_repo.py,services/auth_service.py,db/migrations/002_auth.sql,scripts/seed_admin.py,tests/test_auth.py}`
 
 ### ADR-020: Slice-1 backend complete — stdlib-sqlite Repository as the D1 seam
 - **Date**: 2026-09-29

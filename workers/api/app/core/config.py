@@ -1,8 +1,9 @@
 """Central settings (Singleton via deps.get_settings).
 
 All money fields are integer paise (contract §0). pydantic-settings fails fast
-on missing/invalid values. FIREBASE_PROJECT_ID is optional in slice-1 (auth
-wiring lands later) and becomes required from slice-2.
+on missing/invalid values. Provider credentials are optional until wired:
+Firebase project activates RealVerifier; UPI keys activate the real provider
+path (webhook secret gates verify_webhook); agency VPA gates the payee lock.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,3 +20,8 @@ class Settings(BaseSettings):
     cap_charge_paise: int = 300
     quote_ttl_minutes: int = 15
     firebase_project_id: str | None = None
+    upi_provider: str = "fake"  # fake|real (razorpay-shaped HMAC skeleton)
+    upi_key_id: str | None = None
+    upi_key_secret: str | None = None
+    upi_webhook_secret: str | None = None
+    agency_upi_vpa: str | None = None  # required before payee lock enforces

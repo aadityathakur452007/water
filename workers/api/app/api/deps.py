@@ -27,4 +27,16 @@ def get_db() -> Iterator:
     # B3 owns app.db. Lazy import so slice-1 health tests pass before db.py lands.
     from app.db import get_connection  # noqa: PLC0415
 
+    if _TEST_CONNECTION is not None:
+        yield _TEST_CONNECTION
+        return
     yield get_connection()
+
+
+_TEST_CONNECTION = None
+
+
+def set_test_connection(conn) -> None:
+    """Test hook (integrator-added for C1): route get_db to an in-memory DB."""
+    global _TEST_CONNECTION
+    _TEST_CONNECTION = conn

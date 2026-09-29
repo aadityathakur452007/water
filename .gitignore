@@ -6,4 +6,6 @@ build/
 .env.local
 *.log
 .DS_Store
-Thumbs.db__pycache__/
+Thumbs.db
+__pycache__/
+data/
