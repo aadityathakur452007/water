@@ -35,6 +35,8 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-020 | 2026-09-29 | Slice-1 complete: stdlib-sqlite Repository seam + paise + 20 tests green | Accepted | workers/api/ |
+| ADR-019 | 2026-09-29 | B2 slice-1: align to landed B1 interfaces; OverLimitError subclass; validation=400 truth | Accepted | workers/api/app/api/v1/, tests |
 | ADR-018 | 2026-09-29 | Contract audit run-1: 16 vuln fixes + 25 traceability fixes, 6 simplifications rejected | Accepted | api-contract, context, synthesis |
 | ADR-017 | 2026-09-29 | No-photo v1: reason-code complaints + vendor verification protocol | Accepted | api-contract, complaints/quality flows |
 | ADR-016 | 2026-09-29 | Trust & safety: suspend ladder + strikes + quality/batch + custody-guarded replacement | Accepted | workers/api/, admin trust board |
@@ -73,6 +75,26 @@
 ---
 
 ## Decision Entries
+
+### ADR-020: Slice-1 backend complete — stdlib-sqlite Repository as the D1 seam
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: 3 parallel builders (B1 scaffold/core, B2 pricing/routes, B3 db/repo/stub) landed disjoint files on `002-backend-foundation`; parent integrated: full suite 20 passed, uvicorn boot + live /health, /v1/catalog, POST /v1/quotes verified (2 refills + 1 empty → 5600/15000/20600, exactly the pricing-model worked example).
+- **Options considered**: SQLAlchemy ORM (rejected — D1 speaks HTTP, not DBAPI; ORM would be thrown away at deploy); Alembic now (rejected — 2 tables, add with auth slice); firebase-admin now (rejected — needs project ids; stub seam with documented swap).
+- **Decision**: stdlib `sqlite3` behind a Repository protocol (same SQL runs on D1 in prod); all money integer paise; Firebase as one-file stub adapter; ponytail-minimal file set (~24 files incl. tests).
+- **Why**: The Repository seam is the only abstraction that survives the local→Workers move; everything else is the thinnest code that satisfies the contract's slice-1 surface.
+- **Consequences**: Slice-2 (auth + orders + D1 migrations) builds on these seams; contract §8 open items (ASGI spike, providers) still gate deployment, not development.
+- **Affects**: `workers/api/`, slice-2 plan
+
+### ADR-019: B2 slice-1 catalog/quotes — align to landed B1 interfaces
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: Task brief assumed `get_settings` in `app.core.config` + kwarg-style `AppError(code, message, status_code)`. Landed B1 code has `get_settings` in `app.api.deps` (lru-cached `Settings`: `rate_refill_paise`/`rate_container_paise`/`deposit_per_jar_paise`/`cap_charge_paise`/`quote_ttl_minutes`) and `AppError(message, details)` with code/status as class attrs + central envelope handlers (validation → 400 VALIDATION).
+- **Options considered**: Import from briefed paths (rejected — ImportError/TypeError, verified by failing tests); duplicate settings/error code in B2 files (rejected — B1 owns them, drift risk); align to real B1 interfaces (chosen).
+- **Decision**: Routers use `app.api.deps.get_settings` + real `rate_*` field names; `OverLimitError(AppError)` subclass (`code=OVER_LIMIT`, 422) follows B1's own subclass pattern; `business_hours/holidays/serviceable_prefixes/rate_version` read via getattr-with-default until B1 adds them. Router tests run against B1's real `create_app`, so validation asserts 400 (production truth, matches brief §4 "400 validation auto") not 422.
+- **Why**: Broken imports are worse than brief drift; subclassing is B1's own extension mechanism; testing through the real factory verifies the true envelope.
+- **Consequences**: B2 files depend on B1 names — renames break loudly (fail fast, intended). B1 main.py already mounts both routers under /v1.
+- **Affects**: `workers/api/app/api/v1/catalog.py`, `quotes.py`, `tests/test_quotes.py`
 
 ### ADR-018: Contract audit run-1 (security-audit skill, guidance mode + finder teams)
 - **Date**: 2026-09-29

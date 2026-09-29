@@ -14,6 +14,10 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 
 ## Completed
 
+- Slice-1 backend COMPLETE (2026-09-29, branch 002-backend-foundation, ADR-020): `workers/api/` FastAPI — core (config/errors/deps/health), pricing service + catalog/quote routes, stdlib-sqlite db + config repo + Firebase stub, 20 pytest green, uvicorn boot verified live (health/catalog/quote 5600/15000/20600). Next: slice-2 auth + orders (needs Firebase project ids).
+
+- B2 slice-1 catalog/quotes done (2026-09-29, branch 002-backend-foundation): `workers/api/app/schemas/catalog.py` (SkuOut/CatalogOut/QuoteIn/QuoteOut DTOs), `services/pricing.py` (pure paise math + sha256 quote_hash), `api/v1/catalog.py` (GET /catalog, /windows 30-min slots 8–20 ex-Sun, /serviceability), `api/v1/quotes.py` (POST /quotes 200 + 15-min TTL, N>10 → 422 OVER_LIMIT), `tests/test_quotes.py` (12 passed; full suite 20 passed with B1). Aligned to landed B1 interfaces (get_settings via app.api.deps, AppError subclass pattern). Validation boundary → 400 VALIDATION per B1 handler (see decision log).
+
 - Backend locked (2026-09-29, ADR-012): Python on Cloudflare Workers + D1 SQLite for auth/users/orders/jars. See context/architecture.md Stack + Auth/Backend sections.
 - Security spec done (2026-09-29, ADR-013): FastAPI + Firebase Auth OTP (FCM push-only) threat model + edge cases + prod checklist → `Feature_docs/security/security-threat-model-and-edge-cases.md` (ssdlc skill: STRIDE/OWASP, SEC-A/I/P/F/C + EC-O/G/S/V/R, home≤5/office≤30/tanker stop, skip-today, device caps, quote lock, idempotency, admin audit).
 - API contract v1 (ADR-014..017) + audit run-1 (ADR-018): contract covers zones/caps/settlement/3-purse/custody/suspend/strikes/quality + no-photo reason-code system; audit patched 16 logic flaws + 25 traceability gaps (report: `Feature_docs/security/api-contract-audit.md`). Awaiting approval + §8/OPEN external facts.

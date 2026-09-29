@@ -155,6 +155,20 @@ app/page.tsx (route composition)
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
+| GET | `/health` | `app/main.py` | Liveness probe |
+| GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings |
+| GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture |
+| GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` | Pincode regex + prefix allowlist (empty=open) |
+| POST | `/v1/quotes` | `app/api/v1/quotes.py:create_quote` → `services/pricing.py:compute_quote` | Server-computed quote (paise) + sha256 quote_hash + 15-min TTL; N>10 → 422 OVER_LIMIT |
+
+### Slice-1 quote call map (B2, 2026-09-29)
+```
+POST /v1/quotes
+  └─ QuoteIn (schemas/catalog.py: Pydantic boundary — e≤N, N≥1, qty 0..10)
+       └─ pricing.compute_quote(items, e, rates, address_id, window, rate_version)
+            └─ {water_bill, deposit_due, cap_note, total, quote_hash, n_total}
+                 └─ route: n_total>10 → OverLimitError(AppError) → B1 envelope; else QuoteOut + expires_at
+```
 
 ---
 
