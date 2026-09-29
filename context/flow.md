@@ -14,6 +14,13 @@
 
 [2–3 sentences: what the app does, the main loop, the key actors.]
 
+> **Research note (2026-09-29, Group D)**: no app code exists yet — flows below are
+> still template placeholders. The proposed order lifecycle from dev-guide research
+> (placed→accepted→picked→packed→assigned→dispatched→delivered, PoD = OTP+photo+
+> empties+cash) is documented in `Feature_docs/research/D-dev-guides/_group-D-summary.md`
+> and will populate this file's User Flows / Request-Response sections at Series-3
+> synthesis. Payment is a separate field, not an order state.
+
 ---
 
 ## Architecture Diagram
@@ -43,6 +50,31 @@ graph TD
 ## User Flows
 
 > Each flow = one user journey. Format: goal → steps → outcome.
+
+### Flow: Vendor doorstep triple → ledger → evening reconcile (SYN-2 synthesis, proposed)
+**Goal**: driver executes per-stop triple offline-tolerant; ledger + dues + reconciliation close the day (see Feature_docs/synthesis/vendor-requirements.md VR-01/02/03/09)
+**Steps**: admin auto route+loading sheet → stop: fulls/empties/cash-UPI (queued offline, synced) → ledger mutates (held/deposit/dues, never-negative) → WhatsApp bill + own-bank UPI QR → dues carry forward → evening per-route collection vs pending vs jars-out
+
+```mermaid
+flowchart LR
+    A([Morning: auto route + loading sheet]) --> B[Stop: given + empties + cash/UPI]
+    B --> C[Ledger: held/deposit/dues update]
+    C --> D[WhatsApp bill + UPI QR, dues carry forward]
+    D --> E([Evening: route-wise reconcile])]
+```
+
+### Flow: Bisleri reference — booking → deposit → hold → return → refund (Group E research)
+**Goal**: industry-standard jar loop documented for Shodasha adoption (see Feature_docs/research/E-bisleri/_group-E-summary.md)
+**Steps**: booking → empty-with-cap declaration → (N−E)×150 deposit → delivery (8-8, no Sun, gate/2F if no lift, Rs3 cap-missing) → hold range / resume ≥24h → Return Jar request → pickup ≤10 working days → wallet refund; disputes ≤3 days
+
+```mermaid
+flowchart TD
+    A([Booking]) --> B[Declare empties E of N]
+    B --> C[Deposit N-E x 150]
+    C --> D[Deliver + handover cap check]
+    D --> E[Hold/Resume]
+    E --> F[Return request + 10-day pickup + refund]
+```
 
 ### Flow: [User flow name]
 **Goal**: [what the user wants]
@@ -123,6 +155,43 @@ app/page.tsx (route composition)
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
+| GET | `/health` | `app/main.py` | Liveness probe |
+| GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings |
+| GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture |
+| GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` | Pincode regex + prefix allowlist (empty=open) |
+| POST | `/v1/quotes` | `app/api/v1/quotes.py:create_quote` → `services/pricing.py:compute_quote` | Server-computed quote (paise) + sha256 quote_hash + 15-min TTL; N>10 → 422 OVER_LIMIT |
+| POST | `/v1/auth/otp/start|verify` | `app/api/v1/auth.py` → `services/auth_service.py` → `adapters/firebase.py` + `user_repo`/`session_repo` | Firebase OTP → D1 session (30m + rotating 7d, family kill on reuse); suspend → restricted session |
+| POST | `/v1/orders` | `app/api/v1/orders.py` → `services/order_service.py` → `order_repo`/`ledger_repo` | Idempotent create (scoped key), quote re-check, OVER_LIMIT/HOLD_BLOCKED, placed + deposit event, one txn |
+| POST | `/v1/payments/upi-intent` + `/webhooks/upi` | `payments.py` → `payment_service` → `payment_repo` + `adapters/upi.py` | Fake/real provider; HMAC + replay-cache; payee lock; dues reconcile |
+| POST | `/v1/vendor/stops/{id}/triple|pod` | `vendor.py` → `vendor_service.py` | Atomic triple (version fence), PoD OTP + GPS soft-flag, offline sync |
+| POST | `/v1/admin/orders/{id}/assign` | `admin.py` → `dispatch_service.py` | Transactional zone assign, reassign with version fence, routes-generate |
+| POST | `/v1/auth/otp/start` | `app/api/v1/auth.py:otp_start` → `services/auth_service.py:otp_start` | +91 validate + phone/IP rate-limit → 202 {sent_to_masked, resend_after_s} (Firebase SMS client-side) |
+| POST | `/v1/auth/otp/verify` | `auth.py:otp_verify` → `auth_service.otp_verify` → `adapters/firebase.py:RealVerifier.verify_id_token` → `repositories/user_repo.py:upsert_firebase_user` + `session_repo.py:create` | 200 {access_token (30m), refresh_token (7d rotating), role, restrictions?, new_device_alert?, details.integrity}; device-cap → 409 DEVICE_CAP |
+| POST | `/v1/auth/refresh` | `auth.py:refresh` → `auth_service.refresh` → `session_repo.rotate` | 200 new pair; burned-token reuse → revoke family + 401 |
+| POST | `/v1/auth/logout` | `auth.py:logout` → `auth_service.logout` | 200 {ok}; revoke_all → family revoke; own-device FCM token delete only |
+| GET | `/v1/auth/me` | `auth.py:get_me` → `auth_service.me` (via `api/auth_deps.py:get_current_user`) | 200 {user, addresses_count, ledger_summary}; suspended → + restrictions |
+| PATCH | `/v1/auth/me` | `auth.py:patch_me` (via `require_active_user`) → `user_repo.update_profile` | 200 {user}; suspended → 403 FORBIDDEN |
+
+### Slice-2 auth call map (C1, 2026-09-29)
+```
+Bearer <access_token>
+  └─ api/auth_deps.py:get_current_user (sha256 lookup → revoked/expiry → users re-read per request, C2)
+       ├─ require_active_user (suspended user writes → 403)
+       └─ require_role(*roles) (wrong role or suspended → 403)
+POST /v1/auth/otp/verify
+  └─ adapters/firebase.py:RealVerifier.verify_id_token (aud+exp+sig; no project → 502 UPSTREAM_FAIL)
+       └─ services/auth_service.py:otp_verify (device-cap ≤3/30d, LOG-ONLY integrity, suspend restrictions)
+            └─ repositories/user_repo.py:upsert_firebase_user + session_repo.py:create (family_id)
+```
+
+### Slice-1 quote call map (B2, 2026-09-29)
+```
+POST /v1/quotes
+  └─ QuoteIn (schemas/catalog.py: Pydantic boundary — e≤N, N≥1, qty 0..10)
+       └─ pricing.compute_quote(items, e, rates, address_id, window, rate_version)
+            └─ {water_bill, deposit_due, cap_note, total, quote_hash, n_total}
+                 └─ route: n_total>10 → OverLimitError(AppError) → B1 envelope; else QuoteOut + expires_at
+```
 
 ---
 

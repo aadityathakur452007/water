@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pydantic-settings
+httpx
+pytest
+pyjwt # RealVerifier ID-token checks (local dev; Workers RS256 spike pending)
+cryptography # RS256 backend for pyjwt (local dev only)

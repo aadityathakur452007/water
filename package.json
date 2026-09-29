@@ -1,0 +1,21 @@
+{
+  "name": "water",
+  "version": "1.0.0",
+  "description": "> [Short tagline — 1 sentence describing what this project does]",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aditya452007/Water.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/aditya452007/Water/issues"
+  },
+  "homepage": "https://github.com/aditya452007/Water#readme"
+}
