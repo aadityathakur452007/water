@@ -214,6 +214,32 @@ class CachingCatalogApi implements CatalogApi {
 
 enum PaymentMode { upi, cod }
 
+/// Buy path: one-time order vs recurring subscription (005-home-ux).
+/// Maps to POST /orders (once) vs POST /subscriptions (schedule_type).
+enum DeliveryType { once, daily, alternate, weekly }
+
+/// schedule_type wire value ('' for once — no subscription is created).
+String scheduleTypeOf(DeliveryType t) => switch (t) {
+      DeliveryType.once => '',
+      DeliveryType.daily => 'daily',
+      DeliveryType.alternate => 'alternate',
+      DeliveryType.weekly => 'weekly',
+    };
+
+/// sku_mix wire value for subscription create (dominant SKU wins ties→refill).
+String skuMixOf({required int refill, required int container}) =>
+    container > refill ? 'container' : 'refill';
+
+/// Order/quote items payload: [{sku, qty}] skipping zero lines
+/// (contract requires ≥1 jar total; callers gate on canBook).
+List<Map<String, dynamic>> orderItemsOf({
+  required int refill,
+  required int container,
+}) => [
+      if (refill > 0) {'sku': 'refill', 'qty': refill},
+      if (container > 0) {'sku': 'container', 'qty': container},
+    ];
+
 /// Booking state: steppers + quote freeze + gates. UI calls the getters;
 /// tests cover the pure helpers above plus these gates.
 class BookingController extends ChangeNotifier {
@@ -232,6 +258,18 @@ class BookingController extends ChangeNotifier {
   int heldJars = 0;
 
   PaymentMode paymentMode = PaymentMode.upi;
+
+  /// Buy path chosen in the detail sheet (once → POST /orders,
+  /// else → POST /subscriptions with scheduleTypeOf(deliveryType)).
+  DeliveryType deliveryType = DeliveryType.once;
+
+  /// Server-frozen quote (POST /quotes wins over client math when present).
+  String serverQuoteHash = '';
+  int serverTotalPaise = 0;
+
+  /// Chosen window slot start (ISO string for window_start) + address id.
+  String windowStart = '';
+  String addressId = '';
 
   /// Quote freeze (set on sheet-open / re-quote).
   DateTime? quoteCreatedAtUtc;

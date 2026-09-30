@@ -246,6 +246,86 @@ class ApiClient {
   Future<Map<String, dynamic>> catalog() =>
       send('GET', '/catalog', authed: false) as Future<Map<String, dynamic>>;
 
+  // ── Windows / quotes / orders (§4.2/§4.4 — 005-home-ux live checkout) ────
+  /// GET /windows?date=YYYY-MM-DD&pincode= → {date, windows, serviceable}.
+  Future<Map<String, dynamic>> windows({String? date, String? pincode}) =>
+      send('GET', '/windows', query: {
+        ...?date == null ? null : {'date': date},
+        ...?pincode == null ? null : {'pincode': pincode},
+      }, authed: false) as Future<Map<String, dynamic>>;
+
+  /// POST /quotes {items:[{sku,qty}], e, address_id, window_start}.
+  Future<Map<String, dynamic>> createQuote({
+    required List<Map<String, dynamic>> items,
+    required int empties,
+    required String addressId,
+    required String windowStart,
+  }) =>
+      send('POST', '/quotes', body: {
+        'items': items,
+        'e': empties,
+        'address_id': addressId,
+        'window_start': windowStart,
+      }) as Future<Map<String, dynamic>>;
+
+  /// POST /orders {items, e, address_id, window_start, quote_hash,
+  /// payment_mode} + Idempotency-Key → 201 server-minted order.
+  Future<Map<String, dynamic>> createOrder({
+    required List<Map<String, dynamic>> items,
+    required int empties,
+    required String addressId,
+    required String windowStart,
+    required String quoteHash,
+    required String paymentMode,
+    required String idempotencyKey,
+  }) =>
+      send('POST', '/orders',
+          body: {
+            'items': items,
+            'e': empties,
+            'address_id': addressId,
+            'window_start': windowStart,
+            'quote_hash': quoteHash,
+            'payment_mode': paymentMode,
+          },
+          idempotencyKey: idempotencyKey) as Future<Map<String, dynamic>>;
+
+  /// GET /orders/{id} → order + tracker + bill (verify paid status here,
+  /// never trust the client-side gateway callback alone).
+  Future<Map<String, dynamic>> getOrder(String id) =>
+      send('GET', '/orders/$id') as Future<Map<String, dynamic>>;
+
+  // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
+  /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
+  /// recurrence} → server-minted subscription.
+  Future<Map<String, dynamic>> createSubscription({
+    required String addressId,
+    required int qty,
+    required String skuMix,
+    required String window,
+    required String scheduleType,
+    String recurrence = '',
+  }) =>
+      send('POST', '/subscriptions', body: {
+        'address_id': addressId,
+        'qty': qty,
+        'sku_mix': skuMix,
+        'window': window,
+        'schedule_type': scheduleType,
+        'recurrence': recurrence,
+      }) as Future<Map<String, dynamic>>;
+
+  // ── UPI intent (§4.4 — Razorpay order for the in-app gateway) ─────────────
+  /// POST /payments/upi-intent {order_id} + Idempotency-Key →
+  /// {payment, link, provider_ref (Razorpay order id)}.
+  Future<Map<String, dynamic>> upiIntent({
+    required String orderId,
+    required String idempotencyKey,
+  }) =>
+      send('POST', '/payments/upi-intent',
+          body: {'order_id': orderId},
+          idempotencyKey: idempotencyKey) as Future<Map<String, dynamic>>;
+
   /// date → `YYYY-MM-DD` (hold_from/hold_to/skips date format).
   static String dateOnly(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'

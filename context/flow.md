@@ -229,6 +229,21 @@ dev machine → emulator shodasha_api36 (pixel_7, google_apis x86_64, API 36 / A
 ```
 - Re-run after edits: rebuild debug APK + `adb install -r` (no AVD/SDK reinstall needed). Platform-37 coexists harmlessly.
 
+### Checkout call map (005-home-ux, 2026-10-01, ADR-029)
+```
+HomeScreen (address bar + search + chips + photo cards)
+  └─ showProductDetail (buy-box: qty + deliveryType + related SKU)
+       └─ _UserShellState._openCheckout → showCheckoutSheet
+            ├─ api.windows(date, pincode) → slot chips (capacity-aware)
+            ├─ placeCheckout: once → createQuote → createOrder(+Idempotency-Key)
+            │    └─ STALE_QUOTE → one re-quote retry; UPI → upiIntent
+            │         ├─ provider_ref order_* → Razorpay gateway → getOrder verify
+            │         └─ provider_ref FAKE-* → upi:// external link
+            ├─ recurring → createSubscription(schedule_type daily|alternate|weekly)
+            └─ showOrderConfirm (server id + Track → Orders tab / subs shortcut)
+MapPicker (flutter_map OSM, drag-under-pin + geolocator) → lat/lng → address form
+```
+
 Composition root `apps/user_app/lib/main.dart` — one of each, shared:
 
 ```mermaid

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-029 | 2026-10-01 | 005-home-ux: storefront home + buy-box detail + delivery-type checkout + OSM pins + Razorpay-or-upi-link + server-ID confirm | Accepted | apps/user_app/lib/{core,features/{booking,addresses,orders,shell}}, pubspec, AndroidManifest |
 | ADR-028 | 2026-09-30 | Local run on Android 36: platform-36 already present, added google_apis x86_64 image + shodasha_api36 AVD, debug APK targetSdk 36 installed | Accepted | apps/user_app, local SDK/AVD only |
 | ADR-027 | 2026-09-29 | F5 shell+theme+API+4 tabs: Material-not-shadcn, black primaries, typed client on seams | Accepted | apps/user_app/lib/core+features/{shell,addresses,subscriptions,support,profile}/ |
 | ADR-026 | 2026-09-29 | F2 user-app auth: seam-based AuthController, Material-mirrored ForUI, local Hindi strings | Accepted | apps/user_app/lib/features/auth/, test/ |
@@ -83,6 +84,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-029: 005-home-ux storefront + real checkout (Alternative A, corrected)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: User UX review: text-list home, no product detail, text-only address (maps blank without key), stub checkout (UPI chip flipped a flag, fake ORD- id, WhatsApp-copy as post-purchase primary), no one-time-vs-recurring question at buy time. Guardrails read (.agents/design-basics/guardrails.md): light mode, black text, blue buttons, no purple, no gradients, no emojis.
+- **Options considered**: Purple-gradient premium (rejected by user — reads AI); Google Maps with key (rejected — no key; OSM now, one-file swap later); feeding all UPI through Razorpay gateway (rejected — backend UPI_PROVIDER=fake returns FAKE-* refs; gateway only for real `order_` refs, FAKE-* opens upi:// link); third priced tap-SKU (rejected — user locked 2 SKUs, tap = detail copy).
+- **Decision**: Storefront home (address bar, search, chips, photo cards, sticky book bar); detail buy-box sheet (facts, tap note, stepper, delivery-type Ek-baar/Roz/alternate/weekly, related SKU, BUY); checkout pulls GET /windows slots, live POST /quotes → POST /orders + Idempotency-Key with one STALE_QUOTE retry, recurring → POST /subscriptions; Razorpay gateway (test key_id via --dart-define, secret stays server-side) with GET /orders/{id} paid-verify, never client-callback trust; confirmation shows server-minted id + Track primary + sub shortcut; WhatsApp demoted to bill-share wa.me link; OSM drag-pin picker (flutter_map, lat/lng required since backend rejects 0,0); deps flutter_map 8.3.2/latlong2/geolocator 14.1.1/razorpay_flutter 1.4.7 + location permissions. `flutter analyze` 0, 63 tests green, debug APK on API-36 emulator verified via screenshot.
+- **Why**: Every complaint traced to a contract endpoint that already existed (quotes/orders/subs/windows/intent) — the app just never called them; smallest diff that makes money move for real.
+- **Consequences**: Container card reuses 20l.jpg crop until a real container photo lands; subscription create needs an authed session (guest checkout hits UNAUTH → login prompt, honest dead-end-free copy pending F1 Firebase wiring).
+- **Affects**: `apps/user_app/lib/core/api_client.dart` (+6 methods), `features/booking/` (catalog/detail/checkout-service/sheet/confirm/home rewrite), `features/addresses/` (lat/lng + map_picker), `features/orders/bill_screen.dart`, `features/shell/user_shell.dart`, `main.dart`, `pubspec.yaml`, `AndroidManifest.xml`
 
 ### ADR-028: Run user app on Android 36 emulator (no project code change)
 - **Date**: 2026-09-30

@@ -7,9 +7,11 @@
 // States.md: skeleton → list → empty ("add your first address") → error.
 
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import 'map_picker.dart' show pickMapPin;
 
 /// Hindi-first copy (TODO(F1): consolidate into lib/l10n/strings.dart).
 const Map<String, String> addressStringsHi = {
@@ -66,6 +68,8 @@ class AddressEntry {
     this.landmark,
     this.lift = false,
     this.isDefault = false,
+    this.lat = 0,
+    this.lng = 0,
   });
 
   final String id;
@@ -78,6 +82,10 @@ class AddressEntry {
   final bool lift;
   final bool isDefault;
 
+  /// Map pin (backend rejects 0,0 — form gates on a real pin).
+  final double lat;
+  final double lng;
+
   Map<String, dynamic> toApi() => {
         'label': label,
         'type': type == AddrType.home ? 'home' : 'office',
@@ -86,6 +94,8 @@ class AddressEntry {
         'address_line': addressLine,
         'landmark': landmark,
         'lift_flag': lift,
+        'lat': lat,
+        'lng': lng,
       };
 
   static AddressEntry fromApi(Map<String, dynamic> j) => AddressEntry(
@@ -98,6 +108,8 @@ class AddressEntry {
         landmark: j['landmark'] as String?,
         lift: (j['lift_flag'] ?? false) as bool,
         isDefault: (j['is_default'] ?? false) as bool,
+        lat: ((j['lat'] ?? 0) as num).toDouble(),
+        lng: ((j['lng'] ?? 0) as num).toDouble(),
       );
 }
 
@@ -457,6 +469,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool _lift = false;
   bool _touched = false;
 
+  /// Map pin (null = not pinned yet; backend rejects 0,0).
+  double? _lat;
+  double? _lng;
+
   bool get _isNew => widget.existing == null;
 
   @override
@@ -470,6 +486,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     _landmark = TextEditingController(text: e?.landmark ?? '');
     _type = e?.type ?? AddrType.home;
     _lift = e?.lift ?? false;
+    if (e != null && (e.lat != 0 || e.lng != 0)) {
+      _lat = e.lat;
+      _lng = e.lng;
+    }
   }
 
   @override
@@ -485,7 +505,8 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool get _pinOk => isValidPincode(_pincode.text);
   bool get _labelOk => _label.text.trim().isNotEmpty;
   bool get _lineOk => _line.text.trim().length >= 6;
-  bool get _valid => _pinOk && _labelOk && _lineOk;
+  bool get _mapOk => _lat != null && _lng != null;
+  bool get _valid => _pinOk && _labelOk && _lineOk && _mapOk;
 
   Future<void> _save() async {
     setState(() => _touched = true);
@@ -502,6 +523,8 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
         landmark: _landmark.text.trim().isEmpty ? null : _landmark.text.trim(),
         lift: _lift,
         isDefault: widget.existing?.isDefault ?? false,
+        lat: _lat ?? 0,
+        lng: _lng ?? 0,
       ),
       isNew: _isNew,
     );
@@ -614,6 +637,39 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                   value: _lift,
                   onChanged: (v) => setState(() => _lift = v),
                 ),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final pin = await pickMapPin(
+                      context,
+                      initial:
+                          _mapOk ? LatLng(_lat!, _lng!) : null,
+                    );
+                    if (pin != null) {
+                      setState(() {
+                        _lat = pin.latitude;
+                        _lng = pin.longitude;
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.map),
+                  label: Text(
+                    _mapOk
+                        ? 'Pin laga hai — badalne ke liye tap karein'
+                        : 'Map par pin lagayein',
+                  ),
+                ),
+                if (_touched && !_mapOk)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Map par pin lagana zaroori hai',
+                      style: TextStyle(
+                        color: ShodashaTheme.danger,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
