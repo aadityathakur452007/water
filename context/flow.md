@@ -135,6 +135,18 @@ app/page.tsx (route composition)
                  └─ apiClient.get("/api/...")
 ```
 
+### Feature: user-app auth (F2, 2026-09-29, branch 004-user-app-build)
+```
+AuthGate (auth_gate.dart: splash → restoreSession → home / login)
+  ├─ PhoneScreen (phone field +91, focus-loss errors, disabled-until-valid)
+  │    └─ AuthController.sendOtp (normalize 91/0 → AuthApi.startOtp 202 → PhoneVerifier.requestCode)
+  └─ OtpScreen (6-box + paste, masked +91 •••••, 60s resend, 5-attempt force-resend)
+       └─ AuthController.confirm (PhoneVerifier.confirmCode → AuthApi.verifyOtp → SessionStore.save)
+            └─ AuthGate re-routes to home (guest-browse safe; OTP enforced at booking commit/profile by F3)
+```
+- `normalizeIndianPhone` / `isValidIndianPhone` / `maskPhone` (auth_controller.dart) ← covered by `test/auth_validation_test.dart` (14 tests)
+- Backend endpoints touched (already live): `POST /v1/auth/otp/start|verify`, `POST /v1/auth/logout` (refresh rotation + FCM-device scoping land with F1 wiring)
+
 ### Feature: [feature name]
 - `[Function A]` calls `[Function B]` to [why]
 - `[Function B]` calls `[Repository X]` to [why]
@@ -205,6 +217,40 @@ POST /v1/quotes
 3. `queryClient` caches/invalidates on mutations
 
 ---
+
+## User app — F5 wiring (branch 004-user-app-build)
+
+### Local run (Android 36 emulator, 2026-09-30, ADR-028)
+```
+dev machine → emulator shodasha_api36 (pixel_7, google_apis x86_64, API 36 / Android 16)
+  └─ flutter build apk --debug (compileSdk 36, targetSdk 36, minSdk 24)
+       └─ adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
+            └─ monkey -p com.shodasha.shodasha_app → MainActivity (resumed, foreground)
+```
+- Re-run after edits: rebuild debug APK + `adb install -r` (no AVD/SDK reinstall needed). Platform-37 coexists harmlessly.
+
+Composition root `apps/user_app/lib/main.dart` — one of each, shared:
+
+```mermaid
+flowchart TD
+    M[main: ShodashaApp] --> T[core/theme.dart buildShodashaTheme]
+    M --> API[core/api_client.dart ApiClient]
+    M --> AUTH[AuthController F2 seams]
+    AUTH -.impl.-> APIIMPL[core/auth_impls.dart ApiBackedAuthApi + StubPhoneVerifier]
+    AUTH --> STORE[core/session_store.dart SecureSessionStore]
+    M --> GATE[AuthGate F2: splash→login/shell]
+    GATE --> SHELL[UserShell: NavigationBar 4 tabs IndexedStack]
+    SHELL -->|Home| BK[BookingController F3 + HomeScreen]
+    SHELL -->|Orders| OC[OrdersController F4 + OrdersScreen]
+    SHELL -->|Support| SC[SupportController: complaints §4.7]
+    SHELL -->|Profile| PC[ProfileController: ledger §4.6 + returns]
+    PC -->|routes| AD[AddressController §4.3]
+    PC -->|routes| SUB[SubscriptionController §4.5]
+```
+
+- Authed calls: `ApiClient.send()` adds `Authorization: Bearer` (live via `accessTokenGetter`) + `X-Device-Id`; `Idempotency-Key` on orders create/cancel/reschedule. Errors throw `ApiException{code}` — screens show offline banner on `NETWORK` (States.md).
+- Tab gates: guest browse keeps Home prices visible (flow 1); Profile shows login CTA when un-authed; OTP enforced at booking commit + profile data only.
+- Dev OTP: StubPhoneVerifier accepts `123456` until F1's Firebase verifier swap (one file, seams unchanged).
 
 ## Update Protocol (MANDATORY)
 
