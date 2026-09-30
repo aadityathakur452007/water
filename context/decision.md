@@ -35,6 +35,9 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-028 | 2026-09-30 | Local run on Android 36: platform-36 already present, added google_apis x86_64 image + shodasha_api36 AVD, debug APK targetSdk 36 installed | Accepted | apps/user_app, local SDK/AVD only |
+| ADR-027 | 2026-09-29 | F5 shell+theme+API+4 tabs: Material-not-shadcn, black primaries, typed client on seams | Accepted | apps/user_app/lib/core+features/{shell,addresses,subscriptions,support,profile}/ |
+| ADR-026 | 2026-09-29 | F2 user-app auth: seam-based AuthController, Material-mirrored ForUI, local Hindi strings | Accepted | apps/user_app/lib/features/auth/, test/ |
 | ADR-025 | 2026-09-29 | Slice-4: Razorpay-real, hardening, scheduler, E2E — 145 green | Accepted | workers/api/, live test keys |
 | ADR-024 | 2026-09-29 | Test credentials wired locally: Razorpay test + Firebase project + admin seed | Accepted | workers/api/.env (untracked), live dev DB |
 | ADR-023 | 2026-09-29 | Slice-3 complete: payments + vendor + dispatch + admin, all-stubbed | Accepted | workers/api/, slice-4 apps |
@@ -80,6 +83,36 @@
 ---
 
 ## Decision Entries
+
+### ADR-028: Run user app on Android 36 emulator (no project code change)
+- **Date**: 2026-09-30
+- **Status**: Accepted
+- **Context**: User reported only Android 37 installed while the app targets Android 36. Inspection showed `platforms/android-36` + `build-tools/36.0.0` + NDK 28.2.13676358 were already installed (Flutter 3.44.9 expects compileSdk/targetSdk 36); `flutter doctor` reporting "Platform android-37.0" just reflects the highest installed platform. What was actually missing: no system-image, no AVD, no device connected.
+- **Options considered**: Physical phone via USB debugging (rejected — user chose emulator); Play-Store image (rejected — larger, unneeded; google_maps_flutter works on google_apis); `flutter install` release default (rejected — no release APK/signing; debug APK chosen).
+- **Decision**: Installed `system-images;android-36;google_apis;x86_64` (7.0.0) via new `android sdk install` CLI (old sdkmanager splits `;` args in PowerShell), created AVD `shodasha_api36` (pixel_7) via avdmanager with JAVA_HOME=Android Studio jbr, cold-launched detached via emulator.exe, built `flutter build apk --debug` (77s, targetSdk 36 verified via dumpsys), installed via `adb install -r` and launched via monkey; MainActivity resumed (pid verified).
+- **Why**: Zero project-code change — the SDK already matched Flutter's expected 36; only the runnable (image/AVD/device) was missing. google_apis x86_64 is the smallest stable image for this Windows host.
+- **Consequences**: Emulator `shodasha_api36` persists in `~/.android/avd`; re-run after code changes is `flutter build apk --debug` + `adb -s emulator-5554 install -r app-debug.apk`. Do NOT uninstall platform-37 — coexistence is harmless.
+- **Affects**: local SDK/AVD only (`~/.android/avd/shodasha_api36*`, `sdk/system-images/android-36/...`); `apps/user_app/build/.../app-debug.apk` (untracked build output)
+
+### ADR-027: F5 shell + theme + typed API + Addresses/Subscriptions/Support/Profile
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: F5 brief (branch 004-user-app-build) approved 11-screen build: bottom-nav shell (Home/Orders/Support/Profile) + addresses + subscriptions + support + profile on the locked design language (white #FFFFFF, black #111 primaries, water blue #0284C7 links-only). F1's deps landed in pubspec meanwhile (firebase_auth, url_launcher, uuid, shadcn_flutter); F3/F4 booking+orders landed mid-task with a compile error (OrdersTokens used `Color` under a foundation-only import) and 2 red tests.
+- **Options considered**: shadcn_flutter widgets (rejected — pubspec dep exists but screens are already Material across F2–F4; swapping = rewrite + new regression surface for zero user-visible gain; tokens keep the swap config-only); purple seed theme (rejected — locked palette); black-primary buttons keep F2–F4 token classes untouched (chosen — 5 str_replace edits, one value each).
+- **Decision**: `core/theme.dart` (Material ThemeData: black ElevatedButton primaries, blue TextButton links, NavigationBar blue-active, hairline borders r8, 48dp); `core/api_client.dart` (typed client per contract §3/§4: Bearer + X-Device-Id, Idempotency-Key, ApiException{code,status,retryAfter}, NETWORK on offline/5xx); `core/session_store.dart` (SecureSessionStore on flutter_secure_storage + persisted device UUID); `core/auth_impls.dart` (ApiBackedAuthApi on §4.1 + StubPhoneVerifier dev-OTP 123456 behind F2's unchanged seams); `features/shell/user_shell.dart` (IndexedStack NavigationBar, tab enum stable for tests/deep links); Addresses (§4.3 gates: pincode regex, delete-confirm, 409 edit-blocked message), Subscriptions (§4.5: pause range end>start cross-validation, resume ≥24h pre-check, late-skip → vendor-call dialog), Support (§4.7: 11 reason codes, ≤500 chars, NO photo field per ADR-017, 422 window-expired → WhatsApp path not a dead end, status open→progress→resolved), Profile (§4.6 ledger read-only, /returns 10-day SLA, Hindi-default/English-fallback merged maps, logout confirm); repaired F4 (color import, search-test load(), lints) without discarding its work. Assets: public/logo.png + 20l.jpg copied + registered; orders url_launcher tel/wa.me wired (guarded try/catch → SnackBar fallback). `flutter analyze` 0 issues, 56 tests green.
+- **Why**: Compiles + verifies today with zero new deps beyond F1's landed set; F2–F4 screens keep their token classes (black-primary is a value edit, not a rewrite); StubPhoneVerifier keeps the full auth flow runnable against staging until F1's Firebase swap, which stays a one-file change behind the seam.
+- **Consequences**: Support/Profile/Addresses/Subs hit real endpoints that exist on the Workers API (slice-3 mounted them); StubOrdersRepository still backs Orders until F1 wires real HTTP; booking sheet confirm still stubs POST /orders (F3 TODO now unblocked — ApiClient + idempotency keys ready); real Firebase verifier + l10n consolidation remain F1-owned TODOs.
+- **Affects**: `apps/user_app/lib/core/` (4 files), `lib/features/{shell,addresses,subscriptions,support,profile}/` (5 files), repairs in `lib/features/{auth,booking,orders}/`, `test/widget_test.dart`, `pubspec.yaml` assets, `assets/{logo.png,20l.jpg}`
+
+### ADR-026: F2 user-app auth — seam-based controller, no new deps, local strings
+- **Date**: 2026-09-29
+- **Status**: Accepted
+- **Context**: F2 brief (branch 004-user-app-build) ordered phone+OTP auth on contract §4.1 + flow-1 guest-browse with locked tokens, but pubspec.yaml (F1-owned, do-not-edit) lacks firebase_auth/flutter_secure_storage/forui and lib/l10n + google-services.json are absent.
+- **Options considered**: Hard-import firebase_auth/forui as briefed ("assume present") (rejected — breaks `flutter analyze` + compile today); editing pubspec to add deps (rejected — F1 owns it); abstract seams + Material-mirrored ForUI patterns + local strings map (chosen).
+- **Decision**: `AuthController` (ChangeNotifier) depends only on in-file `SessionStore`/`AuthApi`/`PhoneVerifier` abstracts (+ `InMemorySessionStore`); Firebase invoked only in user actions; ForUI login/OTP patterns mirrored with Material at identical tokens; Hindi copy in `authStringsHi` with TODO to consolidate into F1's `lib/l10n/strings.dart`; `AuthGate` routes splash→home/login with guest-browse safe. `flutter analyze` clean, 14 tests green.
+- **Why**: Compiles and verifies today; F1 plugs real Firebase/Secure Storage/l10n without touching callers; guest-browse keeps prices unwalled per flow 1.
+- **Consequences**: F1 must provide real SessionStore/AuthApi/PhoneVerifier impls + l10n consolidation; F3 must wire home + booking-commit/profile auth gates + new-device banner.
+- **Affects**: `apps/user_app/lib/features/auth/` (4 files), `apps/user_app/test/auth_validation_test.dart`
 
 ### ADR-025: Slice-4 hardening + Razorpay-real + scheduler + E2E
 - **Date**: 2026-09-29

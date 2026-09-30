@@ -1,0 +1,97 @@
+// F5 — Bottom-nav shell: Home / Orders / Support / Profile (approved app map).
+//
+// Home hosts the F3 booking repeat machine; Orders hosts F4's list/detail/
+// tracking/bill; Support (new) = WhatsApp + FAQ + complaints; Profile (new)
+// = identity + ledger + returns + language + logout. No sheet/tab may look
+// logged-out mid-session (States.md auth states): guest + un-authed tab
+// actions route through [AuthGate] via the commit-gate callback.
+
+import 'package:flutter/material.dart';
+
+import '../booking/home_screen.dart';
+import '../orders/orders_controller.dart';
+import '../orders/orders_screen.dart';
+import '../profile/profile_screen.dart';
+import '../support/support_screen.dart';
+import '../../core/theme.dart';
+
+/// Tab indices are stable identifiers (deep links + tests).
+enum UserTab { home, orders, support, profile }
+
+class UserShell extends StatefulWidget {
+  const UserShell({
+    super.key,
+    required this.bookingController,
+    required this.ordersController,
+    required this.isAuthenticated,
+    this.onOpenAddresses,
+    this.onOpenSubscriptions,
+    this.onLogout,
+  });
+
+  final dynamic bookingController; // BookingController (F3)
+  final OrdersController ordersController;
+
+  /// Live auth check for tab-level gates (profile requires login content).
+  final bool Function() isAuthenticated;
+
+  /// Profile → Addresses / Subscriptions routes + logout (main.dart wiring).
+  final VoidCallback? onOpenAddresses;
+  final VoidCallback? onOpenSubscriptions;
+  final VoidCallback? onLogout;
+
+  @override
+  State<UserShell> createState() => _UserShellState();
+}
+
+class _UserShellState extends State<UserShell> {
+  UserTab _tab = UserTab.home;
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = <UserTab, Widget>{
+      UserTab.home: HomeScreen(controller: widget.bookingController),
+      UserTab.orders: OrdersScreen(controller: widget.ordersController),
+      UserTab.support: const SupportScreen(),
+      UserTab.profile: ProfileScreen(
+        isAuthenticated: widget.isAuthenticated(),
+        onOpenAddresses: widget.onOpenAddresses,
+        onOpenSubscriptions: widget.onOpenSubscriptions,
+        onLogout: widget.onLogout,
+      ),
+    };
+    return Scaffold(
+      backgroundColor: ShodashaTheme.bg,
+      body: IndexedStack(
+        index: _tab.index,
+        children: UserTab.values.map((t) => pages[t]!).toList(),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab.index,
+        onDestinationSelected: (i) => setState(() => _tab = UserTab.values[i]),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.water_drop_outlined),
+            selectedIcon: Icon(Icons.water_drop),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Orders',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.support_agent_outlined),
+            selectedIcon: Icon(Icons.support_agent),
+            label: 'Support',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}
