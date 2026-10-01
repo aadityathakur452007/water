@@ -14,16 +14,18 @@ declare global {
   interface Window {
     firebase?: {
       initializeApp: (cfg: Record<string, string>) => unknown;
-      auth: () => {
-        signInWithPhoneNumber: (
-          phone: string,
-          verifier: unknown,
-        ) => Promise<{ confirm: (code: string) => Promise<{ getIdToken: () => Promise<string> }> }>;
+      auth: {
+        (): {
+          signInWithPhoneNumber: (
+            phone: string,
+            verifier: unknown,
+          ) => Promise<{ confirm: (code: string) => Promise<{ getIdToken: () => Promise<string> }> }>;
+        };
+        RecaptchaVerifier: new (
+          el: string | HTMLElement,
+          opts: Record<string, unknown>,
+        ) => unknown;
       };
-      RecaptchaVerifier: new (
-        el: string | HTMLElement,
-        opts: Record<string, unknown>,
-      ) => unknown;
     };
   }
 }
@@ -133,8 +135,9 @@ function LoginForm() {
         }
         const app = window.firebase.initializeApp(FIREBASE_CONFIG);
         void app;
-        const auth = window.firebase.auth();
-        const verifier = new window.firebase.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
+        const authNs = window.firebase.auth;
+        const auth = authNs();
+        const verifier = new authNs.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
         const normalized = normalizePhone(phone);
         if (!normalized) throw new Error("Enter a valid Indian mobile number.");
         const confirmation = await auth.signInWithPhoneNumber(normalized, verifier);
