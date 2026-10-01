@@ -40,6 +40,12 @@ const FIREBASE_CONFIG = {
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "",
 };
 
+// Firebase verifier is a singleton: reCAPTCHA renders into its element
+// exactly once — constructing a second verifier on the same element throws
+// "reCAPTCHA has already been rendered in this element". Cleared on error so
+// the next attempt starts fresh.
+let sharedVerifier: { clear?: () => void } | null = null;
+
 // Dev fallback (worker DEV_AUTH=1): when Firebase is not configured, the login
 // sends `dev|<phone>|local` instead of an OTP and the worker logs the existing
 // account in directly. The phone comes from env — never hardcoded in source.
@@ -141,7 +147,12 @@ function LoginForm() {
         void app;
         const authNs = window.firebase.auth;
         const auth = authNs();
-        const verifier = new authNs.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
+        if (!sharedVerifier) {
+          sharedVerifier = new authNs.RecaptchaVerifier("recaptcha-container", { size: "invisible" }) as {
+            clear?: () => void;
+          };
+        }
+        const verifier = sharedVerifier;
         const normalized = normalizePhone(phone);
         if (!normalized) throw new Error("Enter a valid Indian mobile number.");
         const confirmation = await auth.signInWithPhoneNumber(normalized, verifier);
@@ -152,6 +163,13 @@ function LoginForm() {
       }
       await signIn(idToken);
     } catch (e) {
+      // Release the rendered widget so the next attempt can re-render it.
+      try {
+        sharedVerifier?.clear?.();
+      } catch {
+        /* already cleared */
+      }
+      sharedVerifier = null;
       setError(e instanceof Error ? e.message : "Sign-in failed.");
       setBusy(false);
     }
