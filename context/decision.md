@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-039 | 2026-10-01 | Pure-stdlib RS256 verify (rsa_verify.py, DER+pow) with crypto-first fallback in firebase.py; release APK gets prod SHODASHA_API_BASE + Razorpay defines | Accepted | workers/api/src/app/adapters/{rsa_verify.py,firebase.py}, tests/test_firebase_rsa.py, .github/workflows/release.yml |
 | ADR-038 | 2026-10-01 | Admin panel → Cloudflare Worker via @opennextjs/cloudflare 1.20.7 (Pages static-export impossible; next-on-pages deprecated; Next 16 supported; proxy.ts is Web-API-only) | Accepted | apps/admin_app/{wrangler.jsonc,open-next.config.ts,package.json,next.config.ts} |
 | ADR-037 | 2026-10-01 | src-first backend layout: app/ moved under src/ (bundler only ships entry dir); conftest.py + seed path fixes; local runs need PYTHONPATH=src | Accepted | workers/api/{src/,conftest.py,scripts/seed_admin.py,tests/} |
 | ADR-036 | 2026-10-01 | Cloudflare port T1: wrangler.jsonc + package.json + pyproject.toml + src/entry.py + db.get_d1 seam (name water, D1 binding DB, cron 15m stub) | Accepted | workers/api/{wrangler.jsonc,package.json,pyproject.toml,src/entry.py,app/db.py} |
@@ -93,6 +94,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-039: Pure-stdlib RS256 verify + prod release defines
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: App-login audit found the worker cannot verify Firebase tokens (cryptography banned on Workers) and the release APK points at localhost. PyJWT also skips aud/exp checks when the signature is unverified (proven empirically), so the fallback hand-checks claims.
+- **Options considered**: `rsa` PyPI package for RSA math (rejected — extra dep + its own C-risk; `pow()` + `hashlib` is 60 lines stdlib); D1-REST sync facade for repos (deferred to T2, unchanged); embedding Razorpay *secret* in the app (rejected — secret stays server-side; only the publishable `rzp_test_*` key ships, read char-for-char from `.env`).
+- **Decision**: `rsa_verify.py` (DER reader → `(n,e)` → PKCS#1 v1.5 + SHA-256 via `pow`, constant-time compare); `firebase.py` uses crypto path when importable, pure fallback otherwise; 6 tests (self-minted keypair, tamper/aud/expiry/garbage/flip-bit). `release.yml` gains `--dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1` + publishable Razorpay key. 159 pytest green.
+- **Why**: Same checks, same errors on both runtimes; release APK talks to prod with zero hardcoded hosts.
+- **Consequences**: Push redeploys `water` with working token verify; app-side Firebase swap still needs `google-services.json` from the user.
+- **Affects**: `workers/api/src/app/adapters/{rsa_verify.py,firebase.py}`, `tests/test_firebase_rsa.py`, `.github/workflows/release.yml`
 
 ### ADR-038: Admin panel → Cloudflare Worker via OpenNext adapter
 - **Date**: 2026-10-01

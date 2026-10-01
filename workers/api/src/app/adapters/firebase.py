@@ -34,6 +34,13 @@ CERTS_URL = (
 )
 CERTS_TTL_S = 3600
 
+try:  # cryptography is a C extension: present locally, banned on Workers.
+    import cryptography  # noqa: F401, PLC0415
+
+    _HAS_CRYPTO = True
+except ImportError:
+    _HAS_CRYPTO = False
+
 _certs: dict = {"keys": None, "fetched": 0.0}
 
 
@@ -75,17 +82,12 @@ class RealVerifier:
         except Exception as e:
             raise UnauthError("Invalid session.", {}) from e
         cert = self._cert(kid)
-        try:
-            claims = jwt.decode(
-                token,
-                cert,
-                algorithms=["RS256"],
-                audience=self.project_id,
-                issuer=f"https://securetoken.google.com/{self.project_id}",
-                options={"require": ["exp", "aud", "sub"]},
-            )
-        except Exception as e:
-            raise UnauthError("Invalid or expired session.", {}) from e
+        claims = _decode_rs256(
+            token,
+            cert,
+            audience=self.project_id,
+            issuer=f"https://securetoken.google.com/{self.project_id}",
+        )
         uid = claims.get("sub") or claims.get("user_id")
         if not uid:
             raise UnauthError("Invalid session.", {})
@@ -122,3 +124,70 @@ def _certs_cached(force: bool = False) -> dict:
 def get_verifier() -> RealVerifier:
     """FastAPI DI factory — tests override this with a fake (Dependency Injection)."""
     return RealVerifier()
+
+
+def _decode_rs256(token: str, cert: str, *, audience: str, issuer: str) -> dict:
+    """Decode + fully verify an RS256 token (signature, aud, iss, exp, sub).
+
+    Uses PyJWT's ``cryptography`` backend wherever it imports (local dev);
+    on Workers (no C extensions) falls back to the pure-stdlib verifier in
+    :mod:`app.adapters.rsa_verify` with identical checks. Raises
+    :class:`UnauthError` for anything invalid, :class:`UpstreamError` when
+    no verifier exists at all.
+    """
+    require = {"require": ["exp", "aud", "sub"]}
+    if _HAS_CRYPTO:
+        try:
+            import jwt as _jwt_crypto  # noqa: PLC0415 (C backend, local dev)
+
+            return _jwt_crypto.decode(
+                token,
+                cert,
+                algorithms=["RS256"],
+                audience=audience,
+                issuer=issuer,
+                options=require,
+            )
+        except Exception as e:
+            raise UnauthError("Invalid or expired session.", {}) from e
+    try:
+        from app.adapters.rsa_verify import (  # noqa: PLC0415
+            b64url_decode,
+            verify_rs256,
+        )
+    except ImportError as e:
+        raise UpstreamError("Token library missing.", {"retryable": False}) from e
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            raise ValueError("malformed token")
+        header_b64, payload_b64, sig_b64 = parts
+        verify_rs256(
+            f"{header_b64}.{payload_b64}".encode("ascii"),
+            b64url_decode(sig_b64),
+            cert,
+        )
+        # PyJWT skips aud/exp checks when the signature is unverified, so the
+        # claims are checked by hand here (stdlib only, no behavior change).
+        import json as _json  # noqa: PLC0415
+        import time as _time  # noqa: PLC0415
+
+        claims = _json.loads(b64url_decode(payload_b64).decode("utf-8"))
+        if not isinstance(claims, dict):
+            raise ValueError("bad claims")
+        aud = claims.get("aud")
+        aud_ok = aud == audience or (
+            isinstance(aud, list) and audience in aud
+        )
+        if not aud_ok or claims.get("iss") != issuer:
+            raise ValueError("bad aud/iss")
+        exp = claims.get("exp")
+        if not isinstance(exp, (int, float)) or exp <= _time.time() - 60:
+            raise ValueError("expired")
+        if not claims.get("sub") and not claims.get("user_id"):
+            raise ValueError("no subject")
+        return claims
+    except UnauthError:
+        raise
+    except Exception as e:
+        raise UnauthError("Invalid or expired session.", {}) from e

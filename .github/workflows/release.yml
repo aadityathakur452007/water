@@ -85,8 +85,11 @@ jobs:
       # (android/app/build.gradle.kts: signingConfig debug) so the APK
       # installs directly on any phone. TODO: real keystore via GitHub
       # Secrets before Play-store distribution.
+      # SHODASHA_API_BASE points the app at the production Worker (no
+      # hardcoded hosts in Dart); RAZORPAY_KEY_ID is the publishable test
+      # key (public by design — the secret never leaves the worker).
       - name: Build release APK
-        run: flutter build apk --release --build-name=${{ steps.version.outputs.build_name }} --build-number=${{ github.run_number }}
+        run: flutter build apk --release --build-name=${{ steps.version.outputs.build_name }} --build-number=${{ github.run_number }} --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF
 
       - name: Stage assets
         run: |
