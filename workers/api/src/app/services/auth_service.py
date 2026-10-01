@@ -12,7 +12,6 @@ import hashlib
 import logging
 import re
 import secrets
-import sqlite3
 import threading
 import time
 import uuid
@@ -143,7 +142,7 @@ def _now() -> _dt.datetime:
 class AuthService:
     """Session mint/refresh/logout + profile (constructor injection for tests)."""
 
-    def __init__(self, conn: sqlite3.Connection, verifier=None):
+    def __init__(self, conn, verifier=None):
         self._conn = conn
         self._users = UserRepo(conn)
         self._sessions = SessionRepo(conn)
@@ -158,7 +157,7 @@ class AuthService:
         # Firebase sends the SMS client-side; the server only gates abuse (SEC-A02).
         return {"sent_to_masked": mask_phone(phone), "resend_after_s": RESEND_AFTER_S}
 
-    def otp_verify(self, id_token: str, device: dict) -> dict:
+    async def otp_verify(self, id_token: str, device: dict) -> dict:
         device_id = (device or {}).get("id") or ""
         if not device_id.strip():
             raise ValidationError("Device id required.", {"device": "id"})
@@ -172,10 +171,10 @@ class AuthService:
             if len(parts) != 3:
                 raise UnauthError("Invalid session.", {})
             phone = normalize_phone(parts[1])
-            user = self._users.find_by_phone(phone)
+            user = await self._users.find_by_phone(phone)
             if user is None:
                 raise UnauthError("No account for this phone. Seed it first.", {})
-            return self._issue_session(user, device_id)
+            return await self._issue_session(user, device_id)
         if self._verifier is None:
             raise UnauthError("Invalid session.", {})
         claims = self._verifier.verify_id_token(id_token)
@@ -189,21 +188,21 @@ class AuthService:
                 {"id_token": "phone_number missing"},
             )
         phone = normalize_phone(claims.get("phone_number") or "")
-        user = self._users.upsert_firebase_user(phone=phone, firebase_uid=str(claims["uid"]))
-        return self._issue_session(user, device_id, device)
+        user = await self._users.upsert_firebase_user(phone=phone, firebase_uid=str(claims["uid"]))
+        return await self._issue_session(user, device_id, device)
 
-    def _issue_session(self, user: dict, device_id: str, device: dict | None = None) -> dict:
+    async def _issue_session(self, user: dict, device_id: str, device: dict | None = None) -> dict:
         """Session minting shared by the Firebase path and the DEV_AUTH path."""
         since = (_now() - _dt.timedelta(days=DEVICE_WINDOW_DAYS)).isoformat()
-        bound = self._sessions.device_user_ids(device_id, since)
+        bound = await self._sessions.device_user_ids(device_id, since)
         if user["id"] not in bound and len(bound) >= DEVICE_CAP:
             raise DeviceCapError(
                 "Too many accounts on this device. Contact support.",
                 {"device_id": device_id},
             )
-        new_device = not self._sessions.known_device(user["id"], device_id)
+        new_device = not await self._sessions.known_device(user["id"], device_id)
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        row = self._sessions.create(
+        row = await self._sessions.create(
             user_id=user["id"],
             role=user["role"],
             device_fp=device_id,
@@ -231,13 +230,13 @@ class AuthService:
 
     # -- refresh / logout ----------------------------------------------------
 
-    def refresh(self, refresh_token: str, device_id: str) -> dict:
+    async def refresh(self, refresh_token: str, device_id: str) -> dict:
         h = hash_token(refresh_token or "")
-        row = self._sessions.find_by_refresh_hash(h)
+        row = await self._sessions.find_by_refresh_hash(h)
         if row is None:
-            burned = self._sessions.find_burned(h)
+            burned = await self._sessions.find_burned(h)
             if burned is not None:  # C7: burned-token reuse kills the whole family
-                self._sessions.revoke_family(burned["family_id"])
+                await self._sessions.revoke_family(burned["family_id"])
                 log.warning("refresh reuse: family %s revoked", burned["family_id"])
             raise UnauthError("Session expired. Please log in again.", {})
         if row["revoked_at"] is not None or _expired(row["refresh_expires_at"]):
@@ -246,7 +245,7 @@ class AuthService:
             raise UnauthError("Session expired. Please log in again.", {})
         _LIMITER.check(f"refresh:user:{row['user_id']}", *REFRESH_USER_LIMIT)
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        rotated = self._sessions.rotate(
+        rotated = await self._sessions.rotate(
             old_refresh_hash=h,
             new_access_hash=hash_token(access),
             new_refresh_hash=hash_token(refresh),
@@ -262,40 +261,40 @@ class AuthService:
             "expires_at": rotated["expires_at"],
         }
 
-    def logout(self, *, session_id: str, family_id: str, user_id: str,
-               device_id: str, revoke_all: bool = False) -> dict:
+    async def logout(self, *, session_id: str, family_id: str, user_id: str,
+                   device_id: str, revoke_all: bool = False) -> dict:
         if revoke_all:
-            self._sessions.revoke_family(family_id)
+            await self._sessions.revoke_family(family_id)
         else:
-            self._sessions.revoke_session(session_id)
-        _delete_device_token(self._conn, user_id, device_id)
+            await self._sessions.revoke_session(session_id)
+        await _delete_device_token(self._conn, user_id, device_id)
         return {"ok": True}
 
     # -- profile ---------------------------------------------------------------
 
-    def me(self, user_id: str) -> dict:
-        user = self._users.find_by_id(user_id)
+    async def me(self, user_id: str) -> dict:
+        user = await self._users.find_by_id(user_id)
         if user is None:
             raise NotFoundError("User not found.", {"id": user_id})
         out = {
             "user": _public_user(user),
-            "addresses_count": _count(self._conn, "addresses", "user_id", user_id),
-            "ledger_summary": _ledger(self._conn, user_id),
+            "addresses_count": await _count(self._conn, "addresses", "user_id", user_id),
+            "ledger_summary": await _ledger(self._conn, user_id),
         }
         restrictions = restrictions_for(user)
         if restrictions is not None:
             out["restrictions"] = restrictions
         return out
 
-    def update_me(self, user_id: str, *, name: str | None = None,
-                  language: str | None = None) -> dict:
+    async def update_me(self, user_id: str, *, name: str | None = None,
+                      language: str | None = None) -> dict:
         if language is not None and not LANG_RE.fullmatch(language):
             raise ValidationError("Unsupported language.", {"language": language})
         if name is not None:
             name = name.strip()[:80]
             if not name:
                 raise ValidationError("Name cannot be blank.", {"name": name})
-        user = self._users.update_profile(user_id, name=name, language=language)
+        user = await self._users.update_profile(user_id, name=name, language=language)
         if user is None:
             raise NotFoundError("User not found.", {"id": user_id})
         return {"user": _public_user(user)}
@@ -322,43 +321,49 @@ def _public_user(user: dict) -> dict:
     }
 
 
-def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    return (
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-        ).fetchone()
-        is not None
-    )
+async def _table_exists(conn, name: str) -> bool:
+    try:
+        return (
+            await conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+            )
+        ).fetchone() is not None
+    except Exception:
+        return True  # D1 always migrated; the guard is for old local DBs.
 
 
-def _count(conn: sqlite3.Connection, table: str, col: str, user_id: str) -> int:
-    if not _table_exists(conn, table):
+async def _count(conn, table: str, col: str, user_id: str) -> int:
+    if not await _table_exists(conn, table):
         return 0  # slice-2: addresses table lands in 003 (may be absent)
-    row = conn.execute(
-        f"SELECT COUNT(*) c FROM {table} WHERE {col} = ?", (user_id,)  # noqa: S608
+    row = (
+        await conn.execute(
+            f"SELECT COUNT(*) c FROM {table} WHERE {col} = ?", (user_id,)  # noqa: S608
+        )
     ).fetchone()
     return int(row["c"])
 
 
-def _ledger(conn: sqlite3.Connection, user_id: str) -> dict:
-    if not _table_exists(conn, "ledger"):
+async def _ledger(conn, user_id: str) -> dict:
+    if not await _table_exists(conn, "ledger"):
         return {"held": 0, "deposit_paid": 0, "deposit_refunded": 0, "dues": 0}
-    row = conn.execute(
-        "SELECT held, deposit_paid, deposit_refunded, dues FROM ledger WHERE customer_id = ?",
-        (user_id,),
+    row = (
+        await conn.execute(
+            "SELECT held, deposit_paid, deposit_refunded, dues FROM ledger WHERE customer_id = ?",
+            (user_id,),
+        )
     ).fetchone()
     if row is None:
         return {"held": 0, "deposit_paid": 0, "deposit_refunded": 0, "dues": 0}
     return dict(row)
 
 
-def _delete_device_token(conn: sqlite3.Connection, user_id: str, device_id: str) -> None:
+async def _delete_device_token(conn, user_id: str, device_id: str) -> None:
     """Logout deletes only that device's FCM token (C8) — guarded for 002-only DBs."""
     try:
-        if not _table_exists(conn, "device_tokens"):
+        if not await _table_exists(conn, "device_tokens"):
             return
         with WRITE_LOCK:
-            conn.execute(
+            await conn.execute(
                 "DELETE FROM device_tokens WHERE user_id = ? AND device_id = ?",
                 (user_id, device_id),
             )

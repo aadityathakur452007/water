@@ -17,7 +17,7 @@ import hashlib
 
 from fastapi import Depends, HTTPException, Request
 
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.repositories.session_repo import SessionRepo
 from app.repositories.user_repo import UserRepo
 
@@ -47,19 +47,19 @@ def _expired(iso_ts: str) -> bool:
     return dt <= _dt.datetime.now(_dt.timezone.utc)
 
 
-def get_current_user(request: Request, conn=Depends(get_db)) -> dict:
+async def get_current_user(request: Request, conn=Depends(get_db_conn)) -> dict:
     """Bearer session -> user dict. Missing/bad/expired/revoked -> 401 UNAUTH."""
     token = _bearer(request)
     if token is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    session = SessionRepo(conn).find_by_access_hash(_hash(token))
+    session = await SessionRepo(conn).find_by_access_hash(_hash(token))
     if (
         session is None
         or session["revoked_at"] is not None
         or _expired(session["expires_at"])
     ):
         raise HTTPException(status_code=401, detail="Unauthorized")
-    user = UserRepo(conn).find_by_id(session["user_id"])
+    user = await UserRepo(conn).find_by_id(session["user_id"])
     if user is None:  # user deleted but token lives -> treat as unauth (no oracle)
         raise HTTPException(status_code=401, detail="Unauthorized")
     return {

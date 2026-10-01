@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.adapters.firebase import get_verifier
 from app.api.auth_deps import get_current_user, require_active_user
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.services.auth_service import AuthService
 
 router = APIRouter(tags=["auth"])
@@ -49,7 +49,7 @@ class MePatchIn(BaseModel):
     language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
 
 
-def _service(conn=Depends(get_db), verifier=Depends(get_verifier)) -> AuthService:
+def _service(conn=Depends(get_db_conn), verifier=Depends(get_verifier)) -> AuthService:
     return AuthService(conn, verifier)
 
 
@@ -60,22 +60,22 @@ def otp_start(payload: OtpStartIn, request: Request, svc: AuthService = Depends(
 
 
 @router.post("/auth/otp/verify")
-def otp_verify(payload: OtpVerifyIn, svc: AuthService = Depends(_service)):
-    return svc.otp_verify(payload.firebase_id_token, payload.device.model_dump())
+async def otp_verify(payload: OtpVerifyIn, svc: AuthService = Depends(_service)):
+    return await svc.otp_verify(payload.firebase_id_token, payload.device.model_dump())
 
 
 @router.post("/auth/refresh")
-def refresh(payload: RefreshIn, svc: AuthService = Depends(_service)):
-    return svc.refresh(payload.refresh_token, payload.device.id)
+async def refresh(payload: RefreshIn, svc: AuthService = Depends(_service)):
+    return await svc.refresh(payload.refresh_token, payload.device.id)
 
 
 @router.post("/auth/logout")
-def logout(
+async def logout(
     payload: LogoutIn,
     user: dict = Depends(get_current_user),
     svc: AuthService = Depends(_service),
 ):
-    return svc.logout(
+    return await svc.logout(
         session_id=user["session_id"],
         family_id=user["family_id"],
         user_id=user["id"],
@@ -85,14 +85,14 @@ def logout(
 
 
 @router.get("/auth/me")
-def get_me(user: dict = Depends(get_current_user), svc: AuthService = Depends(_service)):
-    return svc.me(user["id"])
+async def get_me(user: dict = Depends(get_current_user), svc: AuthService = Depends(_service)):
+    return await svc.me(user["id"])
 
 
 @router.patch("/auth/me")
-def patch_me(
+async def patch_me(
     payload: MePatchIn,
     user: dict = Depends(require_active_user),
     svc: AuthService = Depends(_service),
 ):
-    return svc.update_me(user["id"], name=payload.name, language=payload.language)
+    return await svc.update_me(user["id"], name=payload.name, language=payload.language)

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-042 | 2026-10-01 | T2 Phase-A auth on D1: async facade (D1Conn/AsyncSqliteConn + Rows), user/session repos + auth service/router/deps async, get_db_conn selector, pytest asyncio-auto | Accepted | workers/api/src/app/{db_d1.py,api/{deps,v1/auth,auth_deps},repositories/{user_repo,session_repo},services/auth_service}, tests/, pytest.ini |
 | ADR-041 | 2026-10-01 | Worker env bridge (worker_env contextvar set in entry.py; adapters/config read request env first, os.environ second; DEV_AUTH deliberately os-only so the backdoor stays dead in prod) | Accepted | workers/api/src/{entry.py,app/core/worker_env.py,app/{adapters/{upi,firebase},repositories/payment_repo,api/v1/catalog,services/address_service}}, tests/test_worker_env.py |
 | ADR-040 | 2026-10-01 | Secrets-focused review (security-audit guidance): no committed secrets/tokens/env; support number → +91 9302190067 in 5 user-visible spots; fixtures/docs keep fictional 98765 range | Accepted | apps/{user_app/lib/{core/api_client,features/{auth/auth_controller,orders/{orders_controller,bill_screen}}},admin_app/src/app/login/page.tsx} |
 | ADR-039 | 2026-10-01 | Pure-stdlib RS256 verify (rsa_verify.py, DER+pow) with crypto-first fallback in firebase.py; release APK gets prod SHODASHA_API_BASE + Razorpay defines | Accepted | workers/api/src/app/adapters/{rsa_verify.py,firebase.py}, tests/test_firebase_rsa.py, .github/workflows/release.yml |
@@ -96,6 +97,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-042: T2 Phase-A — auth slice on async D1 facade
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: First DB-touching prod route 500'd (`no such table: users` — per-request `:memory:` sqlite, D1 unused). Phased scope approved: auth slice first (login unblocked; everything else already 500s in prod, so no regression possible).
+- **Options considered**: Full 350-site conversion at once (rejected — approved phased); sync facade over D1 (impossible — Workers async-only); rewriting all tests' harnesses (rejected — kept raw conns + AsyncSqliteConn wrapper, only test_auth/test_vendor touched).
+- **Decision**: `db_d1.py` (D1Conn via prepare/bind + all()/run(), AsyncSqliteConn wrapper, cursor-compatible Rows with rowcount from D1 meta); user/session repos + auth service/router/auth_deps async; new `get_db_conn` sync selector (D1 in prod, wrapped sqlite locally, double-wrap-safe); pytest asyncio-auto. Non-converted routers keep raw `get_db` (unchanged locally; still 500 in prod until their phase). 163 pytest green.
+- **Why**: Minimal-diff crossing: only `execute` gains `await`; commit/rollback/fetch shapes untouched; local/test behavior identical.
+- **Consequences**: Push redeploys `water`; otp/verify+refresh+logout+me run on D1 (schema + admin row already live). Phase-B: remaining routers.
+- **Affects**: `workers/api/src/app/{db_d1,api/deps,api/v1/auth,api/auth_deps,repositories/*,services/auth_service}`, `tests/test_auth.py`, `tests/test_vendor.py`, `pytest.ini`
 
 ### ADR-041: Worker env bridge (vars/secrets were invisible in prod)
 - **Date**: 2026-10-01

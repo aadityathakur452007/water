@@ -266,14 +266,19 @@ def _client(c):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.api.deps import get_db
+    from app.api.deps import get_db, get_db_conn
     from app.api.v1.vendor import router
     from app.core.errors import register_exception_handlers
+    from app.db_d1 import AsyncSqliteConn
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
     app.dependency_overrides[get_db] = lambda: c
+    # get_current_user resolves via get_db_conn (Phase-A T2): same DB.
+    app.dependency_overrides[get_db_conn] = lambda: (
+        c if isinstance(c, AsyncSqliteConn) else AsyncSqliteConn(c)
+    )
     return TestClient(app)
 
 

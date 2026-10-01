@@ -60,9 +60,11 @@ class FakeVerifier:
 
 
 def _conn():
-    c = get_connection(":memory:")
-    c.executescript(MIGRATION)
-    return c
+    from app.db_d1 import AsyncSqliteConn  # noqa: PLC0415 (facade: same await shape as D1)
+
+    raw = get_connection(":memory:")
+    raw.executescript(MIGRATION)
+    return AsyncSqliteConn(raw)
 
 
 def _svc(c, verifier=None) -> AuthService:
@@ -75,12 +77,12 @@ def _device(i: int = 1, **over) -> dict:
     return d
 
 
-def _verify(c, token="good", device=None, verifier=None) -> dict:
-    return _svc(c, verifier).otp_verify(token, device or _device())
+async def _verify(c, token="good", device=None, verifier=None) -> dict:
+    return await _svc(c, verifier).otp_verify(token, device or _device())
 
 
-def _suspend(c, user_id: str, role: str = "user") -> None:
-    c.execute(
+async def _suspend(c, user_id: str, role: str = "user") -> None:
+    await c.execute(
         "UPDATE users SET suspended = 1, suspended_reason = 'dues', role = ? WHERE id = ?",
         (role, user_id),
     )
@@ -177,123 +179,129 @@ def test_otp_start_rate_limited_429():
     assert e.value.status_code == 429
 
 
-def test_otp_verify_ok_and_expiry():
+async def test_otp_verify_ok_and_expiry():
     c = _conn()
-    out = _verify(c)
+    out = await _verify(c)
     assert out["role"] == "user" and out["token_type"] == "bearer"
     assert out["new_device_alert"] is True
     assert out["details"] == {"integrity": "not-verified"}
     assert "restrictions" not in out
     delta = datetime.fromisoformat(out["expires_at"]) - datetime.now(timezone.utc)
     assert timedelta(minutes=29) < delta <= timedelta(minutes=31)
-    out2 = _svc(c).otp_verify("good", _device())  # same device known now
+    out2 = await _svc(c).otp_verify("good", _device())  # same device known now
     assert out2["new_device_alert"] is False
 
 
-def test_otp_verify_integrity_echo():
+async def test_otp_verify_integrity_echo():
     c = _conn()
-    out = _verify(c, device=_device(integrity="pass"))
+    out = await _verify(c, device=_device(integrity="pass"))
     assert out["details"] == {"integrity": "pass"}
 
 
-def test_otp_verify_device_cap_409():
+async def test_otp_verify_device_cap_409():
     c = _conn()
     mapping = {f"t{i}": {"uid": f"uid-{i}", "phone_number": f"+9198000000{i:02d}"} for i in range(4)}
     v = FakeVerifier(mapping)
     for i in range(3):
-        _verify(c, token=f"t{i}", device=_device(9), verifier=v)
+        await _verify(c, token=f"t{i}", device=_device(9), verifier=v)
     with pytest.raises(DeviceCapError) as e:
-        _verify(c, token="t3", device=_device(9), verifier=v)
+        await _verify(c, token="t3", device=_device(9), verifier=v)
     assert e.value.status_code == 409
 
 
-def test_otp_verify_suspended_restrictions():
+async def test_otp_verify_suspended_restrictions():
     c = _conn()
-    uid = _verify(c)["user_id"]
-    _suspend(c, uid, "user")
-    out = _verify(c)
+    uid = (await _verify(c))["user_id"]
+    await _suspend(c, uid, "user")
+    out = await _verify(c)
     assert out["restrictions"] == {
         "suspended": True,
         "allowed": ["read", "pay-dues", "appeal"],
         "reason": "dues",
     }
-    uid2 = _verify(c, token="good", device=_device(2))["user_id"]
+    uid2 = (await _verify(c, token="good", device=_device(2)))["user_id"]
     assert uid2 == uid  # same phone row rebound, still suspended
 
 
-def test_otp_verify_suspended_vendor_notice():
+async def test_otp_verify_suspended_vendor_notice():
     c = _conn()
     v = FakeVerifier({"good": {"uid": "v-uid", "phone_number": "+919800000011"}})
-    uid = _verify(c, verifier=v)["user_id"]
-    _suspend(c, uid, "vendor")
-    out = _verify(c, verifier=v)
+    uid = (await _verify(c, verifier=v))["user_id"]
+    await _suspend(c, uid, "vendor")
+    out = await _verify(c, verifier=v)
     assert out["restrictions"] == {"suspended": True, "allowed": ["notice"]}
 
 
-def test_refresh_rotates_and_reuse_kills_family():
+async def test_refresh_rotates_and_reuse_kills_family():
     c = _conn()
     s = _svc(c)
-    out = _verify(c)
-    r1 = s.refresh(out["refresh_token"], "dev-1")
+    out = await _verify(c)
+    r1 = await s.refresh(out["refresh_token"], "dev-1")
     assert r1["access_token"] != out["access_token"]
     # old access rotated away -> 401 on next use
-    assert c.execute(
-        "SELECT id FROM sessions WHERE token_hash = ?", (hash_token(out["access_token"]),)
+    assert (
+        await c.execute(
+            "SELECT id FROM sessions WHERE token_hash = ?", (hash_token(out["access_token"]),)
+        )
     ).fetchone() is None
     # old refresh reuse -> 401 + whole family revoked (C7)
     with pytest.raises(UnauthError) as e:
-        s.refresh(out["refresh_token"], "dev-1")
+        await s.refresh(out["refresh_token"], "dev-1")
     assert e.value.status_code == 401
     with pytest.raises(UnauthError):
-        s.refresh(r1["refresh_token"], "dev-1")
+        await s.refresh(r1["refresh_token"], "dev-1")
 
 
-def test_refresh_wrong_device_401():
+async def test_refresh_wrong_device_401():
     c = _conn()
     s = _svc(c)
-    out = _verify(c)
+    out = await _verify(c)
     with pytest.raises(UnauthError) as e:
-        s.refresh(out["refresh_token"], "other-device")
+        await s.refresh(out["refresh_token"], "other-device")
     assert e.value.status_code == 401
 
 
-def test_logout_revokes_single_vs_all():
+async def test_logout_revokes_single_vs_all():
     c = _conn()
     s = _svc(c)
-    a = _verify(c)
-    b = s.refresh(a["refresh_token"], "dev-1")
-    row = c.execute(
-        "SELECT id, family_id FROM sessions WHERE token_hash = ?",
-        (hash_token(b["access_token"]),),
+    a = await _verify(c)
+    b = await s.refresh(a["refresh_token"], "dev-1")
+    row = (
+        await c.execute(
+            "SELECT id, family_id FROM sessions WHERE token_hash = ?",
+            (hash_token(b["access_token"]),),
+        )
     ).fetchone()
-    assert s.logout(session_id=row["id"], family_id=row["family_id"],
+    assert await s.logout(session_id=row["id"], family_id=row["family_id"],
                     user_id=a["user_id"], device_id="dev-1") == {"ok": True}
-    assert c.execute(
-        "SELECT revoked_at FROM sessions WHERE id = ?", (row["id"],)
+    assert (
+        await c.execute(
+            "SELECT revoked_at FROM sessions WHERE id = ?", (row["id"],)
+        )
     ).fetchone()["revoked_at"] is not None
 
 
-def test_me_ok_and_update():
+async def test_me_ok_and_update():
     c = _conn()
     s = _svc(c)
-    uid = _verify(c)["user_id"]
-    me = s.me(uid)
+    uid = (await _verify(c))["user_id"]
+    me = await s.me(uid)
     assert me["user"]["phone"] == PHONE and me["addresses_count"] == 0
     assert me["ledger_summary"] == {"held": 0, "deposit_paid": 0, "deposit_refunded": 0, "dues": 0}
     assert "restrictions" not in me
-    assert s.update_me(uid, name="Asha", language="en")["user"]["language"] == "en"
+    assert (await s.update_me(uid, name="Asha", language="en"))["user"]["language"] == "en"
     with pytest.raises(ValidationError):
-        s.update_me(uid, language="xx-!")
+        await s.update_me(uid, language="xx-!")
     with pytest.raises(ValidationError):
-        s.update_me(uid, name="   ")
+        await s.update_me(uid, name="   ")
 
 
-def test_me_suspended_200_restrictions():
+async def test_me_suspended_200_restrictions():
     c = _conn()
     s = _svc(c)
-    uid = _verify(c)["user_id"]
-    _suspend(c, uid)
-    me = s.me(uid)
+    uid = (await _verify(c))["user_id"]
+    await _suspend(c, uid)
+    me = await s.me(uid)
     assert me["user"]["suspended"] is True
     assert me["restrictions"]["allowed"] == ["read", "pay-dues", "appeal"]
 
@@ -307,14 +315,14 @@ def _client(c, verifier=None):
     from fastapi.testclient import TestClient
 
     from app.adapters.firebase import get_verifier
-    from app.api.deps import get_db
+    from app.api.deps import get_db_conn
     from app.api.v1 import auth as mod
     from app.core.errors import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(mod.router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
+    app.dependency_overrides[get_db_conn] = lambda: c
     app.dependency_overrides[get_verifier] = lambda: verifier or FakeVerifier()
     return TestClient(app)
 
@@ -355,13 +363,13 @@ def test_router_verify_missing_device_400():
     assert r.json()["error"]["code"] == "VALIDATION"
 
 
-def test_router_suspended_patch_403_me_200():
+async def test_router_suspended_patch_403_me_200():
     c = _conn()
     client = _client(c)
     token = client.post("/v1/auth/otp/verify",
                         json={"firebase_id_token": "good", "device": {"id": "dev-1"}}).json()["access_token"]
     uid = client.get("/v1/auth/me", headers=_auth_headers(token)).json()["user"]["id"]
-    _suspend(c, uid)
+    await _suspend(c, uid)
     me = client.get("/v1/auth/me", headers=_auth_headers(token))
     assert me.status_code == 200, me.text
     assert me.json()["restrictions"]["allowed"] == ["read", "pay-dues", "appeal"]

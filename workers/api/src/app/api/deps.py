@@ -40,3 +40,26 @@ def set_test_connection(conn) -> None:
     """Test hook (integrator-added for C1): route get_db to an in-memory DB."""
     global _TEST_CONNECTION
     _TEST_CONNECTION = conn
+
+
+def get_db_conn(request: Request):
+    """Phase-A T2 connection selector (plain sync dependency, no yield).
+
+    Production (worker env pinned by entry.py) → D1Conn over the DB binding.
+    Local/pytest → AsyncSqliteConn over sqlite (same await shape, so converted
+    callers work identically in both). Non-converted routers keep get_db.
+    """
+    from app.core.worker_env import current_env  # noqa: PLC0415
+    from app.db import get_connection  # noqa: PLC0415
+    from app.db_d1 import AsyncSqliteConn, D1Conn  # noqa: PLC0415
+    from app.db import get_d1  # noqa: PLC0415
+
+    if isinstance(_TEST_CONNECTION, (D1Conn, AsyncSqliteConn)):
+        return _TEST_CONNECTION
+    if _TEST_CONNECTION is not None:
+        return AsyncSqliteConn(_TEST_CONNECTION)
+    env = request.scope.get("env") or current_env()
+    binding = get_d1(env)
+    if binding is not None:
+        return D1Conn(binding)
+    return AsyncSqliteConn(get_connection())
