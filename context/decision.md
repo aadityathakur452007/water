@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-038 | 2026-10-01 | Admin panel → Cloudflare Worker via @opennextjs/cloudflare 1.20.7 (Pages static-export impossible; next-on-pages deprecated; Next 16 supported; proxy.ts is Web-API-only) | Accepted | apps/admin_app/{wrangler.jsonc,open-next.config.ts,package.json,next.config.ts} |
 | ADR-037 | 2026-10-01 | src-first backend layout: app/ moved under src/ (bundler only ships entry dir); conftest.py + seed path fixes; local runs need PYTHONPATH=src | Accepted | workers/api/{src/,conftest.py,scripts/seed_admin.py,tests/} |
 | ADR-036 | 2026-10-01 | Cloudflare port T1: wrangler.jsonc + package.json + pyproject.toml + src/entry.py + db.get_d1 seam (name water, D1 binding DB, cron 15m stub) | Accepted | workers/api/{wrangler.jsonc,package.json,pyproject.toml,src/entry.py,app/db.py} |
 | ADR-035 | 2026-10-01 | 006 merged to main + CI/release GitHub Workflows: JDK 17 + Flutter 3.44.9 pins, auto-patch tags + APK GitHub Releases | Accepted | .github/workflows/, main branch |
@@ -92,6 +93,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-038: Admin panel → Cloudflare Worker via OpenNext adapter
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: Panel (Next 16.3.8, BFF routes + HttpOnly cookies + proxy.ts gate) must reach the live `water` worker + D1. Static export impossible (route handlers/cookies/proxy can't export); @cloudflare/next-on-pages is deprecated.
+- **Options considered**: Pages static export (rejected — kills BFF + auth); next-on-pages (rejected — deprecated upstream); @opennextjs/cloudflare 1.20.7 on Workers (chosen — supports all Next 16 minors; our proxy.ts is Web-API-only so no Node-runtime issue).
+- **Decision**: Adapter + wrangler 4.145 installed; `wrangler.jsonc` (name `shodasha-admin`, `.open-next/worker.js`, nodejs_compat, ASSETS, self-reference); default open-next config (no R2 — admin SSR gains nothing from shared cache); preview/deploy/upload/cf-typegen scripts; `initOpenNextCloudflareForDev()` in next.config; `_headers` + `.open-next` ignore + `.dev.vars.example`. `npm run build` green (14 pages + 4 routes + proxy); adapter build green (worker.js emitted, Node-middleware experimental warning logged as watch item).
+- **Why**: Official, maintained path per Cloudflare + OpenNext docs; verified locally before any dashboard step.
+- **Consequences**: User creates dashboard Worker `shodasha-admin` (root `apps/admin_app`, build `npx opennextjs-cloudflare build`, deploy `npx opennextjs-cloudflare deploy`) + sets `API_URL` + 3 Firebase web keys (login is dead without them).
+- **Affects**: `apps/admin_app/{wrangler.jsonc,open-next.config.ts,package.json,next.config.ts,public/_headers,.gitignore}`
 
 ### ADR-037: src-first backend layout (bundler only ships the entry dir)
 - **Date**: 2026-10-01

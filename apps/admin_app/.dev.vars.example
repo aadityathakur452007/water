@@ -1,0 +1,4 @@
+# Local-only env for `wrangler dev` / opennext preview (never commit secrets here).
+# Production values live in the dashboard: Worker shodasha-admin → Settings → Variables.
+NEXTJS_ENV=development
+API_URL=http://127.0.0.1:8000
