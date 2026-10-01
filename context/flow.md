@@ -278,6 +278,18 @@ TestClient HTTP tests unchanged; direct calls wrapped + awaited (asyncio_mode=au
 Cron entry (src/entry.py scheduled): still logged no-op; jobs are async-ready, D1 wiring deferred.
 ```
 
+### OTP channels (2026-10-01, ADR-048 — firebase default, sms behind OTP_PROVIDER)
+```
+POST /v1/auth/otp/start → 202 {sent_to_masked, resend_after_s, channel}
+  ├─ channel=firebase: app runs Firebase requestCode (SMS client-side; needs Blaze for real SMS)
+  └─ channel=sms: AuthService mints 6-digit secrets code → OtpRepo.issue(hash, 5-min TTL)
+       → sms provider (Fake log-only | Fast2Sms DLT route) → app posts typed code
+POST /v1/auth/otp/verify {firebase_id_token?, phone?, otp_code?, device:{id}}
+  ├─ otp_code: OtpRepo.consume (ok→session via upsert_phone_user; expired→400; 5 strikes→429 locked)
+  └─ firebase_id_token: RealVerifier path unchanged (+ DEV_AUTH dev| branch)
+App: AuthApi.startOtp returns channel; sms skips Firebase; smsError/serverError/networkError distinct
+```
+
 ### Slice-1 quote call map (B2, 2026-09-29)
 ```
 POST /v1/quotes

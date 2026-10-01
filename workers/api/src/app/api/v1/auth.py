@@ -30,7 +30,9 @@ class OtpStartIn(BaseModel):
 
 
 class OtpVerifyIn(BaseModel):
-    firebase_id_token: str = Field(min_length=1)
+    firebase_id_token: str | None = Field(default=None, min_length=1)
+    phone: str | None = Field(default=None, min_length=10, max_length=16)
+    otp_code: str | None = Field(default=None, min_length=4, max_length=12)
     device: DeviceIn
 
 
@@ -54,14 +56,19 @@ def _service(conn=Depends(get_db_conn), verifier=Depends(get_verifier)) -> AuthS
 
 
 @router.post("/auth/otp/start", status_code=202)
-def otp_start(payload: OtpStartIn, request: Request, svc: AuthService = Depends(_service)):
+async def otp_start(payload: OtpStartIn, request: Request, svc: AuthService = Depends(_service)):
     ip = request.client.host if request.client else "unknown"
-    return svc.otp_start(payload.phone, ip)
+    return await svc.otp_start(payload.phone, ip)
 
 
 @router.post("/auth/otp/verify")
 async def otp_verify(payload: OtpVerifyIn, svc: AuthService = Depends(_service)):
-    return await svc.otp_verify(payload.firebase_id_token, payload.device.model_dump())
+    return await svc.otp_verify(
+        payload.firebase_id_token,
+        payload.device.model_dump(),
+        phone=payload.phone,
+        code=payload.otp_code,
+    )
 
 
 @router.post("/auth/refresh")

@@ -36,6 +36,11 @@ OTP_START_IP_LIMIT = (20, 3600)  # 20/IP/hr
 OTP_VERIFY_DEVICE_LIMIT = (10, 3600)  # 10/device/hr (practical key for "5/code")
 REFRESH_USER_LIMIT = (30, 3600)  # 30/user/hr
 
+# Server-generated OTP codes (Fast2SMS slice, ssdlc: short, few attempts).
+OTP_CODE_LEN = 6
+OTP_TTL_MIN = 5
+OTP_MAX_ATTEMPTS = 5
+
 
 class DeviceCapError(AppError):
     code = "DEVICE_CAP"
@@ -150,24 +155,61 @@ class AuthService:
 
     # -- OTP ---------------------------------------------------------------
 
-    def otp_start(self, phone: str, ip: str) -> dict:
+    async def otp_start(self, phone: str, ip: str) -> dict:
         phone = normalize_phone(phone)
         _LIMITER.check(f"otp-start:phone:{phone}", *OTP_START_PHONE_LIMIT)
         _LIMITER.check(f"otp-start:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
-        # Firebase sends the SMS client-side; the server only gates abuse (SEC-A02).
-        return {"sent_to_masked": mask_phone(phone), "resend_after_s": RESEND_AFTER_S}
+        # firebase (default): Firebase sends the SMS client-side; the server
+        # only gates abuse (SEC-A02). fast2sms: the server mints a single-use
+        # code, stores only its hash, and sends it over the DLT route.
+        from app.adapters.sms import get_sms_provider, otp_provider  # noqa: PLC0415 (lazy seam)
 
-    async def otp_verify(self, id_token: str, device: dict) -> dict:
+        if otp_provider() == "fast2sms":
+            from app.repositories.otp_repo import OtpRepo  # noqa: PLC0415 (lazy seam)
+
+            code = "".join(secrets.choice("0123456789") for _ in range(OTP_CODE_LEN))
+            await OtpRepo(self._conn).issue(phone=phone, code_hash=hash_token(code), ttl_min=OTP_TTL_MIN)
+            get_sms_provider().send_otp(phone, code)
+            return {
+                "sent_to_masked": mask_phone(phone),
+                "resend_after_s": RESEND_AFTER_S,
+                "channel": "sms",
+            }
+        return {
+            "sent_to_masked": mask_phone(phone),
+            "resend_after_s": RESEND_AFTER_S,
+            "channel": "firebase",
+        }
+
+    async def otp_verify(
+        self, id_token: str | None, device: dict, phone: str | None = None, code: str | None = None
+    ) -> dict:
         device_id = (device or {}).get("id") or ""
         if not device_id.strip():
             raise ValidationError("Device id required.", {"device": "id"})
         _LIMITER.check(f"otp-verify:device:{device_id}", *OTP_VERIFY_DEVICE_LIMIT)
+        # Server-code path (fast2sms): phone + 6-digit code, no Firebase round-trip.
+        if code:
+            from app.repositories.otp_repo import OtpRepo  # noqa: PLC0415 (lazy seam)
+
+            phone_n = normalize_phone(phone or "")
+            outcome = await OtpRepo(self._conn).consume(
+                phone=phone_n, code_hash=hash_token(code.strip()), max_attempts=OTP_MAX_ATTEMPTS
+            )
+            if outcome == "expired":
+                raise ValidationError("Code expired. Please resend.", {"otp_code": "expired"})
+            if outcome == "locked":
+                raise RateLimitedError("Too many wrong attempts. Resend a new code.", {})
+            if outcome != "ok":
+                raise ValidationError("Wrong code. Try again.", {"otp_code": "mismatch"})
+            user = await self._users.upsert_phone_user(phone=phone_n)
+            return await self._issue_session(user, device_id, device)
         # DEV_AUTH=1 (local dev only): a raw code of `dev|<phone>|<any>` logs the
         # EXISTING account for that phone in, with no Firebase round-trip. The
         # admin web sends this format when its dev fallback is on. Never enable
         # in production: it bypasses the SMS OTP entirely.
-        if id_token.startswith("dev|") and DEV_AUTH_ENABLED():
-            parts = id_token.split("|", 2)  # "dev|<phone>|<any>"
+        if (id_token or "").startswith("dev|") and DEV_AUTH_ENABLED():
+            parts = (id_token or "").split("|", 2)  # "dev|<phone>|<any>"
             if len(parts) != 3:
                 raise UnauthError("Invalid session.", {})
             phone = normalize_phone(parts[1])
@@ -175,7 +217,7 @@ class AuthService:
             if user is None:
                 raise UnauthError("No account for this phone. Seed it first.", {})
             return await self._issue_session(user, device_id)
-        if self._verifier is None:
+        if self._verifier is None or not id_token:
             raise UnauthError("Invalid session.", {})
         claims = self._verifier.verify_id_token(id_token)
         if not claims.get("uid"):

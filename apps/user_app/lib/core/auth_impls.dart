@@ -23,12 +23,28 @@ class ApiBackedAuthApi implements AuthApi {
   final ApiClient _api;
 
   @override
-  Future<void> startOtp(String e164) async {
-    await _api.send(
+  Future<String> startOtp(String e164) async {
+    final raw = await _api.send(
       'POST',
       '/auth/otp/start',
       body: {'phone': e164},
       authed: false,
+    );
+    if (raw is Map<String, dynamic>) {
+      return (raw['channel'] ?? 'firebase') as String;
+    }
+    return 'firebase';
+  }
+
+  AuthSession _toSession(Map<String, dynamic> raw) {
+    final expiresAt = DateTime.tryParse((raw['expires_at'] ?? '') as String) ??
+        DateTime.now().add(const Duration(minutes: 30));
+    return AuthSession(
+      accessToken: (raw['access_token'] ?? '') as String,
+      refreshToken: (raw['refresh_token'] ?? '') as String,
+      expiresAt: expiresAt,
+      role: (raw['role'] ?? 'user') as String,
+      newDeviceAlert: (raw['new_device_alert'] ?? false) as bool,
     );
   }
 
@@ -42,7 +58,7 @@ class ApiBackedAuthApi implements AuthApi {
       '/auth/otp/verify',
       body: {
         'firebase_id_token': idToken,
-        'device': deviceId,
+        'device': {'id': deviceId},
       },
       authed: false,
     );
@@ -53,15 +69,33 @@ class ApiBackedAuthApi implements AuthApi {
         statusCode: 0,
       );
     }
-    final expiresAt = DateTime.tryParse((raw['expires_at'] ?? '') as String) ??
-        DateTime.now().add(const Duration(minutes: 30));
-    return AuthSession(
-      accessToken: (raw['access_token'] ?? '') as String,
-      refreshToken: (raw['refresh_token'] ?? '') as String,
-      expiresAt: expiresAt,
-      role: (raw['role'] ?? 'user') as String,
-      newDeviceAlert: (raw['new_device_alert'] ?? false) as bool,
+    return _toSession(raw);
+  }
+
+  @override
+  Future<AuthSession> verifyServerCode({
+    required String phone,
+    required String code,
+    required String deviceId,
+  }) async {
+    final raw = await _api.send(
+      'POST',
+      '/auth/otp/verify',
+      body: {
+        'phone': phone,
+        'otp_code': code,
+        'device': {'id': deviceId},
+      },
+      authed: false,
     );
+    if (raw is! Map<String, dynamic>) {
+      throw ApiException(
+        code: 'UNKNOWN',
+        message: 'Malformed verify response',
+        statusCode: 0,
+      );
+    }
+    return _toSession(raw);
   }
 
   @override

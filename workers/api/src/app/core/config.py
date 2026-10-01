@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     upi_key_secret: str | None = None
     upi_webhook_secret: str | None = None
     agency_upi_vpa: str | None = None  # required before payee lock enforces
+    otp_provider: str = "firebase"  # firebase|fast2sms (server-generated codes)
+    fast2sms_api_key: str | None = None  # worker secret FAST2SMS_API_KEY
+    fast2sms_sender_id: str | None = None  # DLT-approved header (default SHODASHA)
+    fast2sms_entity_id: str | None = None  # DLT principal-entity id (dashboard link)
     cors_origins: str = ""  # comma-separated allowlist (CORS_ORIGINS); empty = deny credentialed cross-origin
     body_max_bytes: int = 1_000_000  # JSON body cap → 413 (ssdlc Phase 6)
     throttle_anon_per_min: int = 120  # anon GETs (catalog/windows/serviceability) per IP/min → 429

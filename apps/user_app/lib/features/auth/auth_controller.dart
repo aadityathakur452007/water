@@ -22,6 +22,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/api_client.dart';
+
 // TODO(F1): consolidate into lib/l10n/strings.dart (Hindi-first) and import
 // it here. Do NOT create lib/l10n/ from F2 — F1 owns it.
 const Map<String, String> authStringsHi = {
@@ -46,6 +48,8 @@ const Map<String, String> authStringsHi = {
   'tooManyAttempts': '5 baar galat OTP — naya OTP mangwayein',
   'codeExpired': 'OTP expired ho gaya — naya OTP bhejein',
   'invalidCode': 'Galat OTP — dobara try karein',
+  'smsError': 'OTP SMS nahi bheja ja saka — thodi der me retry karein',
+  'serverError': 'Server me dikkat — thodi der me retry karein',
   'networkError': 'Network me dikkat — dobara try karein',
   'newDevice': 'Naya device detect hua — purana session surakshit hai',
   'editNumber': 'Number badlein',
@@ -158,11 +162,19 @@ class InMemorySessionStore implements SessionStore {
 /// Backend seam: Workers API auth surface (contract §4.1).
 /// TODO(F1): implement over the real base URL with dart:io (no new pub deps).
 abstract class AuthApi {
-  /// POST /auth/otp/start — 202 + `{sent_to_masked, resend_after_s}`.
-  Future<void> startOtp(String e164);
+  /// POST /auth/otp/start — 202 + `{sent_to_masked, resend_after_s, channel}`.
+  /// Returns the channel: `firebase` (Firebase SMS, client-side) or `sms`
+  /// (server-generated code over the SMS gateway).
+  Future<String> startOtp(String e164);
   /// POST /auth/otp/verify `{firebase_id_token, device}` → session.
   Future<AuthSession> verifyOtp({
     required String idToken,
+    required String deviceId,
+  });
+  /// POST /auth/otp/verify `{phone, otp_code, device}` → session (server-code path).
+  Future<AuthSession> verifyServerCode({
+    required String phone,
+    required String code,
     required String deviceId,
   });
   /// POST /auth/logout.
@@ -238,6 +250,10 @@ class AuthController extends ChangeNotifier {
   bool get newDeviceAlert => _newDeviceAlert;
   int get resendInSeconds => _resendInSeconds;
   bool get canResend => _resendInSeconds <= 0;
+
+  /// OTP channel from the last sendOtp: `firebase` or `sms` (server codes).
+  String _channel = 'firebase';
+  String get channel => _channel;
   AuthSession? get session => _session;
   bool get isAuthenticated =>
       _status == AuthStatus.authenticated &&
@@ -266,12 +282,23 @@ class AuthController extends ChangeNotifier {
     _notify();
     try {
       final e164 = '+91$digits';
-      await _api.startOtp(e164); // 202; server rate-limits (SEC-A02)
-      _verificationId = await _verifier.requestCode(e164); // Firebase SMS
+      _channel = await _api.startOtp(e164); // 202; server rate-limits (SEC-A02)
+      if (_channel != 'sms') {
+        _verificationId = await _verifier.requestCode(e164); // Firebase SMS
+      }
       _status = AuthStatus.codeSent;
       _startCooldown();
+    } on ApiException catch (e) {
+      // Server answered with an error status: offline/5xx vs real 4xx matter.
+      _fail(
+        e.isNetwork
+            ? authStringsHi['networkError']!
+            : '${authStringsHi['serverError']!} (${e.statusCode})',
+        AuthStatus.error,
+      );
     } catch (_) {
-      _fail(authStringsHi['networkError']!, AuthStatus.error);
+      // Firebase SMS itself failed (billing/quota/SafetyNet) — not the network.
+      _fail(authStringsHi['smsError']!, AuthStatus.error);
     }
     _notify();
   }
@@ -300,7 +327,7 @@ class AuthController extends ChangeNotifier {
       return;
     }
     final verificationId = _verificationId;
-    if (verificationId == null || smsCode.length != 6) {
+    if ((_channel != 'sms' && verificationId == null) || smsCode.length != 6) {
       _fail(authStringsHi['invalidCode']!, AuthStatus.codeSent);
       return;
     }
@@ -308,14 +335,23 @@ class AuthController extends ChangeNotifier {
     _errorMessage = null;
     _notify();
     try {
-      final idToken = await _verifier.confirmCode(
-        verificationId: verificationId,
-        smsCode: smsCode,
-      );
-      final session = await _api.verifyOtp(
-        idToken: idToken,
-        deviceId: deviceId,
-      );
+      final AuthSession session;
+      if (_channel == 'sms') {
+        session = await _api.verifyServerCode(
+          phone: '+91$_digits10',
+          code: smsCode,
+          deviceId: deviceId,
+        );
+      } else {
+        final idToken = await _verifier.confirmCode(
+          verificationId: verificationId!,
+          smsCode: smsCode,
+        );
+        session = await _api.verifyOtp(
+          idToken: idToken,
+          deviceId: deviceId,
+        );
+      }
       await _store.saveSession(
         accessToken: session.accessToken,
         refreshToken: session.refreshToken,
@@ -325,17 +361,28 @@ class AuthController extends ChangeNotifier {
       _session = session;
       _newDeviceAlert = session.newDeviceAlert;
       _status = AuthStatus.authenticated;
-    } catch (_) {
-      _attempts += 1;
-      if (_attempts >= maxAttempts) {
-        _mustResend = true;
-        _verificationId = null; // old code is dead — force resend
-        _fail(authStringsHi['tooManyAttempts']!, AuthStatus.codeSent);
+    } on ApiException catch (e) {
+      if (e.isNetwork) {
+        _fail(authStringsHi['networkError']!, AuthStatus.error);
       } else {
-        _fail(authStringsHi['invalidCode']!, AuthStatus.codeSent);
+        _failAuthAttempt();
       }
+    } catch (_) {
+      _failAuthAttempt();
     }
     _notify();
+  }
+
+  /// Wrong-code accounting shared by the Firebase and server-code paths.
+  void _failAuthAttempt() {
+    _attempts += 1;
+    if (_attempts >= maxAttempts) {
+      _mustResend = true;
+      _verificationId = null; // old code is dead — force resend
+      _fail(authStringsHi['tooManyAttempts']!, AuthStatus.codeSent);
+    } else {
+      _fail(authStringsHi['invalidCode']!, AuthStatus.codeSent);
+    }
   }
 
   /// Logout: revoke server-side (best-effort) + wipe local session (contract).
@@ -421,6 +468,7 @@ class AuthController extends ChangeNotifier {
   void _reset() {
     _timer?.cancel();
     _verificationId = null;
+    _channel = 'firebase';
     _digits10 = '';
     _attempts = 0;
     _mustResend = false;

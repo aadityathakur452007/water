@@ -7,10 +7,13 @@ import 'package:shodasha_app/features/auth/auth_controller.dart';
 class _FakeApi implements AuthApi {
   AuthSession? sessionToReturn;
   bool failStart = false;
+  String channelToReturn = 'firebase';
+  Map<String, String>? serverCodeArgs;
 
   @override
-  Future<void> startOtp(String e164) async {
+  Future<String> startOtp(String e164) async {
     if (failStart) throw Exception('offline');
+    return channelToReturn;
   }
 
   @override
@@ -18,6 +21,18 @@ class _FakeApi implements AuthApi {
     required String idToken,
     required String deviceId,
   }) async {
+    final s = sessionToReturn;
+    if (s == null) throw Exception('no session');
+    return s;
+  }
+
+  @override
+  Future<AuthSession> verifyServerCode({
+    required String phone,
+    required String code,
+    required String deviceId,
+  }) async {
+    serverCodeArgs = {'phone': phone, 'code': code, 'deviceId': deviceId};
     final s = sessionToReturn;
     if (s == null) throw Exception('no session');
     return s;
@@ -41,6 +56,26 @@ class _FakeVerifier implements PhoneVerifier {
     if (smsCode == goodCode) return 'id-token';
     throw Exception('invalid code');
   }
+}
+
+/// Counts Firebase requestCode calls (proves the sms channel skips Firebase).
+class _CountingVerifier implements PhoneVerifier {
+  _CountingVerifier(this.onRequest);
+  final void Function() onRequest;
+  final _FakeVerifier _inner = _FakeVerifier();
+
+  @override
+  Future<String> requestCode(String e164) {
+    onRequest();
+    return _inner.requestCode(e164);
+  }
+
+  @override
+  Future<String> confirmCode({
+    required String verificationId,
+    required String smsCode,
+  }) =>
+      _inner.confirmCode(verificationId: verificationId, smsCode: smsCode);
 }
 
 AuthController _controller({
@@ -147,6 +182,36 @@ void main() {
       expect(c.attempts, 0);
       expect(c.mustResend, isFalse);
       expect(c.status, AuthStatus.codeSent);
+      c.dispose();
+    });
+
+    test('sms channel skips Firebase and posts the typed code', () async {
+      final api = _FakeApi()
+        ..channelToReturn = 'sms'
+        ..sessionToReturn = AuthSession(
+          accessToken: 'a',
+          refreshToken: 'r',
+          expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+          role: 'user',
+        );
+      var firebaseCalls = 0;
+      final verifier = _CountingVerifier(() => firebaseCalls++);
+      final c = AuthController(
+        api: api,
+        verifier: verifier,
+        store: InMemorySessionStore(),
+        deviceId: 'test-device',
+      );
+      await c.sendOtp('9876543210');
+      expect(c.status, AuthStatus.codeSent);
+      expect(firebaseCalls, 0); // no Firebase request on the sms channel
+      await c.confirm('654321');
+      expect(c.status, AuthStatus.authenticated);
+      expect(api.serverCodeArgs, {
+        'phone': '+919876543210',
+        'code': '654321',
+        'deviceId': 'test-device',
+      });
       c.dispose();
     });
 

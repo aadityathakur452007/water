@@ -159,23 +159,23 @@ def test_real_verifier_bad_token_401():
 # -- service -----------------------------------------------------------------
 
 
-def test_otp_start_ok():
-    out = _svc(_conn()).otp_start("9876543210", "1.2.3.4")
-    assert out == {"sent_to_masked": "+91******3210", "resend_after_s": 30}
+async def test_otp_start_ok():
+    out = await _svc(_conn()).otp_start("9876543210", "1.2.3.4")
+    assert out == {"sent_to_masked": "+91******3210", "resend_after_s": 30, "channel": "firebase"}
 
 
-def test_otp_start_bad_phone_400():
+async def test_otp_start_bad_phone_400():
     with pytest.raises(ValidationError) as e:
-        _svc(_conn()).otp_start("abc", "1.2.3.4")
+        await _svc(_conn()).otp_start("abc", "1.2.3.4")
     assert e.value.status_code == 400
 
 
-def test_otp_start_rate_limited_429():
+async def test_otp_start_rate_limited_429():
     s = _svc(_conn())
     for _ in range(5):
-        s.otp_start(PHONE, "9.9.9.9")
+        await s.otp_start(PHONE, "9.9.9.9")
     with pytest.raises(RateLimitedError) as e:
-        s.otp_start(PHONE, "9.9.9.9")
+        await s.otp_start(PHONE, "9.9.9.9")
     assert e.value.status_code == 429
 
 
@@ -334,7 +334,7 @@ def _auth_headers(token: str) -> dict:
 def test_router_start_202():
     r = _client(_conn()).post("/v1/auth/otp/start", json={"phone": "9876543210"})
     assert r.status_code == 202, r.text
-    assert r.json() == {"sent_to_masked": "+91******3210", "resend_after_s": 30}
+    assert r.json() == {"sent_to_masked": "+91******3210", "resend_after_s": 30, "channel": "firebase"}
 
 
 def test_router_start_bad_phone_400():

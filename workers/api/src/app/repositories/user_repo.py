@@ -90,6 +90,25 @@ class UserRepo:
             self._conn.commit()
             return await self.find_by_id(user_id)  # type: ignore[return-value]
 
+    async def upsert_phone_user(self, *, phone: str) -> dict:
+        """Find-or-create by phone for the server-code OTP path (firebase_uid NULL)."""
+        with WRITE_LOCK:
+            row = (
+                await self._conn.execute(
+                    f"SELECT {_USER_COLS} FROM users WHERE phone = ?", (phone,)  # noqa: S608
+                )
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+            user_id = uuid.uuid4().hex
+            await self._conn.execute(
+                "INSERT INTO users(id, phone, role, language,"
+                " kyc_status, suspended, created_at) VALUES (?, ?, 'user', 'hi', 'none', 0, ?)",
+                (user_id, phone, _now()),
+            )
+            self._conn.commit()
+            return await self.find_by_id(user_id)  # type: ignore[return-value]
+
     async def update_profile(
         self, user_id: str, *, name: str | None = None, language: str | None = None
     ) -> dict | None:

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
 | ADR-046 | 2026-10-01 | T2 Phase-B: 10 routers on async D1 (auth.py pattern) — get_db_conn, async handlers, await service/repo/execute; payments.py extra-paren fix | Accepted | workers/api/src/app/api/v1/{addresses,admin,complaints,devices,orders,payments,ratings,returns,subscriptions,vendor}.py |
 | ADR-045 | 2026-10-01 | T2 Phase-B: 5 services + scheduler jobs on async (auth_service.py pattern); address_service pure-unchanged; scheduler main sync via asyncio.run; purge r[0]→r["name"] for dict-rows | Accepted | workers/api/src/app/services/{dispatch,order,payment,subscription,vendor}_service.py, workers/api/src/app/jobs/scheduler.py |
@@ -102,6 +103,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-048: Server OTP via Fast2SMS + APK verify 400 fix
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: APK verify 400'd (app sent `device` as string, contract needs `{id}` object); all send failures masked as "network problem"; Firebase SMS needs Blaze billing (Sept 2024, verified) which the user refuses. Verified 2026 pricing: Fast2SMS Rs 0.25/SMS from Rs 100 (+GST + Rs 0.025 scrubbing); DLT registration mandatory for all providers.
+- **Options considered**: MSG91 SendOTP (rejected — pricier packs, same DLT need); Blaze with cap (rejected by user); test-numbers-only (kept as the QA path, not the build).
+- **Decision**: `adapters/sms.py` fake/real seam (`OTP_PROVIDER`, default firebase = zero behavior change); `008_otp.sql` + `OtpRepo` (sha256 only, 5-min TTL, 5 attempts then burn, single-use); service branches + additive `channel` on 202 and optional `phone`/`otp_code` on verify; app sends `device:{id}`, returns channel, skips Firebase on `sms`, distinct sms/server/network errors. 172 backend + 66 app tests green.
+- **Why**: Smallest shape that kills the 400 today, unmasks errors, and makes the provider a secret-flip once the user finishes DLT + Rs 100 recharge.
+- **Consequences**: User-side still open: DLT entity/header/template (spec file has plain-language steps) + `FAST2SMS_API_KEY` secret + `OTP_PROVIDER=fast2sms` var. Push redeploys `water`; APK needs a release rebuild for the device fix.
+- **Affects**: backend sms slice + app auth (see index)
 
 ### ADR-047: Phase-B completion — facade-type fixes + tests await-ified, 163 green
 - **Date**: 2026-10-01
