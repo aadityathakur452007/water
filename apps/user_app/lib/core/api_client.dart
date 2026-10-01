@@ -19,7 +19,7 @@ const String kApiBaseUrl = String.fromEnvironment(
 );
 
 /// Support number for never-dead-end paths (screens show it on 4xx walls).
-const String kSupportPhone = '+91 98765 43210';
+const String kSupportPhone = '+91 93021 90067';
 
 /// Thrown for every non-2xx / network failure.
 class ApiException implements Exception {

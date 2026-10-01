@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-040 | 2026-10-01 | Secrets-focused review (security-audit guidance): no committed secrets/tokens/env; support number → +91 9302190067 in 5 user-visible spots; fixtures/docs keep fictional 98765 range | Accepted | apps/{user_app/lib/{core/api_client,features/{auth/auth_controller,orders/{orders_controller,bill_screen}}},admin_app/src/app/login/page.tsx} |
 | ADR-039 | 2026-10-01 | Pure-stdlib RS256 verify (rsa_verify.py, DER+pow) with crypto-first fallback in firebase.py; release APK gets prod SHODASHA_API_BASE + Razorpay defines | Accepted | workers/api/src/app/adapters/{rsa_verify.py,firebase.py}, tests/test_firebase_rsa.py, .github/workflows/release.yml |
 | ADR-038 | 2026-10-01 | Admin panel → Cloudflare Worker via @opennextjs/cloudflare 1.20.7 (Pages static-export impossible; next-on-pages deprecated; Next 16 supported; proxy.ts is Web-API-only) | Accepted | apps/admin_app/{wrangler.jsonc,open-next.config.ts,package.json,next.config.ts} |
 | ADR-037 | 2026-10-01 | src-first backend layout: app/ moved under src/ (bundler only ships entry dir); conftest.py + seed path fixes; local runs need PYTHONPATH=src | Accepted | workers/api/{src/,conftest.py,scripts/seed_admin.py,tests/} |
@@ -94,6 +95,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-040: Secrets-focused review + real support number
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: User asked for a security-skill pass over hardcoded secrets/URLs/env + swapping the placeholder support number for +91 9302190067. Skill loaded: security-audit (guidance mode — rule applied: only concrete boundary+result counts; checklist nits are not findings).
+- **Options considered**: Full audit with artifacts (rejected — user asked a focused question, not a full review); rewriting test fixtures to the new number (rejected — churn for zero gain; 98765-range is India's standard fictional prefix and never user-visible).
+- **Decision**: Scan verdict — no high/medium findings: `.env`/`.env.local`/`data/`/`.dev.vars` all untracked+gitignored; no Cloudflare tokens in git; committed key material is public-by-design only (Firebase client key, `rzp_test_*` publishable key, D1 id, workers.dev URLs in CI); google-services.json committed per standard practice. One hygiene fix class: 5 user-visible placeholder numbers → +91 9302190067 (kSupportPhone, 2× wa.me share links, auth phone hint, admin login placeholder). Test fixtures + format-doc comments keep 98765.
+- **Why**: Smallest diff that removes every user-facing placeholder without touching test semantics or inventing new secret-handling.
+- **Consequences**: Next release APK + admin redeploy carry the real number. Informational residual: SHA fingerprints + Firebase authorized domains remain user-side console steps.
+- **Affects**: `apps/user_app/lib/{core/api_client.dart,features/auth/auth_controller.dart,features/orders/{orders_controller.dart,bill_screen.dart}}`, `apps/admin_app/src/app/login/page.tsx`
 
 ### ADR-039: Pure-stdlib RS256 verify + prod release defines
 - **Date**: 2026-10-01

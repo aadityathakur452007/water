@@ -184,7 +184,7 @@ function LoginForm() {
                 inputMode="tel"
                 autoComplete="tel"
                 className="tnum mt-1.5 h-11 w-full rounded-lg border border-line bg-canvas px-3 text-sm text-ink focus:border-accent"
-                placeholder="+91 98765 43210"
+                placeholder="+91 93021 90067"
               />
               <button
                 type="button"

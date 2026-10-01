@@ -19,7 +19,7 @@ class BillScreen extends StatelessWidget {
   Future<void> _share(BuildContext context, Order o) async {
     final text = 'Shodasha #${o.id} • ${formatRupees(o.totalPaise)}';
     final uri = Uri.parse(
-      'https://wa.me/919876543210?text=${Uri.encodeComponent(text)}',
+      'https://wa.me/919302190067?text=${Uri.encodeComponent(text)}',
     );
     bool ok = false;
     try {

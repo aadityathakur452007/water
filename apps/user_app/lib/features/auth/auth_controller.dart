@@ -31,7 +31,7 @@ const Map<String, String> authStringsHi = {
   'loginTitle': 'Mobile number se login karein',
   'loginSubtitle': 'OTP se verify hoga • naya account apne-aap ban jayega',
   'phoneLabel': 'Mobile number',
-  'phoneHint': '98765 43210',
+  'phoneHint': '93021 90067',
   'phoneHelper': '10 ank, 6–9 se shuru ho',
   'phoneError': 'Sahi 10-digit mobile number likhein (6–9 se shuru)',
   'sendOtp': 'OTP bhejein',
