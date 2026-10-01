@@ -1,0 +1,21 @@
+[project]
+name = "water"
+version = "1.0.0"
+description = "Shodasha API on Cloudflare Python Workers (FastAPI + D1)"
+requires-python = ">=3.13"
+dependencies = [
+    # Pure-Python only: Workers ban C extensions, so uvicorn (unneeded —
+    # Workers provide the ASGI server) and cryptography (breaks Firebase
+    # RS256 verify; T2 replaces it with a pure-Python RSA path) are out.
+    "fastapi",
+    "pydantic-settings",
+    "httpx",
+    "pyjwt",
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk",
+    "pytest",
+]

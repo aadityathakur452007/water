@@ -1,0 +1,33 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "water",
+	"main": "src/entry.py",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": [
+		"python_workers",
+		"python_dedicated_snapshot"
+	],
+	"d1_databases": [
+		{
+			// Available in the Worker as env.DB (see src/entry.py).
+			"binding": "DB",
+			"database_name": "shodasha",
+			// From `npx wrangler d1 create shodasha` — paste the real id here.
+			// Deploy fails fast with a clear error until this is replaced.
+			"database_id": "REPLACE-WITH-D1-DATABASE-ID"
+		}
+	],
+	"vars": {
+		// Non-secret tunables only. Secrets (Firebase, Razorpay, webhook,
+		// VPA, admin phone) go via `wrangler secret put` — never here.
+		"APP_ENV": "prod"
+	},
+	"triggers": {
+		// Scheduler (app/jobs/scheduler.py) runs here once its async-D1
+		// conversion lands (T2). 15 min matches QUOTE_TTL_MIN cleanup.
+		"crons": ["*/15 * * * *"]
+	},
+	"observability": {
+		"enabled": true
+	}
+}

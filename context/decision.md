@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-036 | 2026-10-01 | Cloudflare port T1: wrangler.jsonc + package.json + pyproject.toml + src/entry.py + db.get_d1 seam (name water, D1 binding DB, cron 15m stub) | Accepted | workers/api/{wrangler.jsonc,package.json,pyproject.toml,src/entry.py,app/db.py} |
 | ADR-035 | 2026-10-01 | 006 merged to main + CI/release GitHub Workflows: JDK 17 + Flutter 3.44.9 pins, auto-patch tags + APK GitHub Releases | Accepted | .github/workflows/, main branch |
 | ADR-034 | 2026-10-01 | (reserved — F-SA2 admin-panel UI upgrade, lives on 005-super-admin-panel line, see stash) | Proposed | apps/admin_app/, workers/api/ |
 | ADR-033 | 2026-10-01 | Release-mode validation + emulator rebuild: clean AVD recreate, flutter clean + --release AOT (60.7MB), senior-practice audit (fixed Bकaya typo; no secrets/prints) | Accepted | apps/user_app (release artifact), local AVD |
@@ -90,6 +91,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-036: Cloudflare port T1 — worker config + entrypoint + D1 seam (official shapes only)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: User on dashboard "Set up your application" (project `water`, repo aadityathakur452007/water, root `/`, deploy `npx wrangler deploy`): deploying as-is would fail — no wrangler config (autoconfig fails on multi-framework monorepos per docs), wrong root, name-mismatch risk.
+- **Options considered**: `npx wrangler deploy` as dashboard deploy cmd (kept as fallback — official Python examples deploy via `uv run pywrangler deploy`, mirrored in package.json `npm run deploy`, which is the configured command); moving `app/` under `src/` (rejected — huge churn on an unverified bundling assumption; `src/entry.py` imports `app.main`, one-line fix if the bundler disagrees); full async-D1 conversion now (rejected — ~130 call sites; split into T2 rather than half-ship).
+- **Decision**: `wrangler.jsonc` (name `water` = dashboard project, `src/entry.py`, compat 2026-10-01, `python_workers` + `python_dedicated_snapshot` flags from the official FastAPI example, `d1_databases` binding `DB`→shodasha with placeholder id that fails fast, `vars` only `APP_ENV`, cron `*/15`, observability on); `package.json` (wrangler ^4.114.0, scripts mirror official examples); `pyproject.toml` (fastapi/pydantic-settings/httpx/pyjwt; no uvicorn — Workers ship the ASGI server; no cryptography — C-ext banned); `src/entry.py` (`Default.fetch` → `asgi.fetch(app, request.js_object, self.env)` verbatim from cloudflare/python-workers-examples 03-fastapi, `scheduled(controller, env, ctx)` verbatim from cron example, currently a logged no-op); `db.get_d1(env)` seam (returns `env.DB` or `None`; sqlite path untouched). Every shape copied from official sources, nothing invented. 153 pytest green; wrangler/package/pyproject machine-validated.
+- **Why**: Dashboard needs committed config + root `workers/api` before it can succeed; T1 unblocks "Save and Deploy" structurally while T2 (async repos, pure-Python RS256, vars→pydantic confirmation) is now precisely scoped instead of vague.
+- **Consequences**: User must run `wrangler d1 create shodasha` (paste id), `wrangler secret put` per key, set dashboard root to `workers/api` + deploy cmd `npm run deploy`. First deploy proves boot/config; DB routes need T2.
+- **Affects**: `workers/api/{wrangler.jsonc,package.json,pyproject.toml,src/entry.py,app/db.py}`
 
 ### ADR-035: 006 merged to main + CI/release GitHub Workflows (research-backed, no hallucination)
 - **Date**: 2026-10-01

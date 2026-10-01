@@ -4,7 +4,14 @@ Minimal slice-1 schema — just ``config`` + ``audit_log``. Auth/order/jar
 tables (and Alembic) arrive with slice-2.
 
 Thread-safety: connections use ``check_same_thread=False``; all writes
-must hold the module-level :data:`WRITE_LOCK`.
+must hold the module-level :data:`WRITE_LOCK`. (On Workers there are no
+threads; the lock is a harmless no-op there.)
+
+Cloudflare path (T2): production uses the D1 binding (``env.DB``), which
+is async-only (``prepare/bind/all/run``), while every repository here
+speaks sync ``sqlite3``. :func:`get_d1` is the seam T2 threads through
+``get_db()`` when it converts repositories to async; until then local
+dev and pytest stay on sqlite exactly as before.
 """
 
 from __future__ import annotations
@@ -56,3 +63,15 @@ def init_schema(conn: sqlite3.Connection) -> None:
     with WRITE_LOCK:
         conn.executescript(_SCHEMA)
         conn.commit()
+
+
+def get_d1(env) -> object | None:
+    """Return the D1 binding from a Workers env object (``None`` locally).
+
+    Args:
+        env: the Worker env (``self.env`` in the entrypoint, or
+            ``request.scope["env"]`` inside a route). Locally there is no
+            env object, so this returns ``None`` and callers fall back to
+            :func:`get_connection`.
+    """
+    return getattr(env, "DB", None)

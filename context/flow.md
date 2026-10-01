@@ -273,8 +273,7 @@ dev machine → emulator shodasha_api36 (pixel_7, google_apis x86_64, API 36 / A
 ```
 - Re-run after edits: rebuild debug APK + `adb install -r` (no AVD/SDK reinstall needed). Platform-37 coexists harmlessly.
 
-### CI/CD — GitHub Actions (ADR-035, `.github/workflows/`, live on main)
-```
+### CI/CD — GitHub Actions (ADR-035, `.github/workflows/`, live on main)```
 push to PR / non-main branch ──▶ ci.yml ──▶ analyze + test + debug APK (artifact, no release)
 push to main ──▶ release.yml ──▶ analyze + test ──▶ next patch from latest v* tag (none → v1.0.1)
   ──▶ flutter build apk --release --build-name=X.Y.Z --build-number=run_number
@@ -283,6 +282,15 @@ push to main ──▶ release.yml ──▶ analyze + test ──▶ next patch
 ```
 - Pins mirror the release-verified local machine: Flutter 3.44.9 (flutter-action v2), JDK 17 Temurin (AGP 9.0.1's documented JDK; bytecode target is 17 so the APK matches local JBR-25 builds), Gradle 9.1.0 wrapper + SDK/build-tools 36.0.0 from the repo.
 - No push-loop: version passed via --build-name/--build-number (pubspec untouched); tag pushes can't retrigger (branches:main filter); release writes via API. Signing is debug keys (direct-install OK; real keystore = pre-Play TODO).
+
+### Backend deploy — Cloudflare Python Worker (ADR-036, `workers/api/`, project `water`)
+```
+dashboard (root workers/api, deploy `npm run deploy`) or `uv run pywrangler deploy`
+  └─ src/entry.py:Default.fetch → asgi.fetch(app, request, env.DB/vars/secrets)
+  └─ scheduled (cron */15) → logged no-op until async-D1 conversion (T2)
+local/pytest: app.main:create_app() + sqlite unchanged (153 green)
+```
+- T1 only: D1 id placeholder + secrets + async repo conversion + pure-Python Firebase RS256 still open (T2).
 
 ### Checkout call map (005-home-ux, 2026-10-01, ADR-029)
 ```
