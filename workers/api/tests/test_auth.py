@@ -34,7 +34,7 @@ from app.services.auth_service import (  # noqa: E402
     reset_rate_limits,
 )
 
-MIGRATION = (API_ROOT / "app" / "db" / "migrations" / "002_auth.sql").read_text()
+MIGRATION = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 PHONE = "+919876543210"
 
 

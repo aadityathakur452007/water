@@ -9,3 +9,9 @@ build/
 Thumbs.db
 __pycache__/
 data/
+
+.wrangler/
+.venv/
+.venv-workers/
+python_modules/
+pylock.toml

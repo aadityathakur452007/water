@@ -16,13 +16,14 @@ import sys
 from pathlib import Path
 
 API_ROOT = Path(__file__).resolve().parents[1]
-if str(API_ROOT) not in sys.path:
-    sys.path.insert(0, str(API_ROOT))
+SRC_ROOT = API_ROOT / "src"  # src-first layout (Cloudflare entry lives beside app)
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from app.db import get_connection, init_schema  # noqa: E402
 from app.services.auth_service import normalize_phone  # noqa: E402
 
-MIGRATION = (API_ROOT / "app" / "db" / "migrations" / "002_auth.sql").read_text()
+MIGRATION = (SRC_ROOT / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 
 
 def main() -> int:

@@ -28,9 +28,9 @@ from app.services.vendor_service import (  # noqa: E402
     seed_quality,
 )
 
-M002 = (API_ROOT / "app" / "db" / "migrations" / "002_auth.sql").read_text()
-M003 = (API_ROOT / "app" / "db" / "migrations" / "003_addresses.sql").read_text()
-M004 = (API_ROOT / "app" / "db" / "migrations" / "004_orders.sql").read_text()
+M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
+M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").read_text()
+M004 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 FUTURE = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat()

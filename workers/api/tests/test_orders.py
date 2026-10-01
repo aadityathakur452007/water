@@ -32,7 +32,7 @@ from app.services.order_service import (  # noqa: E402
     StaleQuoteError,
 )
 
-MIGRATION = (API_ROOT / "app" / "db" / "migrations" / "004_orders.sql").read_text()
+MIGRATION = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 
 WINDOW = "2026-10-01T08:00:00+00:00"
 

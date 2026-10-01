@@ -38,8 +38,8 @@ from app.services import pricing  # noqa: E402
 from app.services.order_service import OrderService  # noqa: E402
 from app.services.payment_service import PaymentService  # noqa: E402
 
-MIG4 = (API_ROOT / "app" / "db" / "migrations" / "004_orders.sql").read_text()
-MIG5 = (API_ROOT / "app" / "db" / "migrations" / "005_payments.sql").read_text()
+MIG4 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
+MIG5 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
 VPA = agency_vpa()
 WINDOW = "2026-10-01T08:00:00+00:00"
 

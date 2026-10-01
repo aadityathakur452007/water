@@ -74,7 +74,7 @@ def client(monkeypatch):
 
     c = get_connection(":memory:")
     for name in MIGRATIONS:
-        c.executescript((API_ROOT / "app" / "db" / "migrations" / name).read_text())
+        c.executescript((API_ROOT / "src" / "app" / "db" / "migrations" / name).read_text())
     init_schema(c)  # config/audit_log shape (admin writes audit)
     c.commit()
 

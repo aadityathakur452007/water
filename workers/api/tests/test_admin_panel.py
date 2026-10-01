@@ -24,7 +24,7 @@ MIGRATIONS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql",
 def _conn():
     c = get_connection(":memory:")
     for name in MIGRATIONS:
-        c.executescript((API_ROOT / "app" / "db" / "migrations" / name).read_text())
+        c.executescript((API_ROOT / "src" / "app" / "db" / "migrations" / name).read_text())
     init_schema(c)
     return c
 

@@ -31,7 +31,7 @@ MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "006_aftermath.sq
 def _conn():
     c = get_connection(":memory:")
     for m in MIGS:
-        c.executescript((API_ROOT / "app" / "db" / "migrations" / m).read_text())
+        c.executescript((API_ROOT / "src" / "app" / "db" / "migrations" / m).read_text())
     return c
 
 
@@ -94,7 +94,7 @@ def test_005_applies_cleanly_and_reruns():
     tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for t in ("subscriptions", "returns", "complaints", "ratings", "skips", "device_tokens"):
         assert t in tables
-    c.executescript((API_ROOT / "app" / "db" / "migrations" / "006_aftermath.sql").read_text())
+    c.executescript((API_ROOT / "src" / "app" / "db" / "migrations" / "006_aftermath.sql").read_text())
     assert c.execute("SELECT COUNT(*) c FROM subscriptions").fetchone()["c"] == 0
 
 

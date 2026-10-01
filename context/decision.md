@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-037 | 2026-10-01 | src-first backend layout: app/ moved under src/ (bundler only ships entry dir); conftest.py + seed path fixes; local runs need PYTHONPATH=src | Accepted | workers/api/{src/,conftest.py,scripts/seed_admin.py,tests/} |
 | ADR-036 | 2026-10-01 | Cloudflare port T1: wrangler.jsonc + package.json + pyproject.toml + src/entry.py + db.get_d1 seam (name water, D1 binding DB, cron 15m stub) | Accepted | workers/api/{wrangler.jsonc,package.json,pyproject.toml,src/entry.py,app/db.py} |
 | ADR-035 | 2026-10-01 | 006 merged to main + CI/release GitHub Workflows: JDK 17 + Flutter 3.44.9 pins, auto-patch tags + APK GitHub Releases | Accepted | .github/workflows/, main branch |
 | ADR-034 | 2026-10-01 | (reserved — F-SA2 admin-panel UI upgrade, lives on 005-super-admin-panel line, see stash) | Proposed | apps/admin_app/, workers/api/ |
@@ -91,6 +92,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-037: src-first backend layout (bundler only ships the entry dir)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: First real deploy failed at API validation: `ModuleNotFoundError: No module named 'app'` — pywrangler uploads only `src/` (entry landed at `/session/metadata/entry.py`), sibling `app/` never shipped.
+- **Options considered**: Root-level entry importing `app` (rejected — unverified bundling assumption; official examples are all src-contained); copying app into src (rejected — duplicates source of truth); `git mv app src/app` (chosen — history preserved, matches official layout).
+- **Decision**: `app/` → `src/app/`; new root `conftest.py` puts `src/` on `sys.path` for pytest; `scripts/seed_admin.py` + 10 test files' migration paths repointed to `src/app/db/migrations`; local commands gain `PYTHONPATH=src` prefix. 153 pytest green. No import line inside `src/app` changed (`from app.*` still resolves — `src` is the path entry).
+- **Why**: Smallest diff that satisfies the verified bundler behavior; official layout, zero speculation.
+- **Consequences**: Local run/test invocations change (documented in conftest.py header); `wrangler d1 execute --file` paths unchanged (still `app/db/migrations` relative to `workers/api` — now under src, command updated accordingly).
+- **Affects**: `workers/api/src/`, `conftest.py`, `scripts/seed_admin.py`, `tests/`
 
 ### ADR-036: Cloudflare port T1 — worker config + entrypoint + D1 seam (official shapes only)
 - **Date**: 2026-10-01

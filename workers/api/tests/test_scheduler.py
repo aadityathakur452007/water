@@ -28,7 +28,7 @@ DAY = "2026-09-29"
 def _conn():
     c = get_connection(":memory:")
     for m in MIGS:
-        c.executescript((API_ROOT / "app" / "db" / "migrations" / m).read_text())
+        c.executescript((API_ROOT / "src" / "app" / "db" / "migrations" / m).read_text())
     init_schema(c)  # slice-1 config/audit_log shape
     return c
 

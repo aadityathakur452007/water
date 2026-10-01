@@ -18,7 +18,7 @@ from app.db import get_connection, init_schema  # noqa: E402
 
 
 def _apply_migration(conn) -> None:
-    mig = Path(__file__).resolve().parents[1] / "app" / "db" / "migrations" / "003_addresses.sql"
+    mig = Path(__file__).resolve().parents[1] / "src" / "app" / "db" / "migrations" / "003_addresses.sql"
     conn.executescript(mig.read_text())
     conn.commit()
 
