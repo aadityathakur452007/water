@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Script from "next/script";
 import Link from "next/link";
 import { ArrowRight, Droplets, Loader2, ShieldCheck } from "lucide-react";
 import { clsx } from "clsx";
@@ -151,16 +150,6 @@ function LoginForm() {
 
   return (
     <main className="flex min-h-[100dvh] items-center justify-center bg-canvas px-4">
-      {/* Firebase compat SDK (phone auth). Pinned; loaded before interaction
-          so window.firebase exists when the user submits. */}
-      <Script
-        src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"
-        strategy="beforeInteractive"
-      />
-      <Script
-        src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"
-        strategy="beforeInteractive"
-      />
       <div className="w-full max-w-sm">
         <div className="rise mb-6 flex flex-col items-center gap-2 text-center">
           <span className="flex size-11 items-center justify-center rounded-xl bg-accent text-white">
