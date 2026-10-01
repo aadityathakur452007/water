@@ -13,6 +13,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from app.db import get_connection, init_schema  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.repositories.order_repo import NeedDispatchOverrideError, OrderRepo  # noqa: E402
 from app.services.dispatch_service import (  # noqa: E402
     CapacityExceededError,
@@ -76,14 +77,14 @@ def _client(c, user=ADMIN):
     from fastapi.testclient import TestClient
 
     from app.api import auth_deps
-    from app.api.deps import get_db
+    from app.api.deps import get_db_conn
     from app.api.v1.admin import router
     from app.core.errors import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
+    app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     app.dependency_overrides[auth_deps.get_current_user] = lambda: user
     return TestClient(app)
 
@@ -92,62 +93,65 @@ ADM = {"id": "admin1", "role": "admin"}
 
 # -- dispatch service ----------------------------------------------------------
 
-def test_assign_least_loaded_and_capacity_refused():
+async def test_assign_least_loaded_and_capacity_refused():
     c = _conn()
     _seed_base(c)
     _order(c, "o0")
-    assign_order(c, "o0", "v1", ADM)  # v1 now carries 1 stop
-    pick = least_loaded_vendor(c, "z1")
+    ac = AsyncSqliteConn(c)
+    await assign_order(ac, "o0", "v1", ADM)  # v1 now carries 1 stop
+    pick = await least_loaded_vendor(ac, "z1")
     assert pick and pick["vendor_id"] == "v2"  # least-loaded wins
     _order(c, "o1")
-    out = assign_order(c, "o1", pick["vendor_id"], ADM)
+    out = await assign_order(ac, "o1", pick["vendor_id"], ADM)
     assert out["version"] == 1
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "assigned"
     c.execute("UPDATE vendor_profile SET max_stops_per_shift = 1 WHERE user_id = 'v2'")
     _order(c, "o2")
     with pytest.raises(CapacityExceededError) as e:
-        assign_order(c, "o2", "v2", ADM)
+        await assign_order(ac, "o2", "v2", ADM)
     assert e.value.code == "CAPACITY_EXCEEDED" and e.value.status_code == 422
     c.execute("INSERT INTO users(id, phone, role, language, kyc_status, suspended, created_at)"
               " VALUES ('v3', '+915555555555', 'vendor', 'hi', 'verified', 0, 't')")
     c.execute("INSERT INTO zones(id, name, pincodes, active) VALUES ('z2', 'Z2', '999999', 1)")
     c.execute("INSERT INTO vendor_zones(vendor_id, zone_id) VALUES ('v3', 'z2')")
     with pytest.raises(ZoneMismatchError) as e2:
-        assign_order(c, "o2", "v3", ADM)
+        await assign_order(ac, "o2", "v3", ADM)
     assert e2.value.code == "ZONE_MISMATCH"
 
 
-def test_reassign_fences_old_stop():
+async def test_reassign_fences_old_stop():
     c = _conn()
     _seed_base(c)
     _order(c, "o1")
-    first = assign_order(c, "o1", "v1", ADM)
+    ac = AsyncSqliteConn(c)
+    first = await assign_order(ac, "o1", "v1", ADM)
     before_total = c.execute("SELECT total FROM orders WHERE id = 'o1'").fetchone()["total"]
-    out = reassign_order(c, "o1", "v2", ADM, "rebalance")
+    out = await reassign_order(ac, "o1", "v2", ADM, "rebalance")
     assert out["version"] == first["version"] + 1
     assert out["total_frozen"] == before_total  # price frozen
     old = c.execute("SELECT status FROM stops WHERE id = ?", (first["stop_id"],)).fetchone()
     assert old["status"] != "pending"  # old stop fenced
     with pytest.raises(StaleStopError) as e:
-        check_stop_fresh(c, first["stop_id"], first["version"])  # triple on old version
+        await check_stop_fresh(ac, first["stop_id"], first["version"])  # triple on old version
     assert e.value.code == "STALE_STOP" and e.value.status_code == 409
-    assert check_stop_fresh(c, out["stop_id"], out["version"])["status"] == "pending"
+    assert (await check_stop_fresh(ac, out["stop_id"], out["version"]))["status"] == "pending"
 
 
-def test_override_cancel_post_dispatch():
+async def test_override_cancel_post_dispatch():
     c = _conn()
     _seed_base(c)
     _order(c, "o1")
-    assign_order(c, "o1", "v1", ADM)
-    OrderRepo(c).transition("o1", "dispatched", ADM, "ops")
+    ac = AsyncSqliteConn(c)
+    await assign_order(ac, "o1", "v1", ADM)
+    await OrderRepo(ac).transition("o1", "dispatched", ADM, "ops")
     with pytest.raises(NeedDispatchOverrideError):  # user self-cancel blocked
-        OrderRepo(c).cancel_settle("o1", {"id": "u1", "role": "user"})
-    out = OrderRepo(c).cancel_settle("o1", ADM)  # dispatcher override settles
+        await OrderRepo(ac).cancel_settle("o1", {"id": "u1", "role": "user"})
+    out = await OrderRepo(ac).cancel_settle("o1", ADM)  # dispatcher override settles
     assert out["state"] == "cancelled" and out["bill_total"] == 0
     client = _client(c)  # router-level override path
     _order(c, "o2")
-    assign_order(c, "o2", "v2", ADM)
-    OrderRepo(c).transition("o2", "dispatched", ADM, "ops")
+    await assign_order(ac, "o2", "v2", ADM)
+    await OrderRepo(ac).transition("o2", "dispatched", ADM, "ops")
     r = client.post("/v1/admin/orders/o2/cancel-override", json={"reason": "admin call"})
     assert r.status_code == 200, r.text
     assert r.json()["state"] == "cancelled"

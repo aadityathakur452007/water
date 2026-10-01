@@ -26,10 +26,10 @@ class PaymentService:
 
     # -- UPI intent (idempotent) -----------------------------------------
 
-    def intent(self, user_id: str, order_id: str, idempotency_key: str) -> dict:
+    async def intent(self, user_id: str, order_id: str, idempotency_key: str) -> dict:
         if not idempotency_key or not str(idempotency_key).strip():
             raise ValidationError(message="Idempotency-Key header required.", details={})
-        order = self.orders.find_owned(order_id, user_id)
+        order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         if order.get("payment_mode") != "upi":
@@ -37,7 +37,7 @@ class PaymentService:
         if order.get("payment_status") in ("paid_upi", "paid_cash"):
             raise ConflictError(message="Order is already paid.", details={"id": order_id})
         created = self.provider.create_intent(order)
-        payment = self.payments.create_intent(
+        payment = await self.payments.create_intent(
             order_id, int(order["total"]), idempotency_key.strip(),
             provider_ref=created["provider_ref"],
         )
@@ -46,7 +46,7 @@ class PaymentService:
 
     # -- webhook ingest (verify → reconcile → best-effort FCM note) ------
 
-    def webhook_ingest(self, raw_body: bytes, signature: str | None) -> dict:
+    async def webhook_ingest(self, raw_body: bytes, signature: str | None) -> dict:
         from app.adapters.upi import DuplicateWebhookError  # noqa: PLC0415 (avoid cycle)
 
         try:
@@ -55,7 +55,7 @@ class PaymentService:
             return {"ok": True, "duplicate": True, "details": e.details}
         if event.get("status") == "declined":
             return {"ok": True, "declined": True, "provider_ref": event.get("provider_ref")}
-        payment = self.payments.apply_webhook(
+        payment = await self.payments.apply_webhook(
             str(event.get("provider_ref", "")), int(event.get("amount", 0)),
             str(event.get("payee", "")), order_id=event.get("order_id"),
         )
@@ -74,45 +74,45 @@ class PaymentService:
 
     # -- COD (unpaid until vendor cash posts) -----------------------------
 
-    def cod_confirm(self, user_id: str, order_id: str) -> dict:
-        order = self.orders.find_owned(order_id, user_id)
+    async def cod_confirm(self, user_id: str, order_id: str) -> dict:
+        order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         if order.get("payment_mode") != "cod":
             raise ValidationError(message="Order is not a COD order.", details={})
         if order.get("payment_status") not in UNPAID:
-            return self._bill(user_id, order)
-        if not self.payments._dues_posted(order_id):  # idempotent: post once
-            self.ledger.apply_event(user_id, d_dues=int(order["total"]),
+            return await self._bill(user_id, order)
+        if not await self.payments._dues_posted(order_id):  # idempotent: post once
+            await self.ledger.apply_event(user_id, d_dues=int(order["total"]),
                                     ref=f"order:{order_id}", actor=user_id,
                                     reason="cod dues")
-        return self._bill(user_id, self.orders.find_owned(order_id, user_id))
+        return await self._bill(user_id, await self.orders.find_owned(order_id, user_id))
 
-    def mark_cash(self, order_id: str, amount: int, actor_id: str) -> dict:
-        return self.payments.mark_paid_cash(order_id, int(amount), actor_id)
+    async def mark_cash(self, order_id: str, amount: int, actor_id: str) -> dict:
+        return await self.payments.mark_paid_cash(order_id, int(amount), actor_id)
 
     # -- refunds: claim → done/failed (C15) --------------------------------
 
-    def claim_refund(self, actor_id: str, refund_id: str) -> dict:
-        return self.payments.claim_refund(refund_id, actor_id)
+    async def claim_refund(self, actor_id: str, refund_id: str) -> dict:
+        return await self.payments.claim_refund(refund_id, actor_id)
 
-    def complete_refund(self, actor_id: str, refund_id: str, to_status: str) -> dict:
+    async def complete_refund(self, actor_id: str, refund_id: str, to_status: str) -> dict:
         _ = actor_id  # any admin closes; claim lock already picked the owner
-        return self.payments.complete_refund(refund_id, to_status)
+        return await self.payments.complete_refund(refund_id, to_status)
 
     # -- dues / invoice reads ----------------------------------------------
 
-    def get_dues(self, user_id: str) -> dict:
-        led = self.ledger.get(user_id)
-        rows = self.payments._conn.execute(
+    async def get_dues(self, user_id: str) -> dict:
+        led = await self.ledger.get(user_id)
+        rows = (await self.payments._conn.execute(
             "SELECT id, total, payment_status FROM orders WHERE user_id=? AND payment_status IN"
             " ('unpaid','link_sent','partial_dues')",
             (user_id,),
-        ).fetchall()
+        )).fetchall()
         lines = []
         link_pending = 0
         for r in rows:
-            paid = self.payments.paid_sum_for_order(r["id"])
+            paid = await self.payments.paid_sum_for_order(r["id"])
             due = max(0, int(r["total"]) - int(paid))
             lines.append({"order_id": r["id"], "total": int(r["total"]),
                           "paid": int(paid), "due": due, "status": r["payment_status"]})
@@ -128,14 +128,14 @@ class PaymentService:
                     if dues > 0 else None)
         return {"dues": dues, "lines": lines, "pay_link": pay_link}
 
-    def get_invoice(self, user_id: str, order_id: str) -> dict:
-        order = self.orders.find_owned(order_id, user_id)
+    async def get_invoice(self, user_id: str, order_id: str) -> dict:
+        order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
-        led = self.ledger.get(user_id)
-        paid = self.payments.paid_sum_for_order(order_id)
+        led = await self.ledger.get(user_id)
+        paid = await self.payments.paid_sum_for_order(order_id)
         amount_due = max(0, int(order["total"]) - int(paid))
-        if self.payments._dues_posted(order_id):
+        if await self.payments._dues_posted(order_id):
             previous = max(0, int(led["dues"]) - amount_due)  # exclude this order's remainder
         else:
             previous = int(led["dues"])
@@ -153,8 +153,8 @@ class PaymentService:
             "payment_mode": order["payment_mode"],
         }
 
-    def _bill(self, user_id: str, order: dict) -> dict:
-        dues = self.get_dues(user_id)
+    async def _bill(self, user_id: str, order: dict) -> dict:
+        dues = await self.get_dues(user_id)
         return {
             "order_id": order["id"],
             "payment_status": order["payment_status"],

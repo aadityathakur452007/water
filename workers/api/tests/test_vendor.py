@@ -17,6 +17,7 @@ if str(API_ROOT) not in sys.path:
 
 from app.core.errors import AppError  # noqa: E402
 from app.db import get_connection  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.services.vendor_service import (  # noqa: E402
     PayloadMismatchError,
     PodOtpError,
@@ -85,7 +86,7 @@ def _conn():
 
 
 def _svc(c) -> VendorService:
-    return VendorService(c)
+    return VendorService(AsyncSqliteConn(c))
 
 
 @pytest.fixture(autouse=True)
@@ -114,88 +115,88 @@ def test_duty_on_off_in_memory():
     assert _svc(c).duty("v1", False)["duty_on"] is False
 
 
-def test_today_route_loading_and_skip():
-    out = _svc(_conn()).today_route("v1", DAY)
+async def test_today_route_loading_and_skip():
+    out = await _svc(_conn()).today_route("v1", DAY)
     assert out["route"]["id"] == "r1" and len(out["stops"]) == 4
     assert out["loading"] == {"take_fulls": 4, "expect_empties": 3}
     assert [s["id"] for s in out["skip"]] == ["s4"]
-    assert _svc(_conn()).today_route("v1", "2000-01-01")["route"] is None
+    assert (await _svc(_conn()).today_route("v1", "2000-01-01"))["route"] is None
 
 
-def test_stop_idor_no_oracle():
+async def test_stop_idor_no_oracle():
     with pytest.raises(AppError) as e:
-        _svc(_conn()).get_stop("v2", "s1")  # other vendor's stop == not-found
+        await _svc(_conn()).get_stop("v2", "s1")  # other vendor's stop == not-found
     assert e.value.code == "NOT_FOUND" and e.value.status_code == 404
 
 
 # -- triple -------------------------------------------------------------------
 
-def test_triple_ok_ledger_math():
+async def test_triple_ok_ledger_math():
     c = _conn()
-    out = _svc(c).triple_commit("v1", "s1", _triple(), "k1")
+    out = await _svc(c).triple_commit("v1", "s1", _triple(), "k1")
     assert out["status"] == "done" and out["triple"]["cash"] == 100
     from app.repositories.ledger_repo import LedgerRepo
 
-    assert LedgerRepo(c).get("u1")["held"] == 1  # 2 given − 1 back
+    assert (await LedgerRepo(AsyncSqliteConn(c)).get("u1"))["held"] == 1  # 2 given − 1 back
     assert c.execute("SELECT COUNT(*) c FROM ledger_events").fetchone()["c"] == 1
 
 
-def test_triple_stale_version_409():
+async def test_triple_stale_version_409():
     with pytest.raises(StaleStopError) as e:
-        _svc(_conn()).triple_commit("v1", "s3", _triple(version=1))
+        await _svc(_conn()).triple_commit("v1", "s3", _triple(version=1))
     assert e.value.code == "STALE_STOP" and e.value.status_code == 409
 
 
-def test_triple_tendered_change_invariant_400():
+async def test_triple_tendered_change_invariant_400():
     with pytest.raises(AppError) as e:
-        _svc(_conn()).triple_commit("v1", "s1", _triple(tendered=100, change_given=0, cash=50))
+        await _svc(_conn()).triple_commit("v1", "s1", _triple(tendered=100, change_given=0, cash=50))
     assert e.value.code == "VALIDATION" and e.value.status_code == 400
     assert _conn() is not None  # fresh conn: nothing written anywhere (see ledger test below)
 
 
-def test_triple_never_negative_422_no_partial_write():
+async def test_triple_never_negative_422_no_partial_write():
     c = _conn()
     with pytest.raises(AppError) as e:
-        _svc(c).triple_commit("v1", "s1", _triple(fulls_given=0, empties_back=1, cash=0))
+        await _svc(c).triple_commit("v1", "s1", _triple(fulls_given=0, empties_back=1, cash=0))
     assert e.value.code == "HOLD_NEGATIVE" and e.value.status_code == 422
     assert c.execute("SELECT status FROM stops WHERE id = 's1'").fetchone()["status"] == "pending"
     assert c.execute("SELECT COUNT(*) c FROM ledger_events").fetchone()["c"] == 0
 
 
-def test_triple_idempotent_replay_same_key_once():
+async def test_triple_idempotent_replay_same_key_once():
     c = _conn()
     s = _svc(c)
-    o1 = s.triple_commit("v1", "s1", _triple(), "k1")
-    o2 = s.triple_commit("v1", "s1", _triple(), "k1")  # same key+payload → stored outcome
+    o1 = await s.triple_commit("v1", "s1", _triple(), "k1")
+    o2 = await s.triple_commit("v1", "s1", _triple(), "k1")  # same key+payload → stored outcome
     assert o1 == o2
     from app.repositories.ledger_repo import LedgerRepo
 
-    assert LedgerRepo(c).get("u1")["held"] == 1  # applied exactly once
+    assert (await LedgerRepo(AsyncSqliteConn(c)).get("u1"))["held"] == 1  # applied exactly once
     with pytest.raises(PayloadMismatchError):
-        s.triple_commit("v1", "s1", _triple(cash=5), "k1")  # same key, changed body
+        await s.triple_commit("v1", "s1", _triple(cash=5), "k1")  # same key, changed body
 
 
 # -- PoD ------------------------------------------------------------------------
 
-def test_pod_happy_delivers():
+async def test_pod_happy_delivers():
     c = _conn()
     s = _svc(c)
-    s.triple_commit("v1", "s1", _triple())
-    out = s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
+    await s.triple_commit("v1", "s1", _triple())
+    out = await s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
                                       "empties_count": 1, "cash": 100, "seal_ok": True})
     assert out["status"] == "done" and out["triple"]["pod"]["seal_ok"] is True
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "delivered"
 
 
-def test_pod_wrong_otp_401():
+async def test_pod_wrong_otp_401():
     with pytest.raises(PodOtpError) as e:
-        _svc(_conn()).pod_complete("v1", "s1", {"delivery_otp": "000000"})
+        await _svc(_conn()).pod_complete("v1", "s1", {"delivery_otp": "000000"})
     assert e.value.code == "UNAUTH" and e.value.status_code == 401
 
 
-def test_pod_gps_drift_flagged_not_blocked():
+async def test_pod_gps_drift_flagged_not_blocked():
     c = _conn()
-    out = _svc(c).pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
+    out = await _svc(c).pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
                                             "lat": 13.5, "lng": 78.5})  # ~100km away
     assert out["status"] == "done"  # completes despite drift
     assert out["triple"]["pod"]["gps"]["flagged"] is True
@@ -204,29 +205,29 @@ def test_pod_gps_drift_flagged_not_blocked():
 
 # -- sync + earnings --------------------------------------------------------------
 
-def test_sync_batch_mixed_then_replay():
+async def test_sync_batch_mixed_then_replay():
     c = _conn()
     s = _svc(c)
-    out = s.sync_batch("v1", [{"stop_id": "s2", **_triple(fulls_given=1, empties_back=0)},
+    out = await s.sync_batch("v1", [{"stop_id": "s2", **_triple(fulls_given=1, empties_back=0)},
                               {"stop_id": "s3", **_triple(version=1)}])
     assert out["applied"] == ["s2"] and out["replayed"] == []
     assert out["rejected"][0]["stop_id"] == "s3" and out["rejected"][0]["code"] == "STALE_STOP"
     from app.repositories.ledger_repo import LedgerRepo
 
-    held = LedgerRepo(c).get("u1")["held"]
-    again = s.sync_batch("v1", [{"stop_id": "s2", **_triple(fulls_given=1, empties_back=0)},
+    held = (await LedgerRepo(AsyncSqliteConn(c)).get("u1"))["held"]
+    again = await s.sync_batch("v1", [{"stop_id": "s2", **_triple(fulls_given=1, empties_back=0)},
                                 {"stop_id": "s3", **_triple(version=1)}])
     assert again["replayed"] == ["s2"] and len(again["rejected"]) == 1
-    assert LedgerRepo(c).get("u1")["held"] == held  # replay wrote nothing
+    assert (await LedgerRepo(AsyncSqliteConn(c)).get("u1"))["held"] == held  # replay wrote nothing
 
 
-def test_earnings_totals_and_flagged_hold():
+async def test_earnings_totals_and_flagged_hold():
     c = _conn()
     s = _svc(c)
-    s.triple_commit("v1", "s1", _triple(cash=100, upi=50))
-    s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY), "lat": 13.5, "lng": 78.5})
-    s.triple_commit("v1", "s2", _triple(fulls_given=1, empties_back=0, cash=0, upi=200))
-    out = s.earnings("v1", DAY)
+    await s.triple_commit("v1", "s1", _triple(cash=100, upi=50))
+    await s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY), "lat": 13.5, "lng": 78.5})
+    await s.triple_commit("v1", "s2", _triple(fulls_given=1, empties_back=0, cash=0, upi=200))
+    out = await s.earnings("v1", DAY)
     assert (out["cash_total"], out["upi_total"], out["stops_done"]) == (100, 250, 2)
     assert out["flagged_stops"] == 1 and out["flagged_hold"] == 150
     assert "held out of payouts" in out["note"]
@@ -234,16 +235,16 @@ def test_earnings_totals_and_flagged_hold():
 
 # -- complaint + quality (§14.3) ------------------------------------------------------
 
-def test_complaint_verify_agree_resolves():
-    out = _svc(_conn()).verify_complaint("v1", "c1", True, "short jar redelivered")
+async def test_complaint_verify_agree_resolves():
+    out = await _svc(_conn()).verify_complaint("v1", "c1", True, "short jar redelivered")
     assert out["status"] == "resolved" and out["vendor_agree"] == 1
 
 
-def test_complaint_verify_disagree_freezes_for_admin():
-    out = _svc(_conn()).verify_complaint("v1", "c1", False, "count was correct at door")
+async def test_complaint_verify_disagree_freezes_for_admin():
+    out = await _svc(_conn()).verify_complaint("v1", "c1", False, "count was correct at door")
     assert out["status"] == "under_review" and out["vendor_agree"] == 0
     with pytest.raises(AppError) as e:  # order not on this vendor's route → 404, no oracle
-        _svc(_conn()).verify_complaint("v1", "c9", True, "x")
+        await _svc(_conn()).verify_complaint("v1", "c9", True, "x")
     assert e.value.code == "NOT_FOUND"
 
 
@@ -266,15 +267,13 @@ def _client(c):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.api.deps import get_db, get_db_conn
+    from app.api.deps import get_db_conn
     from app.api.v1.vendor import router
     from app.core.errors import register_exception_handlers
-    from app.db_d1 import AsyncSqliteConn
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
     # get_current_user resolves via get_db_conn (Phase-A T2): same DB.
     app.dependency_overrides[get_db_conn] = lambda: (
         c if isinstance(c, AsyncSqliteConn) else AsyncSqliteConn(c)

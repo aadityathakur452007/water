@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_active_user
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.services.subscription_service import SubscriptionService
 
 router = APIRouter(tags=["subscriptions"])
@@ -45,30 +45,30 @@ def _uid(user: dict) -> str:
 
 
 @router.post("/subscriptions", status_code=201)
-def create_subscription(payload: SubCreateIn, user=Depends(require_active_user),
-                        conn=Depends(get_db)):
-    return SubscriptionService(conn).create(_uid(user), payload.model_dump(mode="json"))
+async def create_subscription(payload: SubCreateIn, user=Depends(require_active_user),
+                        conn=Depends(get_db_conn)):
+    return await SubscriptionService(conn).create(_uid(user), payload.model_dump(mode="json"))
 
 
 @router.get("/subscriptions")
-def list_subscriptions(user=Depends(get_current_user), conn=Depends(get_db)):
-    return {"data": SubscriptionService(conn).list(_uid(user))}
+async def list_subscriptions(user=Depends(get_current_user), conn=Depends(get_db_conn)):
+    return {"data": await SubscriptionService(conn).list(_uid(user))}
 
 
 @router.post("/subscriptions/{sub_id}/pause")
-def pause_subscription(sub_id: str, payload: PauseIn, user=Depends(require_active_user),
-                       conn=Depends(get_db)):
-    sub = SubscriptionService(conn).pause(_uid(user), sub_id, payload.hold_from, payload.hold_to)
+async def pause_subscription(sub_id: str, payload: PauseIn, user=Depends(require_active_user),
+                       conn=Depends(get_db_conn)):
+    sub = await SubscriptionService(conn).pause(_uid(user), sub_id, payload.hold_from, payload.hold_to)
     return {**sub, "fcm": "pause_confirm queued"}
 
 
 @router.post("/subscriptions/{sub_id}/resume")
-def resume_subscription(sub_id: str, payload: ResumeIn, user=Depends(require_active_user),
-                        conn=Depends(get_db)):
-    return SubscriptionService(conn).resume(_uid(user), sub_id, payload.preferred_date)
+async def resume_subscription(sub_id: str, payload: ResumeIn, user=Depends(require_active_user),
+                        conn=Depends(get_db_conn)):
+    return await SubscriptionService(conn).resume(_uid(user), sub_id, payload.preferred_date)
 
 
 @router.post("/subscriptions/{sub_id}/skips", status_code=201)
-def skip_subscription(sub_id: str, payload: SkipIn, user=Depends(require_active_user),
-                      conn=Depends(get_db)):
-    return SubscriptionService(conn).skip(_uid(user), sub_id, payload.date)
+async def skip_subscription(sub_id: str, payload: SkipIn, user=Depends(require_active_user),
+                      conn=Depends(get_db_conn)):
+    return await SubscriptionService(conn).skip(_uid(user), sub_id, payload.date)

@@ -19,6 +19,9 @@ import uuid
 
 from app.core.errors import AppError
 from app.db import WRITE_LOCK
+from app.db_d1 import AsyncSqliteConn, D1Conn
+
+Conn = D1Conn | AsyncSqliteConn
 
 RESUME_LEAD_HOURS = 24  # Bisleri rule: resume needs >=24h notice (E2)
 SKIP_CUTOFF_HOUR = 18  # after 18:00 UTC a same-day skip is late (tunable, §8)
@@ -90,19 +93,19 @@ def _row(r: sqlite3.Row) -> dict:
 class SubscriptionService:
     """Owner-scoped subscription use-cases (IDOR: miss -> 404, no oracle)."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: Conn):
         self._conn = conn
 
     # -- create / list ----------------------------------------------------
 
-    def create(self, user_id: str, payload: dict) -> dict:
+    async def create(self, user_id: str, payload: dict) -> dict:
         qty = int(payload.get("qty", 0))
         if qty < 1:
             raise SubValidationError(message="Quantity must be >= 1.", details={})
         address_id = str(payload.get("address_id") or "").strip()
         if not address_id:
             raise SubValidationError(message="address_id required.", details={})
-        if not self._owned_address(user_id, address_id):
+        if not await self._owned_address(user_id, address_id):
             raise SubNotFoundError(message="Address not found.", details={"id": address_id})
         schedule = str(payload.get("schedule_type") or "daily")
         recurrence = str(payload.get("recurrence") or "")
@@ -122,7 +125,7 @@ class SubscriptionService:
         }
         with WRITE_LOCK:
             try:
-                self._conn.execute(
+                await self._conn.execute(
                     "INSERT INTO subscriptions(id, user_id, address_id, qty, sku_mix, window,"
                     " next_run, schedule_type, recurrence, payment_method,"
                     " tier, discount_pct, perks, status, hold_from, hold_to)"
@@ -134,24 +137,24 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return self.get_owned(user_id, sub["id"]) or sub
+        return await self.get_owned(user_id, sub["id"]) or sub
 
-    def list(self, user_id: str) -> list[dict]:
-        rows = self._conn.execute(
+    async def list(self, user_id: str) -> list[dict]:
+        rows = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY rowid", (user_id,)
-        ).fetchall()
+        )).fetchall()
         return [_row(r) for r in rows]
 
-    def get_owned(self, user_id: str, sub_id: str) -> dict | None:
-        row = self._conn.execute(
+    async def get_owned(self, user_id: str, sub_id: str) -> dict | None:
+        row = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE id = ? AND user_id = ?", (sub_id, user_id)
-        ).fetchone()
+        )).fetchone()
         return _row(row) if row is not None else None
 
     # -- pause / resume / skip --------------------------------------------
 
-    def pause(self, user_id: str, sub_id: str, hold_from: object, hold_to: object) -> dict:
-        sub = self.get_owned(user_id, sub_id)
+    async def pause(self, user_id: str, sub_id: str, hold_from: object, hold_to: object) -> dict:
+        sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
         dfrom, dto = _parse_day(hold_from), _parse_day(hold_to)
@@ -162,7 +165,7 @@ class SubscriptionService:
             )
         with WRITE_LOCK:
             try:
-                self._conn.execute(
+                await self._conn.execute(
                     "UPDATE subscriptions SET status = 'paused', hold_from = ?, hold_to = ?"
                     " WHERE id = ?",
                     (dfrom, dto, sub_id),
@@ -171,13 +174,13 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return self.get_owned(user_id, sub_id)  # type: ignore[return-value]
+        return await self.get_owned(user_id, sub_id)  # type: ignore[return-value]
 
-    def resume(
+    async def resume(
         self, user_id: str, sub_id: str, preferred_date: object,
         now: _dt.datetime | None = None,
     ) -> dict:
-        sub = self.get_owned(user_id, sub_id)
+        sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
         now = now or _now()
@@ -193,7 +196,7 @@ class SubscriptionService:
             )
         with WRITE_LOCK:
             try:
-                self._conn.execute(
+                await self._conn.execute(
                     "UPDATE subscriptions SET status = 'active', hold_from = NULL,"
                     " hold_to = NULL, next_run = ? WHERE id = ?",
                     (pref.date().isoformat(), sub_id),
@@ -202,13 +205,13 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return self.get_owned(user_id, sub_id)  # type: ignore[return-value]
+        return await self.get_owned(user_id, sub_id)  # type: ignore[return-value]
 
-    def skip(
+    async def skip(
         self, user_id: str, sub_id: str, date: object,
         now: _dt.datetime | None = None,
     ) -> dict:
-        sub = self.get_owned(user_id, sub_id)
+        sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
         day = _parse_day(date)
@@ -220,7 +223,7 @@ class SubscriptionService:
         late = 1 if (day == now.date().isoformat() and now.hour >= SKIP_CUTOFF_HOUR) else 0
         with WRITE_LOCK:
             try:
-                self._conn.execute(
+                await self._conn.execute(
                     "INSERT OR IGNORE INTO skips(id, sub_id, date, late) VALUES (?, ?, ?, ?)",
                     (uuid.uuid4().hex, sub_id, day, late),
                 )
@@ -228,10 +231,10 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        row = self._conn.execute(
+        row = (await self._conn.execute(
             "SELECT id, sub_id, date, late FROM skips WHERE sub_id = ? AND date = ?",
             (sub_id, day),
-        ).fetchone()
+        )).fetchone()
         out = _row(row)
         out["late_skip"] = bool(out["late"])
         if out["late_skip"]:
@@ -240,7 +243,7 @@ class SubscriptionService:
 
     # -- due runner (job-callable; future cron calls this, never HTTP) -----
 
-    def process_due(self, today: object = None) -> dict:
+    async def process_due(self, today: object = None) -> dict:
         """Generate due runs + fire auto-resumes. Idempotent per day.
 
         Returns descriptors the future cron turns into orders (order-row
@@ -253,29 +256,29 @@ class SubscriptionService:
         generated: list[dict] = []
         with WRITE_LOCK:
             try:
-                paused = self._conn.execute(
+                paused = (await self._conn.execute(
                     "SELECT id, user_id FROM subscriptions"
                     " WHERE status = 'paused' AND hold_to IS NOT NULL AND hold_to < ?",
                     (tday,),
-                ).fetchall()
+                )).fetchall()
                 for p in paused:
-                    self._conn.execute(
+                    await self._conn.execute(
                         "UPDATE subscriptions SET status = 'active',"
                         " hold_from = NULL, hold_to = NULL WHERE id = ?",
                         (p["id"],),
                     )
                     resumed.append({"sub_id": p["id"], "user_id": p["user_id"]})
-                due = self._conn.execute(
+                due = (await self._conn.execute(
                     "SELECT * FROM subscriptions"
                     " WHERE status = 'active' AND next_run <> '' AND next_run <= ?",
                     (tday,),
-                ).fetchall()
+                )).fetchall()
                 for s in due:
                     d = _dt.date.fromisoformat(s["next_run"])
                     if s["hold_from"] and s["hold_to"] and s["hold_from"] <= s["next_run"] <= s["hold_to"]:
                         continue  # paused range wins over schedule (§15)
-                    if d.weekday() == 6 or self._skipped(s["id"], d.isoformat()):
-                        self._advance_past(s, _dt.date.fromisoformat(tday))
+                    if d.weekday() == 6 or await self._skipped(s["id"], d.isoformat()):
+                        await self._advance_past(s, _dt.date.fromisoformat(tday))
                         continue
                     generated.append({
                         "sub_id": s["id"], "user_id": s["user_id"],
@@ -283,7 +286,7 @@ class SubscriptionService:
                         "sku_mix": s["sku_mix"], "window": s["window"],
                         "payment_method": s["payment_method"], "date": d.isoformat(),
                     })
-                    self._advance_past(s, _dt.date.fromisoformat(tday))
+                    await self._advance_past(s, _dt.date.fromisoformat(tday))
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -292,7 +295,7 @@ class SubscriptionService:
 
     # -- internals --------------------------------------------------------
 
-    def _advance_past(self, sub: dict, today: _dt.date) -> None:
+    async def _advance_past(self, sub: dict, today: _dt.date) -> None:
         nxt = _advance(_dt.date.fromisoformat(sub["next_run"]),
                        sub["schedule_type"], sub["recurrence"])
         guard = 0
@@ -302,20 +305,20 @@ class SubscriptionService:
                 nxt += _dt.timedelta(days=1)
             else:
                 nxt = _advance(nxt, sub["schedule_type"], sub["recurrence"])
-        self._conn.execute(
+        await self._conn.execute(
             "UPDATE subscriptions SET next_run = ? WHERE id = ?", (nxt.isoformat(), sub["id"])
         )
 
-    def _skipped(self, sub_id: str, day: str) -> bool:
-        return self._conn.execute(
+    async def _skipped(self, sub_id: str, day: str) -> bool:
+        return (await self._conn.execute(
             "SELECT 1 FROM skips WHERE sub_id = ? AND date = ?", (sub_id, day)
-        ).fetchone() is not None
+        )).fetchone() is not None
 
-    def _owned_address(self, user_id: str, address_id: str) -> bool:
+    async def _owned_address(self, user_id: str, address_id: str) -> bool:
         try:
-            row = self._conn.execute(
+            row = (await self._conn.execute(
                 "SELECT 1 FROM addresses WHERE id = ? AND user_id = ?", (address_id, user_id)
-            ).fetchone()
+            )).fetchone()
         except Exception:
             return True  # addresses slice not migrated yet -> don't block
         return row is not None

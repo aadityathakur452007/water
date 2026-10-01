@@ -101,12 +101,12 @@ class OrderService:
 
     # -- create -----------------------------------------------------------
 
-    def create(self, user_id: str, payload: dict, idempotency_key: str) -> dict:
+    async def create(self, user_id: str, payload: dict, idempotency_key: str) -> dict:
         if not idempotency_key or not str(idempotency_key).strip():
             raise ValidationError(message="Idempotency-Key header required.", details={})
         scoped = f"{CREATE_ENDPOINT}:{idempotency_key}"
         phash = _payload_hash(payload)
-        existing = self.orders.find_by_scoped_key(user_id, scoped)
+        existing = await self.orders.find_by_scoped_key(user_id, scoped)
         if existing is not None:
             self._check_replay(existing, phash)
         items = [{"sku": i["sku"], "qty": int(i["qty"])} for i in payload.get("items", [])]
@@ -142,10 +142,10 @@ class OrderService:
                 message="Maximum 10 jars per order. For larger (tanker) requirements, please contact support.",
                 details={"n": q["n_total"], "max": MAX_JARS_PER_ORDER},
             )
-        if int(self.ledger.get(user_id)["held"]) > HOLD_BLOCK_LIMIT:
+        if int((await self.ledger.get(user_id))["held"]) > HOLD_BLOCK_LIMIT:
             raise HoldBlockedError(
                 message="Too many jars held. Return empties to order again.",
-                details={"held": self.ledger.get(user_id)["held"], "max": HOLD_BLOCK_LIMIT},
+                details={"held": (await self.ledger.get(user_id))["held"], "max": HOLD_BLOCK_LIMIT},
             )
 
         window_end = self._window_end(str(payload.get("window_start", "")))
@@ -168,13 +168,13 @@ class OrderService:
             "_actor": user_id,
         }
         try:
-            return self.orders.insert(
+            return await self.orders.insert(
                 order,
                 {"customer_id": user_id, "actor": user_id, "reason": "order deposit"},
             )
         except ConflictError:
             # Lost a concurrent insert race: fall back to the replay path.
-            existing = self.orders.find_by_scoped_key(user_id, scoped)
+            existing = await self.orders.find_by_scoped_key(user_id, scoped)
             if existing is not None:
                 self._check_replay(existing, phash)
             raise
@@ -191,11 +191,11 @@ class OrderService:
 
     # -- read -------------------------------------------------------------
 
-    def detail(self, user_id: str, order_id: str) -> dict:
-        order = self.orders.find_owned(order_id, user_id)
+    async def detail(self, user_id: str, order_id: str) -> dict:
+        order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
-        events = self.orders.events(order_id)
+        events = await self.orders.events(order_id)
         return {
             **order,
             "tracker": {"steps": ["placed", "packed", "dispatched", "delivered"], "current": order["state"]},
@@ -210,21 +210,21 @@ class OrderService:
             "events": events,
         }
 
-    def list(self, user_id: str, limit: int = 20, cursor: str | None = None) -> dict:
-        data, next_cursor = self.orders.list_by_user(user_id, limit, cursor)
+    async def list(self, user_id: str, limit: int = 20, cursor: str | None = None) -> dict:
+        data, next_cursor = await self.orders.list_by_user(user_id, limit, cursor)
         return {"data": data, "next_cursor": next_cursor}
 
     # -- cancel (§10 matrix) ----------------------------------------------
 
-    def cancel(self, user_id: str, order_id: str, reason: str, idempotency_key: str) -> dict:
+    async def cancel(self, user_id: str, order_id: str, reason: str, idempotency_key: str) -> dict:
         if not idempotency_key or not str(idempotency_key).strip():
             raise ValidationError(message="Idempotency-Key header required.", details={})
-        order = self.orders.find_owned(order_id, user_id)
+        order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         scoped = f"POST /v1/orders/{order_id}/cancel:{idempotency_key}"
         phash = hashlib.sha256(reason.encode()).hexdigest()
-        stored = self._idem_get(user_id, scoped)
+        stored = await self._idem_get(user_id, scoped)
         if stored is not None:
             if stored["payload_hash"] != phash:
                 raise PayloadMismatchError(
@@ -237,7 +237,7 @@ class OrderService:
             # Different key, already settled: same outcome, no second refund row.
             raise AlreadyCancelledError(
                 message="Order already cancelled.",
-                details=self._cancelled_outcome(order_id),
+                details=await self._cancelled_outcome(order_id),
             )
         if state == "delivered":
             raise ConflictError(
@@ -249,19 +249,19 @@ class OrderService:
                 message="Post-assign cancel needs the dispatcher. Call support to cancel.",
                 details={"from": state, "to": "cancelled"},
             )
-        outcome = self.orders.cancel_settle(order_id, {"id": user_id, "role": "user"})
-        self._idem_put(user_id, scoped, order_id, phash, outcome)
+        outcome = await self.orders.cancel_settle(order_id, {"id": user_id, "role": "user"})
+        await self._idem_put(user_id, scoped, order_id, phash, outcome)
         return outcome
 
-    def _cancelled_outcome(self, order_id: str) -> dict:
-        row = self.orders._conn.execute(
+    async def _cancelled_outcome(self, order_id: str) -> dict:
+        row = (await self.orders._conn.execute(
             "SELECT id, user_id, deposit_due FROM orders WHERE id = ?", (order_id,)
-        ).fetchone()
-        refund = self.orders._conn.execute(
+        )).fetchone()
+        refund = (await self.orders._conn.execute(
             "SELECT id, payment_id, amount, method, status, claimed_by, claimed_at"
             " FROM refunds WHERE order_id = ?",
             (order_id,),
-        ).fetchone()
+        )).fetchone()
         return {
             "order_id": order_id,
             "state": "cancelled",
@@ -272,8 +272,8 @@ class OrderService:
 
     # -- reschedule (pre-dispatch only) ------------------------------------
 
-    def reschedule(self, user_id: str, order_id: str, window_start: str) -> dict:
-        order = self.orders.find_owned(order_id, user_id)
+    async def reschedule(self, user_id: str, order_id: str, window_start: str) -> dict:
+        order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         if order["state"] not in RESCHEDULABLE:
@@ -281,7 +281,7 @@ class OrderService:
                 message="Reschedule is allowed only before dispatch. Call support to cancel instead.",
                 details={"from": order["state"], "to": order["state"]},
             )
-        return self.orders.update_window(
+        return await self.orders.update_window(
             order_id, window_start, self._window_end(window_start), {"id": user_id, "role": "user"}
         )
 
@@ -294,18 +294,18 @@ class OrderService:
             return ""
         return (dt + _dt.timedelta(minutes=30)).isoformat()
 
-    def _idem_get(self, user_id: str, scoped: str) -> dict | None:
-        row = self.orders._conn.execute(
+    async def _idem_get(self, user_id: str, scoped: str) -> dict | None:
+        row = (await self.orders._conn.execute(
             "SELECT payload_hash, result FROM idempotency_keys WHERE user_id = ? AND scoped_key = ?",
             (user_id, scoped),
-        ).fetchone()
+        )).fetchone()
         return dict(row) if row is not None else None
 
-    def _idem_put(self, user_id: str, scoped: str, order_id: str, phash: str, outcome: dict) -> None:
+    async def _idem_put(self, user_id: str, scoped: str, order_id: str, phash: str, outcome: dict) -> None:
         from app.db import WRITE_LOCK
 
         with WRITE_LOCK:
-            self.orders._conn.execute(
+            await self.orders._conn.execute(
                 "INSERT OR IGNORE INTO idempotency_keys(user_id, scoped_key, order_id,"
                 " payload_hash, result, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (user_id, scoped, order_id, phash, json.dumps(outcome), _now().isoformat()),

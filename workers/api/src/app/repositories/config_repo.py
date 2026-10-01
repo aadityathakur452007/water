@@ -7,15 +7,20 @@ Rate units: integer paise per contract §0 / B1 Settings, e.g.
 ``{"refill": 2800, "container": 3000, "deposit": 15000, "cap": 300}``
 (= Rs 28 / Rs 30 / Rs 150 / Rs 3 — Shodasha scope locks, UNVALIDATED
 per ADR-007b until the local survey).
+
+Async (Phase-B T2): methods await the shared facade (D1 in prod, sqlite
+locally) — call shapes are otherwise unchanged.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
-import sqlite3
 import uuid
 
 from app.db import WRITE_LOCK
+from app.db_d1 import AsyncSqliteConn, D1Conn
+
+Conn = D1Conn | AsyncSqliteConn
 
 try:  # B1-owned Settings; ImportError (e.g. deps not installed) falls back.
     from app.core.config import Settings as _Settings
@@ -59,15 +64,15 @@ def _now() -> str:
 class ConfigRepo:
     """Data access for runtime config + its audit trail."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: Conn):
         self._conn = conn
 
-    def get(self, key: str, default: str | None = None) -> str | None:
-        cur = self._conn.execute("SELECT value FROM config WHERE key = ?", (key,))
+    async def get(self, key: str, default: str | None = None) -> str | None:
+        cur = await self._conn.execute("SELECT value FROM config WHERE key = ?", (key,))
         row = cur.fetchone()
         return row["value"] if row is not None else default
 
-    def set(
+    async def set(
         self,
         key: str,
         value: object,
@@ -77,7 +82,7 @@ class ConfigRepo:
         now = _now()
         text = str(value)
         with WRITE_LOCK:
-            self._conn.execute(
+            await self._conn.execute(
                 "INSERT INTO config(key, value, effective_from, updated_by, updated_at)"
                 " VALUES (?, ?, ?, ?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET value=excluded.value,"
@@ -85,26 +90,30 @@ class ConfigRepo:
                 " updated_by=excluded.updated_by, updated_at=excluded.updated_at",
                 (key, text, now, updated_by, now),
             )
-            self._conn.execute(
+            await self._conn.execute(
                 "INSERT INTO audit_log(actor, action, entity, entity_id, trace_id, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (updated_by, "config.set", "config", key, trace_id or uuid.uuid4().hex[:8], now),
             )
             self._conn.commit()
 
-    def all_rates(self) -> dict[str, int]:
+    async def all_rates(self) -> dict[str, int]:
         """Seed {refill, container, deposit, cap} on first use, then return them."""
         defaults = _default_rates()
         now = _now()
         with WRITE_LOCK:
-            self._conn.executemany(
-                "INSERT OR IGNORE INTO config(key, value, effective_from, updated_by, updated_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                [(k, v, now, "seed", now) for k, v in defaults.items()],
-            )
+            # Facade has no executemany: same INSERT OR IGNORE per key, same semantics.
+            for k, v in defaults.items():
+                await self._conn.execute(
+                    "INSERT OR IGNORE INTO config(key, value, effective_from, updated_by, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (k, v, now, "seed", now),
+                )
             self._conn.commit()
-        rows = self._conn.execute(
-            "SELECT key, value FROM config WHERE key IN (?, ?, ?, ?)", RATE_KEYS
+        rows = (
+            await self._conn.execute(
+                "SELECT key, value FROM config WHERE key IN (?, ?, ?, ?)", RATE_KEYS
+            )
         ).fetchall()
         rates = dict(defaults)
         rates.update({r["key"]: r["value"] for r in rows})

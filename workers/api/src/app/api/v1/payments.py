@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.adapters.upi import get_provider
 from app.api.auth_deps import get_current_user, require_active_user, require_role
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
 from app.repositories.payment_repo import PaymentRepo
@@ -41,44 +41,44 @@ def _require_idem(idem: str | None) -> str:
 
 
 @router.post("/payments/upi-intent", status_code=201)
-def upi_intent(payload: UpiIntentIn, conn=Depends(get_db),
+async def upi_intent(payload: UpiIntentIn, conn=Depends(get_db_conn),
                user=Depends(require_active_user),
                idem: str | None = Header(default=None, alias="Idempotency-Key")):
-    return _service(conn).intent(_uid(user), payload.order_id.strip(), _require_idem(idem))
+    return await _service(conn).intent(_uid(user), payload.order_id.strip(), _require_idem(idem))
 
 
 @router.post("/webhooks/upi")
-async def upi_webhook(request: Request, conn=Depends(get_db)):
+async def upi_webhook(request: Request, conn=Depends(get_db_conn)):
     raw = await request.body()
     sig = request.headers.get("X-UPI-Signature", request.headers.get("X-Signature"))
-    return _service(conn).webhook_ingest(raw, sig)
+    return await _service(conn).webhook_ingest(raw, sig)
 
 
 @router.post("/orders/{order_id}/cod-confirm")
-def cod_confirm(order_id: str, conn=Depends(get_db), user=Depends(require_active_user)):
-    return _service(conn).cod_confirm(_uid(user), order_id)
+async def cod_confirm(order_id: str, conn=Depends(get_db_conn), user=Depends(require_active_user)):
+    return await _service(conn).cod_confirm(_uid(user), order_id)
 
 
 @router.get("/billing/dues")
-def billing_dues(conn=Depends(get_db), user=Depends(get_current_user)):
-    return _service(conn).get_dues(_uid(user))
+async def billing_dues(conn=Depends(get_db_conn), user=Depends(get_current_user)):
+    return await _service(conn).get_dues(_uid(user))
 
 
 @router.get("/invoices/{order_id}")
-def invoice(order_id: str, conn=Depends(get_db), user=Depends(get_current_user)):
-    return _service(conn).get_invoice(_uid(user), order_id)
+async def invoice(order_id: str, conn=Depends(get_db_conn), user=Depends(get_current_user)):
+    return await _service(conn).get_invoice(_uid(user), order_id)
 
 
 @router.post("/refunds/{refund_id}/claim")
-def refund_claim(refund_id: str, conn=Depends(get_db), user=Depends(require_role("admin"))):
-    return _service(conn).claim_refund(_uid(user), refund_id)
+async def refund_claim(refund_id: str, conn=Depends(get_db_conn), user=Depends(require_role("admin"))):
+    return await _service(conn).claim_refund(_uid(user), refund_id)
 
 
 @router.post("/refunds/{refund_id}/done")
-def refund_done(refund_id: str, conn=Depends(get_db), user=Depends(require_role("admin"))):
-    return _service(conn).complete_refund(_uid(user), refund_id, "done")
+async def refund_done(refund_id: str, conn=Depends(get_db_conn), user=Depends(require_role("admin"))):
+    return await _service(conn).complete_refund(_uid(user), refund_id, "done")
 
 
 @router.post("/refunds/{refund_id}/failed")
-def refund_failed(refund_id: str, conn=Depends(get_db), user=Depends(require_role("admin"))):
-    return _service(conn).complete_refund(_uid(user), refund_id, "failed")
+async def refund_failed(refund_id: str, conn=Depends(get_db_conn), user=Depends(require_role("admin"))):
+    return await _service(conn).complete_refund(_uid(user), refund_id, "failed")

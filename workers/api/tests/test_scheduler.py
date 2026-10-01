@@ -12,6 +12,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from app.db import get_connection, init_schema  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.jobs.scheduler import (  # noqa: E402
     collect_reminders,
     purge_expired,
@@ -38,9 +39,9 @@ def _addr(c, user="u1", aid="a1"):
     c.commit()
 
 
-def _sub(c, user="u1", next_run=DAY, qty=2, **over):
+async def _sub(c, user="u1", next_run=DAY, qty=2, **over):
     _addr(c, user, over.get("address_id", "a1"))
-    return SubscriptionService(c).create(user, {
+    return await SubscriptionService(AsyncSqliteConn(c)).create(user, {
         "address_id": over.get("address_id", "a1"), "qty": qty,
         "schedule_type": over.get("schedule_type", "daily"), "next_run": next_run,
         **{k: v for k, v in over.items() if k not in ("address_id",)},
@@ -61,29 +62,29 @@ def _audit(c, action, entity, age):
 
 # -- due run ------------------------------------------------------------
 
-def test_due_run_creates_orders_once_replay_same_day_no_dupes():
+async def test_due_run_creates_orders_once_replay_same_day_no_dupes():
     c = _conn()
-    s = _sub(c, next_run=DAY)
-    out1 = run_due_subscriptions(c, DAY)
+    s = await _sub(c, next_run=DAY)
+    out1 = await run_due_subscriptions(AsyncSqliteConn(c), DAY)
     assert len(out1["created"]) == 1 and out1["failed"] == []
     got = out1["created"][0]
     assert got["sub_id"] == s["id"] and got["user_id"] == "u1"
     assert got["total"] == 2 * 2800 + 2 * 15000  # fresh quote: water + full deposit (e=0)
     assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
-    out2 = run_due_subscriptions(c, DAY)  # idempotent replay
+    out2 = await run_due_subscriptions(AsyncSqliteConn(c), DAY)  # idempotent replay
     assert out2["created"] == [] and out2["failed"] == []
     assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
 
 
-def test_due_run_auto_resume_fires_and_skips_failures_individually():
+async def test_due_run_auto_resume_fires_and_skips_failures_individually():
     c = _conn()
-    svc = SubscriptionService(c)
-    paused = _sub(c, next_run="2026-09-25")
-    svc.pause("u1", paused["id"], "2026-09-24", "2026-09-26")  # hold_to < today
-    big = _sub(c, user="u2", address_id="a2", next_run=DAY, qty=11)  # OVER_LIMIT: fails alone
-    out = run_due_subscriptions(c, DAY)
+    svc = SubscriptionService(AsyncSqliteConn(c))
+    paused = await _sub(c, next_run="2026-09-25")
+    await svc.pause("u1", paused["id"], "2026-09-24", "2026-09-26")  # hold_to < today
+    big = await _sub(c, user="u2", address_id="a2", next_run=DAY, qty=11)  # OVER_LIMIT: fails alone
+    out = await run_due_subscriptions(AsyncSqliteConn(c), DAY)
     assert {r["sub_id"] for r in out["resumed"]} == {paused["id"]}
-    assert svc.get_owned("u1", paused["id"])["status"] == "active"
+    assert (await svc.get_owned("u1", paused["id"]))["status"] == "active"
     assert {f["sub_id"] for f in out["failed"]} == {big["id"]}
     assert out["failed"][0]["code"] == "OVER_LIMIT"
     assert {g["sub_id"] for g in out["created"]} == {paused["id"]}  # rest still created
@@ -91,13 +92,14 @@ def test_due_run_auto_resume_fires_and_skips_failures_individually():
 
 # -- reminders ----------------------------------------------------------
 
-def test_reminder_payloads_dues_low_balance_resume_no_sending():
+async def test_reminder_payloads_dues_low_balance_resume_no_sending():
     c = _conn()
-    LedgerRepo(c).apply_event("u1", d_dues=5000, ref="order:o1", reason="dues carried")
-    LedgerRepo(c).apply_event("u2", d_held=2, ref="stop:s1", reason="2 jars out, no deposit")
-    s = _sub(c, user="u3", next_run="2026-10-10")
-    SubscriptionService(c).pause("u3", s["id"], DAY, "2026-09-30")  # hold_to = today+1
-    out = collect_reminders(c, DAY)
+    led = LedgerRepo(AsyncSqliteConn(c))
+    await led.apply_event("u1", d_dues=5000, ref="order:o1", reason="dues carried")
+    await led.apply_event("u2", d_held=2, ref="stop:s1", reason="2 jars out, no deposit")
+    s = await _sub(c, user="u3", next_run="2026-10-10")
+    await SubscriptionService(AsyncSqliteConn(c)).pause("u3", s["id"], DAY, "2026-09-30")  # hold_to = today+1
+    out = await collect_reminders(AsyncSqliteConn(c), DAY)
     assert [(d["user_id"], d["dues_paise"]) for d in out["dues"]] == [("u1", 5000)]
     assert out["dues"][0]["kind"] == "dues_reminder" and "fcm" in out["dues"][0]["channels"]
     assert [(l["user_id"], l["shortfall_paise"]) for l in out["low_balance"]] == [("u2", 30000)]
@@ -110,7 +112,7 @@ def test_reminder_payloads_dues_low_balance_resume_no_sending():
 
 # -- purge --------------------------------------------------------------
 
-def test_purge_deletes_only_expired_money_audit_survives():
+async def test_purge_deletes_only_expired_money_audit_survives():
     c = _conn()
     _idem(c, "u1", "POST /v1/orders:k-old", timedelta(days=4))  # 72h class, expired
     _idem(c, "u1", "POST /v1/orders:k-fresh", timedelta(hours=1))  # kept
@@ -122,7 +124,7 @@ def test_purge_deletes_only_expired_money_audit_survives():
     _audit(c, "audit.read", "audit_log", timedelta(days=1))  # ops, fresh → kept
     _audit(c, "ledger.adjust", "ledger", timedelta(days=100))  # money, <1yr → kept
     _audit(c, "dues.write_off", "ledger", timedelta(days=400))  # money, >1yr → purged
-    out = purge_expired(c)
+    out = await purge_expired(AsyncSqliteConn(c))
     assert out["idempotency_72h_deleted"] == 3
     assert out["idempotency_30d_deleted"] == 1
     assert out["audit_ops_deleted"] == 1
@@ -132,6 +134,6 @@ def test_purge_deletes_only_expired_money_audit_survives():
     assert left_idem == {"POST /v1/orders:k-fresh", "POST /v1/payments/upi-intent:k-mid"}
     left_audit = {(r["action"], r["entity"]) for r in c.execute("SELECT action, entity FROM audit_log")}
     assert left_audit == {("audit.read", "audit_log"), ("ledger.adjust", "ledger")}
-    replay = purge_expired(c)  # idempotent: second run deletes nothing
+    replay = await purge_expired(AsyncSqliteConn(c))  # idempotent: second run deletes nothing
     assert replay["idempotency_72h_deleted"] == replay["idempotency_30d_deleted"] == 0
     assert replay["audit_ops_deleted"] == replay["audit_money_deleted"] == 0

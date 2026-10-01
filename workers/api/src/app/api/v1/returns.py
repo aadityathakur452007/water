@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_active_user
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.core.errors import NotFoundError
 from app.db import WRITE_LOCK
 
@@ -41,27 +41,27 @@ def _sla_due(from_day: _dt.date | None = None) -> str:
     return d.isoformat()
 
 
-def _owned_address(conn: sqlite3.Connection, user_id: str, address_id: str) -> bool:
+async def _owned_address(conn, user_id: str, address_id: str) -> bool:
     try:
-        row = conn.execute(
+        row = (await conn.execute(
             "SELECT 1 FROM addresses WHERE id = ? AND user_id = ?", (address_id, user_id)
-        ).fetchone()
+        )).fetchone()
     except Exception:
         return True  # addresses slice not migrated yet -> don't block
     return row is not None
 
 
 @router.post("/returns", status_code=201)
-def create_return(payload: ReturnIn, user=Depends(require_active_user),
-                  conn=Depends(get_db)):
+async def create_return(payload: ReturnIn, user=Depends(require_active_user),
+                  conn=Depends(get_db_conn)):
     uid = str(user.get("id"))
-    if not _owned_address(conn, uid, payload.address_id):
+    if not await _owned_address(conn, uid, payload.address_id):
         raise NotFoundError(message="Address not found.", details={"id": payload.address_id})
     rid, sla = uuid.uuid4().hex, _sla_due()
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     with WRITE_LOCK:
         try:
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
                 " VALUES (?, ?, ?, ?, 'requested', ?, ?)",
                 (rid, uid, int(payload.qty), payload.address_id, sla, now),
@@ -70,7 +70,7 @@ def create_return(payload: ReturnIn, user=Depends(require_active_user),
         except Exception:
             conn.rollback()
             raise
-    row = conn.execute("SELECT * FROM returns WHERE id = ?", (rid,)).fetchone()
+    row = (await conn.execute("SELECT * FROM returns WHERE id = ?", (rid,))).fetchone()
     out = dict(row)
     out["message"] = (f"Return requested. Pickup within {SLA_WORKING_DAYS} working days"
                       f" (by {sla}).")
@@ -78,9 +78,9 @@ def create_return(payload: ReturnIn, user=Depends(require_active_user),
 
 
 @router.get("/returns")
-def list_returns(user=Depends(get_current_user), conn=Depends(get_db)):
-    rows = conn.execute(
+async def list_returns(user=Depends(get_current_user), conn=Depends(get_db_conn)):
+    rows = (await conn.execute(
         "SELECT * FROM returns WHERE user_id = ? ORDER BY created_at DESC, id DESC",
         (str(user.get("id")),),
-    ).fetchall()
+    )).fetchall()
     return {"data": [dict(r) for r in rows]}

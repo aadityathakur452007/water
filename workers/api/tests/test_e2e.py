@@ -122,8 +122,9 @@ def _order_payload(quote, address_id, mode="cod"):
     }
 
 
-def _seed_admin_vendor(conn):
+async def _seed_admin_vendor(conn):
     """Direct-DB seed: zone + vendor/admin users + sessions (no HTTP path)."""
+    from app.db_d1 import AsyncSqliteConn  # noqa: E402
     from app.services.dispatch_service import ensure_profile  # noqa: E402
 
     conn.execute("INSERT INTO zones(id, name, pincodes, active) VALUES ('z1', 'Z1', '560001', 1)")
@@ -147,19 +148,20 @@ def _seed_admin_vendor(conn):
             ),
         )
     conn.execute("INSERT INTO vendor_zones(vendor_id, zone_id, priority) VALUES ('vendor-1', 'z1', 0)")
-    ensure_profile(conn, "vendor-1")
+    await ensure_profile(AsyncSqliteConn(conn), "vendor-1")
     conn.commit()
 
 
-def _drive_to(conn, order_id, *states):
+async def _drive_to(conn, order_id, *states):
+    from app.db_d1 import AsyncSqliteConn  # noqa: E402
     from app.repositories.order_repo import OrderRepo  # noqa: E402
 
-    repo = OrderRepo(conn)
+    repo = OrderRepo(AsyncSqliteConn(conn))
     for to in states:
-        repo.transition(order_id, to, {"id": "admin-1", "role": "admin"}, "e2e drive")
+        await repo.transition(order_id, to, {"id": "admin-1", "role": "admin"}, "e2e drive")
 
 
-def test_e2e_full_lifecycle(client):
+async def test_e2e_full_lifecycle(client):
     http, conn = client
 
     # (1) otp start -> verify -> me -------------------------------------------
@@ -216,8 +218,8 @@ def test_e2e_full_lifecycle(client):
     assert inv["total"] == 20600 and inv["amount_due"] == 20600
 
     # (6) admin seed direct-DB -> assign to vendor ------------------------------
-    _seed_admin_vendor(conn)
-    _drive_to(conn, oid, "accepted", "picked", "packed")
+    await _seed_admin_vendor(conn)
+    await _drive_to(conn, oid, "accepted", "picked", "packed")
     r = http.post(
         f"/v1/admin/orders/{oid}/assign", json={"vendor_id": "vendor-1"},
         headers=_auth("tok-admin-1"),
@@ -235,7 +237,7 @@ def test_e2e_full_lifecycle(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "done"
-    _drive_to(conn, oid, "dispatched")
+    await _drive_to(conn, oid, "dispatched")
     from app.services.vendor_service import pod_otp  # noqa: E402
 
     today = datetime.now(timezone.utc).date().isoformat()

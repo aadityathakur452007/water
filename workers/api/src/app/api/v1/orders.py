@@ -7,7 +7,7 @@ Actor id/role always come from the session, never the body (H1).
 """
 from fastapi import APIRouter, Depends, Header, Query, Request
 
-from app.api.deps import get_db, get_settings
+from app.api.deps import get_db_conn, get_settings
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
 from app.schemas.orders import (
@@ -61,46 +61,46 @@ def _require_idem(idem: str | None) -> str:
 
 
 @router.post("/orders", response_model=OrderOut, status_code=201)
-def create_order(
+async def create_order(
     payload: OrderIn,
-    conn=Depends(get_db),
+    conn=Depends(get_db_conn),
     user=Depends(get_current_user),
     idem: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    return _service(conn).create(_uid(user), payload.model_dump(mode="json"), _require_idem(idem))
+    return await _service(conn).create(_uid(user), payload.model_dump(mode="json"), _require_idem(idem))
 
 
 @router.get("/orders", response_model=OrderListOut)
-def list_orders(
-    conn=Depends(get_db),
+async def list_orders(
+    conn=Depends(get_db_conn),
     user=Depends(get_current_user),
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = Query(default=None),
 ):
-    return _service(conn).list(_uid(user), limit, cursor)
+    return await _service(conn).list(_uid(user), limit, cursor)
 
 
 @router.get("/orders/{order_id}", response_model=OrderDetailOut)
-def get_order(order_id: str, conn=Depends(get_db), user=Depends(get_current_user)):
-    return _service(conn).detail(_uid(user), order_id)
+async def get_order(order_id: str, conn=Depends(get_db_conn), user=Depends(get_current_user)):
+    return await _service(conn).detail(_uid(user), order_id)
 
 
 @router.post("/orders/{order_id}/cancel", response_model=CancelOut)
-def cancel_order(
+async def cancel_order(
     order_id: str,
     payload: CancelIn,
-    conn=Depends(get_db),
+    conn=Depends(get_db_conn),
     user=Depends(get_current_user),
     idem: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    return _service(conn).cancel(_uid(user), order_id, payload.reason, _require_idem(idem))
+    return await _service(conn).cancel(_uid(user), order_id, payload.reason, _require_idem(idem))
 
 
 @router.post("/orders/{order_id}/reschedule", response_model=OrderOut)
-def reschedule_order(
+async def reschedule_order(
     order_id: str,
     payload: RescheduleIn,
-    conn=Depends(get_db),
+    conn=Depends(get_db_conn),
     user=Depends(get_current_user),
 ):
-    return _service(conn).reschedule(_uid(user), order_id, payload.window_start)
+    return await _service(conn).reschedule(_uid(user), order_id, payload.window_start)

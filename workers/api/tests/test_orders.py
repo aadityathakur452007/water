@@ -16,6 +16,7 @@ if str(API_ROOT) not in sys.path:
 
 from app.core.errors import AppError  # noqa: E402
 from app.db import get_connection  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.repositories.ledger_repo import HoldNegativeError, LedgerRepo  # noqa: E402
 from app.repositories.order_repo import (  # noqa: E402
     AlreadyCancelledError,
@@ -50,8 +51,12 @@ def _conn():
     return c
 
 
+def _w(c):
+    return c if isinstance(c, AsyncSqliteConn) else AsyncSqliteConn(c)
+
+
 def _svc(c) -> OrderService:
-    return OrderService(OrderRepo(c), LedgerRepo(c), pricing, _rates())
+    return OrderService(OrderRepo(_w(c)), LedgerRepo(_w(c)), pricing, _rates())
 
 
 def _payload(items=None, e=1, **over) -> dict:
@@ -75,17 +80,17 @@ def _payload(items=None, e=1, **over) -> dict:
 
 # -- create ---------------------------------------------------------------
 
-def test_create_ok_freezes_server_totals():
+async def test_create_ok_freezes_server_totals():
     c = _conn()
-    o = _svc(c).create("u1", _payload(), "k1")
+    o = await _svc(c).create("u1", _payload(), "k1")
     assert o["state"] == "placed" and o["total"] == 5600 + 15000
     assert o["idempotency_key"] == "POST /v1/orders:k1"  # scoped key stored
-    led = LedgerRepo(c).get("u1")
+    led = await LedgerRepo(_w(c)).get("u1")
     assert led["deposit_paid"] == 15000  # deposit entry in same insert txn
-    assert OrderRepo(c).events(o["id"])[0]["to_state"] == "placed"
+    assert (await OrderRepo(_w(c)).events(o["id"]))[0]["to_state"] == "placed"
 
 
-def test_stale_quote_409():
+async def test_stale_quote_409():
     cases = [
         _payload(quote_total=1),  # tampered total
         _payload(quote_expires_at="2020-01-01T00:00:00+00:00"),  # expired
@@ -94,132 +99,132 @@ def test_stale_quote_409():
     for i, p in enumerate(cases):
         c = _conn()
         with pytest.raises(StaleQuoteError) as e:
-            _svc(c).create("u1", p, f"k{i}")
+            await _svc(c).create("u1", p, f"k{i}")
         assert e.value.code == "STALE_QUOTE" and e.value.status_code == 409
 
 
-def test_over_limit_and_hold_blocked_422():
+async def test_over_limit_and_hold_blocked_422():
     c = _conn()
     s = _svc(c)
     big = [{"sku": "refill", "qty": 10}, {"sku": "container", "qty": 1}]
     with pytest.raises(OverLimitError) as e:
-        s.create("u1", _payload(items=big, e=0), "k1")
+        await s.create("u1", _payload(items=big, e=0), "k1")
     assert e.value.code == "OVER_LIMIT" and e.value.status_code == 422
-    LedgerRepo(c).apply_event("u2", d_held=4, ref="test:seed", reason="held 4 jars")
+    await LedgerRepo(_w(c)).apply_event("u2", d_held=4, ref="test:seed", reason="held 4 jars")
     with pytest.raises(HoldBlockedError) as e2:
-        s.create("u2", _payload(), "k2")
+        await s.create("u2", _payload(), "k2")
     assert e2.value.code == "HOLD_BLOCKED" and e2.value.status_code == 422
 
 
-def test_idempotent_replay_returns_same_order():
+async def test_idempotent_replay_returns_same_order():
     c = _conn()
     s = _svc(c)
     p = _payload()
-    o1 = s.create("u1", p, "k1")
+    o1 = await s.create("u1", p, "k1")
     with pytest.raises(IdempotentReplayError) as e:
-        s.create("u1", p, "k1")
+        await s.create("u1", p, "k1")
     assert e.value.code == "IDEMPOTENT_REPLAY" and e.value.details["order"]["id"] == o1["id"]
     assert c.execute("SELECT COUNT(*) c FROM orders").fetchone()["c"] == 1
 
 
-def test_payload_mismatch_422():
+async def test_payload_mismatch_422():
     c = _conn()
     s = _svc(c)
-    s.create("u1", _payload(), "k1")
+    await s.create("u1", _payload(), "k1")
     with pytest.raises(PayloadMismatchError) as e:
-        s.create("u1", _payload(payment_mode="upi"), "k1")  # same key, changed body
+        await s.create("u1", _payload(payment_mode="upi"), "k1")  # same key, changed body
     assert e.value.code == "PAYLOAD_MISMATCH" and e.value.status_code == 422
 
 
 # -- cancel (§10) ----------------------------------------------------------
 
-def test_create_cancel_void_unpaid_bill_zero_deposit_reversed():
+async def test_create_cancel_void_unpaid_bill_zero_deposit_reversed():
     c = _conn()
     s = _svc(c)
-    o = s.create("u1", _payload(), "k1")
-    out = s.cancel("u1", o["id"], "changed mind", "c1")
+    o = await s.create("u1", _payload(), "k1")
+    out = await s.cancel("u1", o["id"], "changed mind", "c1")
     assert out == {"order_id": o["id"], "state": "cancelled", "bill_total": 0,
                    "deposit_reversed": 15000, "refund": None}
-    led = LedgerRepo(c).get("u1")
+    led = await LedgerRepo(_w(c)).get("u1")
     assert (led["deposit_paid"], led["deposit_refunded"]) == (15000, 15000)
     assert c.execute("SELECT COUNT(*) c FROM refunds").fetchone()["c"] == 0
 
 
-def test_double_cancel_same_key_same_outcome_single_refund_row():
+async def test_double_cancel_same_key_same_outcome_single_refund_row():
     c = _conn()
     s = _svc(c)
-    o = s.create("u1", _payload(), "k1")
+    o = await s.create("u1", _payload(), "k1")
     c.execute("UPDATE orders SET payment_status = 'paid_upi' WHERE id = ?", (o["id"],))
     c.commit()
-    out1 = s.cancel("u1", o["id"], "changed mind", "c1")
+    out1 = await s.cancel("u1", o["id"], "changed mind", "c1")
     assert out1["refund"]["status"] == "pending" and out1["refund"]["amount"] == o["total"]
-    out2 = s.cancel("u1", o["id"], "changed mind", "c1")  # idempotent replay
+    out2 = await s.cancel("u1", o["id"], "changed mind", "c1")  # idempotent replay
     assert out2 == out1
     assert c.execute("SELECT COUNT(*) c FROM refunds").fetchone()["c"] == 1
 
 
-def test_double_cancel_new_key_already_cancelled_same_outcome():
+async def test_double_cancel_new_key_already_cancelled_same_outcome():
     c = _conn()
     s = _svc(c)
-    o = s.create("u1", _payload(), "k1")
-    s.cancel("u1", o["id"], "r1", "c1")
+    o = await s.create("u1", _payload(), "k1")
+    await s.cancel("u1", o["id"], "r1", "c1")
     with pytest.raises(AlreadyCancelledError) as e:
-        s.cancel("u1", o["id"], "r2", "c2")
+        await s.cancel("u1", o["id"], "r2", "c2")
     assert e.value.code == "ALREADY_CANCELLED" and e.value.status_code == 409
     assert e.value.details["bill_total"] == 0  # same outcome, no new writes
 
 
-def test_cancel_assigned_needs_dispatcher():
+async def test_cancel_assigned_needs_dispatcher():
     c = _conn()
     s = _svc(c)
-    o = s.create("u1", _payload(), "k1")
-    r = OrderRepo(c)
+    o = await s.create("u1", _payload(), "k1")
+    r = OrderRepo(_w(c))
     for to in ("accepted", "picked", "packed", "assigned"):
-        r.transition(o["id"], to, {"id": "admin", "role": "admin"}, "ops")
+        await r.transition(o["id"], to, {"id": "admin", "role": "admin"}, "ops")
     with pytest.raises(NeedDispatchOverrideError) as e:
-        s.cancel("u1", o["id"], "too late", "c1")
+        await s.cancel("u1", o["id"], "too late", "c1")
     assert e.value.code == "NEED_DISPATCH_OVERRIDE"
-    assert r.transition(o["id"], "cancelled", {"id": "d1", "role": "dispatcher"}, "override")["state"] == "cancelled"
+    assert (await r.transition(o["id"], "cancelled", {"id": "d1", "role": "dispatcher"}, "override"))["state"] == "cancelled"
 
 
 # -- machine + reschedule ---------------------------------------------------
 
-def test_illegal_transition_409():
+async def test_illegal_transition_409():
     c = _conn()
-    o = _svc(c).create("u1", _payload(), "k1")
+    o = await _svc(c).create("u1", _payload(), "k1")
     with pytest.raises(AppError) as e:
-        OrderRepo(c).transition(o["id"], "delivered", {"id": "u1", "role": "user"}, "skip")
+        await OrderRepo(_w(c)).transition(o["id"], "delivered", {"id": "u1", "role": "user"}, "skip")
     assert e.value.code == "STATE_CONFLICT" and e.value.status_code == 409
 
 
-def test_reschedule_pre_dispatch_ok_post_dispatch_409():
+async def test_reschedule_pre_dispatch_ok_post_dispatch_409():
     c = _conn()
     s = _svc(c)
-    r = OrderRepo(c)
-    o = s.create("u1", _payload(), "k1")
-    moved = s.reschedule("u1", o["id"], "2026-10-01T09:00:00+00:00")
+    r = OrderRepo(_w(c))
+    o = await s.create("u1", _payload(), "k1")
+    moved = await s.reschedule("u1", o["id"], "2026-10-01T09:00:00+00:00")
     assert moved["window_start"] == "2026-10-01T09:00:00+00:00" and moved["window_end"] != ""
     for to in ("accepted", "picked", "packed", "assigned", "dispatched"):
-        r.transition(o["id"], to, {"id": "admin", "role": "admin"}, "ops")
+        await r.transition(o["id"], to, {"id": "admin", "role": "admin"}, "ops")
     with pytest.raises(AppError) as e:
-        s.reschedule("u1", o["id"], "2026-10-01T10:00:00+00:00")
+        await s.reschedule("u1", o["id"], "2026-10-01T10:00:00+00:00")
     assert e.value.code == "STATE_CONFLICT" and e.value.status_code == 409
 
 
-def test_cross_user_404_no_oracle():
+async def test_cross_user_404_no_oracle():
     c = _conn()
     s = _svc(c)
-    o = s.create("u1", _payload(), "k1")
-    assert OrderRepo(c).find_owned(o["id"], "u2") is None
+    o = await s.create("u1", _payload(), "k1")
+    assert await OrderRepo(_w(c)).find_owned(o["id"], "u2") is None
     with pytest.raises(AppError) as e:
-        s.detail("u2", o["id"])
+        await s.detail("u2", o["id"])
     assert e.value.code == "NOT_FOUND" and e.value.status_code == 404
 
 
-def test_ledger_never_negative_422():
+async def test_ledger_never_negative_422():
     c = _conn()
     with pytest.raises(HoldNegativeError) as e:
-        LedgerRepo(c).apply_event("u1", d_held=-1, ref="test:x", reason="no jars held")
+        await LedgerRepo(_w(c)).apply_event("u1", d_held=-1, ref="test:x", reason="no jars held")
     assert e.value.status_code == 422
 
 
@@ -230,15 +235,16 @@ def _client(c, user="u1"):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.api.deps import get_db
+    from app.api.deps import get_db_conn
     from app.api.v1.orders import get_current_user as orders_guard
     from app.api.v1.orders import router
     from app.core.errors import register_exception_handlers
+    from app.db_d1 import AsyncSqliteConn
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
+    app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     # Real session auth (C1) retired the X-User-Id stub: canned user per test.
     app.dependency_overrides[orders_guard] = lambda: {
         "id": user, "role": "user", "phone": "+919000000000",

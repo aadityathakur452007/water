@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import require_active_user
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db import WRITE_LOCK
 
@@ -32,11 +32,11 @@ class RatingIn(BaseModel):
 
 
 @router.post("/orders/{order_id}/rating", status_code=201)
-def rate_order(order_id: str, payload: RatingIn, user=Depends(require_active_user),
-               conn=Depends(get_db)):
+async def rate_order(order_id: str, payload: RatingIn, user=Depends(require_active_user),
+               conn=Depends(get_db_conn)):
     uid = str(user.get("id"))
-    order = conn.execute("SELECT id, user_id, state FROM orders WHERE id = ?",
-                         (order_id,)).fetchone()
+    order = (await conn.execute("SELECT id, user_id, state FROM orders WHERE id = ?",
+                         (order_id,))).fetchone()
     if order is None or str(order["user_id"]) != uid:
         raise NotFoundError(message="Order not found.", details={"id": order_id})
     if str(order["state"]) != "delivered":
@@ -45,7 +45,7 @@ def rate_order(order_id: str, payload: RatingIn, user=Depends(require_active_use
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     with WRITE_LOCK:
         try:
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO ratings(order_id, user_id, stars, created_at)"
                 " VALUES (?, ?, ?, ?)",
                 (order_id, uid, int(payload.stars), now),

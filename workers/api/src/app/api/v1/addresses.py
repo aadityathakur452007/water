@@ -12,7 +12,7 @@ edit/delete blocks -> 409 STATE_CONFLICT from the repo.
 
 from fastapi import APIRouter, Depends, Response
 
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.core.errors import NotFoundError
 
 try:  # C1 owns app.api.auth_deps; fallback 401s until it lands.
@@ -57,36 +57,36 @@ def _to_out(row: dict, needs_pin_confirm: bool = False) -> AddressOut:
 
 
 @router.get("/addresses", response_model=list[AddressOut])
-def list_addresses(user=Depends(get_current_user), conn=Depends(get_db)):
-    rows = AddressRepo(conn).list_by_user(_user_id(user))
+async def list_addresses(user=Depends(get_current_user), conn=Depends(get_db_conn)):
+    rows = await AddressRepo(conn).list_by_user(_user_id(user))
     return [_to_out(r) for r in rows]
 
 
 @router.post("/addresses", response_model=AddressOut, status_code=201)
-def create_address(payload: AddressIn, user=Depends(get_current_user), conn=Depends(get_db)):
+async def create_address(payload: AddressIn, user=Depends(get_current_user), conn=Depends(get_db_conn)):
     address_service.verify_place_id_stub(payload.place_id)
     serviceable = address_service.serviceability(payload.pincode)
     address_service.lookup_zone(payload.pincode, payload.lat, payload.lng)  # STUB -> None
-    row = AddressRepo(conn).create(_user_id(user), payload, serviceable=serviceable)
+    row = await AddressRepo(conn).create(_user_id(user), payload, serviceable=serviceable)
     return _to_out(row, address_service.needs_pin_confirm(payload.accuracy_m))
 
 
 @router.patch("/addresses/{addr_id}", response_model=AddressOut)
-def update_address(addr_id: str, payload: AddressPatch, user=Depends(get_current_user), conn=Depends(get_db)):
+async def update_address(addr_id: str, payload: AddressPatch, user=Depends(get_current_user), conn=Depends(get_db_conn)):
     repo = AddressRepo(conn)
-    if repo.get_owned(addr_id, _user_id(user)) is None:
+    if await repo.get_owned(addr_id, _user_id(user)) is None:
         raise NotFoundError("Address not found", {"id": addr_id})
     data = payload.model_dump(exclude_unset=True)
     serviceable = address_service.serviceability(data["pincode"]) if data.get("pincode") else None
-    row = repo.update_owned(addr_id, _user_id(user), data, serviceable=serviceable)
+    row = await repo.update_owned(addr_id, _user_id(user), data, serviceable=serviceable)
     if row is None:  # raced delete
         raise NotFoundError("Address not found", {"id": addr_id})
     return _to_out(row, address_service.needs_pin_confirm(data.get("accuracy_m")))
 
 
 @router.delete("/addresses/{addr_id}", status_code=204)
-def delete_address(addr_id: str, user=Depends(get_current_user), conn=Depends(get_db)):
-    ok = AddressRepo(conn).delete_owned(addr_id, _user_id(user))
+async def delete_address(addr_id: str, user=Depends(get_current_user), conn=Depends(get_db_conn)):
+    ok = await AddressRepo(conn).delete_owned(addr_id, _user_id(user))
     if not ok:
         raise NotFoundError("Address not found", {"id": addr_id})
     return Response(status_code=204)

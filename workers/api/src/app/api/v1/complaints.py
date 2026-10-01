@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_active_user
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db import WRITE_LOCK
 
@@ -55,14 +55,14 @@ def _now() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
 
 
-def _delivered_at(conn: sqlite3.Connection, order_id: str) -> _dt.datetime | None:
+async def _delivered_at(conn, order_id: str) -> _dt.datetime | None:
     """Delivery instant from the order event chain (server truth, not client)."""
     try:
-        row = conn.execute(
+        row = (await conn.execute(
             "SELECT created_at FROM order_events WHERE order_id = ? AND to_state = 'delivered'"
             " ORDER BY created_at DESC LIMIT 1",
             (order_id,),
-        ).fetchone()
+        )).fetchone()
     except Exception:
         return None
     if row is None:
@@ -84,19 +84,19 @@ def _display(row: dict) -> dict:
 
 
 @router.post("/complaints", status_code=201)
-def create_complaint(payload: ComplaintIn, user=Depends(require_active_user),
-                     conn=Depends(get_db)):
+async def create_complaint(payload: ComplaintIn, user=Depends(require_active_user),
+                     conn=Depends(get_db_conn)):
     if payload.photos:  # v1 has no object storage — reject loudly, don't swallow
         raise PhotosV2Error(
             message="Photo upload arrives in v2. Describe the issue in words.",
             details={"reason_code": payload.reason_code},
         )
     uid = str(user.get("id"))
-    order = conn.execute("SELECT id, user_id FROM orders WHERE id = ?",
-                         (payload.order_id,)).fetchone()
+    order = (await conn.execute("SELECT id, user_id FROM orders WHERE id = ?",
+                         (payload.order_id,))).fetchone()
     if order is None or str(order["user_id"]) != uid:
         raise NotFoundError(message="Order not found.", details={"id": payload.order_id})
-    delivered = _delivered_at(conn, payload.order_id)
+    delivered = await _delivered_at(conn, payload.order_id)
     if delivered is None:
         raise ConflictError(message="Only delivered orders can be complained about.",
                             details={"order_id": payload.order_id})
@@ -110,7 +110,7 @@ def create_complaint(payload: ComplaintIn, user=Depends(require_active_user),
     now = _now().isoformat()
     with WRITE_LOCK:
         try:
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO complaints(id, order_id, user_id, reason_code, text, photos,"
                 " vendor_agree, vendor_note, status, created_at, resolved_at)"
                 " VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 'open', ?, NULL)",
@@ -121,14 +121,14 @@ def create_complaint(payload: ComplaintIn, user=Depends(require_active_user),
         except Exception:
             conn.rollback()
             raise
-    row = conn.execute("SELECT * FROM complaints WHERE id = ?", (cid,)).fetchone()
+    row = (await conn.execute("SELECT * FROM complaints WHERE id = ?", (cid,))).fetchone()
     return _display(dict(row))
 
 
 @router.get("/complaints")
-def list_complaints(user=Depends(get_current_user), conn=Depends(get_db)):
-    rows = conn.execute(
+async def list_complaints(user=Depends(get_current_user), conn=Depends(get_db_conn)):
+    rows = (await conn.execute(
         "SELECT * FROM complaints WHERE user_id = ? ORDER BY created_at DESC, id DESC",
         (str(user.get("id")),),
-    ).fetchall()
+    )).fetchall()
     return {"data": [_display(dict(r)) for r in rows]}

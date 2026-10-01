@@ -28,7 +28,7 @@ class Default(WorkerEntrypoint):
 
     async def scheduled(self, controller, env, ctx):
         set_worker_env(env)
-        # T2: repositories are sync-sqlite today and D1 is async-only, so
-        # jobs (app/jobs/scheduler.py) cannot run on D1 yet. This tick
-        # stays a logged no-op until the async-D1 conversion lands.
-        print("water: cron tick received, scheduler pending async-D1 conversion (T2).")
+        # Phase-B done: jobs (app/jobs/scheduler.py) are async over the Conn
+        # facade and could run on D1Conn(env.DB) here. This tick stays a
+        # logged no-op until the cron wiring is tested against real D1.
+        print("water: cron tick received, scheduler async-ready, wiring pending.")

@@ -19,6 +19,7 @@ if str(API_ROOT) not in sys.path:
 from app.adapters.fcm import FakeFcm, RealFcm, StubError, notify  # noqa: E402
 from app.core.errors import AppError  # noqa: E402
 from app.db import get_connection  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.services.subscription_service import (  # noqa: E402
     ResumeTooSoonError,
     SubValidationError,
@@ -40,9 +41,9 @@ def _addr(c, user="u1", aid="a1"):
     c.commit()
 
 
-def _sub(c, user="u1", **over):
+async def _sub(c, user="u1", **over):
     _addr(c, user, over.get("address_id", "a1"))
-    return SubscriptionService(c).create(user, {
+    return await SubscriptionService(AsyncSqliteConn(c)).create(user, {
         "address_id": over.get("address_id", "a1"),
         "qty": over.get("qty", 2),
         "schedule_type": over.get("schedule_type", "daily"),
@@ -74,13 +75,13 @@ def _client(router_mod, c, user="u1"):
     from fastapi.testclient import TestClient
 
     from app.api import auth_deps
-    from app.api.deps import get_db
+    from app.api.deps import get_db_conn
     from app.core.errors import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router_mod.router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
+    app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     canned = {"id": user, "role": "user", "phone": "+919000000000",
               "suspended": False, "session_id": "s", "family_id": "f", "device_fp": "d"}
     app.dependency_overrides[auth_deps.get_current_user] = lambda: canned
@@ -100,77 +101,78 @@ def test_005_applies_cleanly_and_reruns():
 
 # -- subscriptions --------------------------------------------------------
 
-def test_sub_create_tier_stays_null_v1():
+async def test_sub_create_tier_stays_null_v1():
     c = _conn()
-    s = _sub(c)
+    s = await _sub(c)
     assert (s["tier"], s["discount_pct"], s["perks"]) == (None, None, None)
     assert s["status"] == "active" and s["schedule_type"] == "daily"
 
 
-def test_pause_bad_range_400():
+async def test_pause_bad_range_400():
     c = _conn()
-    s = _sub(c)
+    s = await _sub(c)
+    svc = SubscriptionService(AsyncSqliteConn(c))
     with pytest.raises(SubValidationError):
-        SubscriptionService(c).create("u1", {"address_id": "a1", "qty": 0})
+        await svc.create("u1", {"address_id": "a1", "qty": 0})
     with pytest.raises(AppError) as e:
-        SubscriptionService(c).pause("u1", s["id"], "2026-10-05", "2026-10-01")
+        await svc.pause("u1", s["id"], "2026-10-05", "2026-10-01")
     assert e.value.status_code == 400
 
 
-def test_resume_guard_late_422_with_next_valid():
+async def test_resume_guard_late_422_with_next_valid():
     c = _conn()
-    s = _sub(c)
-    svc = SubscriptionService(c)
-    svc.pause("u1", s["id"], "2026-10-01", "2026-10-10")
+    s = await _sub(c)
+    svc = SubscriptionService(AsyncSqliteConn(c))
+    await svc.pause("u1", s["id"], "2026-10-01", "2026-10-10")
     now = datetime(2026, 9, 29, 10, 0, tzinfo=timezone.utc)
     with pytest.raises(ResumeTooSoonError) as e:
-        svc.resume("u1", s["id"], (now + timedelta(hours=2)).isoformat(), now=now)
+        await svc.resume("u1", s["id"], (now + timedelta(hours=2)).isoformat(), now=now)
     assert e.value.code == "RESUME_TOO_SOON" and e.value.status_code == 422
     assert "next_valid_date" in e.value.details
-    ok = svc.resume("u1", s["id"], (now + timedelta(hours=25)).isoformat(), now=now)
+    ok = await svc.resume("u1", s["id"], (now + timedelta(hours=25)).isoformat(), now=now)
     assert ok["status"] == "active" and ok["hold_from"] is None
 
 
-def test_router_late_resume_422():
+async def test_router_late_resume_422():
     from app.api.v1 import subscriptions as subs_mod
     c, client = _conn(), None
-    s = _sub(c)
-    SubscriptionService(c).pause("u1", s["id"], "2026-10-01", "2026-10-10")
+    s = await _sub(c)
+    await SubscriptionService(AsyncSqliteConn(c)).pause("u1", s["id"], "2026-10-01", "2026-10-10")
     client = _client(subs_mod, c)
     pref = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     r = client.post(f"/v1/subscriptions/{s['id']}/resume", json={"preferred_date": pref})
     assert r.status_code == 422 and r.json()["error"]["code"] == "RESUME_TOO_SOON"
 
 
-def test_skip_cutoff_late_flag():
+async def test_skip_cutoff_late_flag():
     c = _conn()
-    s = _sub(c)
-    svc = SubscriptionService(c)
+    s = await _sub(c)
+    svc = SubscriptionService(AsyncSqliteConn(c))
     day = "2026-09-29"
     early = datetime(2026, 9, 29, 9, 0, tzinfo=timezone.utc)
     late = datetime(2026, 9, 29, 19, 0, tzinfo=timezone.utc)
-    assert svc.skip("u1", s["id"], day, now=early)["late_skip"] is False
+    assert (await svc.skip("u1", s["id"], day, now=early))["late_skip"] is False
     c.execute("DELETE FROM skips WHERE sub_id = ?", (s["id"],))
     c.commit()
-    out = svc.skip("u1", s["id"], day, now=late)
+    out = await svc.skip("u1", s["id"], day, now=late)
     assert out["late_skip"] is True and "cta" in out
 
 
-def test_process_due_generates_and_autoresumes_idempotently():
+async def test_process_due_generates_and_autoresumes_idempotently():
     c = _conn()
-    svc = SubscriptionService(c)
-    due = _sub(c, next_run="2026-09-29")
-    paused = _sub(c, next_run="2026-09-20")
-    svc.pause("u1", paused["id"], "2026-09-20", "2026-09-25")  # hold_to < today
-    held = _sub(c, next_run="2026-09-29")
-    svc.pause("u1", held["id"], "2026-09-29", "2026-10-05")  # still held
-    out1 = svc.process_due("2026-09-29")
+    svc = SubscriptionService(AsyncSqliteConn(c))
+    due = await _sub(c, next_run="2026-09-29")
+    paused = await _sub(c, next_run="2026-09-20")
+    await svc.pause("u1", paused["id"], "2026-09-20", "2026-09-25")  # hold_to < today
+    held = await _sub(c, next_run="2026-09-29")
+    await svc.pause("u1", held["id"], "2026-09-29", "2026-10-05")  # still held
+    out1 = await svc.process_due("2026-09-29")
     assert {g["sub_id"] for g in out1["generated"]} == {due["id"]}
     assert {r["sub_id"] for r in out1["resumed"]} == {paused["id"]}
-    assert svc.get_owned("u1", paused["id"])["status"] == "active"
-    out2 = svc.process_due("2026-09-29")  # idempotent replay
+    assert (await svc.get_owned("u1", paused["id"]))["status"] == "active"
+    out2 = await svc.process_due("2026-09-29")  # idempotent replay
     assert out2 == {"date": "2026-09-29", "generated": [], "resumed": []}
-    assert svc.get_owned("u1", due["id"])["next_run"] > "2026-09-29"
+    assert (await svc.get_owned("u1", due["id"]))["next_run"] > "2026-09-29"
 
 
 def test_router_sub_crud_owner_scoped():

@@ -22,13 +22,15 @@ import hashlib
 import hmac
 import json
 import math
-import sqlite3
 import uuid
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
+from app.db_d1 import AsyncSqliteConn, D1Conn
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
+
+Conn = D1Conn | AsyncSqliteConn
 
 GPS_FLAG_M = 200.0  # §12: drift beyond this soft-flags for admin, never blocks
 
@@ -95,7 +97,7 @@ def seed_quality(incident: dict) -> dict:
 class VendorService:
     """Service-per-use-case for vendor ops (python card: services stay DB-agnostic)."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: Conn):
         self._conn = conn
         self.ledger = LedgerRepo(conn)
 
@@ -112,20 +114,20 @@ class VendorService:
 
     # -- route sheet ------------------------------------------------------------
 
-    def today_route(self, vendor_id: str, date: str | None = None) -> dict:
+    async def today_route(self, vendor_id: str, date: str | None = None) -> dict:
         day = date or _today()
-        route = self._conn.execute(
+        route = (await self._conn.execute(
             "SELECT id, date, vendor_id, zone, status FROM routes WHERE vendor_id = ? AND date = ?",
             (vendor_id, day),
-        ).fetchone()
+        )).fetchone()
         if route is None:
             return {"route": None, "stops": [], "loading": {"take_fulls": 0, "expect_empties": 0}, "skip": []}
-        rows = self._conn.execute(
+        rows = (await self._conn.execute(
             "SELECT id, route_id, order_id, return_id, customer_id, seq, fulls_exp,"
             " empties_exp, version, triple, status, synced_at"
             " FROM stops WHERE route_id = ? ORDER BY seq",
             (route["id"],),
-        ).fetchall()
+        )).fetchall()
         stops = [self._stop_out(dict(r)) for r in rows]
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
@@ -138,12 +140,12 @@ class VendorService:
             "skip": [s for s in stops if s["status"] == "skipped"],
         }
 
-    def get_stop(self, vendor_id: str, stop_id: str) -> dict:
-        return self._stop_out(self._owned_stop(vendor_id, stop_id))
+    async def get_stop(self, vendor_id: str, stop_id: str) -> dict:
+        return self._stop_out(await self._owned_stop(vendor_id, stop_id))
 
     # -- triple -------------------------------------------------------------------
 
-    def triple_commit(self, vendor_id: str, stop_id: str, payload: dict,
+    async def triple_commit(self, vendor_id: str, stop_id: str, payload: dict,
                       idempotency_key: str = "") -> dict:
         """One atomic commit: version fence → invariant → ledger → stop row.
 
@@ -166,14 +168,14 @@ class VendorService:
         scoped = f"{TRIPLE_ENDPOINT}:{idempotency_key}" if idempotency_key else ""
         phash = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
         with WRITE_LOCK:
-            stop = self._owned_stop(vendor_id, stop_id)
+            stop = await self._owned_stop(vendor_id, stop_id)
             if int(stop["version"]) != int(version):
                 raise StaleStopError(
                     message="Stop was reassigned. Pull the fresh route.",
                     details={"stop_id": stop_id, "expected": stop["version"], "got": version},
                 )
             if scoped:
-                stored = self._idem_get(vendor_id, scoped)
+                stored = await self._idem_get(vendor_id, scoped)
                 if stored is not None:
                     if stored["payload_hash"] != phash:
                         raise PayloadMismatchError(
@@ -185,10 +187,10 @@ class VendorService:
             if stop["status"] == "done" and current and _triple_core(current) == core:
                 out = self._stop_out(stop)  # same-payload replay: zero new writes
                 if scoped:
-                    self._idem_put(vendor_id, scoped, stop_id, phash, out)
+                    await self._idem_put(vendor_id, scoped, stop_id, phash, out)
                 return {**out, "replay": True}
             try:
-                self.ledger.apply_event(
+                await self.ledger.apply_event(
                     stop["customer_id"] or stop_id,
                     d_held=core["fulls_given"] - core["empties_back"],
                     ref=f"stop:{stop_id}",
@@ -198,7 +200,7 @@ class VendorService:
                 )
                 triple = {**core, "tendered": tendered, "change_given": change,
                           "seal_ok": payload.get("seal_ok"), "pod": current.get("pod")}
-                self._conn.execute(
+                await self._conn.execute(
                     "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE id = ?",
                     (json.dumps({k: v for k, v in triple.items() if v is not None}), _now(), stop_id),
                 )
@@ -206,18 +208,18 @@ class VendorService:
             except Exception:
                 self._conn.rollback()
                 raise
-            fresh = self._owned_stop(vendor_id, stop_id)
+            fresh = await self._owned_stop(vendor_id, stop_id)
             out = self._stop_out(fresh)
             if scoped:
-                self._idem_put(vendor_id, scoped, stop_id, phash, out)
+                await self._idem_put(vendor_id, scoped, stop_id, phash, out)
             return out
 
     # -- PoD ----------------------------------------------------------------------
 
-    def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
+    async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
         """OTP-gated PoD. Wrong OTP → 401. GPS drift → flagged, never blocked."""
-        stop = self._owned_stop(vendor_id, stop_id)
-        route = self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],)).fetchone()
+        stop = await self._owned_stop(vendor_id, stop_id)
+        route = (await self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],))).fetchone()
         day = route["date"] if route else _today()
         if stop["order_id"]:
             expected = pod_otp(stop["order_id"], day)
@@ -225,16 +227,16 @@ class VendorService:
                 raise PodOtpError(message="Invalid delivery code.", details={"stop_id": stop_id})
         gps: dict = {}
         if payload.get("lat") is not None and payload.get("lng") is not None:
-            pin = self._stop_pin(stop)
+            pin = await self._stop_pin(stop)
             dist = _haversine_m(float(payload["lat"]), float(payload["lng"]), *pin) if pin else 0.0
             gps = {"lat": payload["lat"], "lng": payload["lng"],
                    "dist_m": round(dist, 1), "flagged": bool(pin) and dist > GPS_FLAG_M}
         if stop["order_id"]:
-            order = self._conn.execute(
-                "SELECT state FROM orders WHERE id = ?", (stop["order_id"],)).fetchone()
+            order = (await self._conn.execute(
+                "SELECT state FROM orders WHERE id = ?", (stop["order_id"],))).fetchone()
             if order is not None and order["state"] == "dispatched":
                 # Own txn inside OrderRepo (WRITE_LOCK is not reentrant — never nest it).
-                OrderRepo(self._conn).transition(
+                await OrderRepo(self._conn).transition(
                     stop["order_id"], "delivered", {"id": vendor_id, "role": "vendor"}, "pod otp verified")
             elif order is not None and order["state"] not in ("delivered", "dispatched"):
                 raise ConflictError(
@@ -243,13 +245,13 @@ class VendorService:
                 )
         with WRITE_LOCK:
             try:
-                fresh = self._owned_stop(vendor_id, stop_id)
+                fresh = await self._owned_stop(vendor_id, stop_id)
                 current = json.loads(fresh["triple"]) if fresh["triple"] else {}
                 pod = {"empties_count": payload.get("empties_count", 0), "cash": payload.get("cash", 0),
                        "seal_ok": payload.get("seal_ok"), "gps": gps or None,
                        "completed_at": _now(), "completed_by": vendor_id}
                 current["pod"] = {k: v for k, v in pod.items() if v is not None}
-                self._conn.execute(
+                await self._conn.execute(
                     "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE id = ?",
                     (json.dumps(current), _now(), stop_id),
                 )
@@ -257,18 +259,18 @@ class VendorService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return self._stop_out(self._owned_stop(vendor_id, stop_id))
+        return self._stop_out(await self._owned_stop(vendor_id, stop_id))
 
     # -- sync ---------------------------------------------------------------------
 
-    def sync_batch(self, vendor_id: str, items: list[dict]) -> dict:
+    async def sync_batch(self, vendor_id: str, items: list[dict]) -> dict:
         """Offline queue flush. Per-stop txns (server-wins ledger); stale entries
         are rejected individually, never fail the batch. Replays are no-ops."""
         applied, rejected, replayed = [], [], []
         for it in items:
             sid = it.get("stop_id", "")
             try:
-                out = self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
+                out = await self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
                 (replayed if out.get("replay") else applied).append(sid)
             except AppError as e:
                 rejected.append({"stop_id": sid, "code": e.code, "message": e.message})
@@ -276,13 +278,13 @@ class VendorService:
 
     # -- earnings -------------------------------------------------------------------
 
-    def earnings(self, vendor_id: str, shift: str | None = None) -> dict:
+    async def earnings(self, vendor_id: str, shift: str | None = None) -> dict:
         day = shift or _today()
-        rows = self._conn.execute(
+        rows = (await self._conn.execute(
             "SELECT s.triple FROM stops s JOIN routes r ON r.id = s.route_id"
             " WHERE r.vendor_id = ? AND r.date = ? AND s.status = 'done'",
             (vendor_id, day),
-        ).fetchall()
+        )).fetchall()
         cash = upi = held_cash = held_upi = flagged = done = 0
         for r in rows:
             try:
@@ -309,21 +311,21 @@ class VendorService:
 
     # -- complaint + quality verification (§14.3) ---------------------------------------
 
-    def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:
+    async def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:
         with WRITE_LOCK:
-            row = self._conn.execute(
+            row = (await self._conn.execute(
                 "SELECT c.id, c.order_id, c.status FROM complaints c"
                 " JOIN stops s ON s.order_id = c.order_id"
                 " JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?"
                 " WHERE c.id = ?",
                 (vendor_id, complaint_id),
-            ).fetchone()
+            )).fetchone()
             if row is None:
                 raise NotFoundError(message="Complaint not found.", details={"id": complaint_id})
             # agree → auto redelivery/refund path; disagree → frozen, 48h admin triage.
             status = "resolved" if agree else "under_review"
             try:
-                self._conn.execute(
+                await self._conn.execute(
                     "UPDATE complaints SET vendor_agree = ?, vendor_note = ?, status = ?,"
                     " resolved_at = ? WHERE id = ?",
                     (1 if agree else 0, note[:500], status, _now() if agree else None, complaint_id),
@@ -347,24 +349,24 @@ class VendorService:
 
     # -- internals ----------------------------------------------------------------------
 
-    def _owned_stop(self, vendor_id: str, stop_id: str) -> dict:
-        row = self._conn.execute(
+    async def _owned_stop(self, vendor_id: str, stop_id: str) -> dict:
+        row = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at"
             " FROM stops s JOIN routes r ON r.id = s.route_id"
             " WHERE s.id = ? AND r.vendor_id = ?",
             (stop_id, vendor_id),
-        ).fetchone()
+        )).fetchone()
         if row is None:  # IDOR rule: not-yours reads as not-found (no oracle)
             raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         return dict(row)
 
-    def _stop_pin(self, stop: dict) -> tuple[float, float] | None:
+    async def _stop_pin(self, stop: dict) -> tuple[float, float] | None:
         if not stop["order_id"]:
             return None
-        row = self._conn.execute(
+        row = (await self._conn.execute(
             "SELECT a.lat, a.lng FROM orders o JOIN addresses a ON a.id = o.address_id"
-            " WHERE o.id = ?", (stop["order_id"],)).fetchone()
+            " WHERE o.id = ?", (stop["order_id"],))).fetchone()
         if row is None or row["lat"] is None or row["lng"] is None:
             return None
         return (float(row["lat"]), float(row["lng"]))
@@ -377,15 +379,15 @@ class VendorService:
             triple = None
         return {**stop, "triple": triple}
 
-    def _idem_get(self, vendor_id: str, scoped: str) -> dict | None:
-        row = self._conn.execute(
+    async def _idem_get(self, vendor_id: str, scoped: str) -> dict | None:
+        row = (await self._conn.execute(
             "SELECT payload_hash, result FROM idempotency_keys WHERE user_id = ? AND scoped_key = ?",
             (vendor_id, scoped),
-        ).fetchone()
+        )).fetchone()
         return dict(row) if row is not None else None
 
-    def _idem_put(self, vendor_id: str, scoped: str, stop_id: str, phash: str, outcome: dict) -> None:
-        self._conn.execute(
+    async def _idem_put(self, vendor_id: str, scoped: str, stop_id: str, phash: str, outcome: dict) -> None:
+        await self._conn.execute(
             "INSERT OR IGNORE INTO idempotency_keys(user_id, scoped_key, order_id,"
             " payload_hash, result, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (vendor_id, scoped, stop_id, phash, json.dumps(outcome), _now()),

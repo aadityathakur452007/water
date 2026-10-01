@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from typing import Any
 
 from app.api.auth_deps import require_role
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.services.vendor_service import VendorService
 
 router = APIRouter(tags=["vendor"])
@@ -76,48 +76,48 @@ class QualityCheckIn(BaseModel):
 
 
 @router.post("/vendor/duty")
-def set_duty(payload: DutyIn, conn=Depends(get_db), user=Depends(_vendor)):
+async def set_duty(payload: DutyIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return _svc(conn).duty(_uid(user), payload.on)
 
 
 @router.get("/vendor/routes/today")
-def routes_today(date: str | None = None, conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).today_route(_uid(user), date)
+async def routes_today(date: str | None = None, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).today_route(_uid(user), date)
 
 
 @router.get("/vendor/stops/{stop_id}")
-def get_stop(stop_id: str, conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).get_stop(_uid(user), stop_id)
+async def get_stop(stop_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).get_stop(_uid(user), stop_id)
 
 
 @router.post("/vendor/stops/{stop_id}/triple")
-def commit_triple(stop_id: str, payload: TripleIn, conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).triple_commit(_uid(user), stop_id, payload.model_dump(mode="json"))
+async def commit_triple(stop_id: str, payload: TripleIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).triple_commit(_uid(user), stop_id, payload.model_dump(mode="json"))
 
 
 @router.post("/vendor/stops/{stop_id}/pod")
-def complete_pod(stop_id: str, payload: PodIn, conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).pod_complete(_uid(user), stop_id, payload.model_dump(mode="json"))
+async def complete_pod(stop_id: str, payload: PodIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).pod_complete(_uid(user), stop_id, payload.model_dump(mode="json"))
 
 
 @router.post("/vendor/sync")
-def sync_batch(payload: SyncIn, conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).sync_batch(_uid(user), payload.items)
+async def sync_batch(payload: SyncIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).sync_batch(_uid(user), payload.items)
 
 
 @router.get("/vendor/earnings")
-def earnings(shift: str | None = None, conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).earnings(_uid(user), shift)
+async def earnings(shift: str | None = None, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).earnings(_uid(user), shift)
 
 
 @router.post("/complaints/{complaint_id}/verify")
-def verify_complaint(complaint_id: str, payload: VerifyIn,
-                     conn=Depends(get_db), user=Depends(_vendor)):
-    return _svc(conn).verify_complaint(_uid(user), complaint_id, payload.agree, payload.note)
+async def verify_complaint(complaint_id: str, payload: VerifyIn,
+                     conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).verify_complaint(_uid(user), complaint_id, payload.agree, payload.note)
 
 
 @router.post("/quality/{incident_id}/vendor-check")
-def vendor_check_quality(incident_id: str, payload: QualityCheckIn,
-                         conn=Depends(get_db), user=Depends(_vendor)):
+async def vendor_check_quality(incident_id: str, payload: QualityCheckIn,
+                         conn=Depends(get_db_conn), user=Depends(_vendor)):
     return _svc(conn).vendor_check_quality(
         _uid(user), incident_id, payload.agree, payload.check, payload.note)

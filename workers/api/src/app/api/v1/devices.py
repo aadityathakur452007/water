@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_active_user
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.core.errors import NotFoundError
 from app.db import WRITE_LOCK
 
@@ -31,13 +31,13 @@ class DeviceDelIn(BaseModel):
 
 
 @router.post("/devices", status_code=201)
-def upsert_device(payload: DeviceIn, user=Depends(require_active_user),
-                  conn=Depends(get_db)):
+async def upsert_device(payload: DeviceIn, user=Depends(require_active_user),
+                  conn=Depends(get_db_conn)):
     uid = str(user.get("id"))
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     with WRITE_LOCK:
         try:
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO device_tokens(user_id, device_id, token, platform, updated_at)"
                 " VALUES (?, ?, ?, ?, ?)"
                 " ON CONFLICT(user_id, device_id) DO UPDATE SET token = excluded.token,"
@@ -52,12 +52,12 @@ def upsert_device(payload: DeviceIn, user=Depends(require_active_user),
 
 
 @router.delete("/devices")
-def delete_device(payload: DeviceDelIn, user=Depends(get_current_user),
-                  conn=Depends(get_db)):
+async def delete_device(payload: DeviceDelIn, user=Depends(get_current_user),
+                  conn=Depends(get_db_conn)):
     uid = str(user.get("id"))
     with WRITE_LOCK:
         try:
-            cur = conn.execute(
+            cur = await conn.execute(
                 "DELETE FROM device_tokens WHERE user_id = ? AND device_id = ?",
                 (uid, payload.device_id),
             )

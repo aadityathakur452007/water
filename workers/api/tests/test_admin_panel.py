@@ -16,6 +16,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from app.db import get_connection, init_schema  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 
 MIGRATIONS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql",
               "005_payments.sql", "007_ops.sql"]
@@ -71,14 +72,14 @@ def _client(c, user=ADMIN):
     from fastapi.testclient import TestClient
 
     from app.api import auth_deps
-    from app.api.deps import get_db
+    from app.api.deps import get_db_conn
     from app.api.v1.admin import router
     from app.core.errors import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
+    app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     app.dependency_overrides[auth_deps.get_current_user] = lambda: user
     return TestClient(app)
 

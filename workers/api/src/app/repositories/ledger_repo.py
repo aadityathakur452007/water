@@ -3,16 +3,21 @@
 All money integer paise. Writes are parameterized (ssdlc). The never-negative
 held guard raises 422 before any write. ``commit=False`` lets OrderRepo fold a
 deposit entry into its single-transaction order insert (caller holds WRITE_LOCK).
+
+Async (Phase-B T2): methods await the shared facade (D1 in prod, sqlite
+locally) — call shapes are otherwise unchanged.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
-import sqlite3
 import uuid
 
 from app.core.errors import AppError
 from app.db import WRITE_LOCK
+from app.db_d1 import AsyncSqliteConn, D1Conn
+
+Conn = D1Conn | AsyncSqliteConn
 
 
 class HoldNegativeError(AppError):
@@ -44,14 +49,16 @@ def _split_ref(ref: str) -> tuple[str, str]:
 class LedgerRepo:
     """Data access for the customer ledger + its audit trail."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: Conn):
         self._conn = conn
 
-    def get(self, customer_id: str) -> dict:
-        row = self._conn.execute(
-            "SELECT customer_id, held, deposit_paid, deposit_refunded, dues,"
-            " wallet_balance, rate_override FROM ledger WHERE customer_id = ?",
-            (customer_id,),
+    async def get(self, customer_id: str) -> dict:
+        row = (
+            await self._conn.execute(
+                "SELECT customer_id, held, deposit_paid, deposit_refunded, dues,"
+                " wallet_balance, rate_override FROM ledger WHERE customer_id = ?",
+                (customer_id,),
+            )
         ).fetchone()
         if row is None:
             return {
@@ -65,7 +72,7 @@ class LedgerRepo:
             }
         return dict(row)
 
-    def apply_event(
+    async def apply_event(
         self,
         customer_id: str,
         d_held: int = 0,
@@ -79,12 +86,12 @@ class LedgerRepo:
         """Mutate ledger + append audit event. Never lets held go negative."""
         if commit:
             with WRITE_LOCK:
-                row = self._apply(customer_id, d_held, d_deposit, d_dues, ref, actor, reason)
+                row = await self._apply(customer_id, d_held, d_deposit, d_dues, ref, actor, reason)
                 self._conn.commit()
                 return row
-        return self._apply(customer_id, d_held, d_deposit, d_dues, ref, actor, reason)
+        return await self._apply(customer_id, d_held, d_deposit, d_dues, ref, actor, reason)
 
-    def _apply(
+    async def _apply(
         self,
         customer_id: str,
         d_held: int,
@@ -94,7 +101,7 @@ class LedgerRepo:
         actor: str,
         reason: str,
     ) -> dict:
-        cur = self.get(customer_id)
+        cur = await self.get(customer_id)
         if cur["held"] + int(d_held) < 0:
             raise HoldNegativeError(
                 message="Ledger held jars cannot go negative.",
@@ -102,7 +109,7 @@ class LedgerRepo:
             )
         paid = max(0, int(d_deposit))
         refunded = max(0, -int(d_deposit))
-        self._conn.execute(
+        await self._conn.execute(
             "INSERT INTO ledger(customer_id, held, deposit_paid, deposit_refunded, dues)"
             " VALUES (?, ?, ?, ?, ?)"
             " ON CONFLICT(customer_id) DO UPDATE SET held = held + excluded.held,"
@@ -112,7 +119,7 @@ class LedgerRepo:
             (customer_id, int(d_held), paid, refunded, int(d_dues)),
         )
         ref_type, ref_id = _split_ref(ref)
-        self._conn.execute(
+        await self._conn.execute(
             "INSERT INTO ledger_events(id, customer_id, kind, d_held, d_deposit, d_dues,"
             " ref_type, ref_id, actor_id, reason, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -130,13 +137,15 @@ class LedgerRepo:
                 _now(),
             ),
         )
-        return self.get(customer_id)
+        return await self.get(customer_id)
 
-    def history(self, customer_id: str, limit: int = 50) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT id, kind, d_held, d_deposit, d_dues, ref_type, ref_id,"
-            " actor_id, reason, created_at FROM ledger_events"
-            " WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?",
-            (customer_id, max(1, min(int(limit), 100))),
+    async def history(self, customer_id: str, limit: int = 50) -> list[dict]:
+        rows = (
+            await self._conn.execute(
+                "SELECT id, kind, d_held, d_deposit, d_dues, ref_type, ref_id,"
+                " actor_id, reason, created_at FROM ledger_events"
+                " WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?",
+                (customer_id, max(1, min(int(limit), 100))),
+            )
         ).fetchall()
         return [dict(r) for r in rows]

@@ -9,6 +9,9 @@ Edit guards: update/delete refuse while an ACTIVE order references the address
 (state NOT IN delivered/cancelled/failed/rejected) or — for delete — an active
 subscription does. ``orders``/``subscriptions`` tables may not exist yet
 (slice-2/3); guard queries check sqlite_master first and skip when absent.
+
+Async (Phase-B T2): methods await the shared facade (D1 in prod, sqlite
+locally) — call shapes are otherwise unchanged.
 """
 
 from __future__ import annotations
@@ -20,6 +23,9 @@ import uuid
 
 from app.core.errors import ConflictError, ValidationError
 from app.db import WRITE_LOCK
+from app.db_d1 import AsyncSqliteConn, D1Conn
+
+Conn = D1Conn | AsyncSqliteConn
 
 _PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
 _VALID_TYPES = ("home", "office")
@@ -35,8 +41,10 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
-def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
+async def _table_exists(conn: Conn, name: str) -> bool:
+    row = (
+        await conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,))
+    ).fetchone()
     return row is not None
 
 
@@ -66,10 +74,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 class AddressRepo:
     """Data access for user addresses."""
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: Conn):
         self._conn = conn
 
-    def create(self, user_id: str, dto, serviceable: bool | None = None) -> dict:
+    async def create(self, user_id: str, dto, serviceable: bool | None = None) -> dict:
         type_ = _field(dto, "type")
         lat = _field(dto, "lat")
         lng = _field(dto, "lng")
@@ -80,7 +88,7 @@ class AddressRepo:
         lift = 1 if _field(dto, "lift_flag", False) else 0
         svc = 1 if (serviceable if serviceable is not None else True) else 0
         with WRITE_LOCK:
-            self._conn.execute(
+            await self._conn.execute(
                 "INSERT INTO addresses(id, user_id, type, label, lat, lng, place_id,"
                 " formatted, landmark, pincode, lift_flag, serviceable, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -101,46 +109,54 @@ class AddressRepo:
                 ),
             )
             self._conn.commit()
-        return self.get_owned(addr_id, user_id) or {"id": addr_id}
+        return (await self.get_owned(addr_id, user_id)) or {"id": addr_id}
 
-    def list_by_user(self, user_id: str) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT * FROM addresses WHERE user_id = ? ORDER BY created_at DESC", (user_id,)
+    async def list_by_user(self, user_id: str) -> list[dict]:
+        rows = (
+            await self._conn.execute(
+                "SELECT * FROM addresses WHERE user_id = ? ORDER BY created_at DESC", (user_id,)
+            )
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    def get_owned(self, addr_id: str, user_id: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM addresses WHERE id = ? AND user_id = ?", (addr_id, user_id)
+    async def get_owned(self, addr_id: str, user_id: str) -> dict | None:
+        row = (
+            await self._conn.execute(
+                "SELECT * FROM addresses WHERE id = ? AND user_id = ?", (addr_id, user_id)
+            )
         ).fetchone()
         return _row_to_dict(row) if row is not None else None
 
-    def _blocked_by_order(self, addr_id: str) -> bool:
-        if not _table_exists(self._conn, "orders"):
+    async def _blocked_by_order(self, addr_id: str) -> bool:
+        if not await _table_exists(self._conn, "orders"):
             return False
         try:
-            row = self._conn.execute(
-                "SELECT 1 FROM orders WHERE address_id = ? AND state NOT IN (?, ?, ?, ?) LIMIT 1",
-                (addr_id, *_TERMINAL_STATES),
+            row = (
+                await self._conn.execute(
+                    "SELECT 1 FROM orders WHERE address_id = ? AND state NOT IN (?, ?, ?, ?) LIMIT 1",
+                    (addr_id, *_TERMINAL_STATES),
+                )
             ).fetchone()
         except sqlite3.OperationalError:
             return False  # schema drift (no address_id/state yet) → skip, don't block
         return row is not None
 
-    def _blocked_by_sub(self, addr_id: str) -> bool:
-        if not _table_exists(self._conn, "subscriptions"):
+    async def _blocked_by_sub(self, addr_id: str) -> bool:
+        if not await _table_exists(self._conn, "subscriptions"):
             return False
         try:
-            row = self._conn.execute(
-                "SELECT 1 FROM subscriptions WHERE address_id = ? AND status = 'active' LIMIT 1",
-                (addr_id,),
+            row = (
+                await self._conn.execute(
+                    "SELECT 1 FROM subscriptions WHERE address_id = ? AND status = 'active' LIMIT 1",
+                    (addr_id,),
+                )
             ).fetchone()
         except sqlite3.OperationalError:
             return False
         return row is not None
 
-    def update_owned(self, addr_id: str, user_id: str, patch, serviceable: bool | None = None) -> dict | None:
-        current = self.get_owned(addr_id, user_id)
+    async def update_owned(self, addr_id: str, user_id: str, patch, serviceable: bool | None = None) -> dict | None:
+        current = await self.get_owned(addr_id, user_id)
         if current is None:
             return None
         data = patch if isinstance(patch, dict) else patch.model_dump(exclude_unset=True)
@@ -162,7 +178,7 @@ class AddressRepo:
             new_lng if touching_geo else None,
             fields.get("pincode"),
         )
-        if self._blocked_by_order(addr_id):
+        if await self._blocked_by_order(addr_id):
             raise ConflictError(
                 "Address is linked to an active order and cannot be edited",
                 {"address_id": addr_id},
@@ -184,22 +200,22 @@ class AddressRepo:
             return current
         params.extend([addr_id, user_id])
         with WRITE_LOCK:
-            self._conn.execute(
+            await self._conn.execute(
                 f"UPDATE addresses SET {', '.join(sets)} WHERE id = ? AND user_id = ?", params
             )
             self._conn.commit()
-        return self.get_owned(addr_id, user_id)
+        return await self.get_owned(addr_id, user_id)
 
-    def delete_owned(self, addr_id: str, user_id: str) -> bool:
-        if self.get_owned(addr_id, user_id) is None:
+    async def delete_owned(self, addr_id: str, user_id: str) -> bool:
+        if await self.get_owned(addr_id, user_id) is None:
             return False
-        if self._blocked_by_order(addr_id) or self._blocked_by_sub(addr_id):
+        if await self._blocked_by_order(addr_id) or await self._blocked_by_sub(addr_id):
             raise ConflictError(
                 "Address has active orders/subscriptions and cannot be deleted",
                 {"address_id": addr_id},
             )
         with WRITE_LOCK:
-            cur = self._conn.execute(
+            cur = await self._conn.execute(
                 "DELETE FROM addresses WHERE id = ? AND user_id = ?", (addr_id, user_id)
             )
             self._conn.commit()

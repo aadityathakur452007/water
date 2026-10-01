@@ -9,6 +9,7 @@ CLI: ``python -m app.jobs.scheduler [db_path]`` runs all three + prints JSON.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import json
 import sqlite3
@@ -16,6 +17,7 @@ import sys
 
 from app.core.errors import AppError
 from app.db import WRITE_LOCK
+from app.db_d1 import AsyncSqliteConn, D1Conn
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
 from app.services import pricing
@@ -41,6 +43,8 @@ MONEY_KEEP = ("ledger", "dues", "refund", "payment", "payout", "invoice",
 QUOTE_TTL_MIN = 15
 SUB_WINDOW_START = "08:00:00+00:00"  # subs carry free-text window; orders need an ISO slot
 
+Conn = D1Conn | AsyncSqliteConn
+
 
 def _now() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
@@ -58,18 +62,18 @@ def _rates() -> dict:
                 "deposit": pricing.DEPOSIT_PAISE}
 
 
-def _order_service(conn: sqlite3.Connection) -> OrderService:
+def _order_service(conn: Conn) -> OrderService:
     return OrderService(OrderRepo(conn), LedgerRepo(conn), pricing, _rates())
 
 
-def run_due_subscriptions(conn: sqlite3.Connection, today: object = None) -> dict:
+async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
     """Run ``process_due`` then create one order per descriptor, fresh quote.
 
     Idempotent per day: ``process_due`` advances ``next_run`` (replay ⇒ empty)
     AND the order key ``sub:{sub}:{date}`` replays to the original order.
     One bad descriptor never blocks the rest (→ ``failed`` with code/message).
     """
-    due = SubscriptionService(conn).process_due(today)
+    due = await SubscriptionService(conn).process_due(today)
     date = due["date"]
     svc = _order_service(conn)
     created: list[dict] = []
@@ -88,7 +92,7 @@ def run_due_subscriptions(conn: sqlite3.Connection, today: object = None) -> dic
                 "quote_expires_at": (_now() + _dt.timedelta(minutes=QUOTE_TTL_MIN)).isoformat(),
                 "payment_mode": d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod",
             }
-            order = svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
+            order = await svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
             created.append({"order_id": order["id"], "sub_id": d["sub_id"],
                             "user_id": d["user_id"], "total": order["total"]})
         except IdempotentReplayError as e:
@@ -104,7 +108,7 @@ def run_due_subscriptions(conn: sqlite3.Connection, today: object = None) -> dic
     return {"date": date, "created": created, "resumed": due["resumed"], "failed": failed}
 
 
-def collect_reminders(conn: sqlite3.Connection, today: object = None) -> dict:
+async def collect_reminders(conn: Conn, today: object = None) -> dict:
     """Build reminder payloads only — no sending (FCM/WhatsApp senders own that).
 
     dues: ledger.dues > 0 · low_balance: held jars not covered by deposit net ·
@@ -116,9 +120,9 @@ def collect_reminders(conn: sqlite3.Connection, today: object = None) -> dict:
     dues = [{"kind": "dues_reminder", "user_id": r["customer_id"], "dues_paise": int(r["dues"]),
              "message": f"Rs {int(r['dues']) / 100:.2f} due. Pay via UPI or at the door.",
              "channels": ["fcm", "whatsapp"]}
-            for r in conn.execute("SELECT customer_id, dues FROM ledger WHERE dues > 0").fetchall()]
+            for r in (await conn.execute("SELECT customer_id, dues FROM ledger WHERE dues > 0")).fetchall()]
     low = []
-    for r in conn.execute("SELECT customer_id, held, deposit_paid, deposit_refunded FROM ledger").fetchall():
+    for r in (await conn.execute("SELECT customer_id, held, deposit_paid, deposit_refunded FROM ledger")).fetchall():
         net = int(r["deposit_paid"]) - int(r["deposit_refunded"])
         cover = int(r["held"]) * deposit
         if int(r["held"]) > 0 and net < cover:
@@ -130,21 +134,21 @@ def collect_reminders(conn: sqlite3.Connection, today: object = None) -> dict:
                "hold_to": r["hold_to"],
                "message": f"Subscription resumes after {r['hold_to']}. Reply to extend the hold.",
                "channels": ["fcm", "whatsapp"]}
-              for r in conn.execute(
+              for r in (await conn.execute(
                   "SELECT id, user_id, hold_to FROM subscriptions WHERE status = 'paused'"
-                  " AND hold_to IS NOT NULL AND hold_to >= ? AND hold_to <= ?", (tday, horizon)).fetchall()]
+                  " AND hold_to IS NOT NULL AND hold_to >= ? AND hold_to <= ?", (tday, horizon))).fetchall()]
     return {"date": tday, "dues": dues, "low_balance": low, "resume": resume,
             "total": len(dues) + len(low) + len(resume)}
 
 
-def _cols(conn: sqlite3.Connection, table: str) -> set[str]:
+async def _cols(conn: Conn, table: str) -> set[str]:
     try:
-        return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        return {r["name"] for r in (await conn.execute(f"PRAGMA table_info({table})")).fetchall()}
     except sqlite3.OperationalError:
         return set()
 
 
-def purge_expired(conn: sqlite3.Connection, now: _dt.datetime | None = None) -> dict:
+async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
     """Delete rows past retention; idempotent (replay deletes nothing new).
 
     Quotes are stateless (TTL enforced at POST /v1/orders) → count + note only.
@@ -157,40 +161,40 @@ def purge_expired(conn: sqlite3.Connection, now: _dt.datetime | None = None) -> 
     pay_filter = "(scoped_key LIKE 'POST /v1/payments%' OR scoped_key LIKE '%refund%')"
     with WRITE_LOCK:
         try:
-            cur = conn.execute(
+            cur = await conn.execute(
                 f"DELETE FROM idempotency_keys WHERE created_at < ? AND {pay_filter}", (cutoff_30d,))
             n_30d = cur.rowcount or 0
-            cur = conn.execute(
+            cur = await conn.execute(
                 f"DELETE FROM idempotency_keys WHERE created_at < ? AND NOT {pay_filter}", (cutoff_72h,))
             n_72h = cur.rowcount or 0
         except sqlite3.OperationalError:
             n_72h = n_30d = 0
         n_ops = n_money = 0
-        if "created_at" in _cols(conn, "audit_log"):
-            old = conn.execute(
+        if "created_at" in await _cols(conn, "audit_log"):
+            old = (await conn.execute(
                 "SELECT rowid AS rid, COALESCE(action,'') AS action, COALESCE(entity,'') AS entity"
-                " FROM audit_log WHERE created_at < ?", (cutoff_ops,)).fetchall()
+                " FROM audit_log WHERE created_at < ?", (cutoff_ops,))).fetchall()
             kill_ops, maybe_money = [], []
             for r in old:
                 blob = f"{r['action']} {r['entity']}".lower()
                 (maybe_money if any(k in blob for k in MONEY_KEEP) else kill_ops).append(r["rid"])
             if kill_ops:
-                conn.execute(f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(kill_ops))})",
+                await conn.execute(f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(kill_ops))})",
                              kill_ops)
                 n_ops = len(kill_ops)
             if maybe_money:
-                ancient = conn.execute(
+                ancient = (await conn.execute(
                     f"SELECT rowid AS rid FROM audit_log WHERE created_at < ? AND rowid IN"
-                    f" ({','.join('?' * len(maybe_money))})", (cutoff_money, *maybe_money)).fetchall()
+                    f" ({','.join('?' * len(maybe_money))})", (cutoff_money, *maybe_money))).fetchall()
                 if ancient:
                     ids = [r["rid"] for r in ancient]
-                    conn.execute(f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(ids))})", ids)
+                    await conn.execute(f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(ids))})", ids)
                     n_money = len(ids)
         quotes = 0
-        if "quotes" in {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
-            if "expires_at" in _cols(conn, "quotes"):
-                cur = conn.execute("DELETE FROM quotes WHERE expires_at < ?", (now.isoformat(),))
+        if "quotes" in {r["name"] for r in (await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}:
+            if "expires_at" in await _cols(conn, "quotes"):
+                cur = await conn.execute("DELETE FROM quotes WHERE expires_at < ?", (now.isoformat(),))
                 quotes = cur.rowcount or 0
         conn.commit()
     return {"idempotency_72h_deleted": n_72h, "idempotency_30d_deleted": n_30d,
@@ -199,24 +203,25 @@ def purge_expired(conn: sqlite3.Connection, now: _dt.datetime | None = None) -> 
             "quotes_note": "quotes are stateless (15-min TTL enforced at POST /v1/orders); nothing stored"}
 
 
-def run_all(conn: sqlite3.Connection, today: object = None,
+async def run_all(conn: Conn, today: object = None,
             now: _dt.datetime | None = None) -> dict:
     """Run every job once; returns the combined summary."""
-    return {"due": run_due_subscriptions(conn, today),
-            "reminders": collect_reminders(conn, today),
-            "purge": purge_expired(conn, now)}
+    return {"due": await run_due_subscriptions(conn, today),
+            "reminders": await collect_reminders(conn, today),
+            "purge": await purge_expired(conn, now)}
 
 
 def main(argv: list[str] | None = None) -> dict:
     """CLI: ``python -m app.jobs.scheduler [db_path]`` — prints JSON summary."""
     from app.db import get_connection  # noqa: PLC0415
+    from app.db_d1 import AsyncSqliteConn  # noqa: PLC0415
 
     args = argv if argv is not None else sys.argv[1:]
-    conn = get_connection(args[0]) if args else get_connection()
+    raw = get_connection(args[0]) if args else get_connection()
     try:
-        summary = run_all(conn)
+        summary = asyncio.run(run_all(AsyncSqliteConn(raw)))
     finally:
-        conn.close()
+        raw.close()
     print(json.dumps(summary, default=str))
     return summary
 

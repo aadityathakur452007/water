@@ -211,8 +211,19 @@ AuthGate (auth_gate.dart: splash → restoreSession → home / login)
 | GET | `/v1/admin/audit` | `admin.py` | +additive optional filters `actor_id`, `action` — shape unchanged |
 | auth | `app/api/auth_deps.py:_bearer` | — | Now accepts `sh_session` cookie as Bearer fallback (Bearer still first) for the admin web; mobile Bearer path unchanged |
 
-### Slice-2 auth call map (C1, 2026-09-29)
+### Phase-B repo conversion (T2, 2026-10-01, ADR-044; completed ADR-047, 163 green)
 ```
+Services/routers (converted — same async shape, ADR-045/046)
+   └─ repositories/*.py: every conn-touching method is now `async def` over
+      Conn = D1Conn | AsyncSqliteConn (await execute; commit/rollback sync)
+        ├─ address_repo: _table_exists async ← _blocked_by_order/_sub ← update/delete_owned
+        ├─ order_repo ──await──▶ ledger_repo.apply_event(commit=False) (insert/cancel_settle)
+        └─ payment_repo ──await──▶ ledger_repo.get/apply_event + self._order/_dues_posted
+      config.all_rates seeds via awaited execute loop (facade has no executemany)
+      seed_admin.py: raw sqlite3 only, untouched
+```
+
+### Slice-2 auth call map (C1, 2026-09-29)```
 POST /v1/auth/otp/start
   └─ get_db_conn (app/api/deps.py: sync selector — _TEST_CONNECTION, else D1Conn over env.DB via request.scope["env"] or worker_env.current_env() (ADR-043 hotfix: accessor was missing at HEAD 027c34b), else AsyncSqliteConn over sqlite)
        └─ services/auth_service.py:otp_start (+91 validate + phone/IP rate-limit → 202)
@@ -223,9 +234,48 @@ Bearer <access_token>
        ├─ require_active_user (suspended user writes → 403)
        └─ require_role(*roles) (wrong role or suspended → 403)
 POST /v1/auth/otp/verify
-  └─ adapters/firebase.py:RealVerifier.verify_id_token (aud+exp+sig; no project → 502 UPSTREAM_FAIL)
-       └─ services/auth_service.py:otp_verify (device-cap ≤3/30d, LOG-ONLY integrity, suspend restrictions)
-            └─ repositories/user_repo.py:upsert_firebase_user + session_repo.py:create (family_id)
+   └─ adapters/firebase.py:RealVerifier.verify_id_token (aud+exp+sig; no project → 502 UPSTREAM_FAIL)
+        └─ services/auth_service.py:otp_verify (device-cap ≤3/30d, LOG-ONLY integrity, suspend restrictions)
+             └─ repositories/user_repo.py:upsert_firebase_user + session_repo.py:create (family_id)
+```
+
+### Phase-B services async (2026-10-01, ADR-045)
+```
+order_service.OrderService: create/detail/list/cancel/reschedule (+_idem_get/_idem_put/_cancelled_outcome) — all async
+  └─ order_repo.* + ledger_repo.get (awaited; repos land async via parallel worker)
+payment_service.PaymentService: intent/webhook_ingest/cod_confirm/mark_cash/claim_refund/complete_refund/get_dues/get_invoice/_bill — all async
+  └─ payment_repo.* + order_repo.find_owned + ledger_repo.* (awaited); provider create_intent/verify_webhook stay sync (adapter, like auth verifier)
+dispatch_service: _cols/write_audit/ensure_profile/order_zone/_load/_check_capacity/_check_zone/_route_for/_event/least_loaded_vendor/assign_order/reassign_order/check_stop_fresh/generate_routes/_addr_in_zone/auto_repool — all async (_now/_today/_role/_actor_id sync)
+subscription_service.SubscriptionService: create/list/get_owned/pause/resume/skip/process_due (+_advance_past/_skipped/_owned_address) — all async (_parse_* /_advance/_row/_default_next_run sync)
+vendor_service.VendorService: today_route/get_stop/triple_commit/pod_complete/sync_batch/earnings/verify_complaint (+_owned_stop/_stop_pin/_idem_get/_idem_put) — async; duty/is_on_duty/vendor_check_quality/_stop_out/seed_quality stay sync (in-memory/pure)
+jobs/scheduler.py: run_due_subscriptions/collect_reminders/purge_expired/run_all async; main() sync CLI via asyncio.run over AsyncSqliteConn
+address_service.py: unchanged — pure helpers only (serviceability/needs_pin_confirm/lookup_zone/verify_place_id_stub), no repo/conn use
+```
+
+### Phase-B routers async (2026-10-01, ADR-046)
+```
+All 10 routers: conn=Depends(get_db_conn) (orders.py keeps get_settings); every
+conn-touching handler async def + await (commit/rollback/WRITE_LOCK sync)
+  ├─ addresses (4): await AddressRepo.* (serviceability/lookup/verify/pin-confirm sync pure)
+  ├─ admin (42): await assign/reassign/generate/repool + ensure_profile + Order/Ledger/AdminRead repos + _audit(await write_audit) + (await conn.execute).fetchone()/fetchall()
+  ├─ complaints (2): await _delivered_at + conn.execute (photos/window logic sync)
+  ├─ devices (2): await conn.execute upsert/delete
+  ├─ orders (5): await OrderService.create/list/detail/cancel/reschedule (_service/_uid/_require_idem sync)
+  ├─ payments (8): await PaymentService.intent/webhook_ingest/cod_confirm/get_dues/get_invoice/claim/complete (+refund_done extra-paren fix)
+  ├─ ratings (1): await conn.execute select/insert
+  ├─ returns (2): await _owned_address + conn.execute (SLA math sync)
+  ├─ subscriptions (5): await SubscriptionService.create/list/pause/resume/skip
+  └─ vendor (9): await VendorService.today_route/get_stop/triple/pod/sync/earnings/verify (duty/vendor_check_quality stay sync in-memory — ADR-047 correction)
+get_current_user try/except fallbacks untouched; routes/models/codes/params/noqa identical
+```
+
+### Phase-B completion (2026-10-01, ADR-047 — 163 green, pushed)
+```
+All routers/services/repos/scheduler-jobs async over Conn = D1Conn | AsyncSqliteConn.
+Prod: every route uses get_db_conn → D1Conn(env.DB); local/pytest: AsyncSqliteConn(sqlite).
+Tests: 7 files await-ified (vendor/aftermath/payments/dispatch_admin/admin_panel/scheduler/e2e);
+TestClient HTTP tests unchanged; direct calls wrapped + awaited (asyncio_mode=auto).
+Cron entry (src/entry.py scheduled): still logged no-op; jobs are async-ready, D1 wiring deferred.
 ```
 
 ### Slice-1 quote call map (B2, 2026-09-29)

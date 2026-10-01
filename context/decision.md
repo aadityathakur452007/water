@@ -35,6 +35,10 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
+| ADR-046 | 2026-10-01 | T2 Phase-B: 10 routers on async D1 (auth.py pattern) — get_db_conn, async handlers, await service/repo/execute; payments.py extra-paren fix | Accepted | workers/api/src/app/api/v1/{addresses,admin,complaints,devices,orders,payments,ratings,returns,subscriptions,vendor}.py |
+| ADR-045 | 2026-10-01 | T2 Phase-B: 5 services + scheduler jobs on async (auth_service.py pattern); address_service pure-unchanged; scheduler main sync via asyncio.run; purge r[0]→r["name"] for dict-rows | Accepted | workers/api/src/app/services/{dispatch,order,payment,subscription,vendor}_service.py, workers/api/src/app/jobs/scheduler.py |
+| ADR-044 | 2026-10-01 | T2 Phase-B: remaining 6 repos on async D1 facade (user_repo.py pattern); executemany→loop, address _table_exists async; seed_admin raw-sqlite untouched | Accepted | workers/api/src/app/repositories/{address,admin_read,config,ledger,order,payment}_repo.py |
 | ADR-043 | 2026-10-01 | Hotfix: missing `current_env` accessor 500'd every DB route (uncommitted hunk from ADR-042) | Accepted | workers/api/src/app/core/worker_env.py |
 | ADR-042 | 2026-10-01 | T2 Phase-A auth on D1: async facade (D1Conn/AsyncSqliteConn + Rows), user/session repos + auth service/router/deps async, get_db_conn selector, pytest asyncio-auto | Accepted | workers/api/src/app/{db_d1.py,api/{deps,v1/auth,auth_deps},repositories/{user_repo,session_repo},services/auth_service}, tests/, pytest.ini |
 | ADR-041 | 2026-10-01 | Worker env bridge (worker_env contextvar set in entry.py; adapters/config read request env first, os.environ second; DEV_AUTH deliberately os-only so the backdoor stays dead in prod) | Accepted | workers/api/src/{entry.py,app/core/worker_env.py,app/{adapters/{upi,firebase},repositories/payment_repo,api/v1/catalog,services/address_service}}, tests/test_worker_env.py |
@@ -98,6 +102,46 @@
 ---
 
 ## Decision Entries
+
+### ADR-047: Phase-B completion — facade-type fixes + tests await-ified, 163 green
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: The three partition workers landed repos/services/routers but left 58 tests red, plus three src-side type bugs my verification caught: `VendorService`/`SubscriptionService` held raw `sqlite3.Connection` while awaiting `execute` on it; `dispatch_service` module functions and scheduler jobs had the same raw-conn shape; `vendor.py` over-awaited the sync in-memory `duty`/`vendor_check_quality`.
+- **Options considered**: Service-internal auto-wrap of raw conns (rejected — hides the facade contract; Phase-A requires callers to pass `Conn`, tests wrap like `test_auth` does); wiring cron `scheduled` to `run_all(D1Conn)` now (rejected — D1Conn untested against real D1; comment updated to async-ready instead, wiring deferred); router-by-router rollout (rejected — user approved full Phase-B).
+- **Decision**: `__init__`/job signatures take `Conn = D1Conn | AsyncSqliteConn` (vendor, subscription, dispatch, scheduler); dropped the two bogus `await`s in `vendor.py`; converted 7 test files (vendor, aftermath, payments, dispatch_admin, admin_panel, scheduler, e2e: wrap conns, `async def` + `await`, `get_db` overrides → `get_db_conn` + facade). Full suite 163 green, zero RuntimeWarnings, zero `Depends(get_db)` in routers, zero raw-conn hints in services/jobs/repos. Committed + pushed; `water` rebuilds from main.
+- **Why**: Fixes the exact prod 500 (`no such table: orders` — sync `:memory:` sqlite on Workers) at the root for every route at once, with zero behavior change locally.
+- **Consequences**: Admin panel + user-app routes run on D1 once redeployed. Watch item: first real-traffic check of `/v1/admin/orders` + OTP login. Cron wiring still open (tested-D1 follow-up).
+- **Affects**: `workers/api/src/app/services/{vendor_service,subscription_service,dispatch_service}.py`, `workers/api/src/app/jobs/scheduler.py`, `workers/api/src/app/api/v1/vendor.py`, `workers/api/src/entry.py`, `workers/api/tests/{vendor,aftermath,payments,dispatch_admin,admin_panel,scheduler,e2e}.py`
+
+### ADR-046: T2 Phase-B — 10 routers on async D1 (auth.py pattern)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: Phase-B router partition: 10 routers still injected sync `get_db` while services/repos land as `async def` via parallel workers — every conn-touching handler needed `async def` + `await`.
+- **Options considered**: Awaiting pure helpers too (address_service/pricing/_uid/_service constructors — rejected, no conn use, stay sync like auth.py `_service`); converting services/repos/tests/catalog/quotes (rejected — other workers' partitions, untouched); rewriting `sqlite3.OperationalError` guards (rejected — logic-identical; same behavior locally, D1 errors differ but that matches the landed pattern).
+- **Decision**: `get_db` → `get_db_conn` import + `Depends` swap (orders.py keeps `get_settings`); all 80 conn-touching handlers `async def` (zero conn-free handlers existed, so none stayed sync); `await` on every service/repo call + `(await conn.execute(...)).fetchone()/fetchall()` paren-wrap; `commit()`/`rollback()`/`WRITE_LOCK` sync; module helpers `_service/_svc/_uid/_require_idem/_now/_cursor/_sla_due/_display/_to_out` sync; conn-touching helpers async (`admin._audit` awaits `write_audit`, `complaints._delivered_at`, `returns._owned_address`); `get_current_user` try/except fallbacks untouched; routes/models/codes/params/logic/noqa identical. One forced fix: `payments.py:refund_done` had an extra `)` (SyntaxError) — removed so compileall passes.
+- **Why**: Mechanical mirror of Phase-A auth.py; smallest diff that matches the async service/repo shape with zero behavior change.
+- **Consequences**: compileall green on all 10 files; zero `get_db` remnants; zero un-awaited execute/service/repo sites (grep-verified). Full pytest expected red until all Phase-B partitions land (per brief, not run).
+- **Affects**: `workers/api/src/app/api/v1/{addresses,admin,complaints,devices,orders,payments,ratings,returns,subscriptions,vendor}.py`
+
+### ADR-045: T2 Phase-B — 5 services + scheduler jobs on async (auth_service.py pattern)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: Phase-B partition: dispatch/order/payment/subscription/vendor services + scheduler jobs still called repos/`conn.execute` synchronously while repos land as `async def` via the parallel worker — every DB-touching service call needed `await`.
+- **Options considered**: Full-file rewrites (rejected — ponytail smallest-diff; scripted mechanical transform + full-diff review instead); converting routers/tests too (rejected — other workers' partitions, untouched); adding `executemany`/facade changes (rejected — db_d1.py not mine); leaving `purge_expired`'s `r[0]` (rejected — KeyError under dict-rows, proven by smoke run).
+- **Decision**: `async def` on every method touching a repo, another DB-touching service method, or `conn.execute`; `await` on every such call site with `(await conn.execute(...)).fetchone()/fetchall()` paren-wrap; `commit()`/`rollback()`/`WRITE_LOCK` sync; pure helpers sync (`_now/_today/_parse_*`, money/validation, `pod_otp`, `_haversine_m`, `_stop_out`, in-memory `duty`/`vendor_check_quality`/`seed_quality`); provider `create_intent`/`verify_webhook` + `pricing.compute_quote` sync (adapters/pure, like the auth verifier). `address_service.py` unchanged (pure, zero repo/conn use). Scheduler `main()` stays sync, wraps `AsyncSqliteConn` + `asyncio.run`. One forced fix: purge `r[0]` → `r["name"]` (sqlite3.Row accepts both; dict-rows only the latter).
+- **Why**: Mirrors landed Phase-A exactly; behavior/logic/SQL/errors/constants byte-identical apart from async/await and the one indexing fix.
+- **Consequences**: compileall green; zero un-awaited repo/execute sites (grep-verified); module importable; `run_all` smoke on migrated :memory: DB green. Full pytest expected red until routers/tests partitions land.
+- **Affects**: `workers/api/src/app/services/{dispatch_service,order_service,payment_service,subscription_service,vendor_service}.py`, `workers/api/src/app/jobs/scheduler.py`
+
+### ADR-044: T2 Phase-B — remaining 6 repos on async D1 facade
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: Phase-A (ADR-042) converted only the auth slice (user/session repos); address/admin_read/config/ledger/order/payment repos still took raw `sqlite3.Connection`, so every non-auth DB route still 500s in prod (per-request `:memory:` sqlite, D1 unused).
+- **Options considered**: Converting routers/services/tests in the same pass (rejected — owned by other workers' partitions; pytest will stay red until they land, which is expected); adding `executemany` to the facade (rejected — db_d1.py owned by another worker); touching seed_admin.py (rejected — verified raw-sqlite3 only, zero repo imports).
+- **Decision**: Mechanical copy of the `user_repo.py` pattern across the 6 files: `Conn = D1Conn | AsyncSqliteConn`, constructor `conn: Conn`, every conn-touching method `async def`, every `execute` awaited, commit/rollback left sync, WRITE_LOCK/SQL/noqa/errors/logic byte-identical. Two forced adaptations: `config.all_rates` `executemany` → awaited `execute` loop (facade has no `executemany`; same INSERT OR IGNORE per key); `address_repo._table_exists(conn)` → `async def` (facade execute is async-only), awaited through `_blocked_by_order/_sub` → `update/delete_owned`. `sqlite3` import kept only where `OperationalError`/`IntegrityError` are caught (address/order/payment); dropped in config/ledger/admin_read (hints only). Pure helpers (`_now`, `_validate`, `_row`, `_page`, etc.) stay sync.
+- **Why**: Smallest diff that unblocks the router partition: repos expose the awaited shape services will call, with zero behavior change locally (AsyncSqliteConn wraps the same sqlite).
+- **Consequences**: compileall green; zero un-awaited `execute`, zero un-awaited repo-internal calls, zero awaited commit/rollback. Full pytest expected red until routers+services+tests partitions land (not a regression).
+- **Affects**: `workers/api/src/app/repositories/{address_repo,admin_read_repo,config_repo,ledger_repo,order_repo,payment_repo}.py`
 
 ### ADR-043: Hotfix — `current_env` accessor was never committed (every DB route 500'd)
 - **Date**: 2026-10-01

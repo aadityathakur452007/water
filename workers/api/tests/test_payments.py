@@ -26,6 +26,7 @@ os.environ.setdefault("AGENCY_UPI_VPA", "shodasha@upi")
 from app.adapters.upi import FakeUpiProvider, RealUpiProvider, UnauthError, agency_vpa  # noqa: E402
 from app.core.errors import AppError  # noqa: E402
 from app.db import get_connection  # noqa: E402
+from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.repositories.ledger_repo import LedgerRepo  # noqa: E402
 from app.repositories.order_repo import OrderRepo  # noqa: E402
 from app.repositories.payment_repo import (  # noqa: E402
@@ -61,11 +62,13 @@ def _conn():
 
 def _svc(c, provider=None) -> PaymentService:
     provider = provider if provider is not None else FakeUpiProvider()
-    return PaymentService(PaymentRepo(c), OrderRepo(c), LedgerRepo(c), provider)
+    ac = AsyncSqliteConn(c)
+    return PaymentService(PaymentRepo(ac), OrderRepo(ac), LedgerRepo(ac), provider)
 
 
 def _osvc(c) -> OrderService:
-    return OrderService(OrderRepo(c), LedgerRepo(c), pricing, _rates())
+    ac = AsyncSqliteConn(c)
+    return OrderService(OrderRepo(ac), LedgerRepo(ac), pricing, _rates())
 
 
 def _payload(items=None, e=1, mode="upi", **over) -> dict:
@@ -83,8 +86,8 @@ def _payload(items=None, e=1, mode="upi", **over) -> dict:
     return base
 
 
-def _order(c, user="u1", mode="upi", key="k1") -> dict:
-    return _osvc(c).create(user, _payload(mode=mode), key)
+async def _order(c, user="u1", mode="upi", key="k1") -> dict:
+    return await _osvc(c).create(user, _payload(mode=mode), key)
 
 
 def _webhook_raw(order_id, ref, amount, payee=None) -> bytes:
@@ -94,107 +97,107 @@ def _webhook_raw(order_id, ref, amount, payee=None) -> bytes:
 
 # -- fake approve → paid_upi + dues zeroed ---------------------------------
 
-def test_fake_approve_paid_upi_dues_zeroed():
+async def test_fake_approve_paid_upi_dues_zeroed():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="upi")
-    out = s.intent("u1", o["id"], "idem-1")
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "idem-1")
     assert out["payment"]["status"] == "link_sent" and out["link"].startswith("upi://pay?")
-    res = s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"]), None)
+    res = await s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"]), None)
     assert res["ok"] and res["payment"]["status"] == "paid"
     row = c.execute("SELECT payment_status FROM orders WHERE id=?", (o["id"],)).fetchone()
     assert row["payment_status"] == "paid_upi"
-    assert s.get_dues("u1")["dues"] == 0
-    inv = s.get_invoice("u1", o["id"])
+    assert (await s.get_dues("u1"))["dues"] == 0
+    inv = await s.get_invoice("u1", o["id"])
     assert inv["amount_due"] == 0 and inv["total_due"] == 0
 
 
 # -- replay same webhook → single credit ------------------------------------
 
-def test_webhook_replay_single_credit():
+async def test_webhook_replay_single_credit():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="upi")
-    out = s.intent("u1", o["id"], "idem-1")
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "idem-1")
     raw = _webhook_raw(o["id"], out["provider_ref"], o["total"])
-    r1 = s.webhook_ingest(raw, None)
-    r2 = s.webhook_ingest(raw, None)
+    r1 = await s.webhook_ingest(raw, None)
+    r2 = await s.webhook_ingest(raw, None)
     assert r1["ok"] and r2.get("duplicate") is True
     assert c.execute("SELECT COUNT(*) c FROM payments").fetchone()["c"] == 1
-    assert PaymentRepo(c).paid_sum_for_order(o["id"]) == o["total"]
-    assert s.get_dues("u1")["dues"] == 0
+    assert await PaymentRepo(AsyncSqliteConn(c)).paid_sum_for_order(o["id"]) == o["total"]
+    assert (await s.get_dues("u1"))["dues"] == 0
 
 
 # -- wrong payee / wrong amount → rejected -----------------------------------
 
-def test_webhook_wrong_payee_rejected():
+async def test_webhook_wrong_payee_rejected():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="upi")
-    out = s.intent("u1", o["id"], "idem-1")
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "idem-1")
     with pytest.raises(PayeeMismatchError) as e:
-        s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"],
+        await s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"],
                                       payee="attacker@upi"), None)
     assert e.value.code == "PAYEE_MISMATCH" and e.value.status_code == 422
 
 
-def test_webhook_wrong_amount_rejected():
+async def test_webhook_wrong_amount_rejected():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="upi")
-    out = s.intent("u1", o["id"], "idem-1")
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "idem-1")
     with pytest.raises(AmountMismatchError) as e:
-        s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"] - 100), None)
+        await s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"] - 100), None)
     assert e.value.code == "AMOUNT_MISMATCH" and e.value.status_code == 422
 
 
 # -- double-claim refund → one claimant wins ---------------------------------
 
-def test_double_claim_refund_one_winner():
+async def test_double_claim_refund_one_winner():
     c = _conn()
-    o = _order(c, mode="upi")
+    o = await _order(c, mode="upi")
     c.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?", (o["id"],))
     c.commit()
-    outcome = _osvc(c).cancel("u1", o["id"], "changed mind", "c1")
+    outcome = await _osvc(c).cancel("u1", o["id"], "changed mind", "c1")
     rid = outcome["refund"]["id"]
     s = _svc(c)
-    first = s.claim_refund("admin-1", rid)
+    first = await s.claim_refund("admin-1", rid)
     assert first["status"] == "claimed" and first["claimed_by"] == "admin-1"
     with pytest.raises(RefundClaimError) as e:
-        s.claim_refund("admin-2", rid)
+        await s.claim_refund("admin-2", rid)
     assert e.value.code == "REFUND_CLAIM_CONFLICT" and e.value.status_code == 409
-    done = s.complete_refund("admin-1", rid, "done")
+    done = await s.complete_refund("admin-1", rid, "done")
     assert done["status"] == "done"
     with pytest.raises(AppError):  # closed refunds never reopen
-        s.complete_refund("admin-1", rid, "done")
+        await s.complete_refund("admin-1", rid, "done")
 
 
 # -- COD confirm → dues until cash posted ------------------------------------
 
-def test_cod_confirm_dues_until_cash_posted():
+async def test_cod_confirm_dues_until_cash_posted():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="cod", key="cod-1")
-    bill = s.cod_confirm("u1", o["id"])
+    o = await _order(c, mode="cod", key="cod-1")
+    bill = await s.cod_confirm("u1", o["id"])
     assert bill["payment_status"] == "unpaid"
     assert bill["dues"] == o["total"]  # dues visible until cash arrives
-    inv = s.get_invoice("u1", o["id"])
+    inv = await s.get_invoice("u1", o["id"])
     assert inv["amount_due"] == o["total"]
-    res = s.mark_cash(o["id"], o["total"], "vendor-1")
+    res = await s.mark_cash(o["id"], o["total"], "vendor-1")
     assert res["order"]["payment_status"] == "paid_cash"
-    assert s.get_dues("u1")["dues"] == 0
-    assert s.get_invoice("u1", o["id"])["amount_due"] == 0
+    assert (await s.get_dues("u1"))["dues"] == 0
+    assert (await s.get_invoice("u1", o["id"]))["amount_due"] == 0
 
 
-def test_cod_partial_cash_carried():
+async def test_cod_partial_cash_carried():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="cod", key="cod-1")
-    s.cod_confirm("u1", o["id"])
+    o = await _order(c, mode="cod", key="cod-1")
+    await s.cod_confirm("u1", o["id"])
     half = o["total"] // 2
-    res = s.mark_cash(o["id"], half, "vendor-1")
+    res = await s.mark_cash(o["id"], half, "vendor-1")
     assert res["order"]["payment_status"] == "partial_dues"
-    assert s.get_dues("u1")["dues"] == o["total"] - half  # partials carried, never zeroed
+    assert (await s.get_dues("u1"))["dues"] == o["total"] - half  # partials carried, never zeroed
 
 
 # -- adapter unit: fake decline + real HMAC skeleton --------------------------
@@ -235,14 +238,15 @@ def _client(c, user="u1", role="user"):
     from fastapi.testclient import TestClient
 
     from app.api.auth_deps import get_current_user
-    from app.api.deps import get_db
+    from app.api.deps import get_db_conn
     from app.api.v1.payments import router
     from app.core.errors import register_exception_handlers
+    from app.db_d1 import AsyncSqliteConn
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
-    app.dependency_overrides[get_db] = lambda: c
+    app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     app.dependency_overrides[get_current_user] = lambda: {
         "id": user, "role": role, "phone": "+919000000000", "suspended": False,
         "session_id": "s", "family_id": "f", "device_fp": "d",
@@ -250,10 +254,10 @@ def _client(c, user="u1", role="user"):
     return TestClient(app)
 
 
-def test_router_intent_dues_invoice_cod():
+async def test_router_intent_dues_invoice_cod():
     c = _conn()
-    _order(c, mode="upi", key="rk1")
-    o2 = _order(c, user="u1", mode="cod", key="rk2")
+    await _order(c, mode="upi", key="rk1")
+    o2 = await _order(c, user="u1", mode="cod", key="rk2")
     client = _client(c)
     assert client.post("/v1/payments/upi-intent", json={}).status_code in (400, 422)
     r = client.get("/v1/billing/dues")
@@ -264,11 +268,11 @@ def test_router_intent_dues_invoice_cod():
     assert inv.status_code == 200 and inv.json()["total"] == o2["total"]
 
 
-def test_router_webhook_no_auth_and_admin_claim():
+async def test_router_webhook_no_auth_and_admin_claim():
     c = _conn()
     s = _svc(c)
-    o = _order(c, mode="upi", key="wk1")
-    out = s.intent("u1", o["id"], "wk-idem")
+    o = await _order(c, mode="upi", key="wk1")
+    out = await s.intent("u1", o["id"], "wk-idem")
     client = _client(c)  # webhook needs no session
     raw = {"order_id": o["id"], "provider_ref": out["provider_ref"],
            "amount": o["total"], "payee": VPA}
@@ -279,7 +283,7 @@ def test_router_webhook_no_auth_and_admin_claim():
     # refund claim needs admin: user role → 403, admin → 200
     c.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?", (o["id"],))
     c.commit()
-    rid = _osvc(c).cancel("u1", o["id"], "r", "wc1")["refund"]["id"]
+    rid = (await _osvc(c).cancel("u1", o["id"], "r", "wc1"))["refund"]["id"]
     assert _client(c, role="user").post(f"/v1/refunds/{rid}/claim").status_code == 403
     admin = _client(c, user="admin-1", role="admin")
     assert admin.post(f"/v1/refunds/{rid}/claim").status_code == 200

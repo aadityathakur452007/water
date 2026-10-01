@@ -28,6 +28,7 @@ def _make_client(user_id: str = "user_a"):
 
     from app.api.v1 import addresses as mod
     from app.core.errors import register_exception_handlers
+    from app.db_d1 import AsyncSqliteConn
 
     conn = get_connection(":memory:")
     init_schema(conn)
@@ -41,10 +42,10 @@ def _make_client(user_id: str = "user_a"):
         return {"id": state["user_id"], "role": "user"}
 
     def _stub_db():
-        yield conn
+        return AsyncSqliteConn(conn)
 
     app.dependency_overrides[mod.get_current_user] = _stub_user
-    app.dependency_overrides[mod.get_db] = _stub_db
+    app.dependency_overrides[mod.get_db_conn] = _stub_db
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
