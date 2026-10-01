@@ -68,6 +68,7 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 
 ## Open Questions
 
+- Cloudflare port (2026-10-01): manual-first plan agreed — user runs wrangler login + D1 create + secrets; port task (wrangler.jsonc, pyproject, asgi entrypoint, D1-backed db.py, drop cryptography/uvicorn) needs design approval next. Hard blocker flagged: Firebase RS256 verify needs pure-Python RSA path (cryptography is C-ext, banned on Workers).
 - Python framework on Workers? (pure-Python Flask-style vs FastAPI ASGI adapter — confirm before scaffolding workers/api/; fallback JS Hono if beta blocks).
 - Firebase project ids + session TTLs + first-admin seed — needed for auth API spec (ADR-013/016).
 - Market price verification (Rs 28–30 local refill vs Rs 98 quick-commerce average) — confirm via local survey before locking pricing.

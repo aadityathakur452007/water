@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     cap_charge_paise: int = 300
     quote_ttl_minutes: int = 15
     firebase_project_id: str | None = None
+    dev_auth: bool = False  # DEV_AUTH=1: raw-code admin login for local dev only
     upi_provider: str = "fake"  # fake|razorpay (RealUpiProvider REST Orders API)
     upi_key_id: str | None = None
     upi_key_secret: str | None = None

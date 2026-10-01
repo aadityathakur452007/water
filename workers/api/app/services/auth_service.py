@@ -65,6 +65,22 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def DEV_AUTH_ENABLED() -> bool:
+    """Reads the DEV_AUTH flag lazily (real env > .env > default) so tests and
+    local runs control it per-process without import-order surprises."""
+    import os  # noqa: PLC0415
+
+    direct = os.environ.get("DEV_AUTH")
+    if direct not in (None, ""):
+        return direct == "1"
+    try:
+        from app.core.config import Settings  # noqa: PLC0415
+
+        return bool(Settings().dev_auth)
+    except Exception:
+        return False
+
+
 def restrictions_for(user: dict) -> dict | None:
     """Suspended sessions read + pay-dues/appeal (user) or notice-only (vendor)."""
     if not user.get("suspended"):
@@ -147,6 +163,19 @@ class AuthService:
         if not device_id.strip():
             raise ValidationError("Device id required.", {"device": "id"})
         _LIMITER.check(f"otp-verify:device:{device_id}", *OTP_VERIFY_DEVICE_LIMIT)
+        # DEV_AUTH=1 (local dev only): a raw code of `dev|<phone>|<any>` logs the
+        # EXISTING account for that phone in, with no Firebase round-trip. The
+        # admin web sends this format when its dev fallback is on. Never enable
+        # in production: it bypasses the SMS OTP entirely.
+        if id_token.startswith("dev|") and DEV_AUTH_ENABLED():
+            parts = id_token.split("|", 2)  # "dev|<phone>|<any>"
+            if len(parts) != 3:
+                raise UnauthError("Invalid session.", {})
+            phone = normalize_phone(parts[1])
+            user = self._users.find_by_phone(phone)
+            if user is None:
+                raise UnauthError("No account for this phone. Seed it first.", {})
+            return self._issue_session(user, device_id)
         if self._verifier is None:
             raise UnauthError("Invalid session.", {})
         claims = self._verifier.verify_id_token(id_token)
@@ -161,6 +190,10 @@ class AuthService:
             )
         phone = normalize_phone(claims.get("phone_number") or "")
         user = self._users.upsert_firebase_user(phone=phone, firebase_uid=str(claims["uid"]))
+        return self._issue_session(user, device_id, device)
+
+    def _issue_session(self, user: dict, device_id: str, device: dict | None = None) -> dict:
+        """Session minting shared by the Firebase path and the DEV_AUTH path."""
         since = (_now() - _dt.timedelta(days=DEVICE_WINDOW_DAYS)).isoformat()
         bound = self._sessions.device_user_ids(device_id, since)
         if user["id"] not in bound and len(bound) >= DEVICE_CAP:
