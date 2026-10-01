@@ -213,6 +213,11 @@ AuthGate (auth_gate.dart: splash → restoreSession → home / login)
 
 ### Slice-2 auth call map (C1, 2026-09-29)
 ```
+POST /v1/auth/otp/start
+  └─ get_db_conn (app/api/deps.py: sync selector — _TEST_CONNECTION, else D1Conn over env.DB via request.scope["env"] or worker_env.current_env() (ADR-043 hotfix: accessor was missing at HEAD 027c34b), else AsyncSqliteConn over sqlite)
+       └─ services/auth_service.py:otp_start (+91 validate + phone/IP rate-limit → 202)
+```
+```
 Bearer <access_token>
   └─ api/auth_deps.py:get_current_user (sha256 lookup → revoked/expiry → users re-read per request, C2)
        ├─ require_active_user (suspended user writes → 403)

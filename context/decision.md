@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-043 | 2026-10-01 | Hotfix: missing `current_env` accessor 500'd every DB route (uncommitted hunk from ADR-042) | Accepted | workers/api/src/app/core/worker_env.py |
 | ADR-042 | 2026-10-01 | T2 Phase-A auth on D1: async facade (D1Conn/AsyncSqliteConn + Rows), user/session repos + auth service/router/deps async, get_db_conn selector, pytest asyncio-auto | Accepted | workers/api/src/app/{db_d1.py,api/{deps,v1/auth,auth_deps},repositories/{user_repo,session_repo},services/auth_service}, tests/, pytest.ini |
 | ADR-041 | 2026-10-01 | Worker env bridge (worker_env contextvar set in entry.py; adapters/config read request env first, os.environ second; DEV_AUTH deliberately os-only so the backdoor stays dead in prod) | Accepted | workers/api/src/{entry.py,app/core/worker_env.py,app/{adapters/{upi,firebase},repositories/payment_repo,api/v1/catalog,services/address_service}}, tests/test_worker_env.py |
 | ADR-040 | 2026-10-01 | Secrets-focused review (security-audit guidance): no committed secrets/tokens/env; support number → +91 9302190067 in 5 user-visible spots; fixtures/docs keep fictional 98765 range | Accepted | apps/{user_app/lib/{core/api_client,features/{auth/auth_controller,orders/{orders_controller,bill_screen}}},admin_app/src/app/login/page.tsx} |
@@ -97,6 +98,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-043: Hotfix — `current_env` accessor was never committed (every DB route 500'd)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: Prod `POST /v1/auth/otp/start` (and every route via `get_db_conn`) 500'd with `ImportError: cannot import name 'current_env' from 'app.core.worker_env'`. HEAD 027c34b (ADR-042) added the import in `deps.py:52` but the 5-line `current_env()` helper existed only as an uncommitted working-copy edit — `worker_env.py` at HEAD had just `set_worker_env` + `env_get`.
+- **Options considered**: Rewriting `get_db_conn` to avoid the helper (rejected — the helper is the right seam; the import was already correct, only the definition was missing); broader refactor of the env bridge (rejected — ponytail/design-patterns smallest-fix rule).
+- **Decision**: Committed the single 5-line hunk (`current_env()` returning `_current_env.get()`) as `1bc4cb5` and pushed to main; Cloudflare rebuilds `water` from main. Unrelated `GeneratedPluginRegistrant.swift` modification left uncommitted. 163 pytest green before and after.
+- **Why**: The import and all callers were already correct — the only defect was the missing definition, so shipping it is the minimal root-cause fix.
+- **Consequences**: OTP start/verify + refresh/logout/me run again once the worker redeploys; watch the `water` deploy + retry admin login. Lesson: Phase-B conversions must verify `main` imports resolve (e.g. a cold `python -c` import pass) before pushing.
+- **Affects**: `workers/api/src/app/core/worker_env.py`
 
 ### ADR-042: T2 Phase-A — auth slice on async D1 facade
 - **Date**: 2026-10-01

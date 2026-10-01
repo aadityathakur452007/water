@@ -14,6 +14,7 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 
 ## Completed
 
+- Hotfix missing `current_env` 500 on all DB routes (2026-10-01, ADR-043): HEAD 027c34b imported `current_env` in `get_db_conn` but the accessor was never committed — every auth/DB request ImportError'd. Committed the 5-line hunk (`1bc4cb5`) + pushed; `water` rebuilds from main. 163 pytest green. Unrelated macOS registrant edit left uncommitted.
 - T2 Phase-A auth on D1 (2026-10-01, ADR-042): async facade + converted auth slice; 163 pytest green. Pushed — login should work end-to-end after rebuild. Phase-B open: remaining routers.
 - Worker env bridge (2026-10-01, ADR-041): "Auth provider not configured" root-caused — Workers vars never reach os.environ; request-scoped bridge added, all secret/config readers switched, DEV_AUTH provably un-armable in prod. 163 pytest green. Pushed; login unblocked pending rebuild.
 - Secrets review + real support number (2026-10-01, ADR-040): security-audit guidance pass — no committed secrets/tokens/env (all gitignored); user-visible placeholders → +91 9302190067 (support constant, 2 wa.me shares, auth hint, admin login). Analyze clean, 65 app tests green, admin build green.
