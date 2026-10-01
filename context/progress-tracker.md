@@ -14,6 +14,7 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 
 ## Completed
 
+- Worker env bridge (2026-10-01, ADR-041): "Auth provider not configured" root-caused — Workers vars never reach os.environ; request-scoped bridge added, all secret/config readers switched, DEV_AUTH provably un-armable in prod. 163 pytest green. Pushed; login unblocked pending rebuild.
 - Secrets review + real support number (2026-10-01, ADR-040): security-audit guidance pass — no committed secrets/tokens/env (all gitignored); user-visible placeholders → +91 9302190067 (support constant, 2 wa.me shares, auth hint, admin login). Analyze clean, 65 app tests green, admin build green.
 - App-login chain half-landed (2026-10-01, ADR-039): worker RS256 works without cryptography (pure-stdlib verifier + 6 tests, 159 green); release APK now builds against prod water URL + test Razorpay key. BLOCKED: app Firebase swap needs google-services.json from user (Firebase console → Android app com.shodasha.shodasha_app → download → paste here).
 - Admin panel Cloudflare-ready (2026-10-01, ADR-038): @opennextjs/cloudflare 1.20.7 + wrangler 4.145 + wrangler.jsonc (shodasha-admin) + default open-next config (no R2) + preview/deploy scripts + _headers; `npm run build` green (14 pages + 4 BFF routes + proxy), adapter build green (worker.js emitted; Node-middleware warning noted as watch item). User-side: dashboard Worker shodasha-admin (root apps/admin_app, build `npx opennextjs-cloudflare build`, deploy `npx opennextjs-cloudflare deploy`) + API_URL + Firebase web keys env.

@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
-import os
 import sqlite3
 import uuid
 
@@ -55,7 +54,9 @@ def _agency_vpa() -> str:
             return str(vpa)
     except Exception:
         pass
-    return os.environ.get("AGENCY_UPI_VPA", "shodasha@upi")
+    from app.core.worker_env import env_get  # noqa: PLC0415 (request env first)
+
+    return env_get("AGENCY_UPI_VPA", "shodasha@upi")
 
 
 def _payload_hash(order_id: str, amount: int) -> str:

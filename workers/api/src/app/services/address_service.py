@@ -12,13 +12,13 @@
   Maps key exists; currently echoes place_id (mismatch → 422 comes later).
 """
 
-import os
+from app.core.worker_env import env_get
 
 PIN_CONFIRM_THRESHOLD_M = 100.0
 
 
 def _prefixes() -> list[str]:
-    raw = os.getenv("SERVICEABLE_PREFIXES", "")
+    raw = env_get("SERVICEABLE_PREFIXES", "") or ""
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 

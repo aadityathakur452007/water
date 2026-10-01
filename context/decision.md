@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-041 | 2026-10-01 | Worker env bridge (worker_env contextvar set in entry.py; adapters/config read request env first, os.environ second; DEV_AUTH deliberately os-only so the backdoor stays dead in prod) | Accepted | workers/api/src/{entry.py,app/core/worker_env.py,app/{adapters/{upi,firebase},repositories/payment_repo,api/v1/catalog,services/address_service}}, tests/test_worker_env.py |
 | ADR-040 | 2026-10-01 | Secrets-focused review (security-audit guidance): no committed secrets/tokens/env; support number → +91 9302190067 in 5 user-visible spots; fixtures/docs keep fictional 98765 range | Accepted | apps/{user_app/lib/{core/api_client,features/{auth/auth_controller,orders/{orders_controller,bill_screen}}},admin_app/src/app/login/page.tsx} |
 | ADR-039 | 2026-10-01 | Pure-stdlib RS256 verify (rsa_verify.py, DER+pow) with crypto-first fallback in firebase.py; release APK gets prod SHODASHA_API_BASE + Razorpay defines | Accepted | workers/api/src/app/adapters/{rsa_verify.py,firebase.py}, tests/test_firebase_rsa.py, .github/workflows/release.yml |
 | ADR-038 | 2026-10-01 | Admin panel → Cloudflare Worker via @opennextjs/cloudflare 1.20.7 (Pages static-export impossible; next-on-pages deprecated; Next 16 supported; proxy.ts is Web-API-only) | Accepted | apps/admin_app/{wrangler.jsonc,open-next.config.ts,package.json,next.config.ts} |
@@ -95,6 +96,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-041: Worker env bridge (vars/secrets were invisible in prod)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: Login failed with "Auth provider not configured" despite FIREBASE_PROJECT_ID set in wrangler.jsonc. Docs confirm: Python Workers expose vars/secrets on the env object (`self.env`), never `os.environ` — every `os.environ.get` in the codebase returned None in production (rates only worked because of code defaults).
+- **Options considered**: Reading `request.scope["env"]` in every route (rejected — touches 14 routers for the same effect); moving everything to wrangler secrets (wrong layer — vars were already correctly placed, just unread).
+- **Decision**: `app/core/worker_env.py` (request-scoped ContextVar set once per fetch in `src/entry.py`); `env_get()` checks worker env → os.environ. Applied at the choke points: upi `_setting()` (covers all adapter secrets), Firebase project id, payment VPA, serviceability prefixes. `DEV_AUTH_ENABLED` deliberately left os-only — proven by test to be un-armable from worker vars. 4 bridge tests; full suite 163 green.
+- **Why**: One seam, zero behavior change locally/tests, production reads what the platform actually provides.
+- **Consequences**: Push redeploys `water`; Firebase project id resolves; login proceeds to real SMS/test-number verification.
+- **Affects**: `workers/api/src/{entry.py,app/core/worker_env.py}`, adapters, `tests/test_worker_env.py`
 
 ### ADR-040: Secrets-focused review + real support number
 - **Date**: 2026-10-01

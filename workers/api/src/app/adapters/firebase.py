@@ -10,7 +10,6 @@ UPSTREAM_FAIL (retry-safe); bad/expired token -> 401 UNAUTH.
 from __future__ import annotations
 
 import logging
-import os
 import time
 
 from app.core.errors import AppError
@@ -49,7 +48,9 @@ class RealVerifier:
 
     def __init__(self, project_id: str | None = None):
         if project_id is None:
-            project_id = os.environ.get("FIREBASE_PROJECT_ID")
+            from app.core.worker_env import env_get  # noqa: PLC0415 (request env first)
+
+            project_id = env_get("FIREBASE_PROJECT_ID")
         if project_id is None:
             from app.core.config import Settings  # noqa: PLC0415 (lazy: light import)
 

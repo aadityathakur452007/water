@@ -13,11 +13,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import time
 import uuid
 
 import httpx
+
+from app.core.worker_env import env_get as _worker_env_get
 
 from app.core.errors import AppError
 
@@ -47,12 +48,13 @@ _seen_nonces: set[str] = set()  # TODO(D1): persist nonces (multi-instance repla
 
 
 def _setting(env_name: str, default=None):
-    """Real env wins, .env-backed Settings second, default last.
+    """Worker env wins, process env second, .env-backed Settings third.
 
     Adapters must never read os.environ alone: local dev keeps secrets in the
-    gitignored .env file, which only pydantic-settings loads.
+    gitignored .env file (which only pydantic-settings loads), and on Workers
+    os.environ is empty — vars/secrets live on the request env object.
     """
-    direct = os.environ.get(env_name)
+    direct = _worker_env_get(env_name)
     if direct not in (None, ""):
         return direct
     try:

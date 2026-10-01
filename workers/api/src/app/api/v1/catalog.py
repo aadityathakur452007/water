@@ -1,6 +1,5 @@
 """Public catalog routes. Rates/hours come from settings (B1: app.core.config)."""
 import datetime as dt
-import os
 
 from fastapi import APIRouter, Query
 
@@ -16,7 +15,9 @@ _HOURS_DEFAULT = "08:00-20:00, closed Sundays"
 def _prefixes() -> list[str]:
     raw = getattr(get_settings(), "serviceable_prefixes", None)
     if raw is None:
-        raw = os.getenv("SERVICEABLE_PREFIXES", "")
+        from app.core.worker_env import env_get  # noqa: PLC0415 (request env first)
+
+        raw = env_get("SERVICEABLE_PREFIXES", "")
     if isinstance(raw, str):
         return [p.strip() for p in raw.split(",") if p.strip()]
     return [str(p).strip() for p in raw if str(p).strip()]
