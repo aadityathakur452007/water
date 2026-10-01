@@ -399,6 +399,8 @@ class _ProductCard extends StatelessWidget {
                 width: 112,
                 height: 132,
                 fit: BoxFit.cover,
+                // P4: decode at ~2x display size, never full-res.
+                cacheWidth: 224,
                 errorBuilder: (_, _, _) => Container(
                   width: 112,
                   height: 132,

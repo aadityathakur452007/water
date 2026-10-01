@@ -50,6 +50,10 @@ dependencies:
   latlong2: ^0.10.1
   geolocator: ^14.1.1
   razorpay_flutter: ^1.4.7
+  table_calendar: ^3.2.1
+  flutter_animate: ^4.5.2
+  pin_code_fields: 9.4.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

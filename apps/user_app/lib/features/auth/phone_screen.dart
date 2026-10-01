@@ -114,6 +114,18 @@ class _PhoneScreenState extends State<PhoneScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 24),
+              Image.asset(
+                'assets/logo.png',
+                width: 56,
+                height: 56,
+                cacheWidth: 112,
+                errorBuilder: (_, _, _) => const Icon(
+                  Icons.water_drop,
+                  size: 44,
+                  color: AuthTokens.blue,
+                ),
+              ),
+              const SizedBox(height: 8),
               const Text(
                 'Shodasha',
                 style: TextStyle(

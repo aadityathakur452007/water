@@ -2,6 +2,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shodasha_app/features/booking/booking_controller.dart';
+import 'package:shodasha_app/features/orders/orders_controller.dart'
+    show Order, OrderState;
 
 void main() {
   group('delivery type wire mapping', () {
@@ -13,6 +15,7 @@ void main() {
       expect(scheduleTypeOf(DeliveryType.daily), 'daily');
       expect(scheduleTypeOf(DeliveryType.alternate), 'alternate');
       expect(scheduleTypeOf(DeliveryType.weekly), 'weekly');
+      expect(scheduleTypeOf(DeliveryType.custom), 'custom');
     });
   });
 
@@ -60,6 +63,27 @@ void main() {
       final c = BookingController();
       expect(c.deliveryType, DeliveryType.once);
       c.dispose();
+    });
+  });
+
+  group('repeat history gates (006-auth-flow)', () {
+    Order orderOf({int refill = 0, int container = 0}) => Order(
+          id: 'o1',
+          state: OrderState.delivered,
+          windowStart: DateTime.utc(2026, 10, 1, 9),
+          refillQty: refill,
+          containerQty: container,
+        );
+
+    test('reorder hidden when mix unknown, shown when known', () {
+      expect(orderOf().canReorder, isFalse);
+      expect(orderOf(refill: 2).canReorder, isTrue);
+      expect(orderOf(container: 1).canReorder, isTrue);
+    });
+
+    test('bulk badge at N>=6 (matches confirm band)', () {
+      expect(orderOf(refill: 3, container: 2).isBulk, isFalse);
+      expect(orderOf(refill: 4, container: 2).isBulk, isTrue);
     });
   });
 }

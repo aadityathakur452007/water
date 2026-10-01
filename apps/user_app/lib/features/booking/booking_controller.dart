@@ -216,7 +216,7 @@ enum PaymentMode { upi, cod }
 
 /// Buy path: one-time order vs recurring subscription (005-home-ux).
 /// Maps to POST /orders (once) vs POST /subscriptions (schedule_type).
-enum DeliveryType { once, daily, alternate, weekly }
+enum DeliveryType { once, daily, alternate, weekly, custom }
 
 /// schedule_type wire value ('' for once — no subscription is created).
 String scheduleTypeOf(DeliveryType t) => switch (t) {
@@ -224,6 +224,7 @@ String scheduleTypeOf(DeliveryType t) => switch (t) {
       DeliveryType.daily => 'daily',
       DeliveryType.alternate => 'alternate',
       DeliveryType.weekly => 'weekly',
+      DeliveryType.custom => 'custom',
     };
 
 /// sku_mix wire value for subscription create (dominant SKU wins ties→refill).

@@ -11,11 +11,15 @@ import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'tracking_screen.dart';
 
-/// Search + cursor-paged order list.
+/// Search + cursor-paged order list (repeat-first: reorder buttons).
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({super.key, required this.controller});
+  const OrdersScreen({super.key, required this.controller, this.onReorder});
 
   final OrdersController controller;
+
+  /// One-tap repeat: fills the booking lines from [order], then opens
+  /// checkout (caller). Null = reorder hidden (guest wiring pending).
+  final ValueChanged<Order>? onReorder;
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -53,6 +57,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
         ),
       ),
     );
+  }
+
+  /// First-vs-repeat tag (honest scope: only when createdAt exists on all
+  /// rows; legacy rows without timestamps get no tag, never a guessed one).
+  bool _isFirstOrder(List<Order> orders, Order order) {
+    if (orders.any((o) => o.createdAt == null)) return false;
+    Order oldest = orders.first;
+    for (final o in orders) {
+      if (o.createdAt!.isBefore(oldest.createdAt!)) oldest = o;
+    }
+    return identical(oldest, order) || oldest.id == order.id;
   }
 
   @override
@@ -121,8 +136,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     );
                   }
                   final orders = c.filteredOrders;
-                  if (orders.isEmpty && c.query.trim().isNotEmpty) {
-                    return _EmptyState(
+                  if (orders.isEmpty && c.query.trim().isNotEmpty) {                    return _EmptyState(
                       title: ordersStringsHi['noResultsTitle']!,
                       hint: ordersStringsHi['noResultsHint']!,
                     );
@@ -171,14 +185,25 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           );
                         }
                         final order = orders[idx];
+                        final tagsKnown =
+                            orders.every((o) => o.createdAt != null);
+                        final tag = !tagsKnown
+                            ? ''
+                            : (_isFirstOrder(orders, order)
+                                ? 'First order'
+                                : 'Repeat');
                         return _OrderCard(
                           order: order,
+                          historyTag: tag,
                           onTap: () => _openTracking(order),
                           onOpenBill: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
                               builder: (_) => BillScreen(order: order),
                             ),
                           ),
+                          onReorder: widget.onReorder == null
+                              ? null
+                              : () => widget.onReorder!(order),
                         );
                       },
                     ),
@@ -196,13 +221,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
 class _OrderCard extends StatelessWidget {
   const _OrderCard({
     required this.order,
+    required this.historyTag,
     required this.onTap,
     required this.onOpenBill,
+    this.onReorder,
   });
 
   final Order order;
+
+  /// '' = unknown (legacy rows) → no tag rendered, never guessed.
+  final String historyTag;
   final VoidCallback onTap;
   final VoidCallback onOpenBill;
+  final VoidCallback? onReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -231,9 +262,42 @@ class _OrderCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (order.isBulk)
+                  Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: OrdersTokens.ink,
+                      borderRadius: BorderRadius.circular(
+                        OrdersTokens.radius,
+                      ),
+                    ),
+                    child: const Text(
+                      'Bulk',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
                 _StatusChip(state: order.state),
               ],
             ),
+            if (historyTag.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                historyTag,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: OrdersTokens.blue,
+                ),
+              ),
+            ],
             if (order.itemSummary.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(
@@ -273,6 +337,25 @@ class _OrderCard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   color: OrdersTokens.blue,
+                ),
+              ),
+            ],
+            if (onReorder != null && order.canReorder) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onReorder,
+                  icon: const Icon(Icons.repeat, size: 18),
+                  label: const Text('Order again'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: OrdersTokens.blue,
+                    side: const BorderSide(color: OrdersTokens.blue),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(OrdersTokens.radius),
+                    ),
+                  ),
                 ),
               ),
             ],

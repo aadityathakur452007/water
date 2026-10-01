@@ -10,6 +10,7 @@
 // session expired → login (redirecting), logged out.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import 'auth_controller.dart';
 import 'phone_screen.dart';
@@ -91,7 +92,8 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-/// Cold-start splash (white, brand + loader — Mode-1, no decoration).
+/// Cold-start splash: logo + trust line, ≤1.5s branded hold (006-auth-flow).
+/// Transform+opacity entry only (no blur/shadows); images precached here.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
@@ -104,6 +106,8 @@ class SplashScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _SplashLogo(),
+              SizedBox(height: 12),
               Text(
                 'Shodasha',
                 style: TextStyle(
@@ -111,6 +115,11 @@ class SplashScreen extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   color: AuthTokens.text,
                 ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'RO+UV • Lab-tested paani',
+                style: TextStyle(fontSize: 13, color: AuthTokens.muted),
               ),
               SizedBox(height: 16),
               SizedBox(
@@ -126,5 +135,27 @@ class SplashScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _SplashLogo extends StatelessWidget {
+  const _SplashLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/logo.png',
+      width: 72,
+      height: 72,
+      cacheWidth: 144,
+      errorBuilder: (_, _, _) => const Icon(
+        Icons.water_drop,
+        size: 56,
+        color: AuthTokens.blue,
+      ),
+    )
+        .animate()
+        .fadeIn(duration: 300.ms)
+        .scale(begin: const Offset(0.92, 0.92), duration: 300.ms);
   }
 }
