@@ -69,7 +69,7 @@ const Map<String, String> bookingStringsHi = {
   'tankerTitle': 'Tanker supply',
   'tankerBody': '10 se zyada jar ke liye tanker lagta hai. Vendor se baat karein.',
   'tankerCall': 'Vendor ko call karein',
-  'codBlockedDues': 'Bकaya zyada hai — pehle dues chukayein, UPI se order karein',
+  'codBlockedDues': 'Bakaya zyada hai — pehle dues chukayein, UPI se order karein',
   'codBlockedHeld': '3 se zyada jar hold par hain — COD band, UPI se order karein',
   'codBlockedCap': 'Rs 2,000 se zyada par COD nahi — UPI chunein',
   'quoteStale': 'Daam update hua — naya quote lagaya gaya',

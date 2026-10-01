@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-033 | 2026-10-01 | Release-mode validation + emulator rebuild: clean AVD recreate, flutter clean + --release AOT (60.7MB), senior-practice audit (fixed Bकaya typo; no secrets/prints) | Accepted | apps/user_app (release artifact), local AVD |
 | ADR-032 | 2026-10-01 | 006-auth-flow: research-backed splash/auth/first-run + stepper checkout + repeat history + pinned packages | Accepted | apps/user_app/{lib/features/{auth,booking,orders,shell},pubspec}, Feature_docs/ux-redesign/ |
 | ADR-031 | 2026-10-01 | 005-super-admin-panel backend: additive read/detail/suspend/payments/refunds/ledger endpoints + sh_session cookie fallback in _bearer | Accepted | workers/api/app/{api/v1/admin.py,api/auth_deps.py,repositories/admin_read_repo.py}, tests/test_admin_panel.py |
 | ADR-030 | 2026-10-01 | 005-super-admin-panel: Next.js 16 + Tailwind v4 BFF panel — 14 pages, HttpOnly-cookie auth, TanStack Query/Table + Recharts, Geist tokens | Accepted | apps/admin_app/, Feature_docs/super-admin-panel/, branch 005-super-admin-panel |
@@ -87,6 +88,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-033: Release-mode validation + emulator rebuild (senior-practice pass)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: User reported the emulator misbehaving; asked for a rebuild + research on senior Flutter release practices (release checklists from Chirag Prajapati, Imran Hossain, Mohamed Yaser, official perf docs) and execution.
+- **Options considered**: Patching the sick AVD in place (rejected — repeated process deaths, unknown state); delete + recreate `shodasha_api36` clean (chosen); debug-only verification (rejected — debug lies: AOT/tree-shaking/obfuscation issues hide).
+- **Decision**: AVD deleted + recreated (pixel_7, android-36 google_apis x86_64); audit pass — fixed mixed-script `Bकaya` typo, confirmed no prints/secrets/hardcoded hosts (only localhost dev default + OSM/wa.me URLs); `flutter clean` + `flutter build apk --release` green (60.7MB AOT); release APK installed on fresh API-36 emulator, branded login foreground, no crash. Known env quirk: emulator needs ~2-4 min first boot; adb poll loops must null-guard (device appears late).
+- **Why**: Release artifact is the only truth senior guides agree on (debug builds hide AOT + asset-packing bugs); a clean AVD removes all stale-state doubt about what the user sees.
+- **Consequences**: Keep launching the emulator from Android Studio Device Manager for persistence across sessions; profile-mode DevTools pass still open.
+- **Affects**: `apps/user_app/lib/features/booking/booking_controller.dart` (typo), `build/.../app-release.apk` (untracked output), local AVD
 
 ### ADR-032: 006-auth-flow (research-backed auth-first-run + stepper checkout + repeat history)
 - **Date**: 2026-10-01
