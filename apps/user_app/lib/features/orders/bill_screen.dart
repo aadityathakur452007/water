@@ -5,6 +5,7 @@
 // recomputes on the client.
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'orders_controller.dart';
 
@@ -14,11 +15,23 @@ class BillScreen extends StatelessWidget {
 
   final Order order;
 
-  Future<void> _share(BuildContext context) async {
-    // TODO(F1): wa.me share with prefilled bill text via url_launcher.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ordersStringsHi['whatsappFail']!)),
+  /// Bill share = secondary wa.me link (never a post-purchase primary).
+  Future<void> _share(BuildContext context, Order o) async {
+    final text = 'Shodasha #${o.id} • ${formatRupees(o.totalPaise)}';
+    final uri = Uri.parse(
+      'https://wa.me/919876543210?text=${Uri.encodeComponent(text)}',
     );
+    bool ok = false;
+    try {
+      ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ordersStringsHi['whatsappFail']!)),
+      );
+    }
   }
 
   @override
@@ -152,17 +165,10 @@ class BillScreen extends StatelessWidget {
               const SizedBox(height: 16),
               SizedBox(
                 height: OrdersTokens.minTarget,
-                child: ElevatedButton(
-                  onPressed: () => _share(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: OrdersTokens.blue,
-                    foregroundColor: OrdersTokens.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(OrdersTokens.radius),
-                    ),
-                  ),
-                  child: Text(ordersStringsHi['whatsappHelp']!),
+                child: OutlinedButton.icon(
+                  onPressed: () => _share(context, o),
+                  icon: const Icon(Icons.share),
+                  label: Text(ordersStringsHi['whatsappHelp']!),
                 ),
               ),
             ],

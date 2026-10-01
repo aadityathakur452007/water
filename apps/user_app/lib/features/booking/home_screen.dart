@@ -1,43 +1,73 @@
-// F3 — Home = booking screen (repeat-machine). Prices unwalled (flow 1-2).
-// ui-checklist Card + Adding-to-Cart: name/price/stepper on card, BOOK NOW
-// is the single primary action, live deposit feedback, dues/support links.
+// 005-home-ux — Home storefront (ecommerce, not a text list).
+//
+// Address bar (default address + change) → app name + search → category
+// chips → full-width photo product cards (image left, name/price/stepper
+// right, tap = detail buy-box) → sticky book bar with live total.
+// ui-checklist Search/Card/Searchbar: top search with placeholder +
+// result count, one card style, tappable cards open the detail sheet.
+// Locked tokens only: white/black/blue, r8, 48px targets, no emojis.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+import '../../core/theme.dart';
+import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
-import 'booking_sheet.dart';
+import 'product_catalog.dart';
+import 'product_detail_sheet.dart';
 import 'stepper.dart';
 
-/// Home/booking screen. Owns no auth: OTP is enforced at booking commit
-/// (contract flow 1) by the [onCommitRequiresAuth] gate from F1 wiring.
+/// Home storefront. Owns no auth: OTP is enforced at booking commit
+/// (contract flow 1) by [onCommitRequiresAuth]; [onBuy] opens checkout.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.controller,
     this.onCommitRequiresAuth,
+    this.addresses,
+    this.onOpenAddresses,
+    this.onBuy,
   });
 
   final BookingController controller;
 
   /// Returns true when the user is authenticated and may proceed.
-  /// TODO(F1): wire to AuthController.isAuthenticated + login route.
   final Future<bool> Function()? onCommitRequiresAuth;
+
+  /// Address source for the delivery bar (null = bar hidden until wired).
+  final AddressController? addresses;
+
+  /// Opens the address list/picker (map pin flow).
+  final VoidCallback? onOpenAddresses;
+
+  /// Opens checkout for the controller's current lines.
+  final VoidCallback? onBuy;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  String _query = '';
+  SkuId? _filter; // null = All
+  final TextEditingController _search = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onChange);
+    widget.addresses?.addListener(_onChange);
+    if (widget.addresses?.status == AddrStatus.initial) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.addresses?.load();
+      });
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onChange);
+    widget.addresses?.removeListener(_onChange);
+    _search.dispose();
     super.dispose();
   }
 
@@ -45,7 +75,40 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _onBookNow() async {
+  List<CatalogSku> get _visible {
+    var list = searchCatalog(_query);
+    if (_filter != null) {
+      list = list.where((s) => s.id == _filter).toList();
+    }
+    return list;
+  }
+
+  int _qtyFor(CatalogSku sku) => sku.id == SkuId.refill
+      ? widget.controller.refillQty
+      : widget.controller.containerQty;
+
+  void _setQty(CatalogSku sku, int v) {
+    if (sku.id == SkuId.refill) {
+      widget.controller.setRefill(v);
+    } else {
+      widget.controller.setContainer(v);
+    }
+  }
+
+  Future<void> _openDetail(CatalogSku sku) async {
+    final gate = widget.onCommitRequiresAuth;
+    await showProductDetail(
+      context,
+      sku: sku,
+      controller: widget.controller,
+      onBuy: () async {
+        if (gate != null && !await gate()) return;
+        widget.onBuy?.call();
+      },
+    );
+  }
+
+  Future<void> _bookNow() async {
     final c = widget.controller;
     if (!c.canBook) return;
     if (c.isTanker) {
@@ -58,17 +121,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final gate = widget.onCommitRequiresAuth;
     if (gate != null && !await gate()) return;
-    if (!mounted) return;
-    await showBookingSheet(context, controller: c);
+    widget.onBuy?.call();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
+    final items = _visible;
     return Scaffold(
-      backgroundColor: ShodashaColors.bg,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: ShodashaColors.bg,
+        backgroundColor: ShodashaTheme.bg,
         elevation: 0,
         title: Row(
           children: [
@@ -76,101 +139,120 @@ class _HomeScreenState extends State<HomeScreen> {
               'assets/logo.png',
               width: 32,
               height: 32,
-              errorBuilder: (ctx, err, stack) => const Icon(
+              errorBuilder: (_, _, _) => const Icon(
                 Icons.water_drop,
-                color: ShodashaColors.accent,
+                color: ShodashaTheme.blue,
               ),
             ),
             const SizedBox(width: 8),
-            const Text(
-              'Shodasha',
-              style: TextStyle(
-                color: ShodashaColors.ink,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            const Text('Shodasha'),
           ],
         ),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
         children: [
-          const Text(
-            'RO+UV • Lab-tested • Refill Rs 28 / Jar Rs 30',
-            style: TextStyle(color: ShodashaColors.muted, fontSize: 13),
+          _AddressBar(
+            addresses: widget.addresses,
+            onChange: widget.onOpenAddresses,
           ),
           const SizedBox(height: 12),
-          // Banner image (local asset; jpg kept, 1.7MB png skipped per spec).
-          ClipRRect(
-            borderRadius: BorderRadius.circular(kShodashaRadius),
-            child: Image.asset(
-              'assets/20l.jpg',
-              height: 140,
-              fit: BoxFit.cover,
-              errorBuilder: (ctx, err, stack) => Container(
-                height: 140,
-                color: ShodashaColors.accentSoft,
-                alignment: Alignment.center,
-                child: const Text(
-                  '20L • RO+UV',
-                  style: TextStyle(color: ShodashaColors.accent),
-                ),
-              ),
+          TextField(
+            controller: _search,
+            onChanged: (v) => setState(() => _query = v),
+            decoration: const InputDecoration(
+              hintText: 'Search: refill, container…',
+              prefixIcon: Icon(Icons.search),
             ),
           ),
           const SizedBox(height: 12),
-          _SkuCard(
-            name: 'Refill (20L)',
-            price: 'Rs 28',
-            value: c.refillQty,
-            onChanged: c.setRefill,
-            semantics: 'refill',
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _Chip(
+                  label: 'All',
+                  selected: _filter == null,
+                  onTap: () => setState(() => _filter = null),
+                ),
+                const SizedBox(width: 8),
+                _Chip(
+                  label: 'Refill',
+                  selected: _filter == SkuId.refill,
+                  onTap: () => setState(() => _filter = SkuId.refill),
+                ),
+                const SizedBox(width: 8),
+                _Chip(
+                  label: 'Containers',
+                  selected: _filter == SkuId.container,
+                  onTap: () => setState(() => _filter = SkuId.container),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          _SkuCard(
-            name: 'Jar + Container (20L)',
-            price: 'Rs 30',
-            value: c.containerQty,
-            onChanged: c.setContainer,
-            semantics: 'naya jar',
+          const SizedBox(height: 4),
+          Text(
+            '${items.length} products',
+            style: const TextStyle(
+              fontSize: 13,
+              color: ShodashaTheme.muted,
+            ),
           ),
+          const SizedBox(height: 8),
+          if (items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text(
+                  'Kuch nahi mila — search badal kar dekhein',
+                  style: TextStyle(color: ShodashaTheme.muted),
+                ),
+              ),
+            ),
+          for (var i = 0; i < items.length; i++) ...[
+            _ProductCard(
+              sku: items[i],
+              qty: _qtyFor(items[i]),
+              onQty: (v) => _setQty(items[i], v),
+              onOpen: () => _openDetail(items[i]),
+            ),
+            if (i < items.length - 1) const SizedBox(height: 12),
+          ],
           const SizedBox(height: 12),
-          _EmptiesCard(controller: c),
-          const SizedBox(height: 12),
-          _DepositStrip(controller: c),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Text(
+              'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
+              '${rupeesLabel(c.depositDuePaise)} = Kul '
+              '${rupeesLabel(c.quoteTotalPaise)}',
+              style: const TextStyle(
+                color: ShodashaTheme.ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
           if (c.holdBlocked || c.duesPaise > 0) ...[
             const SizedBox(height: 12),
             _DuesBanner(controller: c),
           ],
-          const SizedBox(height: 12),
-          const _HelpRow(),
         ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: PressScale(
-            onTap: c.canBook ? _onBookNow : null,
-            child: Opacity(
-              opacity: c.canBook ? 1 : 0.5,
-              child: Container(
-                height: 52,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  // Locked spec: BOOK NOW is a black primary.
-                  color: ShodashaColors.ink,
-                  borderRadius: BorderRadius.circular(kShodashaRadius),
-                ),
-                child: Text(
-                  c.canBook
-                      ? 'BOOK NOW • ${rupeesLabel(c.quoteTotalPaise)}'
-                      : 'BOOK NOW • kam se kam 1 jar chunein',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
-                ),
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: c.canBook ? _bookNow : null,
+              child: Text(
+                c.canBook
+                    ? 'BOOK NOW • ${rupeesLabel(c.quoteTotalPaise)}'
+                    : 'BOOK NOW • kam se kam 1 jar chunein',
               ),
             ),
           ),
@@ -180,131 +262,199 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _SkuCard extends StatelessWidget {
-  const _SkuCard({
-    required this.name,
-    required this.price,
-    required this.value,
-    required this.onChanged,
-    required this.semantics,
+/// Delivery address bar (default address + change → map-pin flow).
+class _AddressBar extends StatelessWidget {
+  const _AddressBar({required this.addresses, required this.onChange});
+
+  final AddressController? addresses;
+  final VoidCallback? onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final list = addresses?.items ?? [];
+    AddressEntry? current;
+    for (final a in list) {
+      if (a.isDefault) current = a;
+    }
+    current ??= list.isEmpty ? null : list.first;
+    return PressScale(
+      onTap: onChange,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.location_on, color: ShodashaTheme.blue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Deliver to',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: ShodashaTheme.muted,
+                    ),
+                  ),
+                  Text(
+                    current == null
+                        ? 'Address chunein (map par pin lagayein)'
+                        : '${current.label} • ${current.pincode}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const Text(
+              'Change',
+              style: TextStyle(
+                color: ShodashaTheme.blue,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
   });
 
-  final String name;
-  final String price;
-  final int value;
-  final ValueChanged<int> onChanged;
-  final String semantics;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: ShodashaColors.bg,
-        border: Border.all(color: ShodashaColors.border),
-        borderRadius: BorderRadius.circular(kShodashaRadius),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: ShodashaColors.ink,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  price,
-                  style: const TextStyle(
-                    color: ShodashaColors.accent,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected ? ShodashaTheme.ink : ShodashaTheme.bg,
+          border: Border.all(
+            color: selected ? ShodashaTheme.ink : ShodashaTheme.border,
           ),
-          QtyStepper(
-            value: value,
-            onChanged: onChanged,
-            semanticsLabel: semantics,
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : ShodashaTheme.ink,
+            fontWeight: FontWeight.w600,
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _EmptiesCard extends StatelessWidget {
-  const _EmptiesCard({required this.controller});
+/// Photo product card: image left, name/price/deposit/stepper right.
+/// Tap anywhere (except stepper) opens the detail buy-box.
+class _ProductCard extends StatelessWidget {
+  const _ProductCard({
+    required this.sku,
+    required this.qty,
+    required this.onQty,
+    required this.onOpen,
+  });
 
-  final BookingController controller;
+  final CatalogSku sku;
+  final int qty;
+  final ValueChanged<int> onQty;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: ShodashaColors.accentSoft,
-        border: Border.all(color: ShodashaColors.border),
-        borderRadius: BorderRadius.circular(kShodashaRadius),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Khali jar wapas (E)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: ShodashaColors.ink,
+    return PressScale(
+      onTap: onOpen,
+      child: Container(
+        decoration: BoxDecoration(
+          color: ShodashaTheme.bg,
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(8),
+                bottomLeft: Radius.circular(8),
+              ),
+              child: Image.asset(
+                sku.asset,
+                width: 112,
+                height: 132,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  width: 112,
+                  height: 132,
+                  color: ShodashaTheme.blueTint,
+                  child: const Icon(
+                    Icons.water_drop,
+                    size: 40,
+                    color: ShodashaTheme.blue,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Rs 150/jar refundable • (N−E)×150 = ${rupeesLabel(controller.depositDuePaise)}',
-                  style: const TextStyle(
-                    color: ShodashaColors.muted,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          QtyStepper(
-            value: controller.emptiesQty,
-            onChanged: controller.setEmpties,
-            semanticsLabel: 'khali jar',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DepositStrip extends StatelessWidget {
-  const _DepositStrip({required this.controller});
-
-  final BookingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: ShodashaColors.border),
-        borderRadius: BorderRadius.circular(kShodashaRadius),
-      ),
-      child: Text(
-        'Paani ${rupeesLabel(controller.waterBillPaise)} + Deposit ${rupeesLabel(controller.depositDuePaise)} = Kul ${rupeesLabel(controller.quoteTotalPaise)}',
-        style: const TextStyle(color: ShodashaColors.ink, fontSize: 14),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      sku.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sku.tagline,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: ShodashaTheme.muted,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      rupeesLabel(sku.pricePaise),
+                      style: const TextStyle(
+                        color: ShodashaTheme.blue,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    QtyStepper(
+                      value: qty,
+                      onChanged: onQty,
+                      semanticsLabel: sku.name,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -319,44 +469,29 @@ class _DuesBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final msg = controller.holdBlocked
         ? '3 se zyada jar hold par — COD band, UPI se order karein'
-        : 'Bकaya: ${rupeesLabel(controller.duesPaise)} — bill me jud jayega';
+        : 'Bakaya: ${rupeesLabel(controller.duesPaise)} — bill me jud jayega';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border.all(color: ShodashaColors.accent),
-        borderRadius: BorderRadius.circular(kShodashaRadius),
+        border: Border.all(color: ShodashaTheme.blue),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
-      child: Text(msg, style: const TextStyle(color: ShodashaColors.ink)),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline,
+            size: 18,
+            color: ShodashaTheme.blue,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(msg)),
+        ],
+      ),
     );
   }
 }
 
-class _HelpRow extends StatelessWidget {
-  const _HelpRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'Madad chahiye? WhatsApp karein',
-            style: TextStyle(color: ShodashaColors.muted),
-          ),
-        ),
-        TextButton(
-          onPressed: () => copySupportNumber(context),
-          child: const Text(
-            'Help',
-            style: TextStyle(color: ShodashaColors.accent),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// N 6–10 bulk confirm dialog (Modal checklist: title/action/close).
+/// N 6–10 bulk confirm dialog (kept from F3: title/action/close).
 Future<bool?> showBulkConfirmDialog(
   BuildContext context, {
   required int total,
@@ -364,45 +499,60 @@ Future<bool?> showBulkConfirmDialog(
   return showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(kShodashaRadius),
-      ),
+      shape: ShodashaTheme.shape,
       title: const Text('6+ jar ka order?'),
       content: Text('$total jar — quantity confirm karein.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('Wapas'),
-        ),
-        PressScale(
-          onTap: () => Navigator.of(ctx).pop(true),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: ShodashaColors.ink, // black primary (locked spec)
-              borderRadius: BorderRadius.circular(kShodashaRadius),
-            ),
-            child: const Text(
-              'Confirm karein',
-              style: TextStyle(color: Colors.white),
-            ),
+          child: const Text(
+            'Wapas',
+            style: TextStyle(color: ShodashaTheme.muted),
           ),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text('Confirm karein'),
         ),
       ],
     ),
   );
 }
 
-/// WhatsApp guarded fallback: url_launcher is NOT a dep yet (F1 owns
-/// pubspec), so copy the number + SnackBar instead of crashing.
-/// TODO(F1): open wa.me via url_launcher when the dep lands.
-Future<void> copySupportNumber(BuildContext context) async {
-  await Clipboard.setData(const ClipboardData(text: kSupportPhone));
-  if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('WhatsApp app nahi mila — number copy kiya gaya'),
+/// N > 10 tanker sheet: vendor call CTA only — never creates an order.
+Future<void> showTankerSheet(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tanker supply',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '10 se zyada jar ke liye tanker lagta hai. Vendor se baat karein.',
+              style: TextStyle(color: ShodashaTheme.muted),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Ho gaya'),
+              ),
+            ),
+          ],
+        ),
       ),
-    );
-  }
+    ),
+  );
 }

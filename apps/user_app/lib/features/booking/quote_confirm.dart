@@ -1,48 +1,49 @@
-// F3 — Post-confirm screen: order ID + window + amount + WhatsApp share.
-// ui-checklist Payment flow: confirmation + next steps + support link.
+// 005-home-ux — Order confirmation (server truth, clear next steps).
+//
+// ui-checklist Making-a-Payment: success indicator + what happens next.
+// Shows the SERVER-minted order id (never a client-key preview), window,
+// amount, rider note. Primary = Track order; subscription checkouts get a
+// pause/skip shortcut. WhatsApp lives on the bill screen only —
+// never as the post-purchase primary (user-reported confusion).
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import 'booking_controller.dart';
-import 'stepper.dart';
+import 'checkout_service.dart';
 
-/// Shows the confirmation sheet (fire-and-forget from the booking sheet).
-void unawaitedShowConfirm(
+/// Shows the confirmation sheet for a placed [CheckoutResult].
+void showOrderConfirm(
   BuildContext context, {
-  required int totalPaise,
-  required String idempotencyKey,
-}) {
-  // Order id is server-minted; show the client key prefix until F1 wires
-  // POST /orders (then replace with the real order id, keep key for retry).
-  final previewId = 'ORD-${idempotencyKey.substring(3, 9).toUpperCase()}';
+    required CheckoutResult result,
+    required VoidCallback onTrackOrder,
+    required VoidCallback onOpenSubscriptions,
+  }) {
   showModalBottomSheet<void>(
     context: context,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(kShodashaRadius),
-      ),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
     ),
-    builder: (_) => QuoteConfirmSheet(
-      orderId: previewId,
-      totalPaise: totalPaise,
+    builder: (_) => _ConfirmSheet(
+      result: result,
+      onTrackOrder: onTrackOrder,
+      onOpenSubscriptions: onOpenSubscriptions,
     ),
   );
 }
 
-class QuoteConfirmSheet extends StatelessWidget {
-  const QuoteConfirmSheet({
-    super.key,
-    required this.orderId,
-    required this.totalPaise,
+class _ConfirmSheet extends StatelessWidget {
+  const _ConfirmSheet({
+    required this.result,
+    required this.onTrackOrder,
+    required this.onOpenSubscriptions,
   });
 
-  final String orderId;
-  final int totalPaise;
+  final CheckoutResult result;
+  final VoidCallback onTrackOrder;
+  final VoidCallback onOpenSubscriptions;
 
   @override
   Widget build(BuildContext context) {
-    final day = nextServiceableDay(DateTime.now());
+    final r = result;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -50,94 +51,84 @@ class QuoteConfirmSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Order confirm ho gaya',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+            const Row(
+              children: [
+                Icon(
+                  Icons.check_circle,
+                  color: Color(0xFF15803D),
+                  size: 28,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Order confirm ho gaya',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                border: Border.all(color: ShodashaColors.border),
-                borderRadius: BorderRadius.circular(kShodashaRadius),
+                border: Border.all(color: const Color(0xFFE5E5E5)),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('ID: $orderId'),
-                  Text('Window: ${day.day}/${day.month} subah (8–8)'),
+                  if (!r.isSubscription)
+                    Text('ID: ${r.orderId}')
+                  else
+                    Text('Subscription: ${r.subscriptionId}'),
+                  Text('Window: ${r.windowLabel}'),
                   Text(
-                    'Rakam: ${rupeesLabel(totalPaise)}',
+                    'Rakam: Rs ${r.totalPaise ~/ 100}',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   const Text(
                     'Rider assign hote hi naam + call button ayega',
-                    style: TextStyle(color: ShodashaColors.muted, fontSize: 13),
+                    style: TextStyle(
+                      color: Color(0xFF595959),
+                      fontSize: 13,
+                    ),
                   ),
                 ],
               ),
             ),
+            if (r.isSubscription) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  onOpenSubscriptions();
+                },
+                child: const Text('Pause / skip kabhi bhi kar sakte hain'),
+              ),
+            ],
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: PressScale(
-                    // TODO(F1): share via share_plus / wa.me when deps land;
-                    // today: copy bill text + SnackBar (guarded fallback).
-                    onTap: () async {
-                      await Clipboard.setData(
-                        ClipboardData(
-                          text: 'Shodasha $orderId • '
-                              '${rupeesLabel(totalPaise)} • '
-                              '${day.day}/${day.month} subah',
-                        ),
-                      );
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'WhatsApp app nahi mila — bill copy kiya gaya',
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                    child: Container(
-                      height: 52,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: ShodashaColors.ink, // black primary (locked)
-                        borderRadius:
-                            BorderRadius.circular(kShodashaRadius),
-                      ),
-                      child: const Text(
-                        'WhatsApp par bhejein',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  onTrackOrder();
+                },
+                child: Text(
+                  r.isSubscription ? 'Subscriptions dekhein' : 'Track order',
                 ),
-                const SizedBox(width: 8),
-                PressScale(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Container(
-                    height: 52,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: ShodashaColors.border),
-                      borderRadius: BorderRadius.circular(kShodashaRadius),
-                    ),
-                    child: const Text(
-                      'Ho gaya',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text(
+                  'Ho gaya',
+                  style: TextStyle(color: Color(0xFF595959)),
                 ),
-              ],
+              ),
             ),
           ],
         ),

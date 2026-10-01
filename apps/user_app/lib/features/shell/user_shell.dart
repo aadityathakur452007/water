@@ -8,7 +8,12 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/api_client.dart';
+import '../addresses/address_screen.dart';
+import '../booking/booking_controller.dart';
+import '../booking/booking_sheet.dart';
 import '../booking/home_screen.dart';
+import '../booking/quote_confirm.dart';
 import '../orders/orders_controller.dart';
 import '../orders/orders_screen.dart';
 import '../profile/profile_screen.dart';
@@ -24,16 +29,26 @@ class UserShell extends StatefulWidget {
     required this.bookingController,
     required this.ordersController,
     required this.isAuthenticated,
+    this.api,
+    this.addresses,
+    this.razorpayKeyId = '',
     this.onOpenAddresses,
     this.onOpenSubscriptions,
     this.onLogout,
   });
 
-  final dynamic bookingController; // BookingController (F3)
+  final BookingController bookingController;
   final OrdersController ordersController;
 
   /// Live auth check for tab-level gates (profile requires login content).
   final bool Function() isAuthenticated;
+
+  /// Shared API + address source for home/checkout (null = guest stub).
+  final ApiClient? api;
+  final AddressController? addresses;
+
+  /// Publishable Razorpay test key (--dart-define RAZORPAY_KEY_ID).
+  final String razorpayKeyId;
 
   /// Profile → Addresses / Subscriptions routes + logout (main.dart wiring).
   final VoidCallback? onOpenAddresses;
@@ -47,10 +62,59 @@ class UserShell extends StatefulWidget {
 class _UserShellState extends State<UserShell> {
   UserTab _tab = UserTab.home;
 
+  /// Default address (default flag wins, else first saved).
+  AddressEntry? get _defaultAddress {
+    final list = widget.addresses?.items ?? [];
+    for (final a in list) {
+      if (a.isDefault) return a;
+    }
+    return list.isEmpty ? null : list.first;
+  }
+
+  /// BOOK NOW / detail BUY → checkout → confirmation → tab jump.
+  Future<void> _openCheckout() async {
+    final api = widget.api;
+    if (api == null) return;
+    final c = widget.bookingController;
+    if (!c.canBook || c.isTanker) return;
+    await showCheckoutSheet(
+      context,
+      controller: c,
+      api: api,
+      razorpayKeyId: widget.razorpayKeyId,
+      address: _defaultAddress,
+      onChangeAddress: () {
+        Navigator.of(context).pop();
+        widget.onOpenAddresses?.call();
+      },
+      onDone: (result) {
+        Navigator.of(context).pop();
+        showOrderConfirm(
+          context,
+          result: result,
+          onTrackOrder: () {
+            if (result.isSubscription) {
+              widget.onOpenSubscriptions?.call();
+            } else {
+              setState(() => _tab = UserTab.orders);
+            }
+          },
+          onOpenSubscriptions: () =>
+              widget.onOpenSubscriptions?.call(),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = <UserTab, Widget>{
-      UserTab.home: HomeScreen(controller: widget.bookingController),
+      UserTab.home: HomeScreen(
+        controller: widget.bookingController,
+        addresses: widget.addresses,
+        onOpenAddresses: widget.onOpenAddresses,
+        onBuy: _openCheckout,
+      ),
       UserTab.orders: OrdersScreen(controller: widget.ordersController),
       UserTab.support: const SupportScreen(),
       UserTab.profile: ProfileScreen(

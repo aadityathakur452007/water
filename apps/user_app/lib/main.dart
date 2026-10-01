@@ -20,6 +20,14 @@ import 'features/profile/profile_screen.dart';
 import 'features/shell/user_shell.dart';
 import 'features/subscriptions/subscription_screen.dart';
 
+/// Publishable Razorpay test key (public by design — the secret stays
+/// server-side in workers/api/.env). Empty = UPI gateway disabled with
+/// an honest message; COD keeps working.
+const String kRazorpayKeyId = String.fromEnvironment(
+  'RAZORPAY_KEY_ID',
+  defaultValue: '',
+);
+
 void main() {
   runApp(const ShodashaApp());
 }
@@ -115,6 +123,9 @@ class _ShellPage extends StatelessWidget {
       bookingController: app._booking,
       ordersController: app._orders,
       isAuthenticated: () => authed,
+      api: app._api,
+      addresses: app._addresses,
+      razorpayKeyId: kRazorpayKeyId,
       onOpenAddresses: () => _openAddresses(context),
       onOpenSubscriptions: () => _openSubscriptions(context),
       onLogout: () async {
