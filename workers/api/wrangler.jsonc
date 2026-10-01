@@ -18,9 +18,12 @@
 		}
 	],
 	"vars": {
-		// Non-secret tunables only. Secrets (Firebase, Razorpay, webhook,
-		// VPA, admin phone) go via `wrangler secret put` — never here.
-		"APP_ENV": "prod"
+		// Non-secret tunables only. Secrets (Razorpay, webhook, VPA) go via
+		// `wrangler secret put` — never here. FIREBASE_PROJECT_ID is public
+		// (it ships inside every client-side firebaseConfig) so it belongs
+		// here, not in secrets.
+		"APP_ENV": "prod",
+		"FIREBASE_PROJECT_ID": "water-delivery-system-26"
 	},
 	"triggers": {
 		// Scheduler (app/jobs/scheduler.py) runs here once its async-D1
