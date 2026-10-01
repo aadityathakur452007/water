@@ -23,6 +23,11 @@ def set_worker_env(env: object | None) -> None:
     _current_env.set(env)
 
 
+def current_env() -> object | None:
+    """Return the pinned request env, or None outside a worker request."""
+    return _current_env.get()
+
+
 def env_get(name: str, default: str | None = None) -> str | None:
     """Read ``name`` from the request worker env, else ``os.environ``."""
     env = _current_env.get()
