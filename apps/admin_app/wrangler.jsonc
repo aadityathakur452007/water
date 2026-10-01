@@ -15,6 +15,12 @@
 		{
 			"binding": "WORKER_SELF_REFERENCE",
 			"service": "shodasha-admin"
+		},
+		{
+			// Backend API in the same account. The BFF prefers this over
+			// public HTTPS (which the edge can reject with error 1003).
+			"binding": "WATER_API",
+			"service": "water"
 		}
 	],
 	"observability": {

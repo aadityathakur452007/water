@@ -23,6 +23,32 @@ type WorkerErrorShape = {
   error?: { code?: string; message?: string; details?: Record<string, unknown>; trace_id?: string };
 };
 
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+
+/** Direct Worker-to-Worker call via service binding (same account).
+
+ * HTTPS fetch between workers.dev hosts can be stopped at the edge
+ * (Cloudflare error 1003 "Direct IP Access Not Allowed" → opaque 403).
+ * A service binding never leaves Cloudflare's network: no DNS, no edge,
+ * no 1003. Returns null when unavailable (local dev) so callers fall back
+ * to API_URL.
+ */
+async function bindingFetch(
+  path: string,
+  init: RequestInit,
+): Promise<Response | null> {
+  try {
+    const { env } = getCloudflareContext();
+    const binding = (env as Record<string, unknown>).WATER_API as
+      | { fetch: typeof fetch }
+      | undefined;
+    if (!binding) return null;
+    return await binding.fetch(`https://water.internal${path}`, init);
+  } catch {
+    return null;
+  }
+}
+
 /** Server-only GET/POST/PATCH against the Workers API with the admin cookie. */
 export async function workerFetch(
   path: string,
@@ -36,14 +62,18 @@ export async function workerFetch(
   const headers = new Headers(rest.headers);
   if (cookie) headers.set("cookie", cookie);
   if (rest.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  const reqInit: RequestInit = {
+    ...rest,
+    headers,
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  };
+  // Prefer the service binding; fall back to public HTTPS (local dev).
+  const viaBinding = await bindingFetch(path, reqInit);
+  if (viaBinding) return viaBinding;
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, {
-      ...rest,
-      headers,
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
+    res = await fetch(`${API_URL}${path}`, reqInit);
   } catch {
     throw new ApiError(0, "NETWORK", "Workers API unreachable");
   }
@@ -124,14 +154,18 @@ export async function refreshSession(
   const m = /(?:^|;\s*)sh_refresh=([^;]+)/.exec(cookie);
   if (!m) return null;
   const refresh_token = decodeURIComponent(m[1]);
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ refresh_token, device: { id: "admin-web" } }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  };
   try {
-    const res = await fetch(`${API_URL}/v1/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token, device: { id: "admin-web" } }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
+    // Service binding first (same 1003-proof path as workerFetch).
+    const viaBinding = await bindingFetch("/v1/auth/refresh", init);
+    const res =
+      viaBinding ?? (await fetch(`${API_URL}/v1/auth/refresh`, init));
     if (!res.ok) return null;
     const data = (await res.json().catch(() => null)) as
       | { access_token?: string; refresh_token?: string }
