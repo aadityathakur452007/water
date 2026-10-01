@@ -83,13 +83,23 @@ export async function apiMutate(
       "idempotency-key": req.headers.get("idempotency-key") ?? crypto.randomUUID(),
     },
   });
-  const json = (await res.json().catch(() => ({}))) as WorkerErrorShape & Record<string, unknown>;
+  const text = await res.text().catch(() => "");
+  let json: WorkerErrorShape & Record<string, unknown> = {};
+  try {
+    json = (text ? JSON.parse(text) : {}) as WorkerErrorShape & Record<string, unknown>;
+  } catch {
+    json = {};
+  }
   if (!res.ok) {
+    // Include the upstream status + body snippet so a failing hop is
+    // self-describing in the UI (e.g. non-envelope 403s from the edge).
+    const snippet = text.slice(0, 200);
     throw new ApiError(
       res.status,
-      json.error?.code ?? "SERVER",
-      json.error?.message ?? `${method} ${path} failed`,
-      json.error?.trace_id ?? "",
+      (json.error?.code as string | undefined) ?? "SERVER",
+      (json.error?.message as string | undefined) ??
+        `${method} ${path} failed (upstream ${res.status}${snippet ? `: ${snippet}` : ""})`,
+      (json.error?.trace_id as string | undefined) ?? "",
     );
   }
   return json;
