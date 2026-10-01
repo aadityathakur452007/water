@@ -223,6 +223,8 @@ class Order {
     this.rated = false,
     this.stars,
     this.createdAt,
+    this.refillQty = 0,
+    this.containerQty = 0,
   });
 
   final String id;
@@ -244,6 +246,16 @@ class Order {
   final bool rated;
   final int? stars;
   final DateTime? createdAt;
+
+  /// Per-SKU quantities for one-tap reorder (0 = unknown, e.g. legacy rows).
+  final int refillQty;
+  final int containerQty;
+
+  /// Reorder possible only when the mix is known.
+  bool get canReorder => refillQty + containerQty >= 1;
+
+  /// Bulk badge threshold (matches booking N 6–10 confirm band).
+  bool get isBulk => refillQty + containerQty >= 6;
 
   Order copyWith({
     OrderState? state,

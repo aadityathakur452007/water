@@ -69,7 +69,7 @@ const Map<String, String> bookingStringsHi = {
   'tankerTitle': 'Tanker supply',
   'tankerBody': '10 se zyada jar ke liye tanker lagta hai. Vendor se baat karein.',
   'tankerCall': 'Vendor ko call karein',
-  'codBlockedDues': 'Bकaya zyada hai — pehle dues chukayein, UPI se order karein',
+  'codBlockedDues': 'Bakaya zyada hai — pehle dues chukayein, UPI se order karein',
   'codBlockedHeld': '3 se zyada jar hold par hain — COD band, UPI se order karein',
   'codBlockedCap': 'Rs 2,000 se zyada par COD nahi — UPI chunein',
   'quoteStale': 'Daam update hua — naya quote lagaya gaya',
@@ -216,7 +216,7 @@ enum PaymentMode { upi, cod }
 
 /// Buy path: one-time order vs recurring subscription (005-home-ux).
 /// Maps to POST /orders (once) vs POST /subscriptions (schedule_type).
-enum DeliveryType { once, daily, alternate, weekly }
+enum DeliveryType { once, daily, alternate, weekly, custom }
 
 /// schedule_type wire value ('' for once — no subscription is created).
 String scheduleTypeOf(DeliveryType t) => switch (t) {
@@ -224,6 +224,7 @@ String scheduleTypeOf(DeliveryType t) => switch (t) {
       DeliveryType.daily => 'daily',
       DeliveryType.alternate => 'alternate',
       DeliveryType.weekly => 'weekly',
+      DeliveryType.custom => 'custom',
     };
 
 /// sku_mix wire value for subscription create (dominant SKU wins ties→refill).

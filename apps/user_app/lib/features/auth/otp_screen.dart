@@ -10,6 +10,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pin_code_fields/pin_code_fields.dart';
 
 import 'auth_controller.dart';
 import 'phone_screen.dart';
@@ -27,15 +28,14 @@ class OtpScreen extends StatefulWidget {
 
 class _OtpScreenState extends State<OtpScreen> {
   static const int _length = 6;
-  late final List<TextEditingController> _boxes;
-  late final List<FocusNode> _nodes;
+  late final PinInputController _pin;
   int _seenErrorSeq = 0;
+  String _code = '';
 
   @override
   void initState() {
     super.initState();
-    _boxes = List.generate(_length, (_) => TextEditingController());
-    _nodes = List.generate(_length, (_) => FocusNode());
+    _pin = PinInputController();
     _seenErrorSeq = widget.controller.errorSeq;
     widget.controller.addListener(_onAuthChanged);
   }
@@ -50,40 +50,14 @@ class _OtpScreenState extends State<OtpScreen> {
       }
       return;
     }
-    // New backend error → clear boxes, restart at box 0 (retry, States.md).
+    // New backend error → error state + clear pin (retry, States.md).
     if (widget.controller.errorSeq != _seenErrorSeq) {
       _seenErrorSeq = widget.controller.errorSeq;
-      for (final box in _boxes) {
-        box.clear();
-      }
-      _nodes.first.requestFocus();
-      setState(() {});
+      _pin.setErrorState(true);
+      _pin.clear();
+      setState(() => _code = '');
     }
   }
-
-  /// Pasted full code (or typed char) lands in box [index] — split across rest.
-  void _onBoxChanged(int index, String value) {
-    final digits = value.replaceAll(RegExp(r'\D'), '');
-    if (digits.length > 1) {
-      for (var i = 0; i < _length; i++) {
-        _boxes[i].text = i - index < digits.length && i >= index
-            ? digits[i - index]
-            : (i < index ? _boxes[i].text : '');
-      }
-      _nodes.last.requestFocus();
-    } else {
-      _boxes[index].text = digits; // single char or cleared
-      if (digits.isNotEmpty && index < _length - 1) {
-        _nodes[index + 1].requestFocus();
-      } else if (digits.isEmpty && index > 0) {
-        _nodes[index - 1].requestFocus();
-      }
-    }
-    widget.controller.clearError();
-    setState(() {});
-  }
-
-  String get _code => _boxes.map((b) => b.text).join();
 
   Future<void> _submit() async {
     if (_code.length != _length) return;
@@ -94,12 +68,7 @@ class _OtpScreenState extends State<OtpScreen> {
   @override
   void dispose() {
     widget.controller.removeListener(_onAuthChanged);
-    for (final box in _boxes) {
-      box.dispose();
-    }
-    for (final node in _nodes) {
-      node.dispose();
-    }
+    _pin.dispose();
     super.dispose();
   }
 
@@ -148,52 +117,31 @@ class _OtpScreenState extends State<OtpScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      for (var i = 0; i < _length; i++) ...[
-                        Expanded(
-                          child: SizedBox(
-                            height: 56, // ≥48dp target (mobile-native)
-                            child: TextField(
-                              controller: _boxes[i],
-                              focusNode: _nodes[i],
-                              keyboardType: TextInputType.number,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                color: AuthTokens.text,
-                              ),
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(_length),
-                              ],
-                              decoration: InputDecoration(
-                                counterText: '',
-                                contentPadding: EdgeInsets.zero,
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AuthTokens.radius,
-                                  ),
-                                  borderSide: const BorderSide(
-                                    color: AuthTokens.border,
-                                  ),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AuthTokens.radius,
-                                  ),
-                                  borderSide: const BorderSide(
-                                    color: AuthTokens.blue,
-                                  ),
-                                ),
-                              ),
-                              onChanged: (v) => _onBoxChanged(i, v),
-                            ),
-                          ),
-                        ),
-                        if (i < _length - 1) const SizedBox(width: 8),
-                      ],
+                  MaterialPinField(
+                    length: _length,
+                    pinController: _pin,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
                     ],
+                    enableAutofill: true,
+                    enablePaste: true,
+                    theme: MaterialPinTheme(
+                      shape: MaterialPinShape.outlined,
+                      cellSize: const Size(48, 56),
+                      spacing: 8,
+                      borderRadius: BorderRadius.circular(AuthTokens.radius),
+                      fillColor: AuthTokens.bg,
+                      borderColor: AuthTokens.border,
+                      focusedBorderColor: AuthTokens.blue,
+                      errorBorderColor: Theme.of(context).colorScheme.error,
+                    ),
+                    onChanged: (v) {
+                      widget.controller.clearError();
+                      _pin.clearError();
+                      setState(() => _code = v);
+                    },
+                    onCompleted: (_) => _submit(),
                   ),
                   const SizedBox(height: 12),
                   Text(

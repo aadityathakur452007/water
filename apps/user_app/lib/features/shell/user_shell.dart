@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../addresses/address_screen.dart';
+import '../auth/first_run_screen.dart';
 import '../booking/booking_controller.dart';
 import '../booking/booking_sheet.dart';
 import '../booking/home_screen.dart';
@@ -62,6 +63,38 @@ class UserShell extends StatefulWidget {
 class _UserShellState extends State<UserShell> {
   UserTab _tab = UserTab.home;
 
+  @override
+  void initState() {
+    super.initState();
+    widget.addresses?.addListener(_onAddresses);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _offerFirstRun());
+  }
+
+  @override
+  void dispose() {
+    widget.addresses?.removeListener(_onAddresses);
+    super.dispose();
+  }
+
+  void _onAddresses() {
+    if (mounted) setState(() {});
+  }
+
+  /// First-run: zero addresses → permission + address-pin sheet (once).
+  Future<void> _offerFirstRun() async {
+    final addresses = widget.addresses;
+    if (addresses == null || !mounted) return;
+    if (addresses.status == AddrStatus.initial) {
+      await addresses.load();
+      if (!mounted) return;
+    }
+    await maybeOfferFirstRun(
+      context,
+      addressCount: addresses.items.length,
+      onAddAddress: () => widget.onOpenAddresses?.call(),
+    );
+  }
+
   /// Default address (default flag wins, else first saved).
   AddressEntry? get _defaultAddress {
     final list = widget.addresses?.items ?? [];
@@ -69,6 +102,19 @@ class _UserShellState extends State<UserShell> {
       if (a.isDefault) return a;
     }
     return list.isEmpty ? null : list.first;
+  }
+
+  /// One-tap repeat: refill the booking lines from a past order, jump
+  /// home, and open checkout (known mix only — card hides otherwise).
+  Future<void> _reorder(Order order) async {
+    final c = widget.bookingController;
+    c.setRefill(order.refillQty);
+    c.setContainer(order.containerQty);
+    if (!mounted) return;
+    setState(() => _tab = UserTab.home);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+    await _openCheckout();
   }
 
   /// BOOK NOW / detail BUY → checkout → confirmation → tab jump.
@@ -115,7 +161,10 @@ class _UserShellState extends State<UserShell> {
         onOpenAddresses: widget.onOpenAddresses,
         onBuy: _openCheckout,
       ),
-      UserTab.orders: OrdersScreen(controller: widget.ordersController),
+      UserTab.orders: OrdersScreen(
+        controller: widget.ordersController,
+        onReorder: _reorder,
+      ),
       UserTab.support: const SupportScreen(),
       UserTab.profile: ProfileScreen(
         isAuthenticated: widget.isAuthenticated(),

@@ -47,6 +47,7 @@ Future<CheckoutResult> placeCheckout({
   required String addressId,
   required String windowStart,
   required String windowLabel,
+  String recurrence = '',
 }) async {
   final items = orderItemsOf(
     refill: controller.refillQty,
@@ -64,6 +65,7 @@ Future<CheckoutResult> placeCheckout({
       ),
       window: windowLabel,
       scheduleType: scheduleTypeOf(controller.deliveryType),
+      recurrence: recurrence,
     );
     final data = (sub['subscription'] as Map<String, dynamic>?) ?? sub;
     return CheckoutResult(

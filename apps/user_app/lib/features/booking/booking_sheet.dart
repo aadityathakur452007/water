@@ -1,25 +1,27 @@
-// 005-home-ux — Checkout sheet: address + delivery-type + live window
-// slots + pay mode + real order placement.
+// 006-auth-flow — Stepper checkout: 1 Address → 2 Schedule → 3 Pay.
 //
-// Slots come from GET /windows (capacity-aware, never hardcoded).
-// Pay → placeCheckout (quotes → orders/subs, STALE_QUOTE retried once).
-// UPI: real Razorpay refs open the gateway (test key); FAKE-* refs open
-// the upi:// intent link. Success is verified via GET /orders/{id} — the
-// gateway callback alone never marks paid (contract §4.4).
-// ui-checklist Making-a-Payment: methods → processing → confirmation +
-// next steps. No emojis, locked palette, 48px targets.
+// Back preserves inputs; each step validates before Next. Schedule:
+// once → live window slots (GET /windows capacity); daily/alternate/
+// weekly → preset rhythm; custom → table_calendar multi-date pick
+// (≤6 dates, recurrence = ISO dates joined, contract ≤64 chars).
+// Pay → placeCheckout (quotes → orders/subs, STALE_QUOTE retried once);
+// UPI = Razorpay gateway for real refs, upi:// link for FAKE-* refs.
+// ui-checklist: Submitting-a-Form (button copy matches purpose, loading,
+// success/error) + Making-a-Payment. Locked palette, 48px targets.
 
 import 'package:flutter/material.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
 import 'checkout_service.dart';
-import 'product_detail_sheet.dart';
+import 'product_detail_sheet.dart'
+    show deliveryTypeLabels, deliveryTypeIcons;
 
-/// Opens checkout. [address] may be null → user must pick one first.
+/// Opens checkout. [address] may be null → step 1 prompts to pick one.
 Future<void> showCheckoutSheet(
   BuildContext context, {
     required BookingController controller,
@@ -55,6 +57,8 @@ class _Slot {
 
 enum _Phase { form, loadingSlots, paying, error }
 
+const List<String> _stepTitles = ['Address', 'Schedule', 'Pay'];
+
 class _CheckoutSheet extends StatefulWidget {
   const _CheckoutSheet({
     required this.controller,
@@ -77,6 +81,7 @@ class _CheckoutSheet extends StatefulWidget {
 }
 
 class _CheckoutSheetState extends State<_CheckoutSheet> {
+  int _step = 0;
   _Phase _phase = _Phase.loadingSlots;
   String _error = '';
   List<_Slot> _slots = [];
@@ -86,7 +91,13 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   Razorpay? _gateway;
   CheckoutResult? _pendingUpi;
 
+  /// Custom-schedule picked dates (date-only, ≤6 for the 64-char field).
+  final Set<DateTime> _customDays = {};
+  DateTime _focusedDay = DateTime.now();
+
   BookingController get c => widget.controller;
+  bool get _isOnce => c.deliveryType == DeliveryType.once;
+  bool get _isCustom => c.deliveryType == DeliveryType.custom;
 
   @override
   void initState() {
@@ -108,7 +119,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   Future<void> _loadSlots() async {
     final addr = widget.address;
-    if (addr == null) {
+    if (addr == null || !_isOnce) {
       setState(() => _phase = _Phase.form);
       return;
     }
@@ -146,9 +157,47 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   String get _windowStart =>
       _slots.isEmpty ? '' : '${_slotDate}T${_slots[_slotIdx].start}:00';
 
-  String get _windowLabel => _slots.isEmpty
-      ? _slotDate
-      : '$_slotDate ${_slots[_slotIdx].start}–${_slots[_slotIdx].end}';
+  String get _windowLabel {
+    if (_isOnce) {
+      return _slots.isEmpty
+          ? _slotDate
+          : '$_slotDate ${_slots[_slotIdx].start}–${_slots[_slotIdx].end}';
+    }
+    if (_isCustom) {
+      final days = _customDays.toList()..sort();
+      return days.map(ApiClient.dateOnly).join(',');
+    }
+    return deliveryTypeLabels[c.deliveryType]!;
+  }
+
+  String get _recurrence {
+    if (!_isCustom) return '';
+    final days = _customDays.toList()..sort();
+    return days.map(ApiClient.dateOnly).join(',');
+  }
+
+  bool get _stepValid {
+    switch (_step) {
+      case 0:
+        return widget.address != null;
+      case 1:
+        if (_isOnce) return _slots.isNotEmpty;
+        if (_isCustom) return _customDays.isNotEmpty;
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  void _next() {
+    if (!_stepValid || _step >= 2) return;
+    if (_step == 0 && _isOnce && _phase != _Phase.loadingSlots) _loadSlots();
+    setState(() => _step++);
+  }
+
+  void _back() {
+    if (_step > 0) setState(() => _step--);
+  }
 
   String _errorFor(ApiException e) {
     switch (e.code) {
@@ -169,9 +218,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   Future<void> _pay() async {
     final addr = widget.address;
-    if (addr == null || _slots.isEmpty && c.deliveryType == DeliveryType.once) {
-      return;
-    }
+    if (addr == null || !_stepValid) return;
     if (c.paymentMode == PaymentMode.cod && !c.codAllowed) return;
     setState(() {
       _phase = _Phase.paying;
@@ -182,8 +229,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         api: widget.api,
         controller: c,
         addressId: addr.id,
-        windowStart: c.deliveryType == DeliveryType.once ? _windowStart : _windowLabel,
+        windowStart: _isOnce ? _windowStart : _windowLabel,
         windowLabel: _windowLabel,
+        recurrence: _recurrence,
       );
       if (!mounted) return;
       if (result.isSubscription || c.paymentMode == PaymentMode.cod) {
@@ -294,13 +342,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final addr = widget.address;
-    final codOk = c.codAllowed;
     final busy = _phase == _Phase.paying || _phase == _Phase.loadingSlots;
-    final canPay = addr != null &&
-        !busy &&
-        (c.deliveryType != DeliveryType.once || _slots.isNotEmpty) &&
-        !(c.paymentMode == PaymentMode.cod && !codOk);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -314,186 +356,319 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Checkout',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+              _StepHeader(step: _step, titles: _stepTitles),
+              const SizedBox(height: 16),
+              if (_step == 0)
+                _AddressRow(
+                  address: widget.address,
+                  onChange: widget.onChangeAddress,
+                )
+              else if (_step == 1)
+                _scheduleStep(busy)
+              else
+                _payStep(busy),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  if (_step > 0)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: busy ? null : _back,
+                        child: const Text('Peeche'),
+                      ),
+                    ),
+                  if (_step > 0) const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: _step < 2
+                        ? ElevatedButton(
+                            onPressed:
+                                (_stepValid && !busy) ? _next : null,
+                            child: const Text('Aage badhein'),
+                          )
+                        : ElevatedButton(
+                            onPressed: _canPay(busy) ? _pay : null,
+                            child: Text(
+                              c.deliveryType == DeliveryType.once
+                                  ? 'Pay • ${rupeesLabel(c.quoteTotalPaise)}'
+                                  : 'Subscription shuru karein',
+                            ),
+                          ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              _AddressRow(address: addr, onChange: widget.onChangeAddress),
-              const SizedBox(height: 12),
-              const Text(
-                'Delivery kaisi ho?',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _canPay(bool busy) {
+    if (widget.address == null || busy || !_stepValid) return false;
+    if (c.paymentMode == PaymentMode.cod && !c.codAllowed) return false;
+    return true;
+  }
+
+  Widget _scheduleStep(bool busy) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: DeliveryType.values.map((t) {
+            final selected = t == c.deliveryType;
+            return ChoiceChip(
+              avatar: Icon(
+                deliveryTypeIcons[t],
+                size: 18,
+                color: selected ? Colors.white : const Color(0xFF0284C7),
               ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: DeliveryType.values.map((t) {
-                  final selected = t == c.deliveryType;
-                  return ChoiceChip(
-                    label: Text(deliveryTypeLabels[t]!),
-                    selected: selected,
-                    onSelected: (_) =>
-                        setState(() => c.deliveryType = t),
+              label: Text(deliveryTypeLabels[t]!),
+              selected: selected,
+              onSelected: (_) => setState(() => c.deliveryType = t),
+              selectedColor: Colors.black,
+              labelStyle: TextStyle(
+                color: selected ? Colors.white : Colors.black,
+                fontWeight: FontWeight.w600,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: const BorderSide(color: Color(0xFFE5E5E5)),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 12),
+        if (_isOnce) ...[
+          if (busy && _slots.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_unserviceable)
+            const Text(
+              'Is pincode par delivery nahi — address badlein',
+              style: TextStyle(color: Color(0xFFB91C1C)),
+            )
+          else if (_slots.isEmpty)
+            const Text(
+              'Slot load nahi hue — retry karein',
+              style: TextStyle(color: Color(0xFF595959)),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var i = 0; i < _slots.length; i++)
+                  ChoiceChip(
+                    label: Text('${_slots[i].start}–${_slots[i].end}'),
+                    selected: i == _slotIdx,
+                    onSelected: (_) => setState(() => _slotIdx = i),
                     selectedColor: Colors.black,
                     labelStyle: TextStyle(
-                      color: selected ? Colors.white : Colors.black,
+                      color: i == _slotIdx ? Colors.white : Colors.black,
                       fontWeight: FontWeight.w600,
                     ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                       side: const BorderSide(color: Color(0xFFE5E5E5)),
                     ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 12),
-              if (c.deliveryType == DeliveryType.once) ...[
-                const Text(
-                  'Time slot',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                ),
-                const SizedBox(height: 8),
-                if (_phase == _Phase.loadingSlots)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else if (_unserviceable)
-                  const Text(
-                    'Is pincode par delivery nahi — address badlein',
-                    style: TextStyle(color: Color(0xFFB91C1C)),
-                  )
-                else if (_slots.isEmpty)
-                  const Text(
-                    'Slot load nahi hue — retry karein',
-                    style: TextStyle(color: Color(0xFF595959)),
-                  )
-                else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (var i = 0; i < _slots.length; i++)
-                        ChoiceChip(
-                          label: Text(
-                            '${_slots[i].start}–${_slots[i].end}',
-                          ),
-                          selected: i == _slotIdx,
-                          onSelected: (_) =>
-                              setState(() => _slotIdx = i),
-                          selectedColor: Colors.black,
-                          labelStyle: TextStyle(
-                            color: i == _slotIdx
-                                ? Colors.white
-                                : Colors.black,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            side: const BorderSide(
-                              color: Color(0xFFE5E5E5),
-                            ),
-                          ),
-                        ),
-                    ],
                   ),
-                const SizedBox(height: 12),
               ],
-              Text(
-                'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
-                '${rupeesLabel(c.depositDuePaise)} = Kul '
-                '${rupeesLabel(c.quoteTotalPaise)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                ),
+            ),
+        ] else if (_isCustom) ...[
+          TableCalendar<DateTime>(
+            firstDay: DateTime.now(),
+            lastDay: DateTime.now().add(const Duration(days: 60)),
+            focusedDay: _focusedDay,
+            calendarFormat: CalendarFormat.month,
+            availableCalendarFormats: const {CalendarFormat.month: 'Mahina'},
+            headerStyle: const HeaderStyle(formatButtonVisible: false),
+            selectedDayPredicate: (d) => _customDays.any(isSameDayCompat(d)),
+            onDaySelected: (selected, focused) {
+              setState(() {
+                _focusedDay = focused;
+                final day = DateTime(selected.year, selected.month, selected.day);
+                if (_customDays.any(isSameDayCompat(day))) {
+                  _customDays.removeWhere(isSameDayCompat(day));
+                } else if (_customDays.length < 6) {
+                  _customDays.add(day);
+                }
+              });
+            },
+            calendarStyle: CalendarStyle(
+              selectedDecoration: const BoxDecoration(
+                color: Colors.black,
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _PayChip(
-                    label: 'UPI',
-                    selected: c.paymentMode == PaymentMode.upi,
-                    onTap: () =>
-                        setState(() => c.paymentMode = PaymentMode.upi),
-                  ),
-                  const SizedBox(width: 8),
-                  _PayChip(
-                    label: 'COD (cash)',
-                    selected: c.paymentMode == PaymentMode.cod,
-                    enabled: codOk,
-                    onTap: codOk
-                        ? () => setState(
-                              () => c.paymentMode = PaymentMode.cod,
-                            )
-                        : null,
-                  ),
-                ],
+              todayDecoration: BoxDecoration(
+                color: const Color(0xFF0284C7).withValues(alpha: 0.25),
+                shape: BoxShape.circle,
               ),
-              if (!codOk)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Rs 2,000 se zyada / bakaya / 3+ hold par COD nahi — UPI chunein',
-                    style: TextStyle(
-                      color: Color(0xFF595959),
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              if (_phase == _Phase.paying) ...[
-                const SizedBox(height: 12),
-                const Row(
-                  children: [
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 12),
-                    Text('Order lag raha hai…'),
-                  ],
-                ),
-              ],
-              if (_phase == _Phase.error) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 18,
-                      color: Color(0xFFB91C1C),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _error,
-                        style: const TextStyle(color: Color(0xFFB91C1C)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 16),
+            ),
+          ),
+          Text(
+            _customDays.isEmpty
+                ? 'Delivery wali tareekhein chunein (zyada se zyada 6)'
+                : '${_customDays.length} tareekh chuni',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF595959)),
+          ),
+        ] else ...[
+          const Text(
+            'Subscription banega — pause/skip kabhi bhi kar sakte hain.',
+            style: TextStyle(fontSize: 13, color: Color(0xFF0284C7)),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _payStep(bool busy) {
+    final codOk = c.codAllowed;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
+          '${rupeesLabel(c.depositDuePaise)} = Kul '
+          '${rupeesLabel(c.quoteTotalPaise)}',
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _PayChip(
+              label: 'UPI',
+              selected: c.paymentMode == PaymentMode.upi,
+              onTap: () => setState(() => c.paymentMode = PaymentMode.upi),
+            ),
+            const SizedBox(width: 8),
+            _PayChip(
+              label: 'COD (cash)',
+              selected: c.paymentMode == PaymentMode.cod,
+              enabled: codOk,
+              onTap: codOk
+                  ? () => setState(() => c.paymentMode = PaymentMode.cod)
+                  : null,
+            ),
+          ],
+        ),
+        if (!codOk)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Rs 2,000 se zyada / bakaya / 3+ hold par COD nahi — UPI chunein',
+              style: TextStyle(color: Color(0xFF595959), fontSize: 13),
+            ),
+          ),
+        if (_phase == _Phase.paying) ...[
+          const SizedBox(height: 12),
+          const Row(
+            children: [
               SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: canPay ? _pay : null,
-                  child: Text(
-                    c.deliveryType == DeliveryType.once
-                        ? 'Pay • ${rupeesLabel(c.quoteTotalPaise)}'
-                        : 'Subscription shuru karein',
-                  ),
-                ),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('Order lag raha hai…'),
+            ],
+          ),
+        ],
+        if (_phase == _Phase.error) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.error_outline,
+                  size: 18, color: Color(0xFFB91C1C)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(_error,
+                    style: const TextStyle(color: Color(0xFFB91C1C))),
               ),
             ],
           ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Date-only equality ( avoids importing collection helpers).
+bool Function(DateTime) isSameDayCompat(DateTime a) =>
+    (DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+
+class _StepHeader extends StatelessWidget {
+  const _StepHeader({required this.step, required this.titles});
+
+  final int step;
+  final List<String> titles;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < titles.length; i++) ...[
+          _Dot(index: i, current: step),
+          const SizedBox(width: 6),
+          Text(
+            titles[i],
+            style: TextStyle(
+              fontWeight: i == step ? FontWeight.w700 : FontWeight.w500,
+              color: i <= step ? Colors.black : const Color(0xFF595959),
+              fontSize: 13,
+            ),
+          ),
+          if (i < titles.length - 1) ...[
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Divider(color: Color(0xFFE5E5E5), thickness: 2),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot({required this.index, required this.current});
+
+  final int index;
+  final int current;
+
+  @override
+  Widget build(BuildContext context) {
+    final done = index < current;
+    final active = index == current;
+    return Container(
+      width: 24,
+      height: 24,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: active || done ? Colors.black : Colors.white,
+        border: Border.all(
+          color: active || done ? Colors.black : const Color(0xFFE5E5E5),
         ),
+        shape: BoxShape.circle,
       ),
+      child: done
+          ? const Icon(Icons.check, size: 14, color: Colors.white)
+          : Text(
+              '${index + 1}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: active ? Colors.white : const Color(0xFF595959),
+              ),
+            ),
     );
   }
 }
@@ -521,11 +696,7 @@ class _AddressRow extends StatelessWidget {
           const Icon(Icons.location_on, color: Color(0xFF0284C7)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
           ),
           TextButton(onPressed: onChange, child: const Text('Badlein')),
         ],

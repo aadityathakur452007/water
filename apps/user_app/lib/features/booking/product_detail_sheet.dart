@@ -7,6 +7,7 @@
 // No emojis, no gradients, locked palette, 48px targets.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme.dart';
 import 'booking_controller.dart';
@@ -19,6 +20,16 @@ const Map<DeliveryType, String> deliveryTypeLabels = {
   DeliveryType.daily: 'Roz',
   DeliveryType.alternate: 'Ek din chhodkar',
   DeliveryType.weekly: 'Hafte mein ek baar',
+  DeliveryType.custom: 'Tareekhein chunein',
+};
+
+/// Icons for the delivery-type chips (no emojis — Material icons only).
+const Map<DeliveryType, IconData> deliveryTypeIcons = {
+  DeliveryType.once: Icons.bolt_outlined,
+  DeliveryType.daily: Icons.repeat,
+  DeliveryType.alternate: Icons.calendar_view_week_outlined,
+  DeliveryType.weekly: Icons.date_range_outlined,
+  DeliveryType.custom: Icons.edit_calendar_outlined,
 };
 
 /// Opens the detail buy-box for [sku]. BUY applies qty + delivery type to
@@ -117,6 +128,8 @@ class _DetailSheetState extends State<_DetailSheet> {
                 height: 180,
                 width: double.infinity,
                 fit: BoxFit.cover,
+                // P4: decode near display size (card is ~2x of 112px home art).
+                cacheWidth: 768,
                 errorBuilder: (_, _, _) => Container(
                   height: 180,
                   color: ShodashaTheme.blueTint,
@@ -127,7 +140,7 @@ class _DetailSheetState extends State<_DetailSheet> {
                     color: ShodashaTheme.blue,
                   ),
                 ),
-              ),
+              ).animate().fadeIn(duration: 200.ms),
             ),
             const SizedBox(height: 12),
             Row(
@@ -218,6 +231,11 @@ class _DetailSheetState extends State<_DetailSheet> {
               children: DeliveryType.values.map((t) {
                 final selected = t == _delivery;
                 return ChoiceChip(
+                  avatar: Icon(
+                    deliveryTypeIcons[t],
+                    size: 18,
+                    color: selected ? Colors.white : ShodashaTheme.blue,
+                  ),
                   label: Text(deliveryTypeLabels[t]!),
                   selected: selected,
                   onSelected: (_) => setState(() => _delivery = t),
@@ -238,7 +256,8 @@ class _DetailSheetState extends State<_DetailSheet> {
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
-                  'Subscription banega — pause/skip kabhi bhi kar sakte hain.',
+                  'Subscription banega — pause/skip kabhi bhi kar sakte hain. '
+                  'Tareekhein checkout mein pakki hongi.',
                   style: TextStyle(fontSize: 13, color: ShodashaTheme.blue),
                 ),
               ),
