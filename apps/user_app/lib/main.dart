@@ -5,6 +5,7 @@
 // login; OTP gates only booking commit + profile data (AuthGate routes the
 // shell; ProfileScreen shows the login CTA when un-authed).
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
@@ -28,7 +29,11 @@ const String kRazorpayKeyId = String.fromEnvironment(
   defaultValue: '',
 );
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Reads android/app/google-services.json; required before any FirebaseAuth
+  // call (the login OTP flow). Failure here is fail-fast, never silent.
+  await Firebase.initializeApp();
   runApp(const ShodashaApp());
 }
 
@@ -56,7 +61,7 @@ class _ShodashaAppState extends State<ShodashaApp> {
     _api = ApiClient(deviceId: 'pending-device');
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),
-      verifier: StubPhoneVerifier(),
+      verifier: FirebasePhoneVerifier(),
       store: SecureSessionStore(),
       deviceId: 'pending-device',
     );

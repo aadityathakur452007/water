@@ -4,12 +4,13 @@
 // 202, otp/verify {firebase_id_token, device} → session, logout). Bearer +
 // X-Device-Id ride on [ApiClient].
 //
-// [StubPhoneVerifier] is the v1 dev verifier: it accepts the code `123456`
-// and mints a placeholder id-token so the full flow runs end-to-end against
-// a mocking/staging backend. TODO(F1): swap for a FirebaseAuth-backed
-// PhoneVerifier (verifyPhoneNumber callbacks) once google-services.json
-// lands — the seam contract is already identical to Firebase's callbacks.
+// [FirebasePhoneVerifier] is the production verifier (real Firebase SMS via
+// google-services.json). [StubPhoneVerifier] exists ONLY for widget tests —
+// it is never wired in main.dart, so no demo login path ships to users.
 
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../features/auth/auth_controller.dart';
@@ -69,7 +70,8 @@ class ApiBackedAuthApi implements AuthApi {
   }
 }
 
-/// Dev verifier (see header). Real Firebase swap is F1-owned.
+/// Dev verifier (see header). Kept for widget tests; production uses
+/// [FirebasePhoneVerifier] (wired in main.dart).
 class StubPhoneVerifier implements PhoneVerifier {
   @override
   Future<String> requestCode(String e164) async {
@@ -84,5 +86,62 @@ class StubPhoneVerifier implements PhoneVerifier {
   }) async {
     if (smsCode == '123456') return 'stub-id-token';
     throw Exception('invalid code (dev verifier expects 123456)');
+  }
+}
+
+/// Production verifier: real Firebase SMS via google-services.json.
+///
+/// Seam contract is unchanged (verificationId in/out, idToken out), so
+/// callers are untouched. Auto-retrieval (Android) short-circuits confirm
+/// through the `_auto` sentinel; manual entry uses PhoneAuthCredential.
+class FirebasePhoneVerifier implements PhoneVerifier {
+  String? _autoToken;
+
+  @override
+  Future<String> requestCode(String e164) {
+    final done = Completer<String>();
+    FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: e164,
+      timeout: const Duration(seconds: 60),
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        try {
+          final userCredential =
+              await FirebaseAuth.instance.signInWithCredential(credential);
+          _autoToken = await userCredential.user?.getIdToken();
+          if (!done.isCompleted) done.complete('_auto');
+        } catch (e) {
+          if (!done.isCompleted) done.completeError(e);
+        }
+      },
+      verificationFailed: (FirebaseAuthException e) {
+        if (!done.isCompleted) {
+          done.completeError(Exception(e.message ?? 'phone verification failed'));
+        }
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        if (!done.isCompleted) done.complete(verificationId);
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        if (!done.isCompleted) done.complete(verificationId);
+      },
+    );
+    return done.future;
+  }
+
+  @override
+  Future<String> confirmCode({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    if (verificationId == '_auto' && _autoToken != null) return _autoToken!;
+    final credential = PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode,
+    );
+    final userCredential =
+        await FirebaseAuth.instance.signInWithCredential(credential);
+    final token = await userCredential.user?.getIdToken();
+    if (token == null || token.isEmpty) throw Exception('sign-in failed');
+    return token;
   }
 }
