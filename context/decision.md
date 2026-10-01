@@ -35,6 +35,8 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-035 | 2026-10-01 | 006 merged to main + CI/release GitHub Workflows: JDK 17 + Flutter 3.44.9 pins, auto-patch tags + APK GitHub Releases | Accepted | .github/workflows/, main branch |
+| ADR-034 | 2026-10-01 | (reserved — F-SA2 admin-panel UI upgrade, lives on 005-super-admin-panel line, see stash) | Proposed | apps/admin_app/, workers/api/ |
 | ADR-033 | 2026-10-01 | Release-mode validation + emulator rebuild: clean AVD recreate, flutter clean + --release AOT (60.7MB), senior-practice audit (fixed Bकaya typo; no secrets/prints) | Accepted | apps/user_app (release artifact), local AVD |
 | ADR-032 | 2026-10-01 | 006-auth-flow: research-backed splash/auth/first-run + stepper checkout + repeat history + pinned packages | Accepted | apps/user_app/{lib/features/{auth,booking,orders,shell},pubspec}, Feature_docs/ux-redesign/ |
 | ADR-031 | 2026-10-01 | 005-super-admin-panel backend: additive read/detail/suspend/payments/refunds/ledger endpoints + sh_session cookie fallback in _bearer | Accepted | workers/api/app/{api/v1/admin.py,api/auth_deps.py,repositories/admin_read_repo.py}, tests/test_admin_panel.py |
@@ -88,6 +90,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-035: 006 merged to main + CI/release GitHub Workflows (research-backed, no hallucination)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: User ordered: merge the branch into main + GitHub Workflows researched from senior-engineer sources (not hallucinated), compatible Java, compiled APK published to the GitHub Releases page per push with semver tags, auto patch-bump + changelog + APK assets every CI run.
+- **Options considered**: Tag-only manual releases (rejected — user explicitly wants auto-patch per main push); JDK 25 in CI to literally mirror local JBR 25.0.3 (rejected — AGP 9.0.1 release notes document JDK 17 as min+default; Gradle 9.1 runs on 17–26 so both work, but 17 is the AGP-tested path and the project's bytecode target is 17, making the APK byte-identical); real keystore signing now (rejected — no keystore exists; debug-signed release installs directly, keystore is a pre-Play TODO); actions/create-release + upload-release-asset v1 (rejected — archived/deprecated; softprops/action-gh-release@v2 is the maintained senior standard with generate_release_notes).
+- **Decision**: (1) Committed 006-scoped leftovers (manifest + launcher icons + pubspec) on 006-auth-flow, merged --no-ff into main; 005-super-admin-panel strays left uncommitted (tracked part stashed as "005-super-admin-panel WIP", untracked admin_app etc. untouched). (2) `.github/workflows/ci.yml` (PR + non-main push): checkout v4 + setup-java v4 (temurin 17) + flutter-action v2 (3.44.9, cache) → analyze + test + debug APK → upload-artifact v4, contents:read. (3) `.github/workflows/release.yml` (push to main only, contents:write, non-cancelling concurrency): same verify gates → next patch from latest v* tag (none → start v1.0.1; pubspec 1.0.0+1) → `flutter build apk --release --build-name=X.Y.Z --build-number=run_number` → stage versioned APK + SHA256SUMS → softprops/action-gh-release@v2 with tag_name + generate_release_notes. No pubspec commit (no push-loop); tag pushes can't retrigger (branches:main filter).
+- **Why**: Every pin traces to evidence: AGP 9.0.1 compat table (Gradle 9.1.0 / Build-tools 36.0.0 / NDK 28.2 / JDK 17) matches the local wrapper/SDK exactly; flutter-action README documents the flutter-version pin; softprops README documents files/generate_release_notes/tag_name. The JDK-17-vs-25 call is safe because the JDK only runs Gradle — phones run the compiled APK against SDK 36 with bytecode 17 either way.
+- **Consequences**: First push of main with these workflows cuts v1.0.1 automatically; every later main push cuts the next patch. Real signing keystore still needed before Play distribution (debug-signed OK for direct download).
+- **Affects**: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `main` branch (merge commit of 006-auth-flow)
 
 ### ADR-033: Release-mode validation + emulator rebuild (senior-practice pass)
 - **Date**: 2026-10-01

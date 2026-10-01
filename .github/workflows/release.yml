@@ -1,0 +1,105 @@
+name: release
+
+# Every push to main: verify -> auto-bump patch -> build release APK ->
+# create tag vX.Y.Z + GitHub Release (auto changelog + APK asset).
+# Tag pushes created here do NOT re-trigger this workflow
+# (trigger filter is branches: main, tags never match it),
+# and the release step writes via the API without pushing, so no loop.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+# One release at a time; never cancel a running release for a newer push.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: verify + bump patch + release APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/user_app
+    steps:
+      # fetch-depth 0: version step needs the full tag history
+      # to compute the next patch number.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # AGP 9.0.1 documents JDK 17 (min + default, developer.android.com
+      # AGP 9.0 release notes). Project bytecode target is
+      # JavaVersion.VERSION_17 (see android/app/build.gradle.kts), and the
+      # Gradle 9.1.0 / SDK 36.0.0 / Flutter 3.44.9 pins below mirror the
+      # local machine the APK was release-verified on, so the CI artifact
+      # is the same app users install on their phones. (The JDK only runs
+      # the build; phones run the compiled APK against Android SDK 36.)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Pinned to the Flutter version the app is developed and
+      # release-verified with locally (flutter doctor: 3.44.9 stable).
+      - name: Set up Flutter 3.44.9
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.44.9"
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze (must be zero issues)
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      # Next patch = latest vX.Y.Z tag + 1. No tags yet -> start at v1.0.1
+      # (pubspec is 1.0.0+1). versionCode uses run_number: monotonic per
+      # workflow, never collides, no pubspec commit needed (avoids a
+      # push-loop back into this workflow).
+      - name: Compute next version
+        id: version
+        run: |
+          LATEST="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n 1)"
+          if [ -z "$LATEST" ]; then LATEST="v1.0.0"; fi
+          BASE="${LATEST#v}"
+          MAJOR="$(echo "$BASE" | cut -d. -f1)"
+          MINOR="$(echo "$BASE" | cut -d. -f2)"
+          PATCH="$(echo "$BASE" | cut -d. -f3)"
+          NEXT_PATCH=$((PATCH + 1))
+          echo "tag=v${MAJOR}.${MINOR}.${NEXT_PATCH}" >> "$GITHUB_OUTPUT"
+          echo "build_name=${MAJOR}.${MINOR}.${NEXT_PATCH}" >> "$GITHUB_OUTPUT"
+
+      # Release config signs with debug keys for now
+      # (android/app/build.gradle.kts: signingConfig debug) so the APK
+      # installs directly on any phone. TODO: real keystore via GitHub
+      # Secrets before Play-store distribution.
+      - name: Build release APK
+        run: flutter build apk --release --build-name=${{ steps.version.outputs.build_name }} --build-number=${{ github.run_number }}
+
+      - name: Stage assets
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "build/app/outputs/flutter-apk/app-release.apk" "$GITHUB_WORKSPACE/dist/shodasha-${{ steps.version.outputs.tag }}.apk"
+          (cd "$GITHUB_WORKSPACE/dist" && sha256sum -- *.apk > SHA256SUMS.txt)
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/shodasha-${{ steps.version.outputs.tag }}.apk
+            dist/SHA256SUMS.txt
