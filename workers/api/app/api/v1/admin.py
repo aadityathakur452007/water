@@ -22,6 +22,7 @@ from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-e
 from app.api.deps import get_db
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
+from app.repositories.admin_read_repo import AdminReadRepo
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
 from app.services.dispatch_service import (
@@ -119,22 +120,47 @@ class HoldIn(BaseModel):
     reason: str = Field(default="", max_length=500)
 
 
+class SuspendIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+    level: str = Field(default="suspend", pattern=r"^(restrict|suspend)$")
+
+
 # -- orders queue + dispatch --------------------------------------------------
 
 @router.get("/admin/orders")
-def orders_queue(state: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200),
+def orders_queue(state: str | None = Query(default=None),
+                 payment_status: str | None = Query(default=None),  # F-SA additive filter
+                 query: str | None = Query(default=None, max_length=80),  # F-SA: user_id/phone search
+                 limit: int = Query(default=50, ge=1, le=200),
+                 cursor: str = Query(default=""),  # F-SA: rowid cursor (backward compatible)
                  conn=Depends(get_db), user=Admin):
     args: list[object] = []
-    where = ""
+    clauses = []
     if state:
-        where = "WHERE state = ?"
+        clauses.append("state = ?")
         args.append(state)
+    if payment_status:
+        clauses.append("payment_status = ?")
+        args.append(payment_status)
+    if query:
+        clauses.append("(user_id IN (SELECT id FROM users WHERE phone LIKE ?) OR user_id = ? OR id = ?)")
+        like = f"%{query}%"
+        args.extend([like, query, query])
+    if cursor:
+        try:
+            clauses.append("rowid < ?")
+            args.append(int(cursor))
+        except ValueError:
+            pass
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = conn.execute(
-        f"SELECT id, user_id, n, e, total, payment_status, state, window_start, created_at"  # noqa: S608
-        f" FROM orders {where} ORDER BY created_at DESC LIMIT ?",
-        (*args, limit),
+        f"SELECT id, user_id, n, e, total, payment_status, state, window_start, created_at,"  # noqa: S608
+        f" rowid AS _rowid FROM orders {where} ORDER BY rowid DESC LIMIT ?",
+        (*args, limit + 1),
     ).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    data = [dict(r) for r in rows[:limit]]
+    next_cursor = str(rows[limit]["_rowid"]) if len(rows) > limit else ""
+    return {"data": data, "next_cursor": next_cursor}
 
 
 @router.post("/admin/orders/{order_id}/assign")
@@ -532,13 +558,23 @@ def config_read(conn=Depends(get_db), user=Admin):
 
 
 @router.get("/admin/audit")
-def audit_read(entity: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200),
+def audit_read(entity: str | None = Query(default=None),
+               actor_id: str | None = Query(default=None, max_length=80),  # F-SA additive
+               action: str | None = Query(default=None, max_length=80),  # F-SA additive
+               limit: int = Query(default=50, ge=1, le=200),
                conn=Depends(get_db), user=Admin):
     args: list[object] = []
-    where = ""
+    clauses = []
     if entity:
-        where = "WHERE entity = ?"
+        clauses.append("entity = ?")
         args.append(entity)
+    if actor_id:
+        clauses.append("actor_id = ?")
+        args.append(actor_id)
+    if action:
+        clauses.append("action = ?")
+        args.append(action)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     try:
         rows = conn.execute(
             f"SELECT * FROM audit_log {where} ORDER BY rowid DESC LIMIT ?", (*args, limit)  # noqa: S608
@@ -563,3 +599,159 @@ def metrics(conn=Depends(get_db), user=Admin):
         pass
     return {"orders_by_state": orders, "users_by_role": users,
             "dues_paise": int(dues), "quality_open": open_q}
+
+
+# -- F-SA super-admin panel (additive, contract §4.11 + §14.5) ----------------
+# Reads power the Next.js admin web panel; suspend/unsuspend implement §14.5
+# (block = human-confirmed, sessions revoked instantly, always audited).
+
+
+def _cursor(value: str) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
+@router.get("/admin/metrics/overview")
+def metrics_overview(days: int = Query(default=14, ge=1, le=90),
+                     conn=Depends(get_db), user=Admin):
+    repo = AdminReadRepo(conn)
+    since = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)).isoformat()[:10]
+    today = _dt.datetime.now(_dt.timezone.utc).isoformat()[:10]
+    daily = repo.daily_series(since)
+    on_time = {r["day"]: r for r in repo.on_time_series(since)}
+    series = []
+    for row in daily:
+        ot = on_time.get(row["day"], {})
+        delivered = ot.get("delivered") or 0
+        series.append({
+            "day": row["day"],
+            "orders": int(row["orders"] or 0),
+            "gmv_paise": int(row["gmv_paise"] or 0),
+            "delivered": int(row["delivered"] or 0),
+            "cancelled": int(row["cancelled"] or 0),
+            "failed": int(row["failed"] or 0),
+            "upi_orders": int(row["upi_orders"] or 0),
+            "cod_orders": int(row["cod_orders"] or 0),
+            "on_time_pct": round(100.0 * (ot.get("on_time") or 0) / delivered, 1) if delivered else None,
+        })
+    today_row = next((r for r in series if r["day"] == today), None)
+    return {
+        "today": today_row or {
+            "day": today, "orders": 0, "gmv_paise": 0, "delivered": 0,
+            "cancelled": 0, "failed": 0, "upi_orders": 0, "cod_orders": 0,
+            "on_time_pct": None,
+        },
+        "series": series,
+        "money": repo.money_totals(),
+    }
+
+
+@router.get("/admin/users")
+def admin_users(query: str | None = Query(default=None, max_length=80),
+                role: str | None = Query(default=None, pattern=r"^(user|vendor|admin)$"),
+                suspended: int | None = Query(default=None, ge=0, le=1),
+                limit: int = Query(default=50, ge=1, le=200),
+                cursor: str = Query(default=""),
+                conn=Depends(get_db), user=Admin):
+    data, next_cursor = AdminReadRepo(conn).users_page(
+        query=(query or "").strip(), role=role or "", suspended=suspended,
+        limit=limit, cursor=_cursor(cursor))
+    return {"data": data, "next_cursor": next_cursor}
+
+
+@router.get("/admin/users/{user_id}/detail")
+def admin_user_detail(user_id: str, conn=Depends(get_db), user=Admin):
+    detail = AdminReadRepo(conn).user_detail(user_id)
+    if detail is None:
+        raise NotFoundError(message="User not found.", details={"id": user_id})
+    return detail
+
+
+@router.get("/admin/vendors/{vendor_id}/detail")
+def admin_vendor_detail(vendor_id: str, conn=Depends(get_db), user=Admin):
+    detail = AdminReadRepo(conn).vendor_detail(vendor_id)
+    if detail is None:
+        raise NotFoundError(message="Vendor not found.", details={"id": vendor_id})
+    return detail
+
+
+@router.post("/admin/users/{user_id}/suspend")
+def admin_suspend_user(user_id: str, payload: SuspendIn,
+                       conn=Depends(get_db), user=Admin):
+    """§14.5 block: restrict (flag only) or suspend (flag + revoke all sessions).
+    Never deletes the account; never touches admins (no lockout path)."""
+    with WRITE_LOCK:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise NotFoundError(message="User not found.", details={"id": user_id})
+        if row["role"] == "admin":
+            raise ValidationError(message="Admin accounts cannot be suspended from the panel.")
+        now = _now()
+        conn.execute(
+            "UPDATE users SET suspended = 1, suspended_reason = ?, suspended_by = ?,"
+            " suspended_at = ? WHERE id = ?",
+            (f"[{payload.level}] {payload.reason}", _uid(user), now, user_id),
+        )
+        revoked = 0
+        if payload.level == "suspend":
+            cur = conn.execute(
+                "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (now, user_id),
+            )
+            revoked = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        _audit(conn, user, f"user.{payload.level}", "users", user_id,
+               {"suspended": bool(row["suspended"]), "reason": row["suspended_reason"]},
+               {"level": payload.level, "reason": payload.reason, "revoked_sessions": revoked})
+        conn.commit()
+    return {"user_id": user_id, "level": payload.level,
+            "suspended": True, "revoked_sessions": revoked}
+
+
+@router.post("/admin/users/{user_id}/unsuspend")
+def admin_unsuspend_user(user_id: str, conn=Depends(get_db), user=Admin):
+    with WRITE_LOCK:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise NotFoundError(message="User not found.", details={"id": user_id})
+        conn.execute(
+            "UPDATE users SET suspended = 0, suspended_reason = NULL, suspended_by = NULL,"
+            " suspended_at = NULL WHERE id = ?",
+            (user_id,),
+        )
+        _audit(conn, user, "user.unsuspend", "users", user_id,
+               {"suspended": bool(row["suspended"]), "reason": row["suspended_reason"]},
+               {"suspended": False})
+        conn.commit()
+    return {"user_id": user_id, "suspended": False}
+
+
+@router.get("/admin/payments")
+def admin_payments(status: str | None = Query(default=None),
+                   method: str | None = Query(default=None, pattern=r"^(upi|cod)$"),
+                   limit: int = Query(default=50, ge=1, le=200),
+                   cursor: str = Query(default=""),
+                   conn=Depends(get_db), user=Admin):
+    data, next_cursor = AdminReadRepo(conn).payments_page(
+        status=status or "", method=method or "", limit=limit, cursor=_cursor(cursor))
+    return {"data": data, "next_cursor": next_cursor}
+
+
+@router.get("/admin/refunds")
+def admin_refunds(status: str | None = Query(default=None),
+                  limit: int = Query(default=50, ge=1, le=200),
+                  cursor: str = Query(default=""),
+                  conn=Depends(get_db), user=Admin):
+    data, next_cursor = AdminReadRepo(conn).refunds_page(
+        status=status or "", limit=limit, cursor=_cursor(cursor))
+    return {"data": data, "next_cursor": next_cursor}
+
+
+@router.get("/admin/ledger")
+def admin_ledger(limit: int = Query(default=50, ge=1, le=200),
+                 cursor: str = Query(default=""),
+                 conn=Depends(get_db), user=Admin):
+    data, next_cursor = AdminReadRepo(conn).ledger_page(limit=limit, cursor=_cursor(cursor))
+    return {"data": data, "next_cursor": next_cursor}

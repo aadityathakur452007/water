@@ -27,11 +27,14 @@ def _hash(token: str) -> str:
 
 
 def _bearer(request: Request) -> str | None:
+    """Bearer token from the Authorization header, or the admin-web session
+    cookie ``sh_session`` (contract §0: Flutter uses Bearer, admin web uses an
+    HttpOnly cookie against the same API). Cookie tokens are hashed the same way."""
     auth = request.headers.get("Authorization", "")
     scheme, _, token = auth.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        return None
-    return token.strip()
+    if scheme.lower() == "bearer" and token.strip():
+        return token.strip()
+    return request.cookies.get("sh_session") or None
 
 
 def _expired(iso_ts: str) -> bool:
