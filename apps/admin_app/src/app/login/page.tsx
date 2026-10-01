@@ -19,7 +19,11 @@ declare global {
           signInWithPhoneNumber: (
             phone: string,
             verifier: unknown,
-          ) => Promise<{ confirm: (code: string) => Promise<{ getIdToken: () => Promise<string> }> }>;
+          ) => Promise<{
+            confirm: (code: string) => Promise<{
+              user?: { getIdToken: () => Promise<string> } | null;
+            }>;
+          }>;
         };
         RecaptchaVerifier: new (
           el: string | HTMLElement,
@@ -141,8 +145,10 @@ function LoginForm() {
         const normalized = normalizePhone(phone);
         if (!normalized) throw new Error("Enter a valid Indian mobile number.");
         const confirmation = await auth.signInWithPhoneNumber(normalized, verifier);
-        const cred = await confirmation.confirm(code.trim());
-        idToken = await cred.getIdToken();
+        const userCred = await confirmation.confirm(code.trim());
+        const token = await userCred.user?.getIdToken();
+        if (!token) throw new Error("Sign-in failed.");
+        idToken = token;
       }
       await signIn(idToken);
     } catch (e) {
