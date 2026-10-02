@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/cascade.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
 import 'route_controller.dart';
@@ -125,30 +126,74 @@ class _RouteScreenState extends State<RouteScreen> {
     }
     return RefreshIndicator(
       onRefresh: () => c.load(),
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            shape: ShodashaTheme.shape,
-            color: ShodashaTheme.blueTint,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Loading: ${c.takeFulls} fulls lein • ${c.expectEmpties} khaali expected • ${c.doneCount}/${c.stops.length} stops',
-                style: const TextStyle(fontWeight: FontWeight.w600),
+      child: CascadeScope(
+        itemCount: c.stops.length + c.skipped.length,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Loading-sheet header row (section-header rhythm): label left,
+            // done/total right, facts below. Same controller data, no tint.
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: ShodashaTheme.border),
+                borderRadius:
+                    BorderRadius.circular(ShodashaTheme.radius),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Loading sheet',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+                      Text(
+                        '${c.doneCount}/${c.stops.length}',
+                        style: const TextStyle(
+                            color: ShodashaTheme.muted, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${c.takeFulls} fulls lein • ${c.expectEmpties} khaali expected',
+                    style: const TextStyle(
+                        color: ShodashaTheme.muted, fontSize: 13),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          for (final s in c.stops) _stopCard(s),
-          if (c.skipped.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            const Text('SKIP (pause/late)',
-                style: TextStyle(
-                    color: ShodashaTheme.muted, fontWeight: FontWeight.w600)),
-            for (final s in c.skipped) _stopCard(s, greyed: true),
+            const SizedBox(height: 12),
+            for (var i = 0; i < c.stops.length; i++)
+              CascadeItem(index: i, child: _stopCard(c.stops[i])),
+            if (c.skipped.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('SKIP (pause/late)',
+                      style: TextStyle(
+                          color: ShodashaTheme.muted,
+                          fontWeight: FontWeight.w600)),
+                  Text(
+                    '${c.skipped.length}',
+                    style: const TextStyle(
+                        color: ShodashaTheme.muted, fontSize: 13),
+                  ),
+                ],
+              ),
+              for (var i = 0; i < c.skipped.length; i++)
+                CascadeItem(
+                  index: c.stops.length + i,
+                  child: _stopCard(c.skipped[i], greyed: true),
+                ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -156,11 +201,17 @@ class _RouteScreenState extends State<RouteScreen> {
   Widget _stopCard(RouteStop s, {bool greyed = false}) {
     return Opacity(
       opacity: greyed ? 0.55 : 1.0,
-      child: Card(
-        shape: ShodashaTheme.shape,
+      // Bordered fact-row shape (reference CustomCard rhythm): seq avatar
+      // lead, name + facts, status/nav trailing. Hairline border, no shadow.
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
         child: ListTile(
           onTap: greyed ? null : () => widget.onOpenStop(s),
           leading: CircleAvatar(
+            radius: 24,
             backgroundColor: s.isDone
                 ? ShodashaTheme.success
                 : ShodashaTheme.ink,
