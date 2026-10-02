@@ -311,6 +311,17 @@ class AuthController extends ChangeNotifier {
         // Local wipe is authoritative — never strand a token on logout.
       }
     }
+    await onLogoutCleanup?.call();
+    await forceLogout();
+  }
+
+  /// Local-only wipe (no server call): used by [logout] and by the global
+  /// 401/403 hook (revoked/suspended sessions must not call authed endpoints
+  /// again — that would loop). [onLogoutCleanup] lets main.dart clear the
+  /// offline outbox so the next login never inherits prior stops/cash.
+  Future<void> Function()? onLogoutCleanup;
+
+  Future<void> forceLogout() async {
     await _store.clear();
     _reset();
     _status = AuthStatus.idle;

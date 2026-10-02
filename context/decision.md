@@ -37,6 +37,7 @@
 |----|------|----------|--------|---------|
 | ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
 | ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
+| ADR-052 | 2026-10-02 | Dual-APK release (shared tag, user+vendor assets) + conn hardening (retry/single-flight/401 hook) + triple fence fixes + user_app cast port | Accepted | .github/workflows/, apps/vendor_app/lib/core/, workers/api/{src/app/{api/v1/vendor,services/vendor_service},tests/}, apps/user_app/lib/core/api_client.dart |
 | ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
@@ -106,6 +107,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-052: Dual-APK release + connection hardening + triple fence fixes
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: User asked for commented files, a unified release page with both APKs clearly labeled, proof the vendor app talks to the Python backend correctly, senior-level conn optimization, a security pass, and merging 007 to main.
+- **Options considered**: Per-app tags/two Releases (rejected — fragments changelog, confuses sideloaders about which pair goes together); sequential single-job builds (rejected — 2× wall time, coupled logs); loosening CORS for mobile (rejected — CORS never affects native HTTP; verified in middleware.py); retrying all POSTs (rejected — PoD/duty have no server dedupe; retry only replay-safe paths).
+- **Decision**: release.yml = version job (one shared tag) → matrix build (user+vendor, fail-fast, unique artifact names) → release job (per-app downloads, renamed shodasha-user/shodasha-vendor APKs, SHA256SUMS, file→audience table in body); ci.yml matrix for both apps. Client: replay-safe retry (GET/keyed POST/sync-batch, backoff+jitter, Retry-After honored), GET single-flight, 401/403→forceLogout hook, outbox cleared on logout, https assert, allowBackup=false, 60s sync timeout. Backend: triple requires Idempotency-Key (orders convention), idem-check before version fence, version+1 on commit, same-payload-done replays without 409. Ported await-cast fix to user_app (20 sites) + regression test.
+- **Why**: Research-backed (release-matrix practice, AWS/Stripe retry guidance, audit threat model); every change covered by tests (vendor 19, user 67, backend 176 green).
+- **Consequences**: First main push cuts a two-APK release. Open backend TODOs (logged, not built): random per-order PoD OTP + attempt cap, server cash-vs-total cross-check, per-key sync results, 401 refresh flow, real keystore.
+- **Affects**: workflows, vendor core/auth/sync/main/manifest, workers vendor router+service+tests, user api_client+test
 
 ### ADR-051: Never cast Future + fail-soft Firebase init (vendor)
 - **Date**: 2026-10-02

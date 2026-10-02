@@ -5,17 +5,24 @@ app/main.py). Every route is behind ``require_role('vendor')`` (ssdlc: authz on
 every endpoint, actor from the session, never the body).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 from typing import Any
 
 from app.api.auth_deps import require_role
 from app.api.deps import get_db_conn
+from app.core.errors import ValidationError
 from app.services.vendor_service import VendorService
 
 router = APIRouter(tags=["vendor"])
 
 _vendor = require_role("vendor")  # module-level so tests can override this exact dep
+
+
+def _require_idem(idem: str | None) -> str:
+    if not idem or not idem.strip():
+        raise ValidationError(message="Idempotency-Key header required.", details={})
+    return idem.strip()
 
 
 def _uid(user: object) -> str:
@@ -91,8 +98,11 @@ async def get_stop(stop_id: str, conn=Depends(get_db_conn), user=Depends(_vendor
 
 
 @router.post("/vendor/stops/{stop_id}/triple")
-async def commit_triple(stop_id: str, payload: TripleIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return await _svc(conn).triple_commit(_uid(user), stop_id, payload.model_dump(mode="json"))
+async def commit_triple(stop_id: str, payload: TripleIn,
+                 conn=Depends(get_db_conn), user=Depends(_vendor),
+                 idem: str | None = Header(default=None, alias="Idempotency-Key")):
+    return await _svc(conn).triple_commit(
+        _uid(user), stop_id, payload.model_dump(mode="json"), _require_idem(idem))
 
 
 @router.post("/vendor/stops/{stop_id}/pod")

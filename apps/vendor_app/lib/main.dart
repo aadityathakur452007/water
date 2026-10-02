@@ -71,7 +71,13 @@ class _VendorAppState extends State<VendorApp> {
     _liveApi = ApiClient(
       deviceId: _deviceId,
       accessTokenGetter: () => _auth.session?.accessToken,
+      // 401/403 (revoked/suspended/expired): wipe locally, back to login.
+      // forceLogout never calls the server, so this cannot loop.
+      onUnauthorized: () => _auth.forceLogout(),
     );
+    // Logout (manual or forced) also drops the offline outbox: a shared
+    // device must never leak prior stops/cash into the next vendor's sync.
+    _auth.onLogoutCleanup = () => _sync.clearAll();
     final liveApi = _liveApi;
     _duty = DutyController(api: liveApi);
     _route = RouteController(api: liveApi);

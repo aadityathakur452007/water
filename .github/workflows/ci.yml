@@ -1,6 +1,6 @@
 name: ci
 
-# Fast feedback on every branch / PR. Never publishes a release.
+# Fast feedback on every branch / PR, for BOTH apps. Never publishes a release.
 # Release builds happen only in release.yml (push to main).
 on:
   push:
@@ -13,17 +13,24 @@ permissions:
 
 jobs:
   verify:
-    name: analyze + test + debug APK
+    name: ${{ matrix.label }} — analyze + test + debug APK
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/user_app
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: user
+            dir: apps/user_app
+            label: Shodasha (customer)
+          - app: vendor
+            dir: apps/vendor_app
+            label: Shodasha Vendor (delivery)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # AGP 9.0.1 documents JDK 17 (min + default). Project bytecode
-      # target is JavaVersion.VERSION_17 (see android/app/build.gradle.kts),
+      # AGP 9.0.1 documents JDK 17 (min + default). Both apps target
+      # JavaVersion.VERSION_17 (see android/app/build.gradle.kts),
       # so 17 is the tested runner for this toolchain.
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -31,33 +38,40 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Pinned to the Flutter version the app is developed and
+      # Pinned to the Flutter version the apps are developed and
       # release-verified with locally (flutter doctor: 3.44.9 stable).
+      # Per-app cache keys: the two pubspec.locks differ, so a shared key
+      # would let the legs overwrite each other's cache.
       - name: Set up Flutter 3.44.9
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: "3.44.9"
           cache: true
+          cache-key: ${{ matrix.app }}-${{ hashFiles(format('{0}/pubspec.lock', matrix.dir)) }}
 
       - name: Flutter version
         run: flutter --version
 
       - name: Pub get
+        working-directory: ${{ matrix.dir }}
         run: flutter pub get
 
       - name: Analyze (must be zero issues)
+        working-directory: ${{ matrix.dir }}
         run: flutter analyze
 
       - name: Test
+        working-directory: ${{ matrix.dir }}
         run: flutter test
 
       - name: Build debug APK
+        working-directory: ${{ matrix.dir }}
         run: flutter build apk --debug
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-${{ github.sha }}
-          path: apps/user_app/build/app/outputs/flutter-apk/app-debug.apk
+          name: app-debug-${{ matrix.app }}-${{ github.sha }}
+          path: ${{ matrix.dir }}/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7

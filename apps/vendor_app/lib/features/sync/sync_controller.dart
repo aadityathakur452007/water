@@ -89,6 +89,17 @@ class SyncController extends ChangeNotifier {
         storageKey, jsonEncode(_queue.map((q) => q.toJson()).toList()));
   }
 
+  /// Drops the whole outbox (logout path: the next login must never inherit
+  /// another vendor's stops + cash amounts on a shared device).
+  Future<void> clearAll() async {
+    _queue = const [];
+    _rejected = const [];
+    _result = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(storageKey);
+    notifyListeners();
+  }
+
   Future<void> enqueue({
     required String stopId,
     required Map<String, dynamic> triple,

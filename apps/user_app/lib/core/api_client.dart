@@ -164,95 +164,98 @@ class ApiClient {
   }
 
   // ── Addresses (§4.3) ──────────────────────────────────────────────────────
-  Future<List<dynamic>> listAddresses() =>
-      send('GET', '/addresses', authed: true) as Future<List<dynamic>>;
+  // NOTE (ADR-051 port): every typed method awaits [send] then casts the
+  // VALUE — `send(...) as Future<Map>` is a runtime type error in Dart.
+  Future<List<dynamic>> listAddresses() async =>
+      (await send('GET', '/addresses', authed: true)) as List<dynamic>;
 
-  Future<Map<String, dynamic>> createAddress(Map<String, dynamic> body) =>
-      send('POST', '/addresses', body: body) as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> createAddress(Map<String, dynamic> body) async =>
+      (await send('POST', '/addresses', body: body)) as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> patchAddress(
     String id,
     Map<String, dynamic> body,
-  ) =>
-      send('PATCH', '/addresses/$id', body: body)
-          as Future<Map<String, dynamic>>;
+  ) async =>
+      (await send('PATCH', '/addresses/$id', body: body))
+          as Map<String, dynamic>;
 
   Future<void> deleteAddress(String id) =>
       send('DELETE', '/addresses/$id', authed: true);
 
   // ── Subscriptions / pause / skip (§4.5, EC-S) ─────────────────────────────
-  Future<List<dynamic>> listSubscriptions() =>
-      send('GET', '/subscriptions') as Future<List<dynamic>>;
+  Future<List<dynamic>> listSubscriptions() async =>
+      (await send('GET', '/subscriptions')) as List<dynamic>;
 
   Future<Map<String, dynamic>> pauseSubscription(
     String id,
     String holdFrom,
     String holdTo,
-  ) =>
-      send('POST', '/subscriptions/$id/pause', body: {
+  ) async =>
+      (await send('POST', '/subscriptions/$id/pause', body: {
         'hold_from': holdFrom,
         'hold_to': holdTo,
-      }) as Future<Map<String, dynamic>>;
+      })) as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> resumeSubscription(
     String id,
     String preferredDate,
-  ) =>
-      send('POST', '/subscriptions/$id/resume', body: {
+  ) async =>
+      (await send('POST', '/subscriptions/$id/resume', body: {
         'preferred_date': preferredDate,
-      }) as Future<Map<String, dynamic>>;
+      })) as Map<String, dynamic>;
 
-  Future<Map<String, dynamic>> skipSubscriptionDay(String id, String date) =>
-      send('POST', '/subscriptions/$id/skips', body: {'date': date})
-          as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> skipSubscriptionDay(
+          String id, String date) async =>
+      (await send('POST', '/subscriptions/$id/skips', body: {'date': date}))
+          as Map<String, dynamic>;
 
   // ── Ledger / returns (§4.6) ───────────────────────────────────────────────
-  Future<Map<String, dynamic>> ledgerMe() =>
-      send('GET', '/ledger/me') as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> ledgerMe() async =>
+      (await send('GET', '/ledger/me')) as Map<String, dynamic>;
 
   /// POST /returns {qty, address_id} → request id + 10-working-day SLA.
   Future<Map<String, dynamic>> createReturn({
     required int qty,
     required String addressId,
-  }) =>
-      send('POST', '/returns', body: {
+  }) async =>
+      (await send('POST', '/returns', body: {
         'qty': qty,
         'address_id': addressId,
-      }) as Future<Map<String, dynamic>>;
+      })) as Map<String, dynamic>;
 
   // ── Complaints (§4.7, no-photo v1: reason codes + text ≤500) ──────────────
   Future<Map<String, dynamic>> createComplaint({
     required String orderId,
     required String reasonCode,
     required String text,
-  }) =>
-      send('POST', '/complaints', body: {
+  }) async =>
+      (await send('POST', '/complaints', body: {
         'order_id': orderId,
         'reason_code': reasonCode,
         'text': text,
-      }) as Future<Map<String, dynamic>>;
+      })) as Map<String, dynamic>;
 
-  Future<List<dynamic>> listComplaints() =>
-      send('GET', '/complaints') as Future<List<dynamic>>;
+  Future<List<dynamic>> listComplaints() async =>
+      (await send('GET', '/complaints')) as List<dynamic>;
 
   // ── Profile (§4.1 /auth/me) ───────────────────────────────────────────────
-  Future<Map<String, dynamic>> me() =>
-      send('GET', '/auth/me') as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> me() async =>
+      (await send('GET', '/auth/me')) as Map<String, dynamic>;
 
-  Future<Map<String, dynamic>> patchMe(Map<String, dynamic> body) =>
-      send('PATCH', '/auth/me', body: body) as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> patchMe(Map<String, dynamic> body) async =>
+      (await send('PATCH', '/auth/me', body: body)) as Map<String, dynamic>;
 
   // ── Catalog (§4.2 — guest-callable, prices never walled) ─────────────────
-  Future<Map<String, dynamic>> catalog() =>
-      send('GET', '/catalog', authed: false) as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> catalog() async =>
+      (await send('GET', '/catalog', authed: false)) as Map<String, dynamic>;
 
   // ── Windows / quotes / orders (§4.2/§4.4 — 005-home-ux live checkout) ────
   /// GET /windows?date=YYYY-MM-DD&pincode= → {date, windows, serviceable}.
-  Future<Map<String, dynamic>> windows({String? date, String? pincode}) =>
-      send('GET', '/windows', query: {
+  Future<Map<String, dynamic>> windows({String? date, String? pincode}) async =>
+      (await send('GET', '/windows', query: {
         ...?date == null ? null : {'date': date},
         ...?pincode == null ? null : {'pincode': pincode},
-      }, authed: false) as Future<Map<String, dynamic>>;
+      }, authed: false)) as Map<String, dynamic>;
 
   /// POST /quotes {items:[{sku,qty}], e, address_id, window_start}.
   Future<Map<String, dynamic>> createQuote({
@@ -260,13 +263,13 @@ class ApiClient {
     required int empties,
     required String addressId,
     required String windowStart,
-  }) =>
-      send('POST', '/quotes', body: {
+  }) async =>
+      (await send('POST', '/quotes', body: {
         'items': items,
         'e': empties,
         'address_id': addressId,
         'window_start': windowStart,
-      }) as Future<Map<String, dynamic>>;
+      })) as Map<String, dynamic>;
 
   /// POST /orders {items, e, address_id, window_start, quote_hash,
   /// payment_mode} + Idempotency-Key → 201 server-minted order.
@@ -278,8 +281,8 @@ class ApiClient {
     required String quoteHash,
     required String paymentMode,
     required String idempotencyKey,
-  }) =>
-      send('POST', '/orders',
+  }) async =>
+      (await send('POST', '/orders',
           body: {
             'items': items,
             'e': empties,
@@ -288,12 +291,12 @@ class ApiClient {
             'quote_hash': quoteHash,
             'payment_mode': paymentMode,
           },
-          idempotencyKey: idempotencyKey) as Future<Map<String, dynamic>>;
+          idempotencyKey: idempotencyKey)) as Map<String, dynamic>;
 
   /// GET /orders/{id} → order + tracker + bill (verify paid status here,
   /// never trust the client-side gateway callback alone).
-  Future<Map<String, dynamic>> getOrder(String id) =>
-      send('GET', '/orders/$id') as Future<Map<String, dynamic>>;
+  Future<Map<String, dynamic>> getOrder(String id) async =>
+      (await send('GET', '/orders/$id')) as Map<String, dynamic>;
 
   // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
   /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
@@ -305,15 +308,15 @@ class ApiClient {
     required String window,
     required String scheduleType,
     String recurrence = '',
-  }) =>
-      send('POST', '/subscriptions', body: {
+  }) async =>
+      (await send('POST', '/subscriptions', body: {
         'address_id': addressId,
         'qty': qty,
         'sku_mix': skuMix,
         'window': window,
         'schedule_type': scheduleType,
         'recurrence': recurrence,
-      }) as Future<Map<String, dynamic>>;
+      })) as Map<String, dynamic>;
 
   // ── UPI intent (§4.4 — Razorpay order for the in-app gateway) ─────────────
   /// POST /payments/upi-intent {order_id} + Idempotency-Key →
@@ -321,10 +324,10 @@ class ApiClient {
   Future<Map<String, dynamic>> upiIntent({
     required String orderId,
     required String idempotencyKey,
-  }) =>
-      send('POST', '/payments/upi-intent',
+  }) async =>
+      (await send('POST', '/payments/upi-intent',
           body: {'order_id': orderId},
-          idempotencyKey: idempotencyKey) as Future<Map<String, dynamic>>;
+          idempotencyKey: idempotencyKey)) as Map<String, dynamic>;
 
   /// date → `YYYY-MM-DD` (hold_from/hold_to/skips date format).
   static String dateOnly(DateTime d) =>
