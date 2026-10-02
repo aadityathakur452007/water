@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-058 | 2026-10-02 | Fix user address entry: live Bearer wiring + login-gate + picker auto-locate + selection race | Accepted | apps/user_app main/address_screen/map_picker + test, branch 012-address-auth |
 | ADR-057 | 2026-10-02 | UI lift (layout shapes only) from premium grocery reference into 6 user+vendor surfaces | Accepted | apps/user_app booking/auth + test, apps/vendor_app route/stops/customers/support/earnings/inventory/core + tests, branch 010-grocery-ui |
 | ADR-056 | 2026-10-02 | Wave-1 UX polish: vendor 4-tab + More, address Stepper, login hero, ink/theme honesty, F1 caps, critical states | Accepted | apps/user_app auth/addresses/booking/orders/theme, apps/vendor_app shell/route/support/duty/sync/inventory, workers/api F1 caps + test |
 | ADR-055 | 2026-10-02 | Port wrong-repo Phase-1/Phase-2 gaps (011 migration + address format + location + vendor customers/stock/profile/queue) as Workers rewrite | Accepted | workers/api 011_port.sql + vendor/address slices + tests, apps/user_app location/address/store, apps/vendor_app customers/inventory/profile/support |
@@ -112,6 +113,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-058: Fix user address entry (Bearer wiring + login-gate + auto-locate + race)
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: User reported maps/address unusable in the user app and ordered a thorough once-and-done fix. Evidence-first audit proved the load-bearing root cause had nothing to do with maps: `main.dart` never gave the shared `ApiClient` the session token (vendor `main.dart` wires `accessTokenGetter`; user did not), so every authed call went bearer-less into the backend's 401 (`auth_deps.py`). Payload shape, manifest, deps, form, and pin gate were all verified correct first.
+- **Options considered**: Two clients vendor-style (rejected — 5 controller rewirings for the same effect; one lazy getter closure does it); trusting the login route result in the gate (rejected — OtpScreen self-pops to first, so the gate re-checks live `isAuthenticated`); backend `is_default` now (deferred per approval — badge stays dead, first-address fallback works); tile-provider swap (rejected — user confirmed tiles render; Delhi-default pin was the real maps defect).
+- **Decision**: F1 lazy `accessTokenGetter` on the shared client; F2 `openAddressesGated` + `_LoginGatePage` (no guest escape hatch, back cancels; demo path closes via `isCurrent` listener rule, OTP path via OtpScreen); F3 picker auto-locates on open with pin-first ordering (Delhi = denied/offline fallback + note); F4 `load()` re-adopts persisted selection. 5 regression tests (bearer live-switch, 3 gate cases, restart race). user 87 + vendor 28 green, analyzes 0.
+- **Why**: Fixes the actual 401 root cause plus every adjacent dead-end (guest 3-step-fill-then-401, Delhi-pin trap, forgotten selection) in one pass so the complaint cannot recur in a new shape next week.
+- **Consequences**: First real-authed address traffic will exercise the server path end to end — watch the first device run. Bare `ApiClient()` fallbacks in profile/support screens left as-is (main always passes controllers; noted trap).
+- **Affects**: apps/user_app main.dart + address_screen.dart + map_picker.dart + address_entry_test.dart, branch 012-address-auth (aeecc83)
 
 ### ADR-057: UI lift (layout shapes only) from premium grocery reference
 - **Date**: 2026-10-02

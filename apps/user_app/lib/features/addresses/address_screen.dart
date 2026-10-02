@@ -201,6 +201,15 @@ class AddressController extends ChangeNotifier {
           .map(AddressEntry.fromApi)
           .toList();
       _status = AddrStatus.loaded;
+      // Adopt a persisted selection that arrived before the items did:
+      // bindSelection runs before first load, so without this the choice
+      // is forgotten on every restart (resolve falls back to first).
+      if (_selectedId == null) {
+        final persisted = _store?.selectedId;
+        if (persisted != null && _items.any((a) => a.id == persisted)) {
+          _selectedId = persisted;
+        }
+      }
     } on ApiException catch (e) {
       _status = AddrStatus.error;
       _errorMessage = e.isNetwork
