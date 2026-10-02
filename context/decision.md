@@ -35,7 +35,8 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
-| ADR-050 | 2026-10-02 | 007-vendor-app kickoff: branch from main + 3-way research + vendor spec draft (no app code before approval) | Proposed | branch 007-vendor-app, Feature_docs/vendor-app/spec.md |
+| ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
+| ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
 | ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
@@ -106,9 +107,19 @@
 
 ## Decision Entries
 
-### ADR-050: 007-vendor-app kickoff + spec draft (no code before approval)
+### ADR-051: Never cast Future + fail-soft Firebase init (vendor)
 - **Date**: 2026-10-02
-- **Status**: Proposed
+- **Status**: Accepted
+- **Context**: Route widget test (MockClient) threw `type 'Future<dynamic>' is not a subtype of 'Future<Map<...>>'` — the `send(...) as Future<Map>` pattern (copied from user_app) is a runtime type error on every typed call. Same latent bug exists in user_app's ApiClient (flagged, not fixed — different app, out of scope).
+- **Options considered**: `send<T>` generics (rejected — bigger diff across all callers); await-then-cast-value per method (chosen — smallest root fix).
+- **Decision**: Every typed ApiClient method is now `async` + casts the awaited value. Firebase init wrapped in try/catch so the APK boots and the login screen renders before the vendor `google-services.json` lands (OTP send surfaces the SMS error path until then).
+- **Why**: Fixes the crash class at the root with zero behavior change; fail-soft keeps screenshots/QA possible pre-console-step.
+- **Consequences**: 13 tests green including the route-sheet widget test; login screenshot-verified on shodasha_api36.
+- **Affects**: `apps/vendor_app/lib/core/api_client.dart`, `lib/main.dart`
+
+### ADR-050: 007-vendor-app (spec → approved → 10 screens built)
+- **Date**: 2026-10-02
+- **Status**: Accepted
 - **Context**: Pasted new-session prompt ordered vendor Android app on branch `007-vendor-app` with RULE 0 + git hygiene + parallel research + design-gate spec.
 - **Options considered**: Building app code immediately (rejected — AGENTS.md hard gate Spec→Clarify→Approve→Implement); single-agent research (rejected — brief ordered parallel vendor-domain/API/Flutter-build agents).
 - **Decision**: Created `007-vendor-app` from `main` (dirty macOS registrant + .freebuff/.idea/.utim_tmp left untouched); ran 3 parallel research agents; wrote `Feature_docs/vendor-app/spec.md` (screen map, wireframes, endpoint matrix, light-only visual system) and paused for approval.

@@ -1,121 +1,124 @@
+// Shodasha Vendor app — composition root: theme + ApiClient + auth seams +
+// feature controllers + AuthGate → VendorShell. Vendors must log in (no
+// guest browse). Base URL via --dart-define=SHODASHA_API_BASE.
+
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
-void main() {
-  runApp(const MyApp());
+import 'core/api_client.dart';
+import 'core/auth_impls.dart';
+import 'core/session_store.dart';
+import 'core/theme.dart';
+import 'features/auth/auth_controller.dart';
+import 'features/auth/auth_gate.dart';
+import 'features/duty/duty_controller.dart';
+import 'features/earnings/earnings_controller.dart';
+import 'features/route/route_controller.dart';
+import 'features/shell/vendor_shell.dart';
+import 'features/stops/stops_controller.dart';
+import 'features/support/support_controller.dart';
+import 'features/sync/sync_controller.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Fail-soft until the vendor google-services.json lands (user manual step):
+  // login screen still renders; OTP send surfaces the SMS error path.
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('[vendor] Firebase init deferred: $e');
+  }
+  runApp(const VendorApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class VendorApp extends StatefulWidget {
+  const VendorApp({super.key});
 
-  // This widget is the root of your application.
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+  State<VendorApp> createState() => _VendorAppState();
+}
+
+class _VendorAppState extends State<VendorApp> {
+  late final ApiClient _api;
+  late final ApiClient _liveApi;
+  late final AuthController _auth;
+  late final DutyController _duty;
+  late final RouteController _route;
+  late final StopsController _stops;
+  late final SyncController _sync;
+  late final EarningsController _earnings;
+  late final SupportController _support;
+  late final String _deviceId;
+
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _boot();
+  }
+
+  Future<void> _boot() async {
+    _deviceId = await loadOrCreateDeviceId();
+    _api = ApiClient(deviceId: _deviceId);
+    _auth = AuthController(
+      api: ApiBackedAuthApi(_api),
+      verifier: FirebasePhoneVerifier(),
+      store: SecureSessionStore(),
+      deviceId: _deviceId,
     );
+    // Bearer tracks the session without rebuilding controllers after login.
+    _liveApi = ApiClient(
+      deviceId: _deviceId,
+      accessTokenGetter: () => _auth.session?.accessToken,
+    );
+    final liveApi = _liveApi;
+    _duty = DutyController(api: liveApi);
+    _route = RouteController(api: liveApi);
+    _stops = StopsController(api: liveApi);
+    _sync = SyncController(api: liveApi);
+    _earnings = EarningsController(api: liveApi);
+    _support = SupportController(api: liveApi);
+    if (mounted) setState(() => _ready = true);
   }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  void dispose() {
+    _auth.dispose();
+    _duty.dispose();
+    _route.dispose();
+    _stops.dispose();
+    _sync.dispose();
+    _earnings.dispose();
+    _support.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+    if (!_ready) {
+      return MaterialApp(
+        theme: buildShodashaTheme(),
+        home: const Scaffold(
+            body: Center(child: CircularProgressIndicator())),
+      );
+    }
+    return MaterialApp(
+      title: 'Shodasha Vendor',
+      debugShowCheckedModeBanner: false,
+      theme: buildShodashaTheme(),
+      home: AuthGate(
+        controller: _auth,
+        home: VendorShell(
+          auth: _auth,
+          duty: _duty,
+          route: _route,
+          stops: _stops,
+          sync: _sync,
+          earnings: _earnings,
+          support: _support,
+          meLoader: () => _liveApi.me(),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
       ),
     );
   }

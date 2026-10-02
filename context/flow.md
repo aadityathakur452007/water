@@ -12,7 +12,22 @@
 
 ## Overview
 
-Shodasha vendor app (007, spec-draft 2026-10-02): vendor OTP login → duty → today route → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch → earnings → complaint/quality verify. See `Feature_docs/vendor-app/spec.md` (approval gate, no code yet).
+Shodasha vendor app (007, built 2026-10-02): vendor OTP login → duty → today route → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch → earnings → complaint/quality verify. See `Feature_docs/vendor-app/spec.md`.
+
+```
+VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
+ └─ AuthGate (restore → login / shell)
+ └─ VendorShell (duty gate → 5 tabs: Route·Sync·Earnings·Support·Profile)
+     ├─ DutyController.setDuty → POST /vendor/duty
+     ├─ RouteController.load → GET /vendor/routes/today (stops sorted by seq)
+     ├─ StopsController.commitTriple → POST triple + Idempotency-Key + version
+     │    └─ 409 STALE_STOP → pull-fresh; NETWORK → SyncController.enqueue
+     ├─ StopsController.completePod → POST pod (OTP + GPS soft-flag)
+     ├─ SyncController.syncNow → POST /vendor/sync batch (applied/replayed/rejected per-stop)
+     ├─ EarningsController.load → GET /vendor/earnings (flagged_hold display-only)
+     └─ SupportController.verifyComplaint/vendorCheckQuality
+Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via rupees() paise→Rs.
+```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]
 

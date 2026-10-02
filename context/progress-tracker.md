@@ -10,7 +10,7 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
-007-vendor-app SPEC DRAFT (2026-10-02, branch `007-vendor-app`, ADR-050 Proposed): vendor research (domain/API/Flutter-build subagents) + `Feature_docs/vendor-app/spec.md` screen map + wireframes + endpoint matrix. AWAITING user approval — no `apps/vendor_app/` code written.
+007-vendor-app SCREENS BUILT (2026-10-02, branch `007-vendor-app`, ADR-050 Accepted / ADR-051): `apps/vendor_app/` 10 screens (auth/duty/route/stops+triple+PoD/sync/earnings/support/profile + shell), `flutter analyze` 0, 13 tests green, debug APK installed on `shodasha_api36`, login screenshot-verified. Open: vendor `google-services.json` + authed-session screenshots (duty→route→triple→PoD need vendor session).
 
 Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group deep-dive (A-ux-case-studies, B-operations, C-competitors, D-dev-guides, E-bisleri, F-market) in English full deep-dive, then synthesise in Series-3.
 
