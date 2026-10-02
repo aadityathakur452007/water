@@ -16,7 +16,12 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from app.adapters import sms as sms_mod  # noqa: E402
-from app.adapters.sms import FakeSmsProvider, Fast2SmsProvider, SmsUpstreamError  # noqa: E402
+from app.adapters.sms import (  # noqa: E402
+    FakeSmsProvider,
+    Fast2SmsProvider,
+    SmsUpstreamError,
+    TextBeeProvider,
+)
 from app.core.errors import RateLimitedError, ValidationError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.services.auth_service import AuthService, reset_rate_limits  # noqa: E402
@@ -76,6 +81,67 @@ def test_real_without_key_502(monkeypatch):
 
 def test_factory_default_is_fake():
     assert isinstance(sms_mod.get_sms_provider(), FakeSmsProvider)
+
+
+# -- textbee (phone-as-gateway, no DLT) --------------------------------------
+
+class _Resp:
+    def __init__(self, status: int = 200):
+        self.status_code = status
+
+
+def _mock_post(monkeypatch, status: int = 200, exc: Exception | None = None):
+    calls: list[dict] = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json})
+        if exc is not None:
+            raise exc
+        return _Resp(status)
+
+    import httpx  # noqa: PLC0415
+
+    monkeypatch.setattr(httpx, "post", _post)
+    return calls
+
+
+def test_textbee_without_key_502(monkeypatch):
+    monkeypatch.setattr(sms_mod, "_setting", lambda *a, **k: None)
+    with pytest.raises(SmsUpstreamError) as e:
+        TextBeeProvider()
+    assert e.value.status_code == 502
+
+
+def test_textbee_sends_e164_recipients(monkeypatch):
+    calls = _mock_post(monkeypatch)
+    out = TextBeeProvider(api_key="k").send_otp(PHONE, "123456")
+    assert out["provider"] == "textbee"
+    assert calls[0]["url"] == "https://api.textbee.dev/api/v1/gateway/send-sms"
+    assert calls[0]["headers"]["x-api-key"] == "k"
+    assert calls[0]["json"]["recipients"] == [PHONE]
+    assert "123456" in calls[0]["json"]["message"]
+
+
+def test_textbee_reject_and_unreachable_502(monkeypatch):
+    _mock_post(monkeypatch, status=400)
+    with pytest.raises(SmsUpstreamError) as e:
+        TextBeeProvider(api_key="k").send_otp(PHONE, "123456")
+    assert e.value.status_code == 502
+    _mock_post(monkeypatch, exc=ConnectionError("down"))
+    with pytest.raises(SmsUpstreamError):
+        TextBeeProvider(api_key="k").send_otp(PHONE, "123456")
+
+
+async def test_textbee_factory_and_service_round_trip(monkeypatch):
+    monkeypatch.setattr(sms_mod, "otp_provider", lambda: "textbee")
+    monkeypatch.setattr(sms_mod, "_setting",
+                        lambda name, default=None: "k" if name == "TEXTBEE_API_KEY" else default)
+    assert isinstance(sms_mod.get_sms_provider(), TextBeeProvider)
+    calls = _mock_post(monkeypatch)
+    c = _conn()
+    out = await _svc(c).otp_start("9876543210", "1.2.3.4")
+    assert out["channel"] == "sms"
+    assert calls[0]["json"]["recipients"] == [PHONE]
 
 
 # -- service -----------------------------------------------------------------

@@ -160,11 +160,12 @@ class AuthService:
         _LIMITER.check(f"otp-start:phone:{phone}", *OTP_START_PHONE_LIMIT)
         _LIMITER.check(f"otp-start:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
         # firebase (default): Firebase sends the SMS client-side; the server
-        # only gates abuse (SEC-A02). fast2sms: the server mints a single-use
-        # code, stores only its hash, and sends it over the DLT route.
+        # only gates abuse (SEC-A02). fast2sms/textbee: the server mints a
+        # single-use code, stores only its hash, and sends it via the provider
+        # (Fast2SMS DLT route, or the user's own phone over TextBee — no DLT).
         from app.adapters.sms import get_sms_provider, otp_provider  # noqa: PLC0415 (lazy seam)
 
-        if otp_provider() == "fast2sms":
+        if otp_provider() in ("fast2sms", "textbee"):
             from app.repositories.otp_repo import OtpRepo  # noqa: PLC0415 (lazy seam)
 
             code = "".join(secrets.choice("0123456789") for _ in range(OTP_CODE_LEN))

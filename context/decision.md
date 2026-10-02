@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
 | ADR-046 | 2026-10-01 | T2 Phase-B: 10 routers on async D1 (auth.py pattern) — get_db_conn, async handlers, await service/repo/execute; payments.py extra-paren fix | Accepted | workers/api/src/app/api/v1/{addresses,admin,complaints,devices,orders,payments,ratings,returns,subscriptions,vendor}.py |
@@ -103,6 +104,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-049: Phone-as-gateway OTP via TextBee (no DLT)
+- **Date**: 2026-10-01
+- **Status**: Accepted
+- **Context**: User cannot get DLT approved (blocks Fast2SMS prod) and refuses Firebase billing. Requested the phone-as-sender pattern. Verified: TextBee (open source, free 300/mo + 50/day, key auth, delivery status) vs SMSGate cloud (free, no caps published, community-run). User's criterion was no-DLT; both qualify — picked TextBee for docs/key-auth/sustainability.
+- **Options considered**: SMSGate cloud (kept as fallback); staying Firebase-only (rejected — needs Blaze for real SMS); DLT anyway (blocked).
+- **Decision**: `TextBeeProvider` in `adapters/sms.py` (x-api-key, e164 recipients, optional deviceId); `OTP_PROVIDER=textbee`; `TEXTBEE_API_KEY`/`TEXTBEE_DEVICE_ID` settings; service sms branch accepts fast2sms+textbee (caught by a failing test). 176 pytest green.
+- **Why**: Same seam, no behavior change until switched; sender is the owner's SIM with zero provider bill.
+- **Consequences**: User-side: install TextBee app, link device, hand over API key → `TEXTBEE_API_KEY` secret + `OTP_PROVIDER=textbee` var + redeploy. Watch: gateway phone must stay on/online; free-tier cap; sender is a personal number (dedicated SIM advised).
+- **Affects**: sms adapter + config + env example + sms tests
 
 ### ADR-048: Server OTP via Fast2SMS + APK verify 400 fix
 - **Date**: 2026-10-01

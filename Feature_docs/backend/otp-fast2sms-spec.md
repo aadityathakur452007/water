@@ -15,6 +15,16 @@ Server-generated OTP over Fast2SMS DLT route, behind the existing
 fake/real adapter seam (`OTP_PROVIDER=firebase|fast2sms`, default firebase —
 zero behavior change until switched). Admin panel keeps Firebase.
 
+## Phone-gateway alternative (2026-10-01, no DLT needed)
+`OTP_PROVIDER=textbee`: codes go out through the owner's Android phone + SIM
+via the TextBee cloud API (install app → scan QR to link → API key). Free
+tier 300 SMS/month, 50/day, 1 device. Backend: `TextBeeProvider` in
+`adapters/sms.py` (+ `TEXTBEE_API_KEY` secret, optional `TEXTBEE_DEVICE_ID`,
+`TEXTBEE_URL` send-sms endpoint, e164 recipients). Service accepts both
+`fast2sms` and `textbee` for the sms channel. Rules: gateway phone stays on +
+charged + online (phone off = no logins); sender shown is the SIM's own
+number (dedicated SIM advised); keep traffic transactional; watch the free cap.
+
 ## Backend changes
 - `adapters/sms.py` (new): `SmsProvider.send_otp(phone, code)`; `FakeSmsProvider`
   (log-only, dev/test); `Fast2SmsProvider` (httpx, key from worker env/secret);
