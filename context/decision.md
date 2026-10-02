@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-050 | 2026-10-02 | 007-vendor-app kickoff: branch from main + 3-way research + vendor spec draft (no app code before approval) | Proposed | branch 007-vendor-app, Feature_docs/vendor-app/spec.md |
 | ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
@@ -104,6 +105,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-050: 007-vendor-app kickoff + spec draft (no code before approval)
+- **Date**: 2026-10-02
+- **Status**: Proposed
+- **Context**: Pasted new-session prompt ordered vendor Android app on branch `007-vendor-app` with RULE 0 + git hygiene + parallel research + design-gate spec.
+- **Options considered**: Building app code immediately (rejected — AGENTS.md hard gate Spec→Clarify→Approve→Implement); single-agent research (rejected — brief ordered parallel vendor-domain/API/Flutter-build agents).
+- **Decision**: Created `007-vendor-app` from `main` (dirty macOS registrant + .freebuff/.idea/.utim_tmp left untouched); ran 3 parallel research agents; wrote `Feature_docs/vendor-app/spec.md` (screen map, wireframes, endpoint matrix, light-only visual system) and paused for approval.
+- **Why**: Keeps fictional-API risk at zero (endpoints/shapes cite live `vendor.py`/`vendor_service.py` + contract §4.7/§9/§11/§12/§14) and preserves design-first compliance.
+- **Consequences**: No `apps/vendor_app/` code exists yet; next step is user approval → scaffold → build → analyze/test/APK screenshots.
+- **Affects**: branch 007-vendor-app, Feature_docs/vendor-app/spec.md, context sync (this file + progress-tracker + flow)
 
 ### ADR-049: Phone-as-gateway OTP via TextBee (no DLT)
 - **Date**: 2026-10-01

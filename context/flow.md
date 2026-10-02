@@ -12,6 +12,8 @@
 
 ## Overview
 
+Shodasha vendor app (007, spec-draft 2026-10-02): vendor OTP login → duty → today route → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch → earnings → complaint/quality verify. See `Feature_docs/vendor-app/spec.md` (approval gate, no code yet).
+
 [2–3 sentences: what the app does, the main loop, the key actors.]
 
 > **Research note (2026-09-29, Group D)**: no app code exists yet — flows below are
