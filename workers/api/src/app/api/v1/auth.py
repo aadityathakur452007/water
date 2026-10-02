@@ -36,6 +36,12 @@ class OtpVerifyIn(BaseModel):
     device: DeviceIn
 
 
+class DemoLoginIn(BaseModel):
+    phone: str = Field(min_length=10, max_length=16)
+    demo_code: str = Field(min_length=4, max_length=32)
+    device: DeviceIn
+
+
 class RefreshIn(BaseModel):
     refresh_token: str = Field(min_length=1)
     device: DeviceIn
@@ -68,6 +74,18 @@ async def otp_verify(payload: OtpVerifyIn, svc: AuthService = Depends(_service))
         payload.device.model_dump(),
         phone=payload.phone,
         code=payload.otp_code,
+    )
+
+
+@router.post("/auth/demo")
+async def demo_login(payload: DemoLoginIn, svc: AuthService = Depends(_service)):
+    """QA demo login: seeded phone + demo code → normal session. The service
+    enforces the config flag + demo_codes row; closed in prod by default."""
+    return await svc.demo_login(
+        payload.phone,
+        payload.demo_code,
+        payload.device.id,
+        payload.device.model_dump(),
     )
 
 

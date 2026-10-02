@@ -29,6 +29,8 @@ VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
 Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via rupees() paise→Rs.
 - Resilience: GET single-flight + replay-safe retry (3, backoff+jitter, Retry-After) + 60s sync flush; 401/403 → forceLogout → login; logout clears outbox.
 - Release: push main → version (shared vX.Y.Z) → matrix(user+vendor APKs) → one Release (shodasha-user/shodasha-vendor + SHA256SUMS + file table); CI matrix verifies both apps per PR.
+- Addresses: form (home/office + OSM pin, no Google key) → toApi maps line→`formatted` → POST/PATCH /addresses; 409 when an undispatched order uses it.
+- Demo: Demo sheet → POST /v1/auth/demo (config flag + code hash → normal session) → demo customer sees Rs-206 dues order; demo vendor sees today route stop → triple → PoD → earnings.
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]

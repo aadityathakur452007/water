@@ -102,6 +102,32 @@ class ApiBackedAuthApi implements AuthApi {
   Future<void> logout(String accessToken) async {
     await _api.send('POST', '/auth/logout', body: null, authed: true);
   }
+
+  @override
+  Future<AuthSession> demoLogin({
+    required String phone,
+    required String code,
+    required String deviceId,
+  }) async {
+    final raw = await _api.send(
+      'POST',
+      '/auth/demo',
+      body: {
+        'phone': phone,
+        'demo_code': code,
+        'device': {'id': deviceId},
+      },
+      authed: false,
+    );
+    if (raw is! Map<String, dynamic>) {
+      throw ApiException(
+        code: 'UNKNOWN',
+        message: 'Malformed demo response',
+        statusCode: 0,
+      );
+    }
+    return _toSession(raw);
+  }
 }
 
 /// Dev verifier (see header). Kept for widget tests; production uses

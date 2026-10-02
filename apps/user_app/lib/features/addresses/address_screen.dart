@@ -86,12 +86,15 @@ class AddressEntry {
   final double lat;
   final double lng;
 
+  /// Wire payload. Contract §4.3 uses `formatted` for the address text —
+  /// `address_line`/`phone` are app-model conveniences the server ignores,
+  /// so the typed line MUST ride on `formatted` or saved addresses come
+  /// back with empty text (the "can't change address" bug).
   Map<String, dynamic> toApi() => {
         'label': label,
         'type': type == AddrType.home ? 'home' : 'office',
-        'phone': phone,
+        'formatted': addressLine,
         'pincode': pincode,
-        'address_line': addressLine,
         'landmark': landmark,
         'lift_flag': lift,
         'lat': lat,

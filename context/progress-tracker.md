@@ -10,7 +10,7 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
-007-vendor-app HARDENED + DUAL-APK RELEASE (2026-10-02, ADR-052): vendor client retry (replay-safe only) + GET single-flight + 401→logout hook + outbox cleared on logout + https assert + allowBackup=false; backend triple requires Idempotency-Key + version bump + same-payload replay; user_app 20-site await-cast fix + regression test; release.yml = version→matrix(user+vendor)→one Release (shodasha-user/shodasha-vendor APKs + SHA256SUMS + file table); ci.yml matrix both apps. Verify: vendor analyze 0 + 19 tests green + APK on shodasha_api36 login screenshot; user analyze 0 + 67 green; backend 176 green. Open: vendor google-services.json + authed screenshots; real keystore; PoD OTP randomness + money cross-check (backend TODOs).
+007-address-demo DONE (2026-10-02, ADR-053, on main): address save fixed (`formatted` not `address_line` — OSM pin picker already keyless) + mock round-trip test; demo door (config-gated POST /v1/auth/demo + 009_demo.sql + demo_seed.sql + seed_demo.py + 6 backend tests); demo buttons in both apps (server-gated, role-gated) + tests; demo E2E proven on scratch DB (login→route→triple→PoD→earnings Rs 206); vendor demo sheet screenshot-verified. Verify: backend 182, user 70, vendor 21 green, both analyzes 0. USER: run demo_seed.sql on D1, test with creds below, push main already done (release auto-cuts).
 
 Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group deep-dive (A-ux-case-studies, B-operations, C-competitors, D-dev-guides, E-bisleri, F-market) in English full deep-dive, then synthesise in Series-3.
 

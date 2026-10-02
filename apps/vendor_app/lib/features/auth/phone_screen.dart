@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 import 'auth_controller.dart';
+import 'demo_sheet.dart';
 import 'vendor_strings.dart';
 
 class PhoneScreen extends StatefulWidget {
@@ -134,6 +135,17 @@ class _PhoneScreenState extends State<PhoneScreen> {
                     : vendorStringsHi['sendOtp']!),
               ),
               const SizedBox(height: 12),
+              TextButton(
+                onPressed: sending
+                    ? null
+                    : () => showModalBottomSheet<void>(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (_) =>
+                              DemoSheet(controller: widget.controller),
+                        ),
+                child: Text(vendorStringsHi['demoLogin']!),
+              ),
               Text(
                 vendorStringsHi['loginSubtitle']!,
                 textAlign: TextAlign.center,

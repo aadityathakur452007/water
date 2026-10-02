@@ -40,6 +40,17 @@ class _FakeApi implements AuthApi {
 
   @override
   Future<void> logout(String accessToken) async {}
+
+  @override
+  Future<AuthSession> demoLogin({
+    required String phone,
+    required String code,
+    required String deviceId,
+  }) async {
+    final s = sessionToReturn;
+    if (s == null) throw Exception('no session');
+    return s;
+  }
 }
 
 class _FakeVerifier implements PhoneVerifier {

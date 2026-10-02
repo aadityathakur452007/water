@@ -53,6 +53,11 @@ const Map<String, String> authStringsHi = {
   'networkError': 'Network me dikkat — dobara try karein',
   'newDevice': 'Naya device detect hua — purana session surakshit hai',
   'editNumber': 'Number badlein',
+  'demoLogin': 'Demo try karein (bina OTP)',
+  'demoTitle': 'Demo login',
+  'demoHint': 'Seeded demo account — QA ke liye, bina OTP',
+  'demoCustomer': 'Demo customer bharein',
+  'demoGo': 'Demo se login karein',
 };
 
 /// Dynamic Hindi copy (kept as functions so screens share one phrasing).
@@ -173,6 +178,13 @@ abstract class AuthApi {
   });
   /// POST /auth/otp/verify `{phone, otp_code, device}` → session (server-code path).
   Future<AuthSession> verifyServerCode({
+    required String phone,
+    required String code,
+    required String deviceId,
+  });
+  /// POST /auth/demo `{phone, demo_code, device}` → session (QA demo door;
+  /// server enforces the config flag + demo_codes row, closed in prod).
+  Future<AuthSession> demoLogin({
     required String phone,
     required String code,
     required String deviceId,
@@ -371,6 +383,53 @@ class AuthController extends ChangeNotifier {
       _failAuthAttempt();
     }
     _notify();
+  }
+
+  /// Demo login (no OTP): seeded phone + demo code → session. Same
+  /// persistence as the OTP path; rejects non-user roles so a vendor demo
+  /// code can never drive the customer app. Fails loudly when the server
+  /// door is closed (prod default).
+  Future<bool> demoLogin(String phone, String code) async {
+    _status = AuthStatus.verifying;
+    _errorMessage = null;
+    _notify();
+    try {
+      final session = await _api.demoLogin(
+        phone: phone.trim(),
+        code: code.trim(),
+        deviceId: deviceId,
+      );
+      if (session.role != 'user') {
+        await _store.clear();
+        _fail('Ye demo account customer app ke liye nahi hai', AuthStatus.error);
+        _notify();
+        return false;
+      }
+      await _store.saveSession(
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAtIso: session.expiresAt.toIso8601String(),
+        role: session.role,
+      );
+      _session = session;
+      _newDeviceAlert = session.newDeviceAlert;
+      _status = AuthStatus.authenticated;
+      _notify();
+      return true;
+    } on ApiException catch (e) {
+      _fail(
+        e.isNetwork
+            ? authStringsHi['networkError']!
+            : e.message,
+        AuthStatus.error,
+      );
+      _notify();
+      return false;
+    } catch (_) {
+      _fail(authStringsHi['serverError']!, AuthStatus.error);
+      _notify();
+      return false;
+    }
   }
 
   /// Wrong-code accounting shared by the Firebase and server-code paths.

@@ -26,6 +26,11 @@ const Map<String, String> vendorStringsHi = {
   'newDevice': 'Naya device detect hua — purana session surakshit hai',
   'editNumber': 'Number badlein',
   'notVendor': 'Ye number vendor account se juda nahi — admin se sampark karein',
+  'demoLogin': 'Demo try karein (bina OTP)',
+  'demoTitle': 'Demo login',
+  'demoHint': 'Seeded demo account — QA ke liye, bina OTP',
+  'demoVendor': 'Demo vendor bharein',
+  'demoGo': 'Demo se login karein',
 };
 
 String resendInHi(int seconds) => 'Naya OTP $seconds second me milega';

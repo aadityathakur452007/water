@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import hmac
 import logging
 import re
 import secrets
@@ -232,6 +233,39 @@ class AuthService:
             )
         phone = normalize_phone(claims.get("phone_number") or "")
         user = await self._users.upsert_firebase_user(phone=phone, firebase_uid=str(claims["uid"]))
+        return await self._issue_session(user, device_id, device)
+
+    # -- demo login (QA only) ------------------------------------------------
+    # Config-gated OTP bypass for demo accounts: no SMS round-trip, the app
+    # signs in with a seeded phone + demo code. The gate is the `config`
+    # table (`demo_login_enabled` = 1) PLUS a matching row in `demo_codes`
+    # (hash-only, revocable per phone). Prod stays closed by keeping the
+    # flag 0 and the table empty; the seed script turns it on explicitly.
+    DEMO_LOGIN_DEVICE_LIMIT = (10, 3600)  # same shape as OTP verify abuse cap
+
+    async def demo_login(
+        self, phone: str | None, code: str | None, device_id: str, device: dict | None = None
+    ) -> dict:
+        from app.repositories.config_repo import ConfigRepo  # noqa: PLC0415 (lazy seam)
+
+        if not (device_id or "").strip():
+            raise ValidationError("Device id required.", {"device": "id"})
+        flag = await ConfigRepo(self._conn).get("demo_login_enabled", "0")
+        if (flag or "0").strip() != "1":
+            raise UnauthError("Demo login is off.", {})
+        _LIMITER.check(f"demo-login:device:{device_id}", *self.DEMO_LOGIN_DEVICE_LIMIT)
+        phone_n = normalize_phone(phone or "")
+        row = (
+            await self._conn.execute(
+                "SELECT code_hash FROM demo_codes WHERE phone = ?", (phone_n,)
+            )
+        ).fetchone()
+        want = hash_token((code or "").strip())
+        if row is None or not hmac.compare_digest(str(row["code_hash"]), want):
+            raise UnauthError("Invalid demo credentials.", {})
+        user = await self._users.find_by_phone(phone_n)
+        if user is None:
+            raise UnauthError("No account for this phone. Seed it first.", {})
         return await self._issue_session(user, device_id, device)
 
     async def _issue_session(self, user: dict, device_id: str, device: dict | None = None) -> dict:

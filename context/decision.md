@@ -38,6 +38,7 @@
 | ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
 | ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
 | ADR-052 | 2026-10-02 | Dual-APK release (shared tag, user+vendor assets) + conn hardening (retry/single-flight/401 hook) + triple fence fixes + user_app cast port | Accepted | .github/workflows/, apps/vendor_app/lib/core/, workers/api/{src/app/{api/v1/vendor,services/vendor_service},tests/}, apps/user_app/lib/core/api_client.dart |
+| ADR-053 | 2026-10-02 | Address fix (formatted mapping) + config-gated demo login + D1 demo seed (customer+vendor+order/route) + demo buttons both apps | Accepted | apps/user_app address_screen+demo, apps/vendor_app demo, workers/api 009_demo/auth/demo_seed.sql/seed_demo.py/tests |
 | ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
@@ -107,6 +108,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-053: Address fix + demo login + demo seed
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: User reported address add/edit broken (no Google key to give) + asked for demo creds + D1 demo data (customer vs vendor) + dummy payment test + new release.
+- **Options considered**: Google Maps SDK (rejected — needs billing-enabled API key the user can't provide; OSM pin picker already exists and works); DEV_AUTH in prod (rejected — os-only by design, un-armable from worker vars); always-on demo endpoint (rejected — config flag + hash-only revocable codes instead).
+- **Decision**: (1) Address root cause was wire-mapping, not maps: app sent `address_line`/`phone` which the server schema silently drops → saved text came back empty. Fixed `toApi()` to send `formatted` + mock round-trip test. No Google key needed anywhere (OSM tiles + manual home/office form). (2) Demo door: migration 009 `demo_codes` + config-gated `POST /v1/auth/demo` (flag + hash compare + device rate limit + normal session mint) + `demo_seed.sql`/`seed_demo.py` (idempotent fixed ids: demo customer/vendor, address, dispatched Rs-20600 COD order, today route+stop, ledger, flag=1) + 6 backend tests. (3) Demo buttons in both apps (preset fill, server-gated so prod shows a clean error, role-gated per app) + tests. Dummy payment = existing fake UPI/COD path (no keys needed).
+- **Why**: Smallest root-cause fixes; demo is revocable (config 0 / delete codes) and provable (E2E script green on scratch DB; vendor demo sheet screenshot-verified).
+- **Consequences**: User must run demo_seed.sql on D1 once; creds customer +919000000001/111111, vendor +919000000002/222222. Push to main cuts the release with both APKs.
+- **Affects**: user address_screen + auth/demo + tests, vendor auth/demo + tests, workers 009/auth service+router/demo seed + tests
 
 ### ADR-052: Dual-APK release + connection hardening + triple fence fixes
 - **Date**: 2026-10-02

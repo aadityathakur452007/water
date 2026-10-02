@@ -113,6 +113,13 @@ abstract class AuthApi {
     required String deviceId,
   });
   Future<void> logout(String accessToken);
+  /// POST /auth/demo `{phone, demo_code, device}` → session (QA demo door;
+  /// server enforces the config flag + demo_codes row, closed in prod).
+  Future<AuthSession> demoLogin({
+    required String phone,
+    required String code,
+    required String deviceId,
+  });
 }
 
 abstract class PhoneVerifier {
@@ -289,6 +296,50 @@ class AuthController extends ChangeNotifier {
       _failAuthAttempt();
     }
     _notify();
+  }
+
+  /// Demo login (no OTP): seeded phone + demo code → session. Same
+  /// persistence + vendor role gate as the OTP path. Fails with a Hindi
+  /// message when the server door is closed (prod default).
+  Future<bool> demoLogin(String phone, String code) async {
+    _status = AuthStatus.verifying;
+    _errorMessage = null;
+    _notify();
+    try {
+      final session = await _api.demoLogin(
+        phone: phone.trim(),
+        code: code.trim(),
+        deviceId: deviceId,
+      );
+      if (session.role != 'vendor') {
+        await _store.clear();
+        _fail(vendorStringsHi['notVendor']!, AuthStatus.error);
+        _notify();
+        return false;
+      }
+      await _store.saveSession(
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAtIso: session.expiresAt.toIso8601String(),
+        role: session.role,
+      );
+      _session = session;
+      _newDeviceAlert = session.newDeviceAlert;
+      _status = AuthStatus.authenticated;
+      _notify();
+      return true;
+    } on ApiException catch (e) {
+      _fail(
+        e.isNetwork ? vendorStringsHi['networkError']! : e.message,
+        AuthStatus.error,
+      );
+      _notify();
+      return false;
+    } catch (_) {
+      _fail(vendorStringsHi['serverError']!, AuthStatus.error);
+      _notify();
+      return false;
+    }
   }
 
   void _failAuthAttempt() {

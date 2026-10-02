@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'auth_controller.dart';
+import 'demo_sheet.dart';
 import 'otp_screen.dart';
 
 /// F2 auth tokens — single source for the auth feature (Mode-1 restraint:
@@ -304,6 +305,22 @@ class _PhoneScreenState extends State<PhoneScreen> {
                     child: Text(authStringsHi['guestBrowse']!),
                   ),
                 ),
+              Center(
+                child: TextButton(
+                  onPressed: () => showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => UserDemoSheet(
+                      controller: widget.controller,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AuthTokens.blue,
+                    minimumSize: const Size(48, AuthTokens.minTarget),
+                  ),
+                  child: Text(authStringsHi['demoLogin']!),
+                ),
+              ),
               Center(
                 child: Text(
                   authStringsHi['guestNote']!,
