@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/cascade.dart';
 import '../../core/theme.dart';
 import 'customers_controller.dart';
 
@@ -106,44 +107,83 @@ class _CustomersScreenState extends State<CustomersScreen> {
         }
         return RefreshIndicator(
           onRefresh: c.load,
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+          child: CascadeScope(
             itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) {
-              final v = items[i];
-              return InkWell(
-                onTap: () => _openDetail(v),
-                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: ShodashaTheme.border),
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (context, i) {
+                final v = items[i];
+                // Queue-tile row (reference cart-item rhythm): 48dp leading
+                // mark + name/phone/facts + chevron. No info dropped.
+                return CascadeItem(
+                  index: i,
+                  child: InkWell(
+                    onTap: () => _openDetail(v),
                     borderRadius:
                         BorderRadius.circular(ShodashaTheme.radius),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(v.name,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: ShodashaTheme.ink)),
-                      if (v.phone != null)
-                        Text(v.phone!,
-                            style: const TextStyle(
-                                color: ShodashaTheme.muted, fontSize: 13)),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${v.total} stop • ${v.done} done • ${v.fullsExpected} fulls / ${v.emptiesExpected} empties',
-                        style: const TextStyle(
-                            color: ShodashaTheme.muted, fontSize: 13),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: ShodashaTheme.border),
+                        borderRadius:
+                            BorderRadius.circular(ShodashaTheme.radius),
                       ),
-                    ],
+                      child: Row(
+                        children: [
+                          Container(
+                            width: ShodashaTheme.minTarget,
+                            height: ShodashaTheme.minTarget,
+                            decoration: const BoxDecoration(
+                              color: ShodashaTheme.blueTint,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.person_outline,
+                              color: ShodashaTheme.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(v.name,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15,
+                                        color: ShodashaTheme.ink),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                                if (v.phone != null)
+                                  Text(v.phone!,
+                                      style: const TextStyle(
+                                          color: ShodashaTheme.muted,
+                                          fontSize: 13),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${v.total} stop • ${v.done} done • ${v.fullsExpected} fulls / ${v.emptiesExpected} empties',
+                                  style: const TextStyle(
+                                      color: ShodashaTheme.muted,
+                                      fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: ShodashaTheme.muted,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         );
     }
