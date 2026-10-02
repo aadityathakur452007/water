@@ -437,6 +437,31 @@ flowchart TD
 - Tab gates: guest browse keeps Home prices visible (flow 1); Profile shows login CTA when un-authed; OTP enforced at booking commit + profile data only.
 - Dev OTP: StubPhoneVerifier accepts `123456` until F1's Firebase verifier swap (one file, seams unchanged).
 
+## UI lift — ADR-057 (010-grocery-ui, layout shapes only, zero logic change)
+
+```
+HomeScreen (home_screen.dart: greeting header → address bar → pill search + clear
+  → chips → section header (filter-aware title + honest count) → GridView 2-col
+  (_GridCard: photo + name + price + corner 48dp add; tap opens buy-box;
+   flutter_animate fade+slideY stagger, reduced-motion static)
+  └─ showProductDetail (_DetailSheet: close-over-photo + fade/scale photo,
+       title+price row, Kitne-jar↔stepper single row, bordered fact rows,
+       delivery chips, related link, BUY → checkout — controller API unchanged)
+PhoneScreen (phone_screen.dart: 48px top space → _rise stagger hero/chips/CTA;
+  inputs un-animated; first_run sheet flow untouched)
+RouteScreen (route_screen.dart: bordered loading-sheet header row + SKIP header
+  row with counts; bordered stop cards, 48dp seq avatars)
+  └─ CascadeScope(itemCount) + CascadeItem(index) (core/cascade.dart: one
+     AnimationController, per-item Intervals, fade+rise, zero Timers,
+     reduced-motion static) — also wraps customers tiles + support queue tiles
+StopDetailScreen: ledger block → bordered icon-lead fact rows (values read-only)
+CustomersScreen: leading-mark + facts + chevron tile rows + detail sheet unchanged
+SupportScreen: 'Vivaad queue (n)' header + bordered queue tiles (tap fills
+  verify-by-id); verify form untouched
+EarningsScreen / InventoryScreen: section-header rows (label + live count),
+  bordered summaries (Card shadows removed)
+```
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
