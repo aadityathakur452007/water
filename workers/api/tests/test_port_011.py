@@ -22,6 +22,10 @@ from app.services.vendor_service import VendorService  # noqa: E402
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").read_text()
 M004 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
+# 007 owns the vendor_profile base table (capacity/duty shape); 011 ALTERs the
+# Slice-1 columns onto it — same order as prod, so the no-op-CREATE trap
+# (ADR-054 class) is exercised, not skipped.
+M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_text()
 M011 = (API_ROOT / "src" / "app" / "db" / "migrations" / "011_port.sql").read_text()
 
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
@@ -31,7 +35,7 @@ NOW = _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 def _conn():
     c = get_connection(":memory:")
-    c.executescript(M002 + M003 + M004 + M011)
+    c.executescript(M002 + M003 + M004 + M007 + M011)
     c.execute(
         "INSERT INTO users(id, phone, name, role, created_at) VALUES "
         "('v1', '+911111111111', 'Vendor One', 'vendor', ?),"
