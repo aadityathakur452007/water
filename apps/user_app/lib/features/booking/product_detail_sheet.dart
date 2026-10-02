@@ -121,26 +121,22 @@ class _DetailSheetState extends State<_DetailSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-              child: Image.asset(
-                sku.asset,
-                height: 180,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                // P4: decode near display size (card is ~2x of 112px home art).
-                cacheWidth: 768,
-                errorBuilder: (_, _, _) => Container(
-                  height: 180,
-                  color: ShodashaTheme.blueTint,
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.water_drop,
-                    size: 48,
-                    color: ShodashaTheme.blue,
+            Stack(
+              children: [
+                _SheetPhoto(asset: sku.asset),
+                // Icon-over-photo rhythm (reference hero stack): back/close
+                // top-left over the photo zone. No search icon — a dead
+                // control would be a fake affordance.
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: _SheetIconButton(
+                    icon: Icons.close,
+                    tooltip: 'Band karein',
+                    onTap: () => Navigator.of(context).pop(),
                   ),
                 ),
-              ).animate().fadeIn(duration: 200.ms),
+              ],
             ),
             const SizedBox(height: 12),
             Row(
@@ -202,22 +198,52 @@ class _DetailSheetState extends State<_DetailSheet> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Rs 150/jar refundable deposit sirf naye jar par • '
-              'Dhakkan gum par Rs 3 • Delivery subah 8–8 (Ravivar band)',
-              style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+            // Bordered fact row (reference CustomCard shape): deposit / cap /
+            // hours facts with icon lead. Tap-note keeps the blueTint callout.
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: ShodashaTheme.border),
+                borderRadius:
+                    BorderRadius.circular(ShodashaTheme.radius),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.receipt_long_outlined,
+                    size: 18,
+                    color: ShodashaTheme.blue,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Rs 150/jar refundable deposit sirf naye jar par • '
+                      'Dhakkan gum par Rs 3 • Delivery subah 8–8 (Ravivar band)',
+                      style:
+                          TextStyle(fontSize: 13, color: ShodashaTheme.ink),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Kitne jar?',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-            ),
-            const SizedBox(height: 4),
-            QtyStepper(
-              value: _qty,
-              onChanged: (v) => setState(() => _qty = v < 1 ? 1 : v),
-              min: 1,
-              semanticsLabel: sku.name,
+            // Title ↔ stepper on one row (reference title-row rhythm) —
+            // compresses the vertical stack, targets stay 48dp.
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Kitne jar?',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                QtyStepper(
+                  value: _qty,
+                  onChanged: (v) => setState(() => _qty = v < 1 ? 1 : v),
+                  min: 1,
+                  semanticsLabel: sku.name,
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             const Text(
@@ -307,6 +333,83 @@ class _DetailSheetState extends State<_DetailSheet> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Sheet photo with settle-in entrance (fade + 1.04→1.0 scale, ≤250ms,
+/// easeOut — the reference 800ms scale is cut per the motion rule).
+/// Static render when the OS asks for reduced motion.
+class _SheetPhoto extends StatelessWidget {
+  const _SheetPhoto({required this.asset});
+
+  final String asset;
+
+  @override
+  Widget build(BuildContext context) {
+    final img = ClipRRect(
+      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      child: Image.asset(
+        asset,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        // P4: decode near display size (card is ~2x of 112px home art).
+        cacheWidth: 768,
+        errorBuilder: (_, _, _) => Container(
+          height: 180,
+          color: ShodashaTheme.blueTint,
+          alignment: Alignment.center,
+          child: const Icon(
+            Icons.water_drop,
+            size: 48,
+            color: ShodashaTheme.blue,
+          ),
+        ),
+      ),
+    );
+    if (MediaQuery.disableAnimationsOf(context)) return img;
+    return img
+        .animate()
+        .fade(duration: 200.ms)
+        .scale(
+          begin: const Offset(1.04, 1.04),
+          end: const Offset(1, 1),
+          duration: 250.ms,
+          curve: Curves.easeOut,
+        );
+  }
+}
+
+/// 48dp circular icon button for photo overlays (white + hairline border).
+class _SheetIconButton extends StatelessWidget {
+  const _SheetIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: ShodashaTheme.minTarget,
+          height: ShodashaTheme.minTarget,
+          decoration: BoxDecoration(
+            color: ShodashaTheme.bg,
+            shape: BoxShape.circle,
+            border: Border.all(color: ShodashaTheme.border),
+          ),
+          child: Icon(icon, color: ShodashaTheme.ink),
         ),
       ),
     );
