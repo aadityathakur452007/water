@@ -44,6 +44,12 @@ class _MapPickerState extends State<_MapPicker> {
     if (widget.initial != null &&
         (widget.initial!.latitude != 0 || widget.initial!.longitude != 0)) {
       _pin = widget.initial!;
+    } else {
+      // Auto-locate on open so the pin starts at the user, not Delhi.
+      // Delhi stays purely as the denied/offline fallback (+ note).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _locate();
+      });
     }
   }
 
@@ -69,8 +75,14 @@ class _MapPickerState extends State<_MapPicker> {
         ),
       );
       final ll = LatLng(pos.latitude, pos.longitude);
-      _map.move(ll, 16);
-      setState(() => _pin = ll);
+      // Pin first: even if the map controller isn't attached yet, the saved
+      // pin is the user's fix (Delhi only when this whole block fails).
+      if (mounted) setState(() => _pin = ll);
+      try {
+        _map.move(ll, 16);
+      } catch (_) {
+        // Map not attached yet — pin is still correct, user pans manually.
+      }
     } catch (_) {
       setState(() => _locateNote = 'Location nahi mili — map ghumakar pin lagayein');
     } finally {

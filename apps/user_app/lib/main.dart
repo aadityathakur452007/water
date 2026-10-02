@@ -16,6 +16,7 @@ import 'features/addresses/address_screen.dart';
 import 'features/addresses/selected_address_store.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_gate.dart';
+import 'features/auth/phone_screen.dart';
 import 'features/booking/booking_controller.dart';
 import 'features/orders/orders_controller.dart';
 import 'features/profile/profile_screen.dart';
@@ -60,7 +61,15 @@ class _ShodashaAppState extends State<ShodashaApp> {
   @override
   void initState() {
     super.initState();
-    _api = ApiClient(deviceId: 'pending-device');
+    // Bearer tracks the session without rebuilding controllers after login
+    // (vendor mirror): the closure reads _auth lazily — the first authed
+    // call happens long after initState, so the late field is assigned.
+    // Without this, every authed call goes out bearer-less and the server
+    // 401s (addresses list/save can never work).
+    _api = ApiClient(
+      deviceId: 'pending-device',
+      accessTokenGetter: () => _auth.session?.accessToken,
+    );
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),
       verifier: FirebasePhoneVerifier(),
@@ -115,6 +124,19 @@ class _ShellPage extends StatelessWidget {
   final _ShodashaAppState app;
 
   void _openAddresses(BuildContext context) {
+    openAddressesGated(
+      context,
+      isAuthed: () => app._auth.isAuthenticated,
+      openLogin: (ctx) => Navigator.of(ctx).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => _LoginGatePage(auth: app._auth),
+        ),
+      ),
+      openAddresses: (ctx) => _pushAddressScreen(ctx),
+    );
+  }
+
+  void _pushAddressScreen(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => AddressScreen(controller: app._addresses),
@@ -145,6 +167,69 @@ class _ShellPage extends StatelessWidget {
       onLogout: () async {
         await app._auth.logout();
       },
+    );
+  }
+}
+
+/// Address entry gate (composition root): authed users go straight to
+/// Addresses; guests go through login first and land on Addresses after OTP
+/// (OtpScreen pops to first on success, so the gate re-checks live state
+/// instead of trusting a route result). Never strands a guest on a server
+/// 401 after filling the 3-step form.
+Future<void> openAddressesGated(
+  BuildContext context, {
+  required bool Function() isAuthed,
+  required Future<void> Function(BuildContext context) openLogin,
+  required void Function(BuildContext context) openAddresses,
+}) async {
+  if (!isAuthed()) {
+    await openLogin(context);
+    if (!context.mounted) return;
+    if (!isAuthed()) return;
+  }
+  if (!context.mounted) return;
+  openAddresses(context);
+}
+
+/// Login page for the address gate: no guest-browse escape hatch (that would
+/// loop back into the same gate); the back button cancels the entry.
+/// Demo/direct logins authenticate without pushing OTP — the listener closes
+/// the gate then (OTP logins pop themselves to first via OtpScreen, so the
+/// `isCurrent` check keeps the two pop drivers from racing).
+class _LoginGatePage extends StatefulWidget {
+  const _LoginGatePage({required this.auth});
+
+  final AuthController auth;
+
+  @override
+  State<_LoginGatePage> createState() => _LoginGatePageState();
+}
+
+class _LoginGatePageState extends State<_LoginGatePage> {
+  @override
+  void initState() {
+    super.initState();
+    widget.auth.addListener(_onAuth);
+  }
+
+  @override
+  void dispose() {
+    widget.auth.removeListener(_onAuth);
+    super.dispose();
+  }
+
+  void _onAuth() {
+    if (!widget.auth.isAuthenticated || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Login karein')),
+      body: PhoneScreen(controller: widget.auth),
     );
   }
 }
