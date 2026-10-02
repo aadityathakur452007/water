@@ -56,11 +56,15 @@ class SyncController extends ChangeNotifier {
 
   List<QueuedTriple> _queue = const [];
   bool _syncing = false;
+  bool _loaded = false;
   String? _result;
   List<Map<String, dynamic>> _rejected = const [];
 
   List<QueuedTriple> get queue => _queue;
   bool get syncing => _syncing;
+
+  /// S12: distinguishes "still loading" from "synced, nothing pending".
+  bool get loaded => _loaded;
   String? get result => _result;
   List<Map<String, dynamic>> get rejected => _rejected;
 
@@ -80,6 +84,7 @@ class SyncController extends ChangeNotifier {
         _queue = const [];
       }
     }
+    _loaded = true;
     notifyListeners();
   }
 

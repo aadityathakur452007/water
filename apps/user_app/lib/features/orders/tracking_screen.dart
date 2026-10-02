@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
 import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'rating_sheet.dart';
@@ -112,7 +113,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: OrdersTokens.blue,
+              backgroundColor: ShodashaTheme.ink,
               foregroundColor: OrdersTokens.white,
               shape: RoundedRectangleBorder(
                 borderRadius:
@@ -186,7 +187,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: OrdersTokens.blue,
+              backgroundColor: ShodashaTheme.ink,
               foregroundColor: OrdersTokens.white,
               shape: RoundedRectangleBorder(
                 borderRadius:
@@ -718,7 +719,7 @@ class _ActionsFor extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: busy ? null : onReschedule,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: OrdersTokens.blue,
+                  backgroundColor: ShodashaTheme.ink,
                   foregroundColor: OrdersTokens.white,
                   shape: RoundedRectangleBorder(
                     borderRadius:
@@ -739,7 +740,7 @@ class _ActionsFor extends StatelessWidget {
         child: ElevatedButton(
           onPressed: onWhatsApp,
           style: ElevatedButton.styleFrom(
-            backgroundColor: OrdersTokens.blue,
+            backgroundColor: ShodashaTheme.ink,
             foregroundColor: OrdersTokens.white,
             shape: RoundedRectangleBorder(
               borderRadius:
@@ -795,10 +796,10 @@ class _ActionsFor extends StatelessWidget {
             child: ElevatedButton(
               onPressed: order.canRate ? onRate : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: OrdersTokens.blue,
+                backgroundColor: ShodashaTheme.ink,
                 foregroundColor: OrdersTokens.white,
-                disabledBackgroundColor:
-                    OrdersTokens.blue.withValues(alpha: 0.4),
+              disabledBackgroundColor:
+                  ShodashaTheme.ink.withValues(alpha: 0.3),
                 shape: RoundedRectangleBorder(
                   borderRadius:
                       BorderRadius.circular(OrdersTokens.radius),

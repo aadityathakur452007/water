@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
 import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'tracking_screen.dart';
@@ -97,6 +98,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 // WHY: 16px stops iOS auto-zoom (mobile-native §4).
                 style: const TextStyle(fontSize: 16, color: OrdersTokens.ink),
                 decoration: InputDecoration(
+                  labelText: ordersStringsHi['searchHint'],
                   hintText: ordersStringsHi['searchHint'],
                   hintStyle: const TextStyle(color: OrdersTokens.muted),
                   prefixIcon: const Icon(
@@ -280,7 +282,7 @@ class _OrderCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                        color: ShodashaTheme.bg,
                       ),
                     ),
                   ),
@@ -519,7 +521,7 @@ class _ErrorRow extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: onRetry,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: OrdersTokens.blue,
+                  backgroundColor: ShodashaTheme.ink,
                   foregroundColor: OrdersTokens.white,
                   shape: RoundedRectangleBorder(
                     borderRadius:

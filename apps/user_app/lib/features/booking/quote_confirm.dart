@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
 import 'checkout_service.dart';
 
 /// Shows the confirmation sheet for a placed [CheckoutResult].
@@ -55,7 +56,7 @@ class _ConfirmSheet extends StatelessWidget {
               children: [
                 Icon(
                   Icons.check_circle,
-                  color: Color(0xFF15803D),
+                  color: ShodashaTheme.success,
                   size: 28,
                 ),
                 SizedBox(width: 8),
@@ -72,7 +73,7 @@ class _ConfirmSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFE5E5E5)),
+                border: Border.all(color: ShodashaTheme.border),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -90,7 +91,7 @@ class _ConfirmSheet extends StatelessWidget {
                   const Text(
                     'Rider assign hote hi naam + call button ayega',
                     style: TextStyle(
-                      color: Color(0xFF595959),
+                      color: ShodashaTheme.muted,
                       fontSize: 13,
                     ),
                   ),
@@ -126,7 +127,7 @@ class _ConfirmSheet extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text(
                   'Ho gaya',
-                  style: TextStyle(color: Color(0xFF595959)),
+                  style: TextStyle(color: ShodashaTheme.muted),
                 ),
               ),
             ),

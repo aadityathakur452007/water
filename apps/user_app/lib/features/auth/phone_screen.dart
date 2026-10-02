@@ -14,20 +14,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/theme.dart';
 import 'auth_controller.dart';
 import 'demo_sheet.dart';
 import 'otp_screen.dart';
 
-/// F2 auth tokens — single source for the auth feature (Mode-1 restraint:
-/// one accent, hairline borders, no gradients/shadows/emoji).
+/// F2 auth tokens — aliases of [ShodashaTheme] (Wave 1 honesty: the
+/// feature-local blues #0369A1 drifted from the locked #0284C7; a single
+/// source keeps them from drifting again).
 class AuthTokens {
-  static const Color bg = Color(0xFFFFFFFF);
-  static const Color text = Color(0xFF111111);
-  static const Color muted = Color(0xFF595959);
-  static const Color blue = Color(0xFF0369A1);
-  static const Color border = Color(0xFFE5E5E5);
-  static const double radius = 8;
-  static const double minTarget = 48;
+  static const Color bg = ShodashaTheme.bg;
+  static const Color text = ShodashaTheme.ink;
+  static const Color muted = ShodashaTheme.muted;
+  static const Color blue = ShodashaTheme.blue;
+  static const Color border = ShodashaTheme.border;
+  static const double radius = ShodashaTheme.radius;
+  static const double minTarget = ShodashaTheme.minTarget;
 }
 
 /// Phone entry. [onGuestBrowse] keeps prices visible WITHOUT login
@@ -114,33 +116,72 @@ class _PhoneScreenState extends State<PhoneScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const SizedBox(height: 12),
+              // Designed hero: brand card + factual trust chips (UPI+COD and
+              // WhatsApp help are real product facts — no invented claims).
+              Card(
+                shape: ShodashaTheme.shape,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Image.asset(
+                        'assets/logo.png',
+                        width: 56,
+                        height: 56,
+                        cacheWidth: 112,
+                        errorBuilder: (_, _, _) => const Icon(
+                          Icons.water_drop,
+                          size: 44,
+                          color: AuthTokens.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Shodasha',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                color: AuthTokens.text,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              authStringsHi['trustLine']!,
+                              style: const TextStyle(
+                                  fontSize: 13, color: AuthTokens.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Row(
+                children: [
+                  Chip(
+                    avatar: Icon(Icons.payments_outlined, size: 16),
+                    label: Text('UPI + COD'),
+                  ),
+                  SizedBox(width: 8),
+                  Chip(
+                    avatar: Icon(Icons.support_agent_outlined, size: 16),
+                    label: Text('WhatsApp help'),
+                  ),
+                ],
+              ),
               const SizedBox(height: 24),
-              Image.asset(
-                'assets/logo.png',
-                width: 56,
-                height: 56,
-                cacheWidth: 112,
-                errorBuilder: (_, _, _) => const Icon(
-                  Icons.water_drop,
-                  size: 44,
-                  color: AuthTokens.blue,
-                ),
-              ),
-              const SizedBox(height: 8),
               const Text(
-                'Shodasha',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AuthTokens.text,
-                ),
+                'Step 1 / 2 — Mobile number',
+                style: TextStyle(fontSize: 12, color: AuthTokens.muted),
               ),
-              const SizedBox(height: 4),
-              Text(
-                authStringsHi['trustLine']!,
-                style: const TextStyle(fontSize: 13, color: AuthTokens.muted),
-              ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 6),
               Text(
                 authStringsHi['loginTitle']!,
                 style: const TextStyle(
@@ -155,15 +196,6 @@ class _PhoneScreenState extends State<PhoneScreen> {
                 style: const TextStyle(fontSize: 14, color: AuthTokens.muted),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Mobile number',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: AuthTokens.text,
-                ),
-              ),
-              const SizedBox(height: 8),
               TextField(
                 controller: _field,
                 focusNode: _focus,
@@ -174,6 +206,7 @@ class _PhoneScreenState extends State<PhoneScreen> {
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
+                  labelText: 'Mobile number',
                   hintText: authStringsHi['phoneHint'],
                   helperText: authStringsHi['phoneHelper'],
                   helperStyle: const TextStyle(color: AuthTokens.muted),
@@ -255,6 +288,11 @@ class _PhoneScreenState extends State<PhoneScreen> {
                               : Text(authStringsHi['sendOtp']!),
                         ),
                       ),
+                      if (sending)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: LinearProgressIndicator(),
+                        ),
                       if (sending)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),

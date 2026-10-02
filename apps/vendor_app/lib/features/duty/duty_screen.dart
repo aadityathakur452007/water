@@ -90,7 +90,34 @@ class _DutyScreenState extends State<DutyScreen> {
                     Switch(
                       value: c.onDuty,
                       activeTrackColor: ShodashaTheme.blue,
-                      onChanged: (v) => c.setDuty(v),
+                      // S16: going off-duty mid-route is destructive — confirm.
+                      onChanged: (v) async {
+                        if (!v && c.onDuty) {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              shape: ShodashaTheme.shape,
+                              title: const Text('Duty off karein?'),
+                              content: const Text(
+                                  'Baki stops aaj ke liye ruk jayenge. Pakka off karna hai?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(ctx).pop(false),
+                                  child: const Text('Rehne dein'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () =>
+                                      Navigator.of(ctx).pop(true),
+                                  child: const Text('Haan, off karein'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (ok != true || !context.mounted) return;
+                        }
+                        await c.setDuty(v);
+                      },
                     ),
                   ],
                 ),

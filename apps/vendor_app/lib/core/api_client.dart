@@ -362,4 +362,42 @@ class ApiClient {
     final raw = await send('GET', '/auth/me');
     return (raw as Map<String, dynamic>);
   }
+
+  // ── Server profile + slots (011_port, Slice 1) ─────────────────────────
+  Future<Map<String, dynamic>> vendorProfile() async {
+    final raw = await send('GET', '/vendor/profile');
+    return (raw as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> saveVendorProfile(
+      Map<String, String> fields) async {
+    final raw = await send('PATCH', '/vendor/profile', body: fields);
+    return (raw as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> vendorSlots() async {
+    final raw = await send('GET', '/vendor/slots');
+    return (raw as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> saveVendorSlots(
+      Map<String, bool> slots) async {
+    final raw = await send('PUT', '/vendor/slots', body: {'slots': slots});
+    return (raw as Map<String, dynamic>);
+  }
+
+  // ── Customers + complaint queue (011_port, derived — no new backend) ───
+  Future<Map<String, dynamic>> vendorCustomers({String? date}) async {
+    final raw = await send(
+      'GET',
+      '/vendor/customers',
+      query: date == null ? null : {'date': date},
+    );
+    return (raw as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> vendorComplaints() async {
+    final raw = await send('GET', '/vendor/complaints');
+    return (raw as Map<String, dynamic>);
+  }
 }

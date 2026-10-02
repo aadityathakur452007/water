@@ -11,6 +11,7 @@ import 'core/session_store.dart';
 import 'core/theme.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_gate.dart';
+import 'features/customers/customers_controller.dart';
 import 'features/duty/duty_controller.dart';
 import 'features/earnings/earnings_controller.dart';
 import 'features/route/route_controller.dart';
@@ -48,6 +49,7 @@ class _VendorAppState extends State<VendorApp> {
   late final SyncController _sync;
   late final EarningsController _earnings;
   late final SupportController _support;
+  late final CustomersController _customers;
   late final String _deviceId;
 
   bool _ready = false;
@@ -85,6 +87,7 @@ class _VendorAppState extends State<VendorApp> {
     _sync = SyncController(api: liveApi);
     _earnings = EarningsController(api: liveApi);
     _support = SupportController(api: liveApi);
+    _customers = CustomersController(api: liveApi);
     if (mounted) setState(() => _ready = true);
   }
 
@@ -97,6 +100,7 @@ class _VendorAppState extends State<VendorApp> {
     _sync.dispose();
     _earnings.dispose();
     _support.dispose();
+    _customers.dispose();
     super.dispose();
   }
 
@@ -123,7 +127,10 @@ class _VendorAppState extends State<VendorApp> {
           sync: _sync,
           earnings: _earnings,
           support: _support,
+          customers: _customers,
           meLoader: () => _liveApi.me(),
+          profileLoader: () => _liveApi.vendorProfile(),
+          profileSaver: (fields) => _liveApi.saveVendorProfile(fields),
         ),
       ),
     );

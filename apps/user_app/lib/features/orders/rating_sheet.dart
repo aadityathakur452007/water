@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
 import 'orders_controller.dart';
 
 /// Shows the rating sheet for [order] (auto or manual entry point).
@@ -115,7 +116,7 @@ class _RatingSheetState extends State<RatingSheet> {
                 onPressed:
                     (alreadyRated || _stars < 1 || _busy) ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: OrdersTokens.blue,
+                  backgroundColor: ShodashaTheme.ink,
                   foregroundColor: OrdersTokens.white,
                   disabledBackgroundColor:
                       OrdersTokens.blue.withValues(alpha: 0.4),

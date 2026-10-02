@@ -18,8 +18,9 @@ from app.db import get_connection, init_schema  # noqa: E402
 
 
 def _apply_migration(conn) -> None:
-    mig = Path(__file__).resolve().parents[1] / "src" / "app" / "db" / "migrations" / "003_addresses.sql"
-    conn.executescript(mig.read_text())
+    base = Path(__file__).resolve().parents[1] / "src" / "app" / "db" / "migrations"
+    conn.executescript((base / "003_addresses.sql").read_text())
+    conn.executescript((base / "011_port.sql").read_text())  # full-format columns
     conn.commit()
 
 

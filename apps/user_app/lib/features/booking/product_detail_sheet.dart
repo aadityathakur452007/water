@@ -234,14 +234,14 @@ class _DetailSheetState extends State<_DetailSheet> {
                   avatar: Icon(
                     deliveryTypeIcons[t],
                     size: 18,
-                    color: selected ? Colors.white : ShodashaTheme.blue,
+                    color: selected ? ShodashaTheme.bg : ShodashaTheme.blue,
                   ),
                   label: Text(deliveryTypeLabels[t]!),
                   selected: selected,
                   onSelected: (_) => setState(() => _delivery = t),
                   selectedColor: ShodashaTheme.ink,
                   labelStyle: TextStyle(
-                    color: selected ? Colors.white : ShodashaTheme.ink,
+                    color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
                     fontWeight: FontWeight.w600,
                   ),
                   shape: RoundedRectangleBorder(

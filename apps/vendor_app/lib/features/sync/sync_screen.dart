@@ -42,6 +42,10 @@ class _SyncScreenState extends State<SyncScreen> {
   }
 
   Widget _body(SyncController c) {
+    // S12: loading is its own branch — never "Sab synced" while reading.
+    if (!c.loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (c.queue.isEmpty && c.rejected.isEmpty) {
       return const Center(
         child: Padding(

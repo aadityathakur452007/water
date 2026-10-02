@@ -53,6 +53,10 @@ def _to_out(row: dict, needs_pin_confirm: bool = False) -> AddressOut:
         serviceable=bool(row.get("serviceable", 1)),
         needs_pin_confirm=needs_pin_confirm,
         created_at=row.get("created_at"),
+        house=row.get("house"),
+        street=row.get("street"),
+        area=row.get("area"),
+        phone=row.get("phone"),
     )
 
 

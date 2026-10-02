@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/theme.dart';
+
 /// Prefs flag (v1 — bump when the flow changes shape).
 const String kFirstRunFlag = 'firstrun_done_v1';
 
@@ -120,7 +122,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
           children: [
             if (_step == _Step.locate) ...[
               const Icon(Icons.location_on,
-                  size: 32, color: Color(0xFF0284C7)),
+                  size: 32, color: ShodashaTheme.blue),
               const SizedBox(height: 8),
               const Text(
                 'Delivery ke liye location',
@@ -129,7 +131,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               const SizedBox(height: 6),
               const Text(
                 'Aas-paas ka address jaldi milega. Permission na dein to map par haath se pin laga sakte hain.',
-                style: TextStyle(color: Color(0xFF595959), fontSize: 14),
+                style: TextStyle(color: ShodashaTheme.muted, fontSize: 14),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -147,7 +149,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               ),
             ] else if (_step == _Step.notify) ...[
               const Icon(Icons.notifications_outlined,
-                  size: 32, color: Color(0xFF0284C7)),
+                  size: 32, color: ShodashaTheme.blue),
               const SizedBox(height: 8),
               const Text(
                 'Order updates paayein',
@@ -156,7 +158,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               const SizedBox(height: 6),
               const Text(
                 'Dispatch, arrival window aur delivery receipt ki khabar milegi.',
-                style: TextStyle(color: Color(0xFF595959), fontSize: 14),
+                style: TextStyle(color: ShodashaTheme.muted, fontSize: 14),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -174,7 +176,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               ),
             ] else ...[
               const Icon(Icons.home_outlined,
-                  size: 32, color: Color(0xFF0284C7)),
+                  size: 32, color: ShodashaTheme.blue),
               const SizedBox(height: 8),
               const Text(
                 'Apna address jodein',
@@ -183,7 +185,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               const SizedBox(height: 6),
               const Text(
                 'Pehla address map par pin lagakar save karein — delivery isi par hogi.',
-                style: TextStyle(color: Color(0xFF595959), fontSize: 14),
+                style: TextStyle(color: ShodashaTheme.muted, fontSize: 14),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -201,14 +203,14 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               const SizedBox(height: 8),
               Text(_note!,
                   style: const TextStyle(
-                      fontSize: 13, color: Color(0xFF0284C7))),
+                      fontSize: 13, color: ShodashaTheme.blue)),
             ],
             Center(
               child: TextButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text(
                   'Baad mein',
-                  style: TextStyle(color: Color(0xFF595959)),
+                  style: TextStyle(color: ShodashaTheme.muted),
                 ),
               ),
             ),

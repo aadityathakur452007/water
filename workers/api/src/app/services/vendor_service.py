@@ -315,6 +315,108 @@ class VendorService:
             "note": "GPS-flagged stops accrue but are held out of payouts until admin clears the flag.",
         }
 
+    # -- profile + slots (011_port: server vendor profile, Slice 1) --------------
+
+    async def profile_get(self, vendor_id: str) -> dict:
+        row = (await self._conn.execute(
+            "SELECT user_id, name, phone, address, hours, updated_at"
+            " FROM vendor_profile WHERE user_id = ?",
+            (vendor_id,),
+        )).fetchone()
+        if row is None:
+            return {"user_id": vendor_id, "name": "", "phone": "",
+                    "address": "", "hours": "", "updated_at": None}
+        return dict(row)
+
+    async def profile_save(self, vendor_id: str, patch: dict) -> dict:
+        allow = ("name", "phone", "address", "hours")
+        fields = {k: str(patch.get(k) or "")[:500] for k in allow if k in patch}
+        current = await self.profile_get(vendor_id)
+        merged = {**current, **fields, "updated_at": _now()}
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "INSERT INTO vendor_profile(user_id, name, phone, address, hours, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?)"
+                    " ON CONFLICT(user_id) DO UPDATE SET"
+                    " name=excluded.name, phone=excluded.phone,"
+                    " address=excluded.address, hours=excluded.hours, updated_at=excluded.updated_at",
+                    (vendor_id, merged["name"], merged["phone"],
+                     merged["address"], merged["hours"], merged["updated_at"]),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        return await self.profile_get(vendor_id)
+
+    async def slots_get(self, vendor_id: str) -> dict:
+        rows = (await self._conn.execute(
+            "SELECT slot_key, enabled FROM vendor_slots WHERE user_id = ?",
+            (vendor_id,),
+        )).fetchall()
+        return {"user_id": vendor_id,
+                "slots": {r["slot_key"]: bool(r["enabled"]) for r in rows}}
+
+    async def slots_set(self, vendor_id: str, slots: dict) -> dict:
+        items = {str(k)[:80]: (1 if v else 0) for k, v in dict(slots).items()}
+        if len(items) > 50:
+            raise ValidationError(message="Too many slots (max 50).", details={})
+        with WRITE_LOCK:
+            try:
+                for key, enabled in items.items():
+                    await self._conn.execute(
+                        "INSERT INTO vendor_slots(user_id, slot_key, enabled) VALUES (?, ?, ?)"
+                        " ON CONFLICT(user_id, slot_key) DO UPDATE SET enabled=excluded.enabled",
+                        (vendor_id, key, enabled),
+                    )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        return await self.slots_get(vendor_id)
+
+    # -- customers (011_port: derived from today_route stops — Water-native) -----
+
+    async def today_customers(self, vendor_id: str, date: str | None = None) -> dict:
+        day = date or _today()
+        rows = (await self._conn.execute(
+            "SELECT s.id AS stop_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp,"
+            " s.status, s.order_id, u.name AS customer_name, u.phone AS customer_phone"
+            " FROM stops s JOIN routes r ON r.id = s.route_id"
+            " LEFT JOIN users u ON u.id = s.customer_id"
+            " WHERE r.vendor_id = ? AND r.date = ? ORDER BY s.seq",
+            (vendor_id, day),
+        )).fetchall()
+        grouped: dict[str, dict] = {}
+        for r in rows:
+            cid = r["customer_id"] or ""
+            g = grouped.setdefault(cid, {
+                "customer_id": cid,
+                "customer_name": r["customer_name"] or cid,
+                "customer_phone": r["customer_phone"],
+                "stops": [], "fulls_exp": 0, "empties_exp": 0, "done": 0,
+            })
+            g["stops"].append({"stop_id": r["stop_id"], "seq": r["seq"],
+                               "status": r["status"], "order_id": r["order_id"]})
+            g["fulls_exp"] += int(r["fulls_exp"] or 0)
+            g["empties_exp"] += int(r["empties_exp"] or 0)
+            g["done"] += 1 if r["status"] == "done" else 0
+        return {"date": day, "customers": list(grouped.values())}
+
+    # -- vendor complaint queue (011_port: ticket thread reads, verify writes) ---
+
+    async def vendor_complaints(self, vendor_id: str) -> dict:
+        rows = (await self._conn.execute(
+            "SELECT c.id, c.order_id, c.reason_code, c.text, c.status,"
+            " c.vendor_agree, c.created_at FROM complaints c"
+            " JOIN stops s ON s.order_id = c.order_id"
+            " JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?"
+            " ORDER BY c.created_at DESC, c.id DESC LIMIT 100",
+            (vendor_id,),
+        )).fetchall()
+        return {"data": [dict(r) for r in rows]}
+
     # -- complaint + quality verification (§14.3) ---------------------------------------
 
     async def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:

@@ -19,6 +19,35 @@ class SupportController extends ChangeNotifier {
   bool get submitting => _submitting;
   String? get notice => _notice;
 
+  /// Vendor complaint queue (011_port ticket-thread reads; verify writes).
+  List<Map<String, dynamic>> _queue = const [];
+  bool _queueLoading = false;
+  String? _queueError;
+
+  List<Map<String, dynamic>> get queue => _queue;
+  bool get queueLoading => _queueLoading;
+  String? get queueError => _queueError;
+
+  Future<void> loadQueue() async {
+    _queueLoading = true;
+    _queueError = null;
+    notifyListeners();
+    try {
+      final raw = await _api.vendorComplaints();
+      _queue = ((raw['data'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } on ApiException catch (e) {
+      // S5: surface instead of swallowing — verify-by-id below keeps working.
+      _queue = const [];
+      _queueError =
+          e.isNetwork ? 'Network nahi — dobara try karein' : 'Queue load nahi hui';
+    } finally {
+      _queueLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> verifyComplaint({
     required String complaintId,
     required bool agree,
