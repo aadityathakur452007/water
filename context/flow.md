@@ -438,7 +438,6 @@ flowchart TD
 - Dev OTP: StubPhoneVerifier accepts `123456` until F1's Firebase verifier swap (one file, seams unchanged).
 
 ## UI lift — ADR-057 (010-grocery-ui, layout shapes only, zero logic change)
-
 ```
 HomeScreen (home_screen.dart: greeting header → address bar → pill search + clear
   → chips → section header (filter-aware title + honest count) → GridView 2-col
@@ -460,6 +459,20 @@ SupportScreen: 'Vivaad queue (n)' header + bordered queue tiles (tap fills
   verify-by-id); verify form untouched
 EarningsScreen / InventoryScreen: section-header rows (label + live count),
   bordered summaries (Card shadows removed)
+```
+
+## Address entry fix — ADR-058 (012-address-auth, root cause + dead-ends)
+
+```
+main.dart: ApiClient(deviceId, accessTokenGetter: () => _auth.session?.accessToken)
+  └─ every authed call (addresses/orders/profile/subs) now carries the live
+     Bearer; pre-fix all went bearer-less → server 401 → list/save dead
+_ShellPage._openAddresses → openAddressesGated (main.dart: authed → push
+  AddressScreen; guest → _LoginGatePage (PhoneScreen, no guest hatch) →
+  OTP success self-pops to first → re-check isAuthenticated → AddressScreen;
+  demo path closes via isCurrent listener rule; back cancels)
+_MapPickerState.initState → post-frame _locate() (pin-first, Delhi fallback)
+AddressController.load() → re-adopts store.selectedId when still unresolved
 ```
 
 ## Update Protocol (MANDATORY)
