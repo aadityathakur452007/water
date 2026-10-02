@@ -35,6 +35,9 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
+| ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
+| ADR-052 | 2026-10-02 | Dual-APK release (shared tag, user+vendor assets) + conn hardening (retry/single-flight/401 hook) + triple fence fixes + user_app cast port | Accepted | .github/workflows/, apps/vendor_app/lib/core/, workers/api/{src/app/{api/v1/vendor,services/vendor_service},tests/}, apps/user_app/lib/core/api_client.dart |
 | ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
 | ADR-047 | 2026-10-01 | Phase-B completion: facade-type fixes + full test await-ify, 163 green, pushed | Accepted | workers/api/src/app/services/{vendor,subscription,dispatch}_service.py, src/app/jobs/scheduler.py, src/app/api/v1/vendor.py, src/entry.py, workers/api/tests/ |
@@ -104,6 +107,36 @@
 ---
 
 ## Decision Entries
+
+### ADR-052: Dual-APK release + connection hardening + triple fence fixes
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: User asked for commented files, a unified release page with both APKs clearly labeled, proof the vendor app talks to the Python backend correctly, senior-level conn optimization, a security pass, and merging 007 to main.
+- **Options considered**: Per-app tags/two Releases (rejected — fragments changelog, confuses sideloaders about which pair goes together); sequential single-job builds (rejected — 2× wall time, coupled logs); loosening CORS for mobile (rejected — CORS never affects native HTTP; verified in middleware.py); retrying all POSTs (rejected — PoD/duty have no server dedupe; retry only replay-safe paths).
+- **Decision**: release.yml = version job (one shared tag) → matrix build (user+vendor, fail-fast, unique artifact names) → release job (per-app downloads, renamed shodasha-user/shodasha-vendor APKs, SHA256SUMS, file→audience table in body); ci.yml matrix for both apps. Client: replay-safe retry (GET/keyed POST/sync-batch, backoff+jitter, Retry-After honored), GET single-flight, 401/403→forceLogout hook, outbox cleared on logout, https assert, allowBackup=false, 60s sync timeout. Backend: triple requires Idempotency-Key (orders convention), idem-check before version fence, version+1 on commit, same-payload-done replays without 409. Ported await-cast fix to user_app (20 sites) + regression test.
+- **Why**: Research-backed (release-matrix practice, AWS/Stripe retry guidance, audit threat model); every change covered by tests (vendor 19, user 67, backend 176 green).
+- **Consequences**: First main push cuts a two-APK release. Open backend TODOs (logged, not built): random per-order PoD OTP + attempt cap, server cash-vs-total cross-check, per-key sync results, 401 refresh flow, real keystore.
+- **Affects**: workflows, vendor core/auth/sync/main/manifest, workers vendor router+service+tests, user api_client+test
+
+### ADR-051: Never cast Future + fail-soft Firebase init (vendor)
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: Route widget test (MockClient) threw `type 'Future<dynamic>' is not a subtype of 'Future<Map<...>>'` — the `send(...) as Future<Map>` pattern (copied from user_app) is a runtime type error on every typed call. Same latent bug exists in user_app's ApiClient (flagged, not fixed — different app, out of scope).
+- **Options considered**: `send<T>` generics (rejected — bigger diff across all callers); await-then-cast-value per method (chosen — smallest root fix).
+- **Decision**: Every typed ApiClient method is now `async` + casts the awaited value. Firebase init wrapped in try/catch so the APK boots and the login screen renders before the vendor `google-services.json` lands (OTP send surfaces the SMS error path until then).
+- **Why**: Fixes the crash class at the root with zero behavior change; fail-soft keeps screenshots/QA possible pre-console-step.
+- **Consequences**: 13 tests green including the route-sheet widget test; login screenshot-verified on shodasha_api36.
+- **Affects**: `apps/vendor_app/lib/core/api_client.dart`, `lib/main.dart`
+
+### ADR-050: 007-vendor-app (spec → approved → 10 screens built)
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: Pasted new-session prompt ordered vendor Android app on branch `007-vendor-app` with RULE 0 + git hygiene + parallel research + design-gate spec.
+- **Options considered**: Building app code immediately (rejected — AGENTS.md hard gate Spec→Clarify→Approve→Implement); single-agent research (rejected — brief ordered parallel vendor-domain/API/Flutter-build agents).
+- **Decision**: Created `007-vendor-app` from `main` (dirty macOS registrant + .freebuff/.idea/.utim_tmp left untouched); ran 3 parallel research agents; wrote `Feature_docs/vendor-app/spec.md` (screen map, wireframes, endpoint matrix, light-only visual system) and paused for approval.
+- **Why**: Keeps fictional-API risk at zero (endpoints/shapes cite live `vendor.py`/`vendor_service.py` + contract §4.7/§9/§11/§12/§14) and preserves design-first compliance.
+- **Consequences**: No `apps/vendor_app/` code exists yet; next step is user approval → scaffold → build → analyze/test/APK screenshots.
+- **Affects**: branch 007-vendor-app, Feature_docs/vendor-app/spec.md, context sync (this file + progress-tracker + flow)
 
 ### ADR-049: Phone-as-gateway OTP via TextBee (no DLT)
 - **Date**: 2026-10-01

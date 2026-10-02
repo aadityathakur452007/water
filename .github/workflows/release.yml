@@ -1,7 +1,7 @@
 name: release
 
-# Every push to main: verify -> auto-bump patch -> build release APK ->
-# create tag vX.Y.Z + GitHub Release (auto changelog + APK asset).
+# Every push to main: version -> matrix build (user + vendor) -> ONE GitHub
+# Release holding BOTH APKs under a single shared tag vX.Y.Z.
 # Tag pushes created here do NOT re-trigger this workflow
 # (trigger filter is branches: main, tags never match it),
 # and the release step writes via the API without pushing, so no loop.
@@ -14,60 +14,30 @@ permissions:
   contents: write
 
 # One release at a time; never cancel a running release for a newer push.
+# Queued pushes each mint the next patch, so no version is skipped.
 concurrency:
   group: release-main
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: verify + bump patch + release APK
+  version:
+    name: compute next tag (once, shared by both apps)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/user_app
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      build_name: ${{ steps.version.outputs.build_name }}
     steps:
-      # fetch-depth 0: version step needs the full tag history
+      # fetch-depth 0: the version step needs the full tag history
       # to compute the next patch number.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # AGP 9.0.1 documents JDK 17 (min + default, developer.android.com
-      # AGP 9.0 release notes). Project bytecode target is
-      # JavaVersion.VERSION_17 (see android/app/build.gradle.kts), and the
-      # Gradle 9.1.0 / SDK 36.0.0 / Flutter 3.44.9 pins below mirror the
-      # local machine the APK was release-verified on, so the CI artifact
-      # is the same app users install on their phones. (The JDK only runs
-      # the build; phones run the compiled APK against Android SDK 36.)
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      # Pinned to the Flutter version the app is developed and
-      # release-verified with locally (flutter doctor: 3.44.9 stable).
-      - name: Set up Flutter 3.44.9
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: "3.44.9"
-          cache: true
-
-      - name: Pub get
-        run: flutter pub get
-
-      - name: Analyze (must be zero issues)
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
-
       # Next patch = latest vX.Y.Z tag + 1. No tags yet -> start at v1.0.1
-      # (pubspec is 1.0.0+1). versionCode uses run_number: monotonic per
-      # workflow, never collides, no pubspec commit needed (avoids a
-      # push-loop back into this workflow).
+      # (both pubspecs are 1.0.0+1). One tag for both APKs: a GitHub
+      # Release maps to exactly one tag, and the user+vendor pair from the
+      # same main push belongs together (same versionName, same changelog).
       - name: Compute next version
         id: version
         run: |
@@ -81,28 +51,144 @@ jobs:
           echo "tag=v${MAJOR}.${MINOR}.${NEXT_PATCH}" >> "$GITHUB_OUTPUT"
           echo "build_name=${MAJOR}.${MINOR}.${NEXT_PATCH}" >> "$GITHUB_OUTPUT"
 
+  build:
+    name: release APK (${{ matrix.label }})
+    needs: [version]
+    runs-on: ubuntu-latest
+    strategy:
+      # All-or-nothing: if either app fails, the sibling cancels and the
+      # release job (needs: build success) never runs — users never get a
+      # half-release with only one APK under a shared tag.
+      fail-fast: true
+      matrix:
+        include:
+          - app: user
+            dir: apps/user_app
+            label: Shodasha (customer)
+            asset: shodasha-user
+            defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF
+          - app: vendor
+            dir: apps/vendor_app
+            label: Shodasha Vendor (delivery)
+            asset: shodasha-vendor
+            defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # AGP 9.0.1 documents JDK 17 (min + default, developer.android.com
+      # AGP 9.0 release notes). Both apps target JavaVersion.VERSION_17
+      # (see android/app/build.gradle.kts), and the Gradle 9.1.0 /
+      # SDK 36.0.0 / Flutter 3.44.9 pins mirror the local machine the APKs
+      # were release-verified on. (The JDK only runs the build; phones run
+      # the compiled APK against Android SDK 36.)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Pinned to the Flutter version the apps are developed and
+      # release-verified with locally (flutter doctor: 3.44.9 stable).
+      - name: Set up Flutter 3.44.9
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.44.9"
+          cache: true
+          cache-key: ${{ matrix.app }}-${{ hashFiles(format('{0}/pubspec.lock', matrix.dir)) }}
+
+      - name: Pub get
+        working-directory: ${{ matrix.dir }}
+        run: flutter pub get
+
+      - name: Analyze (must be zero issues)
+        working-directory: ${{ matrix.dir }}
+        run: flutter analyze
+
+      - name: Test
+        working-directory: ${{ matrix.dir }}
+        run: flutter test
+
+      # versionCode uses run_number: globally monotonic, so each package's
+      # versionCode only ever increases (Android's per-package upgrade rule
+      # is satisfied). Distinct applicationIds (com.shodasha.shodasha_app
+      # vs com.shodasha.vendor_app) mean identical versionCodes never
+      # collide on-device — both apps install side-by-side. No pubspec
+      # commit (avoids a push-loop back into this workflow).
       # Release config signs with debug keys for now
-      # (android/app/build.gradle.kts: signingConfig debug) so the APK
-      # installs directly on any phone. TODO: real keystore via GitHub
-      # Secrets before Play-store distribution.
+      # (android/app/build.gradle.kts: signingConfig debug) so the APKs
+      # install directly on any phone. TODO: real keystore via GitHub
+      # Secrets (same key for both apps) before Play-store distribution.
       # SHODASHA_API_BASE points the app at the production Worker (no
       # hardcoded hosts in Dart); RAZORPAY_KEY_ID is the publishable test
       # key (public by design — the secret never leaves the worker).
       - name: Build release APK
-        run: flutter build apk --release --build-name=${{ steps.version.outputs.build_name }} --build-number=${{ github.run_number }} --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF
+        working-directory: ${{ matrix.dir }}
+        run: flutter build apk --release --build-name=${{ needs.version.outputs.build_name }} --build-number=${{ github.run_number }} ${{ matrix.defines }}
 
+      # Unique artifact names per leg: identical names would collide and
+      # overwrite each other on download.
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ matrix.app }}-${{ needs.version.outputs.tag }}
+          path: ${{ matrix.dir }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: publish one Release with both APKs
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Each leg uploads a uniquely NAMED artifact holding the same inner
+      # basename (app-release.apk), so download each into its own directory —
+      # merging both into one dir would let one overwrite the other.
+      - name: Download user APK
+        uses: actions/download-artifact@v4
+        with:
+          name: apk-user-${{ needs.version.outputs.tag }}
+          path: dist/user
+
+      - name: Download vendor APK
+        uses: actions/download-artifact@v4
+        with:
+          name: apk-vendor-${{ needs.version.outputs.tag }}
+          path: dist/vendor
+
+      # Rename to role-first asset names BEFORE checksumming, so
+      # SHA256SUMS.txt verifies exactly what users download. Fail loudly if
+      # a leg is missing instead of publishing a silent single-APK release.
       - name: Stage assets
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp "build/app/outputs/flutter-apk/app-release.apk" "$GITHUB_WORKSPACE/dist/shodasha-${{ steps.version.outputs.tag }}.apk"
-          (cd "$GITHUB_WORKSPACE/dist" && sha256sum -- *.apk > SHA256SUMS.txt)
+          set -euo pipefail
+          test -f dist/user/app-release.apk || { echo "user APK missing"; exit 1; }
+          test -f dist/vendor/app-release.apk || { echo "vendor APK missing"; exit 1; }
+          mv dist/user/app-release.apk "dist/shodasha-user-${{ needs.version.outputs.tag }}.apk"
+          mv dist/vendor/app-release.apk "dist/shodasha-vendor-${{ needs.version.outputs.tag }}.apk"
+          rm -rf dist/user dist/vendor
+          (cd dist && sha256sum -- *.apk > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
 
-      - name: Create GitHub Release with APK
+      - name: Create GitHub Release with both APKs
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## APKs — pick your app
+            | File | App | Android package |
+            |------|-----|---------------|
+            | `shodasha-user-${{ needs.version.outputs.tag }}.apk` | Shodasha (customers — order water) | `com.shodasha.shodasha_app` |
+            | `shodasha-vendor-${{ needs.version.outputs.tag }}.apk` | Shodasha Vendor (delivery staff — routes, stops, earnings) | `com.shodasha.vendor_app` |
+            Both apps install side-by-side. Verify with `sha256sum -c SHA256SUMS.txt`.
           files: |
-            dist/shodasha-${{ steps.version.outputs.tag }}.apk
+            dist/shodasha-user-${{ needs.version.outputs.tag }}.apk
+            dist/shodasha-vendor-${{ needs.version.outputs.tag }}.apk
             dist/SHA256SUMS.txt

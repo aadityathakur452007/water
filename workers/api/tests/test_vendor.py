@@ -312,9 +312,12 @@ def test_router_triple_pod_me_validation():
     _session(c, "v1", "vendor", "tok-vendor")
     client = _client(c)
     h = {"Authorization": "Bearer tok-vendor"}
-    assert client.post("/v1/vendor/stops/s1/triple", json=_triple(), headers=h).status_code == 200
+    hk1 = {**h, "Idempotency-Key": "k-router-1"}
+    assert client.post("/v1/vendor/stops/s1/triple", json=_triple(), headers=hk1).status_code == 200
     bad = dict(_triple(), tendered=100, change_given=0, cash=50)
-    assert client.post("/v1/vendor/stops/s1/triple", json=bad, headers=h).status_code == 400
+    bad["version"] = _triple()["version"] + 1  # commit bumped it; fresh fence
+    hk2 = {**h, "Idempotency-Key": "k-router-2"}
+    assert client.post("/v1/vendor/stops/s1/triple", json=bad, headers=hk2).status_code == 400
     assert client.post("/v1/vendor/stops/s1/pod", json={"delivery_otp": "000000"},
                        headers=h).status_code == 401
     ok = client.post("/v1/vendor/stops/s1/pod",

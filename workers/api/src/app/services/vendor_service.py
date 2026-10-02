@@ -151,7 +151,11 @@ class VendorService:
 
         Stale version → 409 STALE_STOP. tendered−change≠cash → 400. Ledger
         never-negative → 422 (propagates from LedgerRepo, no partial write).
-        Same-key replay → stored outcome; same-payload replay → current row.
+        Same-key replay → stored outcome (checked BEFORE the version fence so
+        a retried success never 409s); same-payload replay → current row.
+        Every successful commit bumps stops.version so a concurrent retry or
+        edited offline replay with the old version fences instead of
+        double-applying the ledger.
         """
         version = payload.get("version")
         if version is None:
@@ -169,11 +173,6 @@ class VendorService:
         phash = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
         with WRITE_LOCK:
             stop = await self._owned_stop(vendor_id, stop_id)
-            if int(stop["version"]) != int(version):
-                raise StaleStopError(
-                    message="Stop was reassigned. Pull the fresh route.",
-                    details={"stop_id": stop_id, "expected": stop["version"], "got": version},
-                )
             if scoped:
                 stored = await self._idem_get(vendor_id, scoped)
                 if stored is not None:
@@ -185,10 +184,17 @@ class VendorService:
                     return json.loads(stored["result"])
             current = json.loads(stop["triple"]) if stop["triple"] else {}
             if stop["status"] == "done" and current and _triple_core(current) == core:
-                out = self._stop_out(stop)  # same-payload replay: zero new writes
+                # Same-payload replay (keyless sync retry after a bump):
+                # this IS our commit — return it, never 409, never re-apply.
+                out = self._stop_out(stop)  # zero new writes
                 if scoped:
                     await self._idem_put(vendor_id, scoped, stop_id, phash, out)
                 return {**out, "replay": True}
+            if int(stop["version"]) != int(version):
+                raise StaleStopError(
+                    message="Stop was reassigned. Pull the fresh route.",
+                    details={"stop_id": stop_id, "expected": stop["version"], "got": version},
+                )
             try:
                 await self.ledger.apply_event(
                     stop["customer_id"] or stop_id,
@@ -201,7 +207,7 @@ class VendorService:
                 triple = {**core, "tendered": tendered, "change_given": change,
                           "seal_ok": payload.get("seal_ok"), "pod": current.get("pod")}
                 await self._conn.execute(
-                    "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE id = ?",
+                    "UPDATE stops SET triple = ?, status = 'done', synced_at = ?, version = version + 1 WHERE id = ?",
                     (json.dumps({k: v for k, v in triple.items() if v is not None}), _now(), stop_id),
                 )
                 self._conn.commit()

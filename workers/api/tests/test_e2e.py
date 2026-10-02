@@ -233,7 +233,7 @@ async def test_e2e_full_lifecycle(client):
         f"/v1/vendor/stops/{stop_id}/triple",
         json={"fulls_given": 2, "empties_back": 1, "cash": 0, "upi": 0,
               "caps_missing": 0, "version": 1},
-        headers=_auth("tok-vendor-1"),
+        headers={**_auth("tok-vendor-1"), "Idempotency-Key": "e2e-triple-1"},
     )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "done"
