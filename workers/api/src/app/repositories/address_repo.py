@@ -55,7 +55,7 @@ def _field(dto, name: str, default=None):
     return getattr(dto, name, default)
 
 
-def _validate(type_=None, lat=None, lng=None, pincode=None) -> None:
+def _validate(type_=None, lat=None, lng=None, pincode=None, **capped) -> None:
     if type_ is not None and type_ not in _VALID_TYPES:
         raise ValidationError("type must be home|office", {"type": type_})
     if lat is not None and not (-90 <= float(lat) <= 90):
@@ -66,6 +66,11 @@ def _validate(type_=None, lat=None, lng=None, pincode=None) -> None:
         raise ValidationError("GPS fix required — (0,0) is not a valid location", {})
     if pincode is not None and not _PINCODE_RE.match(str(pincode).strip()):
         raise ValidationError("pincode must be 6 digits, not starting with 0", {"pincode": pincode})
+    # F1 caps (ADR-056): defense in depth for direct repo callers (Pydantic
+    # already gates the HTTP path). 500 chars like complaints/vendor notes.
+    for k, v in capped.items():
+        if v is not None and len(str(v)) > 500:
+            raise ValidationError(f"{k} must be ≤ 500 chars", {k: k})
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -83,7 +88,9 @@ class AddressRepo:
         lat = _field(dto, "lat")
         lng = _field(dto, "lng")
         pincode = _field(dto, "pincode")
-        _validate(type_, lat, lng, pincode)
+        _validate(type_, lat, lng, pincode, house=_field(dto, "house"),
+                  street=_field(dto, "street"), area=_field(dto, "area"),
+                  phone=_field(dto, "phone"))
         now = _now()
         addr_id = uuid.uuid4().hex
         lift = 1 if _field(dto, "lift_flag", False) else 0
@@ -183,6 +190,8 @@ class AddressRepo:
             new_lat if touching_geo else None,
             new_lng if touching_geo else None,
             fields.get("pincode"),
+            house=fields.get("house"), street=fields.get("street"),
+            area=fields.get("area"), phone=fields.get("phone"),
         )
         if await self._blocked_by_order(addr_id):
             raise ConflictError(

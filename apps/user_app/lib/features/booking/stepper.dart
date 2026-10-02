@@ -3,14 +3,17 @@
 
 import 'package:flutter/material.dart';
 
-/// Shodasha tokens (flat, no shadows/gradients).
+import '../../core/theme.dart';
+
+/// Shodasha tokens (flat, no shadows/gradients) — aliases of
+/// [ShodashaTheme] (Wave 1 honesty: local #0369A1 drifted, locked is #0284C7).
 class ShodashaColors {
-  static const Color bg = Color(0xFFFFFFFF);
-  static const Color ink = Color(0xFF111111);
-  static const Color muted = Color(0xFF595959);
-  static const Color accent = Color(0xFF0369A1);
-  static const Color accentSoft = Color(0xFFE8F3FA);
-  static const Color border = Color(0xFFE5E5E5);
+  static const Color bg = ShodashaTheme.bg;
+  static const Color ink = ShodashaTheme.ink;
+  static const Color muted = ShodashaTheme.muted;
+  static const Color accent = ShodashaTheme.blue;
+  static const Color accentSoft = ShodashaTheme.blueTint;
+  static const Color border = ShodashaTheme.border;
 }
 
 const double kShodashaRadius = 8;

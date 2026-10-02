@@ -81,6 +81,42 @@ class _SupportScreenState extends State<SupportScreen> {
               padding: EdgeInsets.only(bottom: 12),
               child: Center(child: CircularProgressIndicator()),
             )
+          else if (c.queueError != null)
+            Card(
+              shape: ShodashaTheme.shape,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.cloud_off_outlined,
+                        color: ShodashaTheme.muted),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(c.queueError!)),
+                    TextButton(
+                      onPressed: c.loadQueue,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (c.queue.isEmpty)
+            Card(
+              shape: ShodashaTheme.shape,
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.support_agent_outlined,
+                        color: ShodashaTheme.muted),
+                    SizedBox(width: 12),
+                    Expanded(
+                        child: Text(
+                            'Koi vivaad nahi — ID se verify ab bhi kar sakte hain')),
+                  ],
+                ),
+              ),
+            )
           else
             for (final q in c.queue)
               Card(
@@ -125,6 +161,9 @@ class _SupportScreenState extends State<SupportScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _id,
+                    // #8 fix: re-evaluate buttons as the id is typed
+                    // (was checked once in build — stayed disabled).
+                    onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                       labelText: _isQuality
                           ? 'Incident ID'

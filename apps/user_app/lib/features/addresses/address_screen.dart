@@ -215,6 +215,7 @@ class AddressController extends ChangeNotifier {
 
   Future<bool> save(AddressEntry entry, {bool isNew = true}) async {
     _busy = true;
+    _saveErrorClear();
     _notify();
     try {
       final body = entry.toApi();
@@ -229,14 +230,23 @@ class AddressController extends ChangeNotifier {
       }
       select(saved.id); // newly saved address becomes the delivery address
       return true;
-    } on ApiException {
+    } on ApiException catch (e) {
+      // S3: surfaced inline by the form sheet (stays open + retry).
+      _errorMessage = e.isNetwork
+          ? addressStringsHi['offline']
+          : addressStringsHi['loadFailed'];
       return false;
     } catch (_) {
+      _errorMessage = addressStringsHi['loadFailed'];
       return false;
     } finally {
       _busy = false;
       _notify();
     }
+  }
+
+  void _saveErrorClear() {
+    _errorMessage = null;
   }
 
   Future<bool> delete(String id) async {
@@ -547,6 +557,12 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool _locating = false;
   String? _locateError;
 
+  /// Stepper state (Wave 1 polish): 0 Naam → 1 Pata → 2 Location.
+  int _step = 0;
+
+  /// S3: save failure stays in-sheet with inline error + retry (no silent pop).
+  String? _saveError;
+
   /// Map pin (null = not pinned yet; backend rejects 0,0).
   double? _lat;
   double? _lng;
@@ -593,7 +609,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool get _valid => _pinOk && _labelOk && _lineOk && _mapOk;
 
   Future<void> _save() async {
-    setState(() => _touched = true);
+    setState(() {
+      _touched = true;
+      _saveError = null;
+    });
     if (!_valid) return;
     FocusScope.of(context).unfocus();
     String? clean(TextEditingController t) {
@@ -601,7 +620,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       return v.isEmpty ? null : v;
     }
 
-    final saved = await widget.controller.save(
+    final ok = await widget.controller.save(
       AddressEntry(
         id: widget.existing?.id ?? '',
         label: _label.text.trim(),
@@ -621,7 +640,33 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       isNew: _isNew,
     );
     if (!mounted) return;
-    Navigator.of(context).pop(saved);
+    if (ok) {
+      Navigator.of(context).pop(true);
+    } else {
+      // S3: stay open — inline error + retry instead of a silent dismiss.
+      setState(() => _saveError =
+          widget.controller.errorMessage ?? addressStringsHi['offline']);
+    }
+  }
+
+  bool _stepOk(int step) {
+    switch (step) {
+      case 0:
+        return _labelOk;
+      case 1:
+        return _pinOk && _lineOk;
+      default:
+        return _valid;
+    }
+  }
+
+  Future<void> _onContinue() async {
+    setState(() => _touched = true);
+    if (_step < 2) {
+      if (_stepOk(_step)) setState(() => _step++);
+      return;
+    }
+    await _save();
   }
 
   /// Current-location prefill: fix + reverse-geocode → pin + fields.
@@ -658,6 +703,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
+    // Fixed sheet height: the vertical Stepper needs a bounded viewport
+    // (it scrolls internally per step instead of one 800px column).
+    final sheetHeight = MediaQuery.of(context).size.height * 0.88;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -666,201 +714,322 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
           top: 16,
           bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: SingleChildScrollView(
-          child: ListenableBuilder(
-            listenable: c,
-            builder: (context, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        child: SizedBox(
+          height: sheetHeight,
+          child: Column(
+            mainAxisSize: MainAxisSize.max,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _isNew
+                    ? addressStringsHi['addTitle']!
+                    : addressStringsHi['editTitle']!,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                ),
+              ),
+              if (_type == AddrType.office) ...[
+                const SizedBox(height: 6),
                 Text(
-                  _isNew
-                      ? addressStringsHi['addTitle']!
-                      : addressStringsHi['editTitle']!,
+                  addressStringsHi['errOfficeBulk']!,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
-                ),
-                if (_type == AddrType.office) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    addressStringsHi['errOfficeBulk']!,
-                    style: const TextStyle(
-                      color: ShodashaTheme.blue,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _label,
-                  keyboardType: TextInputType.name,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: addressStringsHi['labelField'],
-                    errorText: _touched && !_labelOk
-                        ? addressStringsHi['errLabel']
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SegmentedButton<AddrType>(
-                  segments: [
-                    ButtonSegment(
-                      value: AddrType.home,
-                      label: Text(addressStringsHi['typeHome']!),
-                    ),
-                    ButtonSegment(
-                      value: AddrType.office,
-                      label: Text(addressStringsHi['typeOffice']!),
-                    ),
-                  ],
-                  selected: {_type},
-                  onSelectionChanged: (s) =>
-                      setState(() => _type = s.first),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _pincode,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: addressStringsHi['pincode'],
-                    counterText: '',
-                    errorText: _touched && !_pinOk
-                        ? addressStringsHi['errPincode']
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _line,
-                  minLines: 2,
-                  maxLines: 3,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: addressStringsHi['addressLine'],
-                    errorText: _touched && !_lineOk
-                        ? addressStringsHi['errLine']
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _house,
-                        decoration: const InputDecoration(
-                          labelText: 'Makan / House no.',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: _street,
-                        decoration: const InputDecoration(
-                          labelText: 'Gali / Street',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _area,
-                  decoration: const InputDecoration(
-                    labelText: 'Area / Mohalla',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _landmark,
-                  decoration: InputDecoration(
-                    labelText: addressStringsHi['landmark'],
-                  ),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(addressStringsHi['lift']!),
-                  value: _lift,
-                  onChanged: (v) => setState(() => _lift = v),
-                ),
-                const SizedBox(height: 6),
-                OutlinedButton.icon(
-                  onPressed: _locating ? null : _useCurrentLocation,
-                  icon: _locating
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.my_location),
-                  label: const Text('Current location use karein'),
-                ),
-                if (_locateError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      _locateError!,
-                      style: const TextStyle(
-                        color: ShodashaTheme.danger,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 6),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final pin = await pickMapPin(
-                      context,
-                      initial:
-                          _mapOk ? LatLng(_lat!, _lng!) : null,
-                    );
-                    if (pin != null) {
-                      setState(() {
-                        _lat = pin.latitude;
-                        _lng = pin.longitude;
-                      });
-                    }
-                  },
-                  icon: const Icon(Icons.map),
-                  label: Text(
-                    _mapOk
-                        ? 'Pin laga hai — badalne ke liye tap karein'
-                        : 'Map par pin lagayein',
-                  ),
-                ),
-                if (_touched && !_mapOk)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                      'Map par pin lagana zaroori hai',
-                      style: TextStyle(
-                        color: ShodashaTheme.danger,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (c.busy || !_valid) ? null : _save,
-                    child: c.busy
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(addressStringsHi['save']!),
+                    color: ShodashaTheme.blue,
+                    fontSize: 13,
                   ),
                 ),
               ],
-            ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListenableBuilder(
+                  listenable: c,
+                  builder: (context, _) => Stepper(
+                    type: StepperType.vertical,
+                    currentStep: _step,
+                    onStepTapped: (i) =>
+                        setState(() => _step = i),
+                    onStepContinue: _onContinue,
+                    onStepCancel: () {
+                      if (_step > 0) setState(() => _step--);
+                    },
+                    controlsBuilder: (context, details) {
+                      final last = _step == 2;
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Row(
+                          children: [
+                            if (_step > 0)
+                              TextButton(
+                                onPressed: details.onStepCancel,
+                                child: const Text('Peeche'),
+                              ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: (c.busy ||
+                                        (!_stepOk(_step) &&
+                                            _step < 2 &&
+                                            _touched) ||
+                                        (last && !_valid))
+                                    ? null
+                                    : details.onStepContinue,
+                                child: c.busy && last
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      )
+                                    : Text(last
+                                        ? addressStringsHi['save']!
+                                        : 'Aage'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    steps: [
+                      Step(
+                        title: const Text('Naam'),
+                        isActive: _step >= 0,
+                        state: _step > 0
+                            ? StepState.complete
+                            : StepState.indexed,
+                        content: Column(
+                          children: [
+                            TextField(
+                              controller: _label,
+                              keyboardType: TextInputType.name,
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                labelText:
+                                    addressStringsHi['labelField'],
+                                errorText: _touched && !_labelOk
+                                    ? addressStringsHi['errLabel']
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SegmentedButton<AddrType>(
+                              segments: [
+                                ButtonSegment(
+                                  value: AddrType.home,
+                                  label: Text(
+                                      addressStringsHi['typeHome']!),
+                                ),
+                                ButtonSegment(
+                                  value: AddrType.office,
+                                  label: Text(
+                                      addressStringsHi['typeOffice']!),
+                                ),
+                              ],
+                              selected: {_type},
+                              onSelectionChanged: (s) =>
+                                  setState(() => _type = s.first),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _phone,
+                              keyboardType: TextInputType.phone,
+                              textInputAction: TextInputAction.next,
+                              maxLength: 15,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                labelText: addressStringsHi['phone'],
+                                counterText: '',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Step(
+                        title: const Text('Pata'),
+                        isActive: _step >= 1,
+                        state: _step > 1
+                            ? StepState.complete
+                            : StepState.indexed,
+                        content: Column(
+                          children: [
+                            TextField(
+                              controller: _pincode,
+                              keyboardType: TextInputType.number,
+                              textInputAction: TextInputAction.next,
+                              maxLength: 6,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                labelText: addressStringsHi['pincode'],
+                                counterText: '',
+                                errorText: _touched && !_pinOk
+                                    ? addressStringsHi['errPincode']
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _line,
+                              minLines: 2,
+                              maxLines: 3,
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                labelText:
+                                    addressStringsHi['addressLine'],
+                                errorText: _touched && !_lineOk
+                                    ? addressStringsHi['errLine']
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _house,
+                                    textInputAction:
+                                        TextInputAction.next,
+                                    maxLength: 500,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Makan / House no.',
+                                      counterText: '',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _street,
+                                    textInputAction:
+                                        TextInputAction.next,
+                                    maxLength: 500,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Gali / Street',
+                                      counterText: '',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _area,
+                              textInputAction: TextInputAction.next,
+                              maxLength: 500,
+                              decoration: const InputDecoration(
+                                labelText: 'Area / Mohalla',
+                                counterText: '',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _landmark,
+                              textInputAction: TextInputAction.done,
+                              decoration: InputDecoration(
+                                labelText:
+                                    addressStringsHi['landmark'],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Step(
+                        title: const Text('Location'),
+                        isActive: _step >= 2,
+                        content: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.stretch,
+                          children: [
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title:
+                                  Text(addressStringsHi['lift']!),
+                              value: _lift,
+                              onChanged: (v) =>
+                                  setState(() => _lift = v),
+                            ),
+                            const SizedBox(height: 6),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  _locating ? null : _useCurrentLocation,
+                              icon: _locating
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child:
+                                          CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.my_location),
+                              label: const Text(
+                                  'Current location use karein'),
+                            ),
+                            if (_locateError != null)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  _locateError!,
+                                  style: const TextStyle(
+                                    color: ShodashaTheme.danger,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 6),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final pin = await pickMapPin(
+                                  context,
+                                  initial: _mapOk
+                                      ? LatLng(_lat!, _lng!)
+                                      : null,
+                                );
+                                if (pin != null) {
+                                  setState(() {
+                                    _lat = pin.latitude;
+                                    _lng = pin.longitude;
+                                  });
+                                }
+                              },
+                              icon: const Icon(Icons.map),
+                              label: Text(
+                                _mapOk
+                                    ? 'Pin laga hai — badalne ke liye tap karein'
+                                    : 'Map par pin lagayein',
+                              ),
+                            ),
+                            if (_touched && !_mapOk)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 6),
+                                child: Text(
+                                  'Map par pin lagana zaroori hai',
+                                  style: TextStyle(
+                                    color: ShodashaTheme.danger,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            if (_saveError != null)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  _saveError!,
+                                  style: const TextStyle(
+                                    color: ShodashaTheme.danger,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

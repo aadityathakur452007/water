@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-056 | 2026-10-02 | Wave-1 UX polish: vendor 4-tab + More, address Stepper, login hero, ink/theme honesty, F1 caps, critical states | Accepted | apps/user_app auth/addresses/booking/orders/theme, apps/vendor_app shell/route/support/duty/sync/inventory, workers/api F1 caps + test |
 | ADR-055 | 2026-10-02 | Port wrong-repo Phase-1/Phase-2 gaps (011 migration + address format + location + vendor customers/stock/profile/queue) as Workers rewrite | Accepted | workers/api 011_port.sql + vendor/address slices + tests, apps/user_app location/address/store, apps/vendor_app customers/inventory/profile/support |
 | ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
 | ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
@@ -110,6 +111,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-056: Wave-1 UX polish (4-tab vendor, address Stepper, login hero, honesty, F1 caps)
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: User ordered skill-loaded UX pass (hallmark audit + impeccable Operate + redesign-existing-projects + mobile-native + security-audit guidance) with 4 parallel audit agents (user UX, vendor UX, states/a11y/copy, inputs-security). 70+ ranked findings; 1 confirmed security issue (F1 unbounded address fields). Prior explicit approval: 4-tab + More, Wave 1 only, designed hero login. Committed first (008-ux-polish ce75762) so nothing could be lost.
+- **Options considered**: 7-tab polish-in-place (rejected — 7 destinations mistap outdoors, approved 4+More); copying wrong-repo forms (rejected — rewrite on Water theme); new tickets tables (already rejected in ADR-055); full 40-item sweep now (rejected — approved Wave 1, rest queued as Wave 2).
+- **Decision**: Vendor shell 4 tabs + drawer (Customers/Stock/Sync-log/Profile/WhatsApp/Logout); Route absorbs search + stock header + sync chip; address sheet → 3-step Stepper + save-fail stays open; login/OTP → hero card + trust chips + Step 1/2–2/2 + pin 40px; blue-filled → ink, 3 token classes → theme aliases, ~40 hardcoded literals → tokens; F1 max_length=500 both sides; duty-off confirm, sync/inventory/queue loading+error branches, slot retry, support enable fix. Verify: 191 pytest, user 80, vendor 26 green, both analyzes 0.
+- **Why**: Structural declutter (steppers/drawer/sections) over button sprawl; single token source stops the next drift; fail-closed states instead of silent zeros.
+- **Consequences**: Wave 2 queued (booking schedule rework, stop Triple/PoD stepper, remaining states/a11y/Hindi-copy sweep). Push cuts release with all of it.
+- **Affects**: user auth/addresses/booking/orders/theme + tests, vendor shell/route/support/duty/sync/inventory + tests, workers F1 caps + test
 
 ### ADR-055: Port wrong-repo Phase-1/Phase-2 gaps as Workers rewrite (011_port)
 - **Date**: 2026-10-02

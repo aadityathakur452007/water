@@ -12,10 +12,16 @@ class RouteScreen extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onOpenStop,
+    this.onOpenCustomers,
+    this.onOpenSync,
   });
 
   final RouteController controller;
   final void Function(RouteStop stop) onOpenStop;
+
+  /// Drawer destinations surfaced as Route sections (Wave 1 shell merge).
+  final VoidCallback? onOpenCustomers;
+  final VoidCallback? onOpenSync;
 
   @override
   State<RouteScreen> createState() => _RouteScreenState();
@@ -50,14 +56,21 @@ class _RouteScreenState extends State<RouteScreen> {
     final c = widget.controller;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aaj ka route / Today'),
+        title: const Text('Aaj ka route'),
         actions: [
+          if (widget.onOpenCustomers != null)
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Customers khojein',
+              onPressed: widget.onOpenCustomers,
+            ),
           if (c.pendingSync > 0)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: Chip(
+              child: ActionChip(
                 backgroundColor: ShodashaTheme.blueTint,
                 label: Text('Sync baaki (${c.pendingSync})'),
+                onPressed: widget.onOpenSync,
               ),
             ),
         ],
@@ -181,6 +194,7 @@ class _RouteScreenState extends State<RouteScreen> {
                 IconButton(
                   icon: const Icon(Icons.navigation_outlined,
                       color: ShodashaTheme.blue),
+                  tooltip: 'Navigate karein',
                   onPressed: () => _navigate(s.address),
                 ),
             ],

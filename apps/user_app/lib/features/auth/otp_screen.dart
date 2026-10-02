@@ -100,6 +100,11 @@ class _OtpScreenState extends State<OtpScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Text(
+                    'Step 2 / 2 — OTP',
+                    style: TextStyle(fontSize: 12, color: AuthTokens.muted),
+                  ),
+                  const SizedBox(height: 6),
                   Text(
                     authStringsHi['otpTitle']!,
                     style: const TextStyle(
@@ -128,7 +133,8 @@ class _OtpScreenState extends State<OtpScreen> {
                     enablePaste: true,
                     theme: MaterialPinTheme(
                       shape: MaterialPinShape.outlined,
-                      cellSize: const Size(48, 56),
+                      // 6×40 + 5×8 = 280px: fits 360px phones with padding.
+                      cellSize: const Size(40, 56),
                       spacing: 8,
                       borderRadius: BorderRadius.circular(AuthTokens.radius),
                       fillColor: AuthTokens.bg,

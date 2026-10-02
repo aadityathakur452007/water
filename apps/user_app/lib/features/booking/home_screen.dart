@@ -161,7 +161,8 @@ class _HomeScreenState extends State<HomeScreen> {
             controller: _search,
             onChanged: (v) => setState(() => _query = v),
             decoration: const InputDecoration(
-              hintText: 'Search: refill, container…',
+              labelText: 'Khoj',
+              hintText: 'Search: refill, container.',
               prefixIcon: Icon(Icons.search),
             ),
           ),
@@ -272,49 +273,35 @@ class _AddressBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final current = addresses?.resolve();
-    return PressScale(
+    return ListTile(
+      leading: const Icon(Icons.location_on, color: ShodashaTheme.blue),
+      title: const Text(
+        'Deliver to',
+        style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+      ),
+      subtitle: Text(
+        current == null
+            ? 'Address chunein (map par pin lagayein)'
+            : '${current.label} • ${current.pincode}',
+        style: const TextStyle(fontWeight: FontWeight.w700),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: TextButton(
+        onPressed: onChange,
+        child: const Text(
+          'Change',
+          style: TextStyle(
+            color: ShodashaTheme.blue,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
       onTap: onChange,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          border: Border.all(color: ShodashaTheme.border),
-          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.location_on, color: ShodashaTheme.blue),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Deliver to',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: ShodashaTheme.muted,
-                    ),
-                  ),
-                  Text(
-                    current == null
-                        ? 'Address chunein (map par pin lagayein)'
-                        : '${current.label} • ${current.pincode}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const Text(
-              'Change',
-              style: TextStyle(
-                color: ShodashaTheme.blue,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
     );
   }
@@ -347,7 +334,7 @@ class _Chip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : ShodashaTheme.ink,
+            color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
             fontWeight: FontWeight.w600,
           ),
         ),

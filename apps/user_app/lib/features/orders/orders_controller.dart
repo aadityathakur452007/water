@@ -25,11 +25,10 @@
 
 import 'dart:async';
 
-import 'package:flutter/material.dart'
-    show
-        Color; // WHY: tokens are UI constants; foundation-only import lacks Color.
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../core/theme.dart';
 
 /// Hindi-first copy for the orders feature (local map per approved answer 1).
 const Map<String, String> ordersStringsHi = {
@@ -71,15 +70,17 @@ const Map<String, String> ordersStringsHi = {
 
 /// F4 orders tokens — same Mode-1 restraint as auth (one accent, hairline
 /// borders, radius 8, 48dp targets, no shadows/gradients/emoji/FAB/glass).
+/// Wave 1 honesty: aliases of [ShodashaTheme] (the local #0369A1 blues
+/// drifted from the locked #0284C7; one source stops the next drift).
 class OrdersTokens {
-  static const white = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF111111);
-  static const muted = Color(0xFF595959);
-  static const blue = Color(0xFF0369A1);
-  static const blueTint = Color(0xFFE8F3FA);
-  static const border = Color(0xFFE5E5E5);
-  static const radius = 8.0;
-  static const minTarget = 48.0;
+  static const white = ShodashaTheme.bg;
+  static const ink = ShodashaTheme.ink;
+  static const muted = ShodashaTheme.muted;
+  static const blue = ShodashaTheme.blue;
+  static const blueTint = ShodashaTheme.blueTint;
+  static const border = ShodashaTheme.border;
+  static const radius = ShodashaTheme.radius;
+  static const minTarget = ShodashaTheme.minTarget;
 }
 
 /// Canonical order lifecycle (contract §4.4 + §9 state machine).

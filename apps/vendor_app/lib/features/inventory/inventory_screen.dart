@@ -19,6 +19,45 @@ class InventoryScreen extends StatelessWidget {
       body: ListenableBuilder(
         listenable: route,
         builder: (context, _) {
+          // S4: never show "0 jar" while the route is still loading/failing.
+          switch (route.state) {
+            case RouteState.loading:
+              return const Center(child: CircularProgressIndicator());
+            case RouteState.offline:
+            case RouteState.error:
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_off_outlined,
+                          size: 48, color: ShodashaTheme.muted),
+                      const SizedBox(height: 12),
+                      Text(route.error ?? 'Stock load nahi hua',
+                          textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => route.load(),
+                        child: const Text('Dobara try karein'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            case RouteState.empty:
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'Aaj koi route nahi — stock sheet khali hai',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            case RouteState.loaded:
+              break;
+          }
           final stops = route.stops;
           final done = route.doneCount;
           final pending = stops.length - done;

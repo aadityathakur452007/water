@@ -117,6 +117,27 @@ async def test_slots_set_get_cap():
     assert e.value.code == "VALIDATION"
 
 
+async def test_address_fields_capped_500():
+    from pydantic import ValidationError as PydanticError
+
+    from app.repositories.address_repo import AddressRepo
+    from app.schemas.addresses import AddressIn
+
+    c = _conn()
+    repo = AddressRepo(AsyncSqliteConn(c))
+    long = "x" * 501
+    with pytest.raises(PydanticError):
+        AddressIn(type="home", lat=12.9, lng=77.5, pincode="560002", house=long)
+    from app.core.errors import AppError
+
+    with pytest.raises(AppError) as e:
+        await repo.create("u1", {
+            "type": "home", "lat": 12.9, "lng": 77.5, "pincode": "560002",
+            "area": long,
+        })
+    assert e.value.code == "VALIDATION"
+
+
 # -- customers from stops + complaint queue -------------------------------------
 
 async def test_today_customers_groups_stops():

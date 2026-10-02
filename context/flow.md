@@ -12,7 +12,7 @@
 
 ## Overview
 
-Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock tabs → 7 tabs): vendor OTP login → duty → today route → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch → earnings → complaint/quality verify + ticket queue. See `Feature_docs/vendor-app/spec.md`.
+Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 7 tabs; ADR-056 consolidated to 4 tabs + More drawer): vendor OTP login → duty (off-guard confirmed) → today route (search→customers, stock header, sync chip) → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch (loading branch) → earnings → support queue + verify → drawer (stock log, profile, WhatsApp, logout). See `Feature_docs/vendor-app/spec.md`.
 
 ```
 VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)

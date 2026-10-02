@@ -11,6 +11,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/theme.dart';
+
 /// Fallback center (New Delhi) when location is off/denied.
 const LatLng kDefaultCenter = LatLng(28.6139, 77.2090);
 
@@ -100,7 +102,7 @@ class _MapPickerState extends State<_MapPicker> {
           const Center(
             child: Padding(
               padding: EdgeInsets.only(bottom: 40),
-              child: Icon(Icons.location_pin, size: 44, color: Color(0xFFB91C1C)),
+              child: Icon(Icons.location_pin, size: 44, color: ShodashaTheme.danger),
             ),
           ),
           Positioned(
@@ -109,8 +111,8 @@ class _MapPickerState extends State<_MapPicker> {
             child: FloatingActionButton(
               heroTag: 'locate',
               onPressed: _locating ? null : _locate,
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
+              backgroundColor: ShodashaTheme.bg,
+              foregroundColor: ShodashaTheme.ink,
               child: _locating
                   ? const SizedBox(
                       width: 24,
@@ -128,8 +130,8 @@ class _MapPickerState extends State<_MapPicker> {
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: const Color(0xFFE5E5E5)),
+                  color: ShodashaTheme.bg,
+                  border: Border.all(color: ShodashaTheme.border),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(_locateNote!, style: const TextStyle(fontSize: 13)),
