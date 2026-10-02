@@ -10,8 +10,10 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/api_client.dart';
+import '../../core/location_service.dart';
 import '../../core/theme.dart';
 import 'map_picker.dart' show pickMapPin;
+import 'selected_address_store.dart';
 
 /// Hindi-first copy (TODO(F1): consolidate into lib/l10n/strings.dart).
 const Map<String, String> addressStringsHi = {
@@ -70,6 +72,9 @@ class AddressEntry {
     this.isDefault = false,
     this.lat = 0,
     this.lng = 0,
+    this.house,
+    this.street,
+    this.area,
   });
 
   final String id;
@@ -81,6 +86,11 @@ class AddressEntry {
   final String? landmark;
   final bool lift;
   final bool isDefault;
+
+  /// 011_port full format (nullable, back-compat).
+  final String? house;
+  final String? street;
+  final String? area;
 
   /// Map pin (backend rejects 0,0 — form gates on a real pin).
   final double lat;
@@ -99,6 +109,10 @@ class AddressEntry {
         'lift_flag': lift,
         'lat': lat,
         'lng': lng,
+        'house': house,
+        'street': street,
+        'area': area,
+        'phone': phone.isEmpty ? null : phone,
       };
 
   static AddressEntry fromApi(Map<String, dynamic> j) => AddressEntry(
@@ -113,6 +127,9 @@ class AddressEntry {
         isDefault: (j['is_default'] ?? false) as bool,
         lat: ((j['lat'] ?? 0) as num).toDouble(),
         lng: ((j['lng'] ?? 0) as num).toDouble(),
+        house: j['house'] as String?,
+        street: j['street'] as String?,
+        area: j['area'] as String?,
       );
 }
 
@@ -133,6 +150,44 @@ class AddressController extends ChangeNotifier {
   List<AddressEntry> get items => List.unmodifiable(_items);
   String? get errorMessage => _errorMessage;
   bool get busy => _busy;
+
+  /// Live delivery selection (011_port): Home / checkout / Addresses agree.
+  /// In-memory; main.dart binds a [SelectedAddressStore] for persistence.
+  String? _selectedId;
+  SelectedAddressStore? _store;
+
+  String? get selectedId => _selectedId;
+
+  /// Binds persistence (call once after store.load in main).
+  void bindSelection(SelectedAddressStore store) {
+    _store = store;
+    final persisted = store.selectedId;
+    if (persisted != null && _items.any((a) => a.id == persisted)) {
+      _selectedId = persisted;
+      _notify();
+    }
+  }
+
+  /// Selects the delivery address (tap a row). Writes through to the store.
+  void select(String? id) {
+    if (id == _selectedId) return;
+    _selectedId = (id == null || id.isEmpty) ? null : id;
+    _store?.select(_selectedId); // ignore: discarded_futures
+    _notify();
+  }
+
+  /// Resolves the delivery address: selected (when still saved) → default →
+  /// first → null. Callers (home bar, checkout) use this, never [items].
+  AddressEntry? resolve() {
+    if (_items.isEmpty) return null;
+    for (final a in _items) {
+      if (a.id == _selectedId) return a;
+    }
+    for (final a in _items) {
+      if (a.isDefault) return a;
+    }
+    return _items.first;
+  }
 
   Future<void> load() async {
     if (_status == AddrStatus.loading) return;
@@ -172,6 +227,7 @@ class AddressController extends ChangeNotifier {
       } else {
         _items.add(saved);
       }
+      select(saved.id); // newly saved address becomes the delivery address
       return true;
     } on ApiException {
       return false;
@@ -189,6 +245,7 @@ class AddressController extends ChangeNotifier {
     try {
       await _api.deleteAddress(id);
       _items.removeWhere((a) => a.id == id);
+      if (_selectedId == id) select(null);
       return true;
     } on ApiException catch (e) {
       // Contract: DELETE blocked by active orders/subs → 409 message shown.
@@ -364,10 +421,17 @@ class _AddressScreenState extends State<AddressScreen> {
                   );
                 }
                 final a = c.items[i];
-                return Container(
+                final selected = c.selectedId == a.id || (c.selectedId == null && c.resolve()?.id == a.id);
+                return InkWell(
+                  onTap: () => c.select(a.id),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                  child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    border: Border.all(color: ShodashaTheme.border),
+                    border: Border.all(
+                      color: selected ? ShodashaTheme.blue : ShodashaTheme.border,
+                      width: selected ? 2 : 1,
+                    ),
                     borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   ),
                   child: Column(
@@ -375,6 +439,11 @@ class _AddressScreenState extends State<AddressScreen> {
                     children: [
                       Row(
                         children: [
+                          RadioGroup<String>(
+                            groupValue: c.resolve()?.id,
+                            onChanged: (v) => c.select(v),
+                            child: Radio<String>(value: a.id),
+                          ),
                           Expanded(
                             child: Text(
                               a.label,
@@ -441,6 +510,7 @@ class _AddressScreenState extends State<AddressScreen> {
                       ),
                     ],
                   ),
+                  ),
                 );
               },
             ),
@@ -468,9 +538,14 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   late final TextEditingController _pincode;
   late final TextEditingController _line;
   late final TextEditingController _landmark;
+  late final TextEditingController _house;
+  late final TextEditingController _street;
+  late final TextEditingController _area;
   late AddrType _type;
   bool _lift = false;
   bool _touched = false;
+  bool _locating = false;
+  String? _locateError;
 
   /// Map pin (null = not pinned yet; backend rejects 0,0).
   double? _lat;
@@ -487,6 +562,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     _pincode = TextEditingController(text: e?.pincode ?? '');
     _line = TextEditingController(text: e?.addressLine ?? '');
     _landmark = TextEditingController(text: e?.landmark ?? '');
+    _house = TextEditingController(text: e?.house ?? '');
+    _street = TextEditingController(text: e?.street ?? '');
+    _area = TextEditingController(text: e?.area ?? '');
     _type = e?.type ?? AddrType.home;
     _lift = e?.lift ?? false;
     if (e != null && (e.lat != 0 || e.lng != 0)) {
@@ -502,6 +580,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     _pincode.dispose();
     _line.dispose();
     _landmark.dispose();
+    _house.dispose();
+    _street.dispose();
+    _area.dispose();
     super.dispose();
   }
 
@@ -515,6 +596,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     setState(() => _touched = true);
     if (!_valid) return;
     FocusScope.of(context).unfocus();
+    String? clean(TextEditingController t) {
+      final v = t.text.trim();
+      return v.isEmpty ? null : v;
+    }
+
     final saved = await widget.controller.save(
       AddressEntry(
         id: widget.existing?.id ?? '',
@@ -528,11 +614,45 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
         isDefault: widget.existing?.isDefault ?? false,
         lat: _lat ?? 0,
         lng: _lng ?? 0,
+        house: clean(_house),
+        street: clean(_street),
+        area: clean(_area),
       ),
       isNew: _isNew,
     );
     if (!mounted) return;
     Navigator.of(context).pop(saved);
+  }
+
+  /// Current-location prefill: fix + reverse-geocode → pin + fields.
+  Future<void> _useCurrentLocation() async {
+    setState(() {
+      _locating = true;
+      _locateError = null;
+    });
+    try {
+      final loc = await LocationService().resolveCurrentAddress();
+      if (!mounted) return;
+      setState(() {
+        _lat = loc.latitude;
+        _lng = loc.longitude;
+        if (_street.text.trim().isEmpty && loc.street != null) {
+          _street.text = loc.street!;
+        }
+        if (_area.text.trim().isEmpty && loc.area != null) {
+          _area.text = loc.area!;
+        }
+        if (_line.text.trim().isEmpty) _line.text = loc.displayLabel;
+        if (_pincode.text.trim().isEmpty && loc.postalCode != null) {
+          _pincode.text = loc.postalCode!;
+        }
+      });
+    } on LocationError catch (e) {
+      if (!mounted) return;
+      setState(() => _locateError = e.userMessage);
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
   }
 
   @override
@@ -628,6 +748,35 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                   ),
                 ),
                 const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _house,
+                        decoration: const InputDecoration(
+                          labelText: 'Makan / House no.',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _street,
+                        decoration: const InputDecoration(
+                          labelText: 'Gali / Street',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _area,
+                  decoration: const InputDecoration(
+                    labelText: 'Area / Mohalla',
+                  ),
+                ),
+                const SizedBox(height: 10),
                 TextField(
                   controller: _landmark,
                   decoration: InputDecoration(
@@ -640,6 +789,29 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                   value: _lift,
                   onChanged: (v) => setState(() => _lift = v),
                 ),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  onPressed: _locating ? null : _useCurrentLocation,
+                  icon: _locating
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location),
+                  label: const Text('Current location use karein'),
+                ),
+                if (_locateError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      _locateError!,
+                      style: const TextStyle(
+                        color: ShodashaTheme.danger,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 OutlinedButton.icon(
                   onPressed: () async {

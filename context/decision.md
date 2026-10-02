@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-055 | 2026-10-02 | Port wrong-repo Phase-1/Phase-2 gaps (011 migration + address format + location + vendor customers/stock/profile/queue) as Workers rewrite | Accepted | workers/api 011_port.sql + vendor/address slices + tests, apps/user_app location/address/store, apps/vendor_app customers/inventory/profile/support |
 | ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
 | ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
 | ADR-052 | 2026-10-02 | Dual-APK release (shared tag, user+vendor assets) + conn hardening (retry/single-flight/401 hook) + triple fence fixes + user_app cast port | Accepted | .github/workflows/, apps/vendor_app/lib/core/, workers/api/{src/app/{api/v1/vendor,services/vendor_service},tests/}, apps/user_app/lib/core/api_client.dart |
@@ -109,6 +110,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-055: Port wrong-repo Phase-1/Phase-2 gaps as Workers rewrite (011_port)
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: A prior agent did the Phase-1 (vendor-missing/location/address) + Phase-2 (profile/tickets/maps) work in `C:\Users\Hp\water-delivery-app` (Water-ui branch `20261002-1330-phase2`, commits 368ceca/e735c33/01c2377) instead of this repo. Verified: `water.git` main == Water HEAD 5aa7e10 (nothing leaked); all value sits only on Water-ui. User confirmed the work was intended for this repo and approved porting all gaps as a Workers rewrite, customers from route stops, tickets by extending complaints.
+- **Options considered**: File-copy from water-delivery-app (rejected — different stacks: TS Hono+SQLite + single apps/user vs Python Workers+D1 + split user_app/vendor_app; copy would not compile); single-app merge (rejected — Water's split is the locked architecture, ADR-004); new tickets tables like wrong-repo 0004 (rejected — complaints + verify_complaint already cover the thread; added only the vendor queue read); ALTER-free migration (impossible — address columns must be added; documented apply-once instead).
+- **Decision**: (1) `011_port.sql`: addresses += house/street/area/phone (nullable) + vendor_profile/vendor_slots CREATEs (idempotent); ALTERs documented apply-once (SQLite has no ADD COLUMN IF NOT EXISTS). (2) Backend: address repo/schemas/router carry the 4 fields; VendorService += profile_get/save, slots_get/set (50-cap), today_customers (stops grouped by customer + users name/phone join), vendor_complaints queue; vendor router += profile/slots/customers/complaints routes. (3) user_app: NEW location_service (geolocator+geocoding+permission_handler, Hindi errors, geolocator-14 no-args API), full-format form fields + use-location prefill, SelectedAddressStore + controller selection (Home/checkout/Addresses agree via resolve()). (4) vendor_app: NEW customers/ (list+search+detail) + inventory/ (loading-sheet stock, no new endpoint) + live profile edit + support queue filling the verify-by-id form; 7-tab shell. 190 pytest + user 78 + vendor 23 green, both analyzes 0.
+- **Why**: Rewrite (not copy) is the only port that respects the locked stacks; every gap is covered by tests; duplicates avoided (OSM picker, earnings, complaints-verify reused, not rebuilt).
+- **Consequences**: USER must apply 011 to D1 once (`wrangler d1 execute shodasha --remote --file=src/app/db/migrations/011_port.sql`; ALTERs error harmlessly on re-run). Push to main cuts a dual-APK release with all of it. Still blocked (unchanged): google-services.json/plist for push, keystore, privacy URL.
+- **Affects**: workers/api 011_port.sql + address/vendor slices + test_port_011.py (+011 in test_addresses/test_e2e harnesses), apps/user_app (location_service, address_screen, selected store, pubspec, Info.plist), apps/vendor_app (customers, inventory, profile, support, shell, api_client)
 
 ### ADR-054: Hotfix — config/audit_log missing on prod D1 (010_config_audit.sql + demo fail-closed)
 - **Date**: 2026-10-02

@@ -1,13 +1,16 @@
-// VendorShell: 5-tab shell (Route · Sync · Earnings · Support · Profile).
-// Duty gates entry: off-duty vendors land on DutyScreen first.
+// VendorShell: 7-tab shell (Route · Customers · Stock · Sync · Earnings ·
+// Support · Profile). Duty gates entry: off-duty vendors land on DutyScreen.
 
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
+import '../customers/customers_controller.dart';
+import '../customers/customers_screen.dart';
 import '../duty/duty_controller.dart';
 import '../duty/duty_screen.dart';
 import '../earnings/earnings_controller.dart';
 import '../earnings/earnings_screen.dart';
+import '../inventory/inventory_screen.dart';
 import '../profile/profile_screen.dart';
 import '../route/route_controller.dart';
 import '../route/route_screen.dart';
@@ -28,7 +31,10 @@ class VendorShell extends StatefulWidget {
     required this.sync,
     required this.earnings,
     required this.support,
+    required this.customers,
     required this.meLoader,
+    this.profileLoader,
+    this.profileSaver,
   });
 
   final AuthController auth;
@@ -38,7 +44,11 @@ class VendorShell extends StatefulWidget {
   final SyncController sync;
   final EarningsController earnings;
   final SupportController support;
+  final CustomersController customers;
   final Future<Map<String, dynamic>> Function() meLoader;
+  final Future<Map<String, dynamic>> Function()? profileLoader;
+  final Future<Map<String, dynamic>> Function(Map<String, String> fields)?
+      profileSaver;
 
   @override
   State<VendorShell> createState() => _VendorShellState();
@@ -99,10 +109,17 @@ class _VendorShellState extends State<VendorShell> {
             controller: widget.route,
             onOpenStop: (s) => _openStop(context, s),
           ),
+          CustomersScreen(controller: widget.customers),
+          InventoryScreen(route: widget.route),
           SyncScreen(controller: widget.sync),
           EarningsScreen(controller: widget.earnings),
           SupportScreen(controller: widget.support),
-          ProfileScreen(auth: widget.auth, meLoader: widget.meLoader),
+          ProfileScreen(
+            auth: widget.auth,
+            meLoader: widget.meLoader,
+            profileLoader: widget.profileLoader,
+            profileSaver: widget.profileSaver,
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -113,6 +130,16 @@ class _VendorShellState extends State<VendorShell> {
             icon: Icon(Icons.route_outlined),
             selectedIcon: Icon(Icons.route),
             label: 'Route',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
+            label: 'Customers',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.inventory_2_outlined),
+            selectedIcon: Icon(Icons.inventory_2),
+            label: 'Stock',
           ),
           NavigationDestination(
             icon: Badge(

@@ -13,6 +13,7 @@ import 'core/auth_impls.dart';
 import 'core/session_store.dart';
 import 'core/theme.dart';
 import 'features/addresses/address_screen.dart';
+import 'features/addresses/selected_address_store.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_gate.dart';
 import 'features/booking/booking_controller.dart';
@@ -52,6 +53,7 @@ class _ShodashaAppState extends State<ShodashaApp> {
   late final BookingController _booking;
   late final OrdersController _orders;
   late final AddressController _addresses;
+  late final SelectedAddressStore _selectedStore;
   late final SubscriptionController _subs;
   late final ProfileController _profile;
 
@@ -68,6 +70,12 @@ class _ShodashaAppState extends State<ShodashaApp> {
     _booking = BookingController(catalog: _HardcodedCatalog());
     _orders = OrdersController(repo: StubOrdersRepository());
     _addresses = AddressController(api: _api);
+    _selectedStore = SelectedAddressStore();
+    // Persistence behind the live selection: restore once, then the
+    // controller writes through on every select (011_port).
+    _selectedStore.load().then((_) {
+      _addresses.bindSelection(_selectedStore);
+    });
     _subs = SubscriptionController(api: _api);
     _profile = ProfileController(api: _api);
   }
@@ -77,6 +85,7 @@ class _ShodashaAppState extends State<ShodashaApp> {
     _booking.dispose();
     _orders.dispose();
     _addresses.dispose();
+    _selectedStore.dispose();
     _subs.dispose();
     _profile.dispose();
     _auth.dispose();

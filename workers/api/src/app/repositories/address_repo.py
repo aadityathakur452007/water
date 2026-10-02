@@ -32,9 +32,10 @@ _VALID_TYPES = ("home", "office")
 # Terminal order states (contract §2 machine); anything else is active/in-flight.
 _TERMINAL_STATES = ("delivered", "cancelled", "failed", "rejected")
 
-_UPDATABLE = ("type", "label", "lat", "lng", "place_id", "formatted", "landmark", "pincode", "lift_flag")
+_UPDATABLE = ("type", "label", "lat", "lng", "place_id", "formatted", "landmark", "pincode", "lift_flag",
+              "house", "street", "area", "phone")  # 011_port: full address format
 # Nullable text columns: explicit null clears the value; other Nones mean "no change".
-_NULLABLE_TEXT = ("label", "place_id", "formatted", "landmark")
+_NULLABLE_TEXT = ("label", "place_id", "formatted", "landmark", "house", "street", "area", "phone")
 
 
 def _now() -> str:
@@ -90,8 +91,9 @@ class AddressRepo:
         with WRITE_LOCK:
             await self._conn.execute(
                 "INSERT INTO addresses(id, user_id, type, label, lat, lng, place_id,"
-                " formatted, landmark, pincode, lift_flag, serviceable, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " formatted, landmark, pincode, lift_flag, serviceable, created_at,"
+                " house, street, area, phone)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     addr_id,
                     user_id,
@@ -106,6 +108,10 @@ class AddressRepo:
                     lift,
                     svc,
                     now,
+                    _field(dto, "house"),
+                    _field(dto, "street"),
+                    _field(dto, "area"),
+                    _field(dto, "phone"),
                 ),
             )
             self._conn.commit()
@@ -191,6 +197,8 @@ class AddressRepo:
                     v = 1 if v else 0
                 if k == "pincode" and v is not None:
                     v = str(v).strip()
+                if k == "phone" and v is not None:
+                    v = str(v).strip()  # permissive: stored as given, no format gate (011)
                 sets.append(f"{k} = ?")
                 params.append(v)
         if serviceable is not None and "pincode" in fields:

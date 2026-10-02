@@ -1,6 +1,7 @@
-// Address wire contract (§4.3): the typed line rides on `formatted`
-// (server has no address_line/phone columns). Guards the "can't change
-// address" regression where saves came back with empty text.
+// Address wire contract (§4.3 + 011_port): the typed line rides on
+// `formatted` (server has no address_line column); house/street/area/phone
+// ride as their own columns. Guards the "can't change address" regression
+// where saves came back with empty text.
 
 import 'dart:convert';
 
@@ -21,6 +22,10 @@ Map<String, dynamic> _row(Map<String, dynamic> body, String id) => {
       'landmark': body['landmark'],
       'pincode': body['pincode'],
       'lift_flag': body['lift_flag'],
+      'house': body['house'],
+      'street': body['street'],
+      'area': body['area'],
+      'phone': body['phone'],
     };
 
 void main() {
@@ -57,6 +62,29 @@ void main() {
     expect(posted!['formatted'], 'House 12, MG Road');
     expect(posted!.containsKey('address_line'), isFalse);
     expect(c.items.single.addressLine, 'House 12, MG Road');
+
+    // 011_port: full-format fields ride along and round-trip.
+    const full = AddressEntry(
+      id: '',
+      label: 'Ghar',
+      type: AddrType.home,
+      phone: '9876543210',
+      pincode: '560002',
+      addressLine: '12 Main Rd',
+      lat: 12.9,
+      lng: 77.5,
+      house: '12',
+      street: 'Main Rd',
+      area: 'Indiranagar',
+    );
+    expect(await c.save(full, isNew: true), isTrue);
+    expect(posted!['house'], '12');
+    expect(posted!['area'], 'Indiranagar');
+    expect(posted!['phone'], '9876543210');
+    expect(c.items.last.house, '12');
+    expect(c.resolve()?.id, 'a1'); // last saved becomes the selection
+    c.select('nope-missing');
+    expect(c.resolve()?.id, 'a1'); // unknown id falls back, never null-crash
 
     expect(
         await c.save(

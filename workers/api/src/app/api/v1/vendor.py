@@ -82,6 +82,17 @@ class QualityCheckIn(BaseModel):
     note: str = ""
 
 
+class ProfileIn(BaseModel):
+    name: str | None = Field(default=None, max_length=500)
+    phone: str | None = Field(default=None, max_length=500)
+    address: str | None = Field(default=None, max_length=500)
+    hours: str | None = Field(default=None, max_length=500)
+
+
+class SlotsIn(BaseModel):
+    slots: dict[str, bool]
+
+
 @router.post("/vendor/duty")
 async def set_duty(payload: DutyIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return _svc(conn).duty(_uid(user), payload.on)
@@ -118,6 +129,38 @@ async def sync_batch(payload: SyncIn, conn=Depends(get_db_conn), user=Depends(_v
 @router.get("/vendor/earnings")
 async def earnings(shift: str | None = None, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).earnings(_uid(user), shift)
+
+
+@router.get("/vendor/profile")
+async def get_profile(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).profile_get(_uid(user))
+
+
+@router.patch("/vendor/profile")
+async def save_profile(payload: ProfileIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).profile_save(
+        _uid(user), payload.model_dump(exclude_unset=True, mode="json"))
+
+
+@router.get("/vendor/slots")
+async def get_slots(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).slots_get(_uid(user))
+
+
+@router.put("/vendor/slots")
+async def set_slots(payload: SlotsIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).slots_set(_uid(user), payload.slots)
+
+
+@router.get("/vendor/customers")
+async def vendor_customers(date: str | None = None,
+                     conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).today_customers(_uid(user), date)
+
+
+@router.get("/vendor/complaints")
+async def vendor_complaints(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).vendor_complaints(_uid(user))
 
 
 @router.post("/complaints/{complaint_id}/verify")

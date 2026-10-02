@@ -39,6 +39,7 @@ MIGRATIONS = [
     "005_payments.sql",
     "006_aftermath.sql",
     "007_ops.sql",
+    "011_port.sql",  # full address-format columns (repo INSERT requires them)
 ]
 
 USER_PHONE = "+919876543210"

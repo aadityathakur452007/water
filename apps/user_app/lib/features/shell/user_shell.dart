@@ -95,14 +95,8 @@ class _UserShellState extends State<UserShell> {
     );
   }
 
-  /// Default address (default flag wins, else first saved).
-  AddressEntry? get _defaultAddress {
-    final list = widget.addresses?.items ?? [];
-    for (final a in list) {
-      if (a.isDefault) return a;
-    }
-    return list.isEmpty ? null : list.first;
-  }
+  /// Delivery address: selected (when still saved) → default → first.
+  AddressEntry? get _defaultAddress => widget.addresses?.resolve();
 
   /// One-tap repeat: refill the booking lines from a past order, jump
   /// home, and open checkout (known mix only — card hides otherwise).

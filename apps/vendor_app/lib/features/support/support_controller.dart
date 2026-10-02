@@ -19,6 +19,29 @@ class SupportController extends ChangeNotifier {
   bool get submitting => _submitting;
   String? get notice => _notice;
 
+  /// Vendor complaint queue (011_port ticket-thread reads; verify writes).
+  List<Map<String, dynamic>> _queue = const [];
+  bool _queueLoading = false;
+
+  List<Map<String, dynamic>> get queue => _queue;
+  bool get queueLoading => _queueLoading;
+
+  Future<void> loadQueue() async {
+    _queueLoading = true;
+    notifyListeners();
+    try {
+      final raw = await _api.vendorComplaints();
+      _queue = ((raw['data'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } on ApiException {
+      _queue = const []; // verify-by-id form below keeps working offline
+    } finally {
+      _queueLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> verifyComplaint({
     required String complaintId,
     required bool agree,

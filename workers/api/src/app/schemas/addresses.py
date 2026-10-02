@@ -25,6 +25,12 @@ class AddressIn(BaseModel):
     label: str | None = None
     pincode: str = Field(pattern=_PINCODE_PATTERN)
     lift_flag: bool = False
+    # 011_port: full address format (all optional, back-compat; phone stored
+    # as-given, no format gate so existing +91 values keep working).
+    house: str | None = None
+    street: str | None = None
+    area: str | None = None
+    phone: str | None = None
 
     @model_validator(mode="after")
     def _reject_null_island(self):
@@ -49,6 +55,10 @@ class AddressPatch(BaseModel):
     label: str | None = None
     pincode: str | None = Field(default=None, pattern=_PINCODE_PATTERN)
     lift_flag: bool | None = None
+    house: str | None = None
+    street: str | None = None
+    area: str | None = None
+    phone: str | None = None
 
     @model_validator(mode="after")
     def _reject_null_island(self):
@@ -72,3 +82,7 @@ class AddressOut(BaseModel):
     serviceable: bool = True
     needs_pin_confirm: bool = False
     created_at: str | None = None
+    house: str | None = None
+    street: str | None = None
+    area: str | None = None
+    phone: str | None = None

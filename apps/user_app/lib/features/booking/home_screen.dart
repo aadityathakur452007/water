@@ -271,12 +271,7 @@ class _AddressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list = addresses?.items ?? [];
-    AddressEntry? current;
-    for (final a in list) {
-      if (a.isDefault) current = a;
-    }
-    current ??= list.isEmpty ? null : list.first;
+    final current = addresses?.resolve();
     return PressScale(
       onTap: onChange,
       child: Container(
