@@ -66,6 +66,23 @@ class InventoryScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                // Section-header row: label left, live progress right.
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Aaj ka stock',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 16),
+                    ),
+                    Text(
+                      '$done/${stops.length} done',
+                      style: const TextStyle(
+                          color: ShodashaTheme.muted, fontSize: 13),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 _tile('Lene hain (fulls)', '${route.takeFulls} jar'),
                 _tile('Wapas aane hain (empties)', '${route.expectEmpties} jar'),
                 _tile('Stop done', '$done / ${stops.length}'),

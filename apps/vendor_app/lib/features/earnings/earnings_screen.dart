@@ -71,38 +71,56 @@ class _EarningsScreenState extends State<EarningsScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            shape: ShodashaTheme.shape,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${c.stopsDone} stops done',
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
-                  Text('Cash: ${rupees(c.cashTotal)}'),
-                  Text('UPI: ${rupees(c.upiTotal)}'),
-                  Text(
-                    'Total: ${rupees(c.cashTotal + c.upiTotal)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
+          // Section-header row: label left, live stop count right.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Aaj ki kamai',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
+              Text(
+                '${c.stopsDone} stops',
+                style: const TextStyle(
+                    color: ShodashaTheme.muted, fontSize: 13),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              border: Border.all(color: ShodashaTheme.border),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${c.stopsDone} stops done',
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text('Cash: ${rupees(c.cashTotal)}'),
+                Text('UPI: ${rupees(c.upiTotal)}'),
+                Text(
+                  'Total: ${rupees(c.cashTotal + c.upiTotal)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
             ),
           ),
           if (c.flaggedStops > 0) ...[
             const SizedBox(height: 12),
-            Card(
-              shape: ShodashaTheme.shape,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  '${c.flaggedStops} stops review me — ${rupees(c.flaggedHold)} hold par (admin clear ke baad payout)',
-                  style:
-                      const TextStyle(color: ShodashaTheme.danger),
-                ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: ShodashaTheme.border),
+                borderRadius:
+                    BorderRadius.circular(ShodashaTheme.radius),
+              ),
+              child: Text(
+                '${c.flaggedStops} stops review me — ${rupees(c.flaggedHold)} hold par (admin clear ke baad payout)',
+                style: const TextStyle(color: ShodashaTheme.danger),
               ),
             ),
           ],

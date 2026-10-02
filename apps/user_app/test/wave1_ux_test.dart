@@ -69,6 +69,10 @@ void main() {
     expect(find.text('UPI + COD'), findsOneWidget);
     expect(find.text('WhatsApp help'), findsOneWidget);
     expect(find.text('Step 1 / 2 — Mobile number'), findsOneWidget);
+    // Flush the hero entrance clock (flutter_animate delay timers) before
+    // teardown — same pump pattern as the address test above.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
     controller.dispose();
   });
 }

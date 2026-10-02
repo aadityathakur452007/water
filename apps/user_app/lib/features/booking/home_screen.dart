@@ -8,6 +8,7 @@
 // Locked tokens only: white/black/blue, r8, 48px targets, no emojis.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
@@ -83,16 +84,26 @@ class _HomeScreenState extends State<HomeScreen> {
     return list;
   }
 
-  int _qtyFor(CatalogSku sku) => sku.id == SkuId.refill
-      ? widget.controller.refillQty
-      : widget.controller.containerQty;
+  /// Slim-grid title for the section-header row (filter-aware).
+  String get _sectionTitle => switch (_filter) {
+        SkuId.refill => 'Refill',
+        SkuId.container => 'Containers',
+        null => 'Sab products',
+      };
 
-  void _setQty(CatalogSku sku, int v) {
-    if (sku.id == SkuId.refill) {
-      widget.controller.setRefill(v);
-    } else {
-      widget.controller.setContainer(v);
-    }
+  /// Staggered card entrance — transform + opacity only; static render
+  /// when the OS asks for reduced motion.
+  Widget _entrance(Widget child, int index) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return child
+        .animate(delay: Duration(milliseconds: 60 * index))
+        .fade(duration: 200.ms)
+        .slideY(
+          begin: 0.15,
+          end: 0,
+          duration: 200.ms,
+          curve: Curves.easeOut,
+        );
   }
 
   Future<void> _openDetail(CatalogSku sku) async {
@@ -152,6 +163,8 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
         children: [
+          const _GreetingHeader(),
+          const SizedBox(height: 12),
           _AddressBar(
             addresses: widget.addresses,
             onChange: widget.onOpenAddresses,
@@ -160,10 +173,30 @@ class _HomeScreenState extends State<HomeScreen> {
           TextField(
             controller: _search,
             onChanged: (v) => setState(() => _query = v),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Khoj',
               hintText: 'Search: refill, container.',
-              prefixIcon: Icon(Icons.search),
+              prefixIcon: const Icon(Icons.search),
+              // ADR-057 exception (approved): pill search only — r8 stays
+              // everywhere else. Clear ✕ mirrors the reference search field.
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: const BorderSide(color: ShodashaTheme.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: const BorderSide(color: ShodashaTheme.blue),
+              ),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.clear),
+                      tooltip: 'Saaf karein',
+                      onPressed: () => setState(() {
+                        _search.clear();
+                        _query = '';
+                      }),
+                    ),
             ),
           ),
           const SizedBox(height: 12),
@@ -192,12 +225,27 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            '${items.length} products',
-            style: const TextStyle(
-              fontSize: 13,
-              color: ShodashaTheme.muted,
-            ),
+          // Section-header row (reference rhythm): bold title left, honest
+          // count right — no See-all link, it would be a fake affordance.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _sectionTitle,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: ShodashaTheme.ink,
+                ),
+              ),
+              Text(
+                '${items.length}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           if (items.isEmpty)
@@ -210,15 +258,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-          for (var i = 0; i < items.length; i++) ...[
-            _ProductCard(
-              sku: items[i],
-              qty: _qtyFor(items[i]),
-              onQty: (v) => _setQty(items[i], v),
-              onOpen: () => _openDetail(items[i]),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              mainAxisExtent: 200,
             ),
-            if (i < items.length - 1) const SizedBox(height: 12),
-          ],
+            itemCount: items.length,
+            itemBuilder: (context, i) => _entrance(
+              _GridCard(
+                sku: items[i],
+                onOpen: () => _openDetail(items[i]),
+              ),
+              i,
+            ),
+          ),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
@@ -343,19 +400,75 @@ class _Chip extends StatelessWidget {
   }
 }
 
-/// Photo product card: image left, name/price/deposit/stepper right.
-/// Tap anywhere (except stepper) opens the detail buy-box.
-class _ProductCard extends StatelessWidget {
-  const _ProductCard({
+/// Greeting header rhythm (layout echo of the reference ListTile header:
+/// small overline + bold title + round leading mark) — our tokens, Hindi
+/// copy, icon mark instead of an avatar photo (no invented imagery).
+class _GreetingHeader extends StatelessWidget {
+  const _GreetingHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: ShodashaTheme.minTarget,
+          height: ShodashaTheme.minTarget,
+          decoration: const BoxDecoration(
+            color: ShodashaTheme.blueTint,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.water_drop,
+            color: ShodashaTheme.blue,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _greeting(),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+              const Text(
+                'Paani book karein',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: ShodashaTheme.ink,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Time-aware greeting — pure widget copy, no backend, no session.
+String _greeting() {
+  final h = DateTime.now().hour;
+  if (h >= 5 && h < 12) return 'Shubh prabhat';
+  if (h >= 17 && h < 22) return 'Shubh sandhya';
+  return 'Namaste';
+}
+
+/// Slim photo grid card: photo + name + price + corner add-button.
+/// Qty lives in the detail buy-box — tapping the card OR the + opens it
+/// (the + is a visual affordance; the whole card is the 48dp+ tap target,
+/// so there is no nested-gesture double-open).
+class _GridCard extends StatelessWidget {
+  const _GridCard({
     required this.sku,
-    required this.qty,
-    required this.onQty,
     required this.onOpen,
   });
 
   final CatalogSku sku;
-  final int qty;
-  final ValueChanged<int> onQty;
   final VoidCallback onOpen;
 
   @override
@@ -368,72 +481,76 @@ class _ProductCard extends StatelessWidget {
           border: Border.all(color: ShodashaTheme.border),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(8),
-                bottomLeft: Radius.circular(8),
-              ),
-              child: Image.asset(
-                sku.asset,
-                width: 112,
-                height: 132,
-                fit: BoxFit.cover,
-                // P4: decode at ~2x display size, never full-res.
-                cacheWidth: 224,
-                errorBuilder: (_, _, _) => Container(
-                  width: 112,
-                  height: 132,
-                  color: ShodashaTheme.blueTint,
-                  child: const Icon(
-                    Icons.water_drop,
-                    size: 40,
-                    color: ShodashaTheme.blue,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(8),
+                    topRight: Radius.circular(8),
+                  ),
+                  child: Image.asset(
+                    sku.asset,
+                    height: 120,
+                    fit: BoxFit.cover,
+                    // P4: decode at ~2x display size, never full-res.
+                    cacheWidth: 448,
+                    errorBuilder: (_, _, _) => Container(
+                      height: 120,
+                      color: ShodashaTheme.blueTint,
+                      child: const Icon(
+                        Icons.water_drop,
+                        size: 40,
+                        color: ShodashaTheme.blue,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 64, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        sku.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: ShodashaTheme.ink,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        rupeesLabel(sku.pricePaise),
+                        style: const TextStyle(
+                          color: ShodashaTheme.blue,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      sku.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        color: ShodashaTheme.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      sku.tagline,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: ShodashaTheme.muted,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      rupeesLabel(sku.pricePaise),
-                      style: const TextStyle(
-                        color: ShodashaTheme.blue,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                      ),
-                    ),
-                    QtyStepper(
-                      value: qty,
-                      onChanged: onQty,
-                      semanticsLabel: sku.name,
-                    ),
-                  ],
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Container(
+                width: ShodashaTheme.minTarget,
+                height: ShodashaTheme.minTarget,
+                decoration: const BoxDecoration(
+                  color: ShodashaTheme.ink,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.add,
+                  color: ShodashaTheme.bg,
+                  semanticLabel: 'Detail kholein',
                 ),
               ),
             ),

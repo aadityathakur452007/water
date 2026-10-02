@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-057 | 2026-10-02 | UI lift (layout shapes only) from premium grocery reference into 6 user+vendor surfaces | Accepted | apps/user_app booking/auth + test, apps/vendor_app route/stops/customers/support/earnings/inventory/core + tests, branch 010-grocery-ui |
 | ADR-056 | 2026-10-02 | Wave-1 UX polish: vendor 4-tab + More, address Stepper, login hero, ink/theme honesty, F1 caps, critical states | Accepted | apps/user_app auth/addresses/booking/orders/theme, apps/vendor_app shell/route/support/duty/sync/inventory, workers/api F1 caps + test |
 | ADR-055 | 2026-10-02 | Port wrong-repo Phase-1/Phase-2 gaps (011 migration + address format + location + vendor customers/stock/profile/queue) as Workers rewrite | Accepted | workers/api 011_port.sql + vendor/address slices + tests, apps/user_app location/address/store, apps/vendor_app customers/inventory/profile/support |
 | ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
@@ -111,6 +112,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-057: UI lift (layout shapes only) from premium grocery reference
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: User ordered a layout-shape lift from a read-only premium reference (`flutter_grocery_app` @ 804109e, 59 files — GetX + ScreenUtil + carousel + green/red + Poppins/Cairo + dark-mode) into 6 approved surfaces on a fresh branch `010-grocery-ui` from main (checkout had been on 009-d1-011-fix; main already held ADR-055/056, only the worker-only 011-ALTER fix stayed behind — zero Flutter impact). Skills loaded: hallmark (audit mode), impeccable (Operate), redesign-existing-projects, mobile-native. Design-first gate: reference audit + per-screen lift table + 4 clarifying questions → explicit approval (all 6 surfaces, pill-search exception, 2-col grid now, branch from main, banners/avatars out).
+- **Options considered**: Keep home list-cards with inline steppers (rejected by user — 2-col slim grid approved; qty now lives in the buy-box, controller API untouched); pill search vs r8-everywhere (pill approved as the single documented radius exception); grid with inline steppers (rejected — 214px cells cannot fit stepper + deposit info; slim photo+name+price+add, tap opens buy-box); flutter_animate in vendor_app (rejected — hand-rolled `core/cascade.dart` instead, zero new deps); carousel/promo banners + avatars (out — invented content, honest-copy rule); See-all links (out — destinations do not exist; honest counts instead); first_run hero rework (out — sheet flow, not a hero surface; refinement preserves).
+- **Decision**: S1 home (greeting overline+title + 48dp mark, pill search + clear, filter-aware section header + honest count, slim 2-col grid with corner 48dp add + flutter_animate stagger ≤300ms easeOut + reduced-motion guard); S2 buy-box (close-over-photo, photo fade+scale 200/250ms, Kitne-jar↔stepper single row, bordered deposit/cap/hours fact row); S3 login (48px top space + staggered hero/chips/CTA entrances; inputs un-animated); S4 route/stop (header rows with counts, bordered stop cards + 48dp seq avatars, bordered ledger fact rows, `core/cascade.dart` one-controller Interval stagger, zero Timers); S5 customers/support/earnings/inventory (tile rows with leading mark + chevron, Vivaad-queue header, section headers + bordered summaries). ScreenUtil `.w/.h/.sp` converted to fixed dp; 36px ref controls scaled UP to 48dp. Verify: user 80 + vendor 26 green, both analyzes 0 after every slice. One test-hygiene edit (flush entrance clock in wave1_ux_test).
+- **Why**: Shape and rhythm lift without importing the reference's identity (palette/fonts/dark-mode), stack (GetX/ScreenUtil/carousel), or invented content — every borrowed pattern is re-expressed in ShodashaTheme tokens with Hindi copy, and every rejected affordance (dead search icon, fake See-all) is documented, not silently kept.
+- **Consequences**: Home booking now routes qty through the buy-box (BOOK NOW stays disabled at 0 — same controller gate, no logic change). Watch: release-APK screenshot pass on shodasha_api36 still owed; Wave-2 items from ADR-056 unchanged. Push cuts release with all of it.
+- **Affects**: apps/user_app booking/home + buy-box + login + test, apps/vendor_app route/stops/customers/support/earnings/inventory/core-cascade + tests, branch 010-grocery-ui (f8bc14e, cdda6d4, 9706b46, d639d32, 362e16f)
 
 ### ADR-056: Wave-1 UX polish (4-tab vendor, address Stepper, login hero, honesty, F1 caps)
 - **Date**: 2026-10-02

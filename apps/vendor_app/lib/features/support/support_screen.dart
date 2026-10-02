@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/cascade.dart';
 import '../../core/theme.dart';
 import 'support_controller.dart';
 
@@ -68,6 +69,35 @@ class _SupportScreenState extends State<SupportScreen> {
     }
   }
 
+  /// Queue tile (bordered fact-row shape, same texts + tap fills the
+  /// verify-by-id form below). The form itself is logic-adjacent — untouched.
+  Widget _queueTile(Map<String, Object?> q) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: ListTile(
+        title: Text(
+            '${q['reason_code'] ?? 'other'} • ${q['order_id'] ?? ''}'),
+        subtitle: Text(
+          ((q['text'] ?? '') as String).isEmpty
+              ? (q['status'] ?? 'open') as String
+              : q['text'] as String,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Text((q['status'] ?? '') as String,
+            style: const TextStyle(
+                color: ShodashaTheme.muted, fontSize: 12)),
+        onTap: () => setState(() {
+          _isQuality = false;
+          _id.text = (q['id'] ?? '') as String;
+        }),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -76,6 +106,23 @@ class _SupportScreenState extends State<SupportScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Section-header row: label left, live count right.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Vivaad queue',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+              ),
+              if (!c.queueLoading)
+                Text(
+                  '${c.queue.length}',
+                  style: const TextStyle(
+                      color: ShodashaTheme.muted, fontSize: 13),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
           if (c.queueLoading)
             const Padding(
               padding: EdgeInsets.only(bottom: 12),
@@ -117,29 +164,23 @@ class _SupportScreenState extends State<SupportScreen> {
                 ),
               ),
             )
-          else
-            for (final q in c.queue)
-              Card(
-                shape: ShodashaTheme.shape,
-                child: ListTile(
-                  title: Text(
-                      '${q['reason_code'] ?? 'other'} • ${q['order_id'] ?? ''}'),
-                  subtitle: Text(
-                    ((q['text'] ?? '') as String).isEmpty
-                        ? (q['status'] ?? 'open') as String
-                        : q['text'] as String,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Text((q['status'] ?? '') as String,
-                      style: const TextStyle(
-                          color: ShodashaTheme.muted, fontSize: 12)),
-                  onTap: () => setState(() {
-                    _isQuality = false;
-                    _id.text = (q['id'] ?? '') as String;
-                  }),
-                ),
+          else if (c.queue.isNotEmpty)
+            CascadeScope(
+              itemCount: c.queue.length,
+              child: Column(
+                children: [
+                  for (var qi = 0; qi < c.queue.length; qi++)
+                    Padding(
+                      padding: EdgeInsets.only(
+                          bottom: qi < c.queue.length - 1 ? 12 : 0),
+                      child: CascadeItem(
+                        index: qi,
+                        child: _queueTile(c.queue[qi]),
+                      ),
+                    ),
+                ],
               ),
+            ),
           Card(
             shape: ShodashaTheme.shape,
             child: Padding(

@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme.dart';
 import 'auth_controller.dart';
@@ -79,6 +80,22 @@ class _PhoneScreenState extends State<PhoneScreen> {
   String? get _error =>
       (_touched && !_valid) ? authStringsHi['phoneError'] : null;
 
+  /// Staggered hero entrance (fade + gentle rise/fall, ≤300ms, easeOut —
+  /// the welcome-rhythm recipe). Static render on reduced motion. Inputs
+  /// stay un-animated (keyboard-jank guard).
+  Widget _rise(Widget child, {double begin = 0, int delayMs = 0}) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return child
+        .animate(delay: Duration(milliseconds: delayMs))
+        .fade(duration: 250.ms)
+        .slideY(
+          begin: begin,
+          end: 0,
+          duration: 300.ms,
+          curve: Curves.easeOut,
+        );
+  }
+
   Future<void> _submit() async {
     setState(() => _touched = true);
     if (!_valid) return;
@@ -116,65 +133,74 @@ class _PhoneScreenState extends State<PhoneScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 12),
+              // Generous top space per the hero rhythm (mark → headline →
+              // sub → CTA cascade below).
+              const SizedBox(height: 48),
               // Designed hero: brand card + factual trust chips (UPI+COD and
               // WhatsApp help are real product facts — no invented claims).
-              Card(
-                shape: ShodashaTheme.shape,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Image.asset(
-                        'assets/logo.png',
-                        width: 56,
-                        height: 56,
-                        cacheWidth: 112,
-                        errorBuilder: (_, _, _) => const Icon(
-                          Icons.water_drop,
-                          size: 44,
-                          color: AuthTokens.blue,
+              _rise(
+                Card(
+                  shape: ShodashaTheme.shape,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Image.asset(
+                          'assets/logo.png',
+                          width: 56,
+                          height: 56,
+                          cacheWidth: 112,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.water_drop,
+                            size: 44,
+                            color: AuthTokens.blue,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Shodasha',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                                color: AuthTokens.text,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Shodasha',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  color: AuthTokens.text,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              authStringsHi['trustLine']!,
-                              style: const TextStyle(
-                                  fontSize: 13, color: AuthTokens.muted),
-                            ),
-                          ],
+                              const SizedBox(height: 2),
+                              Text(
+                                authStringsHi['trustLine']!,
+                                style: const TextStyle(
+                                    fontSize: 13, color: AuthTokens.muted),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
+                begin: -0.2,
               ),
               const SizedBox(height: 12),
-              const Row(
-                children: [
-                  Chip(
-                    avatar: Icon(Icons.payments_outlined, size: 16),
-                    label: Text('UPI + COD'),
-                  ),
-                  SizedBox(width: 8),
-                  Chip(
-                    avatar: Icon(Icons.support_agent_outlined, size: 16),
-                    label: Text('WhatsApp help'),
-                  ),
-                ],
+              _rise(
+                const Row(
+                  children: [
+                    Chip(
+                      avatar: Icon(Icons.payments_outlined, size: 16),
+                      label: Text('UPI + COD'),
+                    ),
+                    SizedBox(width: 8),
+                    Chip(
+                      avatar: Icon(Icons.support_agent_outlined, size: 16),
+                      label: Text('WhatsApp help'),
+                    ),
+                  ],
+                ),
+                begin: -0.1,
+                delayMs: 60,
               ),
               const SizedBox(height: 24),
               const Text(
@@ -258,9 +284,10 @@ class _PhoneScreenState extends State<PhoneScreen> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(
-                        height: AuthTokens.minTarget,
-                        child: ElevatedButton(
+                      _rise(
+                        SizedBox(
+                          height: AuthTokens.minTarget,
+                          child: ElevatedButton(
                           // WHY: disabled until valid (no dead taps, no spam OTP).
                           onPressed: (!_valid || sending) ? null : _submit,
                           style: ElevatedButton.styleFrom(
@@ -286,7 +313,10 @@ class _PhoneScreenState extends State<PhoneScreen> {
                                   ),
                                 )
                               : Text(authStringsHi['sendOtp']!),
+                          ),
                         ),
+                        begin: 0.2,
+                        delayMs: 120,
                       ),
                       if (sending)
                         const Padding(

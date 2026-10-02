@@ -130,36 +130,52 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Card(
-          shape: ShodashaTheme.shape,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                    '$fullsExp jars dene • $emptiesExp khaali expected • ${rupees(cashDue)}',
-                    style:
-                        const TextStyle(fontWeight: FontWeight.w600)),
-                if (held != null || deposit != null || dues != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Ledger: ${held ?? '-'} held • ${deposit == null ? '-' : rupees(deposit)} deposit • ${dues == null ? '-' : rupees(dues)} baaki',
-                      style:
-                          const TextStyle(color: ShodashaTheme.muted),
-                    ),
-                  ),
-                if (holdBlocked)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Hold limit — pehle deposit, phir delivery',
-                      style: TextStyle(color: ShodashaTheme.danger),
-                    ),
-                  ),
-              ],
-            ),
+        // Ledger fact rows (bordered icon-lead shape): server-read-only
+        // values, same texts, hairline border instead of a filled card.
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            border: Border.all(color: ShodashaTheme.border),
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.receipt_long_outlined,
+                size: 18,
+                color: ShodashaTheme.blue,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        '$fullsExp jars dene • $emptiesExp khaali expected • ${rupees(cashDue)}',
+                        style:
+                            const TextStyle(fontWeight: FontWeight.w600)),
+                    if (held != null || deposit != null || dues != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Ledger: ${held ?? '-'} held • ${deposit == null ? '-' : rupees(deposit)} deposit • ${dues == null ? '-' : rupees(dues)} baaki',
+                          style:
+                              const TextStyle(color: ShodashaTheme.muted),
+                        ),
+                      ),
+                    if (holdBlocked)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Hold limit — pehle deposit, phir delivery',
+                          style: TextStyle(color: ShodashaTheme.danger),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
