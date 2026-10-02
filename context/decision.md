@@ -38,6 +38,7 @@
 | ADR-050 | 2026-10-02 | 007-vendor-app: spec + 10 screens built, analyze 0, 13 tests green, APK on shodasha_api36 | Accepted | apps/vendor_app/, Feature_docs/vendor-app/spec.md, branch 007-vendor-app |
 | ADR-051 | 2026-10-02 | Never cast Future (await then cast value); vendor google-services.json stays a user manual step (fail-soft Firebase init) | Accepted | apps/vendor_app/lib/core/api_client.dart, lib/main.dart |
 | ADR-052 | 2026-10-02 | Dual-APK release (shared tag, user+vendor assets) + conn hardening (retry/single-flight/401 hook) + triple fence fixes + user_app cast port | Accepted | .github/workflows/, apps/vendor_app/lib/core/, workers/api/{src/app/{api/v1/vendor,services/vendor_service},tests/}, apps/user_app/lib/core/api_client.dart |
+| ADR-054 | 2026-10-02 | Hotfix: config/audit_log never existed on prod D1 — 010_config_audit.sql migration + demo fail-closed guard | Accepted | workers/api 010_config_audit.sql, auth_service.demo_login, demo_seed.sql, test_demo.py |
 | ADR-053 | 2026-10-02 | Address fix (formatted mapping) + config-gated demo login + D1 demo seed (customer+vendor+order/route) + demo buttons both apps | Accepted | apps/user_app address_screen+demo, apps/vendor_app demo, workers/api 009_demo/auth/demo_seed.sql/seed_demo.py/tests |
 | ADR-049 | 2026-10-01 | Phone-as-gateway OTP via TextBee (no DLT, free tier) alongside Fast2SMS seam | Accepted | workers/api/src/app/adapters/sms.py, workers/api/src/app/core/config.py, workers/api/.env.example, workers/api/tests/test_sms_otp.py |
 | ADR-048 | 2026-10-01 | Server OTP via Fast2SMS (fake/real seam, default firebase) + APK device-shape 400 fix + precise OTP errors | Accepted | workers/api/src/app/{adapters/sms.py,core/config.py,db/migrations/008_otp.sql,repositories/otp_repo.py,services/auth_service.py,api/v1/auth.py,repositories/user_repo.py}, tests/test_sms_otp.py, apps/user_app/lib/{core/auth_impls.dart,features/auth/auth_controller.dart} |
@@ -108,6 +109,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-054: Hotfix — config/audit_log missing on prod D1 (010_config_audit.sql + demo fail-closed)
+- **Date**: 2026-10-02
+- **Status**: Accepted
+- **Context**: Prod 500 on POST /v1/auth/demo right after ADR-053 landed: `D1_ERROR: no such table: config`. Root cause is NOT commit feb8aa8's code — the `config` + `audit_log` tables are slice-1 tables created only by `db.init_schema()` (local sqlite path); ADR-037 applied migrations 002–007 to D1, and no migration file ever created these two. So `ConfigRepo.get` (used by demo gate, catalog rates, admin config GET/PUT) and `audit_log` writes were landmines on D1 from day one; demo was just the first route to step on one. Reuse of 009 was rejected: 009's `schema_migrations` row already exists on D1, and D1 re-execution of `CREATE TABLE IF NOT EXISTS` inside a tracked file is a no-op there.
+- **Options considered**: Reuse 009 (rejected — already applied on D1, silently no-ops); call `init_schema` from the request path (rejected — hides the schema drift, and DDL-in-request on D1 is a smell); `except Exception -> flag=None` guard only, no migration (rejected — leaves admin config routes + rates 500ing).
+- **Decision**: (1) `010_config_audit.sql` — same shape as db.py `_SCHEMA`, idempotent, restores schema_migrations integrity. Apply with the other migrations: `for f in src/app/db/migrations/*.sql; do wrangler d1 execute shodasha --remote --file="$f" || break; done` then `wrangler d1 execute shodasha --remote --file=./demo_seed.sql`. (2) `demo_login` wraps the config read in try/except → 401 "Demo login is off." (fail closed — the flag defaults to off anyway, so behavior is unchanged for any DB state). (3) 2 new tests: pre-010 DB (002+009 only, no config table — the exact prod condition) → clean 401 not 500; migrations-only + seed → demo works. 184 pytest green.
+- **Why**: Fix the actual schema drift (root cause) for every config/audit_log consumer, plus a one-line fail-closed so the demo door can never 500. Log the runbook in demo_seed.sql so the next D1 change applies migrations first.
+- **Consequences**: USER still must run the migration loop + demo_seed.sql on D1 (remote). Until then demo shows 401 (clean), admin Config page will still 500 — the migration is the real fix. Keep `010` in mind for the next fresh-env setup.
+- **Affects**: workers/api/src/app/db/migrations/010_config_audit.sql, src/app/services/auth_service.py (demo_login), demo_seed.sql (header runbook), tests/test_demo.py (+2)
 
 ### ADR-053: Address fix + demo login + demo seed
 - **Date**: 2026-10-02

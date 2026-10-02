@@ -14,6 +14,7 @@ from pathlib import Path
 API_ROOT = Path(__file__).resolve().parent.parent
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 M009 = (API_ROOT / "src" / "app" / "db" / "migrations" / "009_demo.sql").read_text()
+M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 
 
 def _conn(demo_on=True):
@@ -36,6 +37,25 @@ def _conn(demo_on=True):
             "+919000000002", hashlib.sha256(b"222222").hexdigest(), "2026-10-02T00:00:00Z",
         ),
     )
+    raw.commit()
+    return AsyncSqliteConn(raw)
+
+
+def _conn_pre010(users=True):
+    """Prod D1 before ADR-054: migrations 002+009 applied, 010 missing —
+    no ``config`` table at all (what actually 500'd /v1/auth/demo)."""
+    raw = get_connection(":memory:")
+    raw.executescript(M002 + M009)
+    if users:
+        raw.execute(
+            "INSERT INTO users(id, phone, role, created_at) VALUES "
+            "('du1', '+919000000001', 'user', '2026-10-02T00:00:00Z'),"
+            " ('dv1', '+919000000002', 'vendor', '2026-10-02T00:00:00Z')"
+        )
+        raw.execute(
+            "INSERT INTO demo_codes(phone, code_hash, created_at) VALUES (?, ?, ?)",
+            ("+919000000001", hashlib.sha256(b"111111").hexdigest(), "2026-10-02T00:00:00Z"),
+        )
     raw.commit()
     return AsyncSqliteConn(raw)
 
@@ -66,6 +86,27 @@ async def test_demo_missing_device_400():
     with pytest.raises(AppError) as e:
         await AuthService(_conn()).demo_login("+919000000001", "111111", "")
     assert e.value.status_code == 400
+
+
+async def test_demo_pre010_fail_closed_not_500():
+    """ADR-054: missing config table (D1 pre-010) -> clean 401, never a 500."""
+    with pytest.raises(AppError) as e:
+        await AuthService(_conn_pre010()).demo_login("+919000000001", "111111", "dev-1")
+    assert e.value.status_code == 401
+
+
+async def test_migration_010_fixes_pre010_db():
+    """D1 recovery path: applying every migration file (what the documented
+    wrangler loop does — all IF NOT EXISTS) + seed makes demo login work."""
+    raw = get_connection(":memory:")
+    for path in sorted((API_ROOT / "src" / "app" / "db" / "migrations").glob("*.sql")):
+        raw.executescript(path.read_text())  # 002..010, no init_schema
+    raw.executescript(
+        (API_ROOT / "demo_seed.sql").read_text()  # same statements as prod seed
+    )
+    conn = AsyncSqliteConn(raw)
+    out = await AuthService(conn).demo_login("+919000000001", "111111", "dev-1")
+    assert out["role"] == "user" and out["access_token"]
 
 
 def test_demo_router_end_to_end():

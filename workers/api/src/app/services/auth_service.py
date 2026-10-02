@@ -250,7 +250,10 @@ class AuthService:
 
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
-        flag = await ConfigRepo(self._conn).get("demo_login_enabled", "0")
+        try:
+            flag = await ConfigRepo(self._conn).get("demo_login_enabled", "0")
+        except Exception:  # ADR-054: D1 pre-migration — fail closed, not 500
+            flag = None
         if (flag or "0").strip() != "1":
             raise UnauthError("Demo login is off.", {})
         _LIMITER.check(f"demo-login:device:{device_id}", *self.DEMO_LOGIN_DEVICE_LIMIT)

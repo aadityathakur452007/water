@@ -1,5 +1,12 @@
 -- demo_seed.sql — demo accounts + demo order/route for QA (D1 + local).
 --
+-- D1 PREREQUISITE (ADR-054): apply the migrations first — config/audit_log come
+-- from 010_config_audit.sql, not from any earlier migration. All files are
+-- IF NOT EXISTS, so re-running on an up-to-date DB is a no-op:
+--   for f in src/app/db/migrations/*.sql; do
+--     wrangler d1 execute shodasha --remote --file="$f" || break; done
+--   wrangler d1 execute shodasha --remote --file=./demo_seed.sql
+--
 -- What this creates (ALL demo-only, safe to wipe):
 --   demo customer  +919000000001 / code 111111  (role user)
 --   demo vendor    +919000000002 / code 222222  (role vendor)
