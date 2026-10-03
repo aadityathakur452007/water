@@ -19,6 +19,7 @@ class QueuedTriple {
     required this.triple,
     required this.idempotencyKey,
     required this.queuedAtIso,
+    this.cashAmountPaise = 0,
   });
 
   final String stopId;
@@ -26,11 +27,16 @@ class QueuedTriple {
   final String idempotencyKey;
   final String queuedAtIso;
 
+  /// F2: cash collected with an offline triple — posted right after the
+  /// triple applies in sync_batch (server dedupes on stop+amount).
+  final int cashAmountPaise;
+
   Map<String, dynamic> toJson() => {
         'stop_id': stopId,
         'triple': triple,
         'idempotency_key': idempotencyKey,
         'queued_at': queuedAtIso,
+        'cash_amount': cashAmountPaise,
       };
 
   static QueuedTriple fromJson(Map<String, dynamic> j) => QueuedTriple(
@@ -38,12 +44,14 @@ class QueuedTriple {
         triple: Map<String, dynamic>.from((j['triple'] ?? {}) as Map),
         idempotencyKey: (j['idempotency_key'] ?? '') as String,
         queuedAtIso: (j['queued_at'] ?? '') as String,
+        cashAmountPaise: (j['cash_amount'] as num?)?.toInt() ?? 0,
       );
 
   Map<String, dynamic> toSyncItem() => {
         'stop_id': stopId,
         'idempotency_key': idempotencyKey,
         ...triple,
+        if (cashAmountPaise > 0) 'cash_amount': cashAmountPaise,
       };
 }
 
@@ -109,6 +117,7 @@ class SyncController extends ChangeNotifier {
     required String stopId,
     required Map<String, dynamic> triple,
     String? idempotencyKey,
+    int cashAmountPaise = 0,
   }) async {
     _queue = [
       ..._queue,
@@ -117,6 +126,7 @@ class SyncController extends ChangeNotifier {
         triple: triple,
         idempotencyKey: idempotencyKey ?? newIdempotencyKey(),
         queuedAtIso: DateTime.now().toIso8601String(),
+        cashAmountPaise: cashAmountPaise,
       ),
     ];
     await _persist();

@@ -97,14 +97,67 @@ async def write_audit(conn: Conn, *, actor: str, action: str, entity: str,
 
 
 async def ensure_profile(conn: Conn, vendor_id: str) -> dict:
-    """Fetch vendor_profile, creating defaults on first use (caller locks)."""
+    """Fetch vendor_profile, creating defaults on first use (caller locks).
+
+    F5: converges the 007-ops vs 011-port shape conflict in code — whichever
+    shape won first-wins gets the missing columns (PRAGMA + conditional
+    ALTER; truly idempotent on any applied DB, no migration needed).
+    Missing table (pre-007/011 DBs) is created in the merged shape.
+    """
+    cols = {r["name"] for r in (await conn.execute(
+        "SELECT name FROM pragma_table_info('vendor_profile')")).fetchall()}
+    if "user_id" not in cols:  # table absent
+        await conn.execute(
+            "CREATE TABLE vendor_profile ("
+            "user_id TEXT PRIMARY KEY REFERENCES users(id),"
+            " max_stops_per_shift INTEGER NOT NULL DEFAULT 25,"
+            " max_jars_per_shift INTEGER NOT NULL DEFAULT 60,"
+            " per_stop_fee INTEGER NOT NULL DEFAULT 0,"
+            " active INTEGER NOT NULL DEFAULT 1,"
+            " on_duty INTEGER NOT NULL DEFAULT 0,"
+            " in_hand INTEGER NOT NULL DEFAULT 0,"
+            " kyc_note TEXT NOT NULL DEFAULT '',"
+            " review_hold INTEGER NOT NULL DEFAULT 0,"
+            " duty_on TEXT, duty_off TEXT,"
+            " name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',"
+            " address TEXT NOT NULL DEFAULT '', hours TEXT NOT NULL DEFAULT '',"
+            " updated_at TEXT)")
+        cols = _PROFILE_UNION
+    else:
+        for col, ddl in _PROFILE_COLS.items():
+            if col not in cols:
+                await conn.execute(f"ALTER TABLE vendor_profile ADD COLUMN {ddl}")  # noqa: S608
     row = (await conn.execute("SELECT * FROM vendor_profile WHERE user_id = ?", (vendor_id,))).fetchone()
     if row is None:
-        await conn.execute(
-            "INSERT INTO vendor_profile(user_id, updated_at) VALUES (?, ?)", (vendor_id, _now())
-        )
+        await conn.execute("INSERT OR IGNORE INTO vendor_profile(user_id) VALUES (?)", (vendor_id,))
         row = (await conn.execute("SELECT * FROM vendor_profile WHERE user_id = ?", (vendor_id,))).fetchone()
     return dict(row)
+
+
+_PROFILE_UNION = {
+    "user_id", "max_stops_per_shift", "max_jars_per_shift", "per_stop_fee",
+    "active", "on_duty", "in_hand", "kyc_note", "review_hold",
+    "duty_on", "duty_off", "name", "phone", "address", "hours", "updated_at",
+}
+
+# Column DDL for convergence ALTERs (NOT NULL ⇒ needs explicit DEFAULT).
+_PROFILE_COLS = {
+    "max_stops_per_shift": "max_stops_per_shift INTEGER NOT NULL DEFAULT 25",
+    "max_jars_per_shift": "max_jars_per_shift INTEGER NOT NULL DEFAULT 60",
+    "per_stop_fee": "per_stop_fee INTEGER NOT NULL DEFAULT 0",
+    "active": "active INTEGER NOT NULL DEFAULT 1",
+    "on_duty": "on_duty INTEGER NOT NULL DEFAULT 0",
+    "in_hand": "in_hand INTEGER NOT NULL DEFAULT 0",
+    "kyc_note": "kyc_note TEXT NOT NULL DEFAULT ''",
+    "review_hold": "review_hold INTEGER NOT NULL DEFAULT 0",
+    "duty_on": "duty_on TEXT",
+    "duty_off": "duty_off TEXT",
+    "name": "name TEXT NOT NULL DEFAULT ''",
+    "phone": "phone TEXT NOT NULL DEFAULT ''",
+    "address": "address TEXT NOT NULL DEFAULT ''",
+    "hours": "hours TEXT NOT NULL DEFAULT ''",
+    "updated_at": "updated_at TEXT",
+}
 
 
 async def order_zone(conn: Conn, order: dict) -> str | None:
@@ -174,6 +227,16 @@ async def _route_for(conn: Conn, vendor_id: str, date: str, zone: str) -> str:
         (rid, date, vendor_id, zone or ""),
     )
     return rid
+
+
+async def route_for_vendor(conn: Conn, vendor_id: str, date: str | None = None) -> str:
+    """F8: find-or-create a vendor's route for a date (manual returns assign).
+    Zone = vendor's priority-0 zone ("" when zoneless — pool semantics stay)."""
+    day = date or _today()
+    zrow = (await conn.execute(
+        "SELECT zone_id FROM vendor_zones WHERE vendor_id = ? ORDER BY priority LIMIT 1",
+        (vendor_id,))).fetchone()
+    return await _route_for(conn, vendor_id, day, str(zrow["zone_id"]) if zrow else "")
 
 
 async def _event(conn: Conn, order_id: str, frm: str | None, to: str,

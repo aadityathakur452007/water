@@ -27,6 +27,7 @@ class RouteStop {
     this.paymentMode = 'cod',
     this.totalPaise = 0,
     this.paymentStatus = 'unpaid',
+    this.returnId = '',
   });
 
   final String id;
@@ -50,6 +51,9 @@ class RouteStop {
   final int totalPaise;
   final String paymentStatus;
 
+  /// F8: set on empty-jar pickup stops (stops.return_id); else ''.
+  final String returnId;
+
   bool get isDone => status == 'done';
   bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
 
@@ -70,6 +74,7 @@ class RouteStop {
         paymentMode: (j['payment_mode'] ?? 'cod') as String,
         totalPaise: (j['total'] as num?)?.toInt() ?? 0,
         paymentStatus: (j['payment_status'] ?? 'unpaid') as String,
+        returnId: (j['return_id'] ?? '') as String,
       );
 }
 

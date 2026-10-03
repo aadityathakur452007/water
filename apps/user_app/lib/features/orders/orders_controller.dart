@@ -230,6 +230,7 @@ class Order {
     this.containerQty = 0,
     this.paymentMode = 'cod',
     this.paymentStatus = 'unpaid',
+    this.deliveryOtp,
   });
 
   final String id;
@@ -260,6 +261,10 @@ class Order {
   final String paymentMode;
   final String paymentStatus;
 
+  /// F1: PoD delivery code (server detail only, dispatched/assigned).
+  /// Shown once on tracking so the customer can read it to the rider.
+  final String? deliveryOtp;
+
   bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
 
   /// Reorder possible only when the mix is known.
@@ -281,6 +286,7 @@ class Order {
     int? totalPaise,
     String? paymentMode,
     String? paymentStatus,
+    String? deliveryOtp,
     int? refillQty,
     int? containerQty,
   }) {
@@ -293,6 +299,7 @@ class Order {
       riderPhone: riderPhone ?? this.riderPhone,
       paymentMode: paymentMode ?? this.paymentMode,
       paymentStatus: paymentStatus ?? this.paymentStatus,
+      deliveryOtp: deliveryOtp ?? this.deliveryOtp,
       itemSummary: itemSummary,
       addressLabel: addressLabel,
       waterBillPaise: waterBillPaise,
@@ -503,6 +510,7 @@ Order orderFromApi(Map<String, dynamic> json) {
     paymentMode: '${json['payment_mode'] ?? 'cod'}',
     paymentStatus:
         '${json['payment_status'] ?? bill['payment_status'] ?? 'unpaid'}',
+    deliveryOtp: json['delivery_otp']?.toString(),
     refillQty: refill,
     containerQty: container,
     createdAt: tryDate(json['created_at']),
@@ -543,7 +551,8 @@ class ApiBackedOrdersRepository implements OrdersRepository {
 
   @override
   Future<Order> rescheduleOrder(String id, DateTime windowStart) async =>
-      orderFromApi(await _api.rescheduleApi(id, windowStart.toIso8601String()));
+      orderFromApi(await _api.rescheduleApi(
+          id, windowStart.toIso8601String(), const Uuid().v4()));
 
   @override
   Future<Order> submitRating(String id, int stars) async {

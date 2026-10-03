@@ -283,6 +283,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       onCall: () => _callRider(order),
                     ),
                   ],
+                  // F1: delivery code the rider asks for at the door.
+                  // Renders only when the server sends it (assigned/dispatched).
+                  if (order.deliveryOtp != null &&
+                      order.deliveryOtp!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _DeliveryCodeRow(code: order.deliveryOtp!),
+                  ],
                   const SizedBox(height: 12),
                   _BillRow(
                     order: order,
@@ -612,6 +619,58 @@ class _RiderCard extends StatelessWidget {
                 child: Text(ordersStringsHi['callRider']!),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeliveryCodeRow extends StatelessWidget {
+  const _DeliveryCodeRow({required this.code});
+  final String code;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: OrdersTokens.white,
+        border: Border.all(color: OrdersTokens.border),
+        borderRadius: BorderRadius.circular(OrdersTokens.radius),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.key_outlined,
+            size: 20,
+            color: OrdersTokens.ink,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Delivery code / डिलीवरी कोड',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: OrdersTokens.muted,
+                  ),
+                ),
+                Text(
+                  '$code — rider ko batayein',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: OrdersTokens.ink,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

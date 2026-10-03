@@ -295,6 +295,34 @@ def test_router_create_replay_and_cross_user():
     assert other.get(f"/v1/orders/{oid}").status_code == 404  # not-yours == not-found
 
 
+# F1: delivery OTP rides order detail for the owner while a stop is active.
+async def test_detail_delivery_otp_visibility_matrix():
+    from app.services.vendor_service import pod_otp
+
+    c = _conn()
+    now = datetime.now(timezone.utc).isoformat()
+    day = "2026-10-03"
+    c.execute(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill, deposit_due,"
+        " total, payment_mode, state, window_start, idempotency_key, created_at)"
+        " VALUES ('od', 'u1', 'a1', '[]', 2, 1, 5600, 15000, 20600, 'cod', 'dispatched', ?, 'seed:od', ?),"
+        " ('op', 'u1', 'a1', '[]', 2, 1, 5600, 15000, 20600, 'cod', 'placed', ?, 'seed:op', ?),"
+        " ('of', 'u1', 'a1', '[]', 2, 1, 5600, 15000, 20600, 'cod', 'delivered', ?, 'seed:of', ?)",
+        (WINDOW, now, WINDOW, now, WINDOW, now),
+    )
+    c.execute("INSERT INTO routes(id, date, vendor_id, zone, status) VALUES ('rd', ?, 'v1', 'z1', 'open')", (day,))
+    c.execute(
+        "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+        " empties_exp, version, status) VALUES ('sd', 'rd', 'od', 'u1', 0, 2, 1, 1, 'pending')")
+    c.commit()
+    s = _svc(c)
+    assert (await s.detail("u1", "od"))["delivery_otp"] == pod_otp("od", day)
+    assert (await s.detail("u1", "op"))["delivery_otp"] is None  # no stop yet
+    assert (await s.detail("u1", "of"))["delivery_otp"] is None  # terminal
+    with pytest.raises(AppError):  # not-yours == not-found, no OTP oracle
+        await s.detail("u9", "od")
+
+
 def test_router_list_pagination_cancel_reschedule():
     c = _conn()
     client = _client(c)

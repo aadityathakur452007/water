@@ -95,7 +95,7 @@ class SlotsIn(BaseModel):
 
 @router.post("/vendor/duty")
 async def set_duty(payload: DutyIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return _svc(conn).duty(_uid(user), payload.on)
+    return await _svc(conn).duty(_uid(user), payload.on)
 
 
 @router.get("/vendor/routes/today")
@@ -126,6 +126,18 @@ async def commit_triple(stop_id: str, payload: TripleIn,
 @router.post("/vendor/stops/{stop_id}/pod")
 async def complete_pod(stop_id: str, payload: PodIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).pod_complete(_uid(user), stop_id, payload.model_dump(mode="json"))
+
+
+class CashIn(BaseModel):
+    amount: int = Field(ge=0)
+
+
+# F2: doorstep cash → money truth (mark_paid_cash + dues reconcile).
+# Dedupe is deterministic on (stop, amount) server-side — no client key.
+@router.post("/vendor/stops/{stop_id}/cash")
+async def post_cash(stop_id: str, payload: CashIn,
+             conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).cash_post(_uid(user), stop_id, int(payload.amount))
 
 
 @router.post("/vendor/sync")
@@ -179,5 +191,5 @@ async def verify_complaint(complaint_id: str, payload: VerifyIn,
 @router.post("/quality/{incident_id}/vendor-check")
 async def vendor_check_quality(incident_id: str, payload: QualityCheckIn,
                          conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return _svc(conn).vendor_check_quality(
+    return await _svc(conn).vendor_check_quality(
         _uid(user), incident_id, payload.agree, payload.check, payload.note)

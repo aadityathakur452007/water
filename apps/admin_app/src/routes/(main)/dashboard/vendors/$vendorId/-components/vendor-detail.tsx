@@ -21,17 +21,23 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { VendorDetail as ApiVendorDetail } from "@/lib/admin-types";
+import type { Page, VendorDetail as ApiVendorDetail, ZoneRow } from "@/lib/admin-types";
 import { dateTime, num, phoneMasked, rupees } from "@/lib/money";
-import { adminPostServer } from "@/server/admin-api";
+import { adminPatchServer, adminPostServer } from "@/server/admin-api";
 
-function dialogDescription(dialog: "block" | "hold" | null, blocked: boolean, hold: number): string {
+function dialogDescription(dialog: "block" | "hold" | "capacity" | null, blocked: boolean, hold: number): string {
+  if (dialog === "capacity") return "Per-vendor zone load caps + per-stop fee (paise). Audited.";
   if (dialog === "block")
     return blocked ? "Restores vendor access. Audited." : "Blocking revokes the vendor's sessions. Reason required.";
   return hold ? "Vendor resumes accepting dispatches." : "Hold stops new dispatch assignments until released.";
 }
 
-function dialogTitle(dialog: "block" | "hold" | null, blocked: boolean, hold: number): string {
+function dialogTitle(
+  dialog: "block" | "hold" | "capacity" | null,
+  blocked: boolean,
+  hold: number,
+): string {
+  if (dialog === "capacity") return "Edit capacity";
   if (dialog === "block") return blocked ? "Unblock vendor" : "Block vendor";
   return hold ? "Release review hold" : "Set review hold";
 }
@@ -45,10 +51,16 @@ export function VendorDetail() {
   const { vendorId } = useParams({ strict: false }) as { vendorId: string };
   const invalidate = useInvalidateAdmin();
   const { data, isError, error } = useAdminQuery<ApiVendorDetail>(`/v1/admin/vendors/${vendorId}/detail`);
+  const { data: zones } = useAdminQuery<Page<ZoneRow>>("/v1/admin/zones");
 
-  const [dialog, setDialog] = React.useState<"block" | "hold" | null>(null);
+  const [dialog, setDialog] = React.useState<"block" | "hold" | "capacity" | null>(null);
   const [text, setText] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [maxStops, setMaxStops] = React.useState("");
+  const [maxJars, setMaxJars] = React.useState("");
+  const [feePaise, setFeePaise] = React.useState("");
+  const [attachZone, setAttachZone] = React.useState("");
+  const [period, setPeriod] = React.useState(() => new Date().toISOString().slice(0, 7));
 
   if (isError) {
     return (
@@ -84,6 +96,38 @@ export function VendorDetail() {
         toast.add({ title: hold ? "Hold released" : "Review hold set", description: v.name ?? vendorId });
       }
       setDialog(null);
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Action failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCapacity() {
+    const body: Record<string, number> = {};
+    if (maxStops.trim()) body.max_stops = Number(maxStops);
+    if (maxJars.trim()) body.max_jars = Number(maxJars);
+    if (feePaise.trim()) body.per_stop_fee = Number(feePaise);
+    if (!Object.keys(body).length) return;
+    setBusy(true);
+    try {
+      await adminPatchServer({ data: { path: `/v1/admin/vendors/${vendorId}/capacity`, body } });
+      toast.add({ title: "Capacity updated", description: v.name ?? vendorId });
+      setDialog(null);
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Action failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function mutate(path: string, body: unknown, okTitle: string) {
+    setBusy(true);
+    try {
+      await adminPostServer({ data: { path, body } });
+      toast.add({ title: okTitle, description: v.name ?? vendorId });
       invalidate("/v1/admin");
     } catch (err) {
       toast.add({ title: "Action failed", description: errorMessage(err), type: "error" });
@@ -159,10 +203,76 @@ export function VendorDetail() {
             <div>
               <p className="text-muted-foreground text-xs">Capacity (stops / jars per shift)</p>
               <p className="font-medium text-sm tabular-nums">{`${num(p?.max_stops_per_shift ?? 0)} / ${num(p?.max_jars_per_shift ?? 0)}`}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-1"
+                onClick={() => {
+                  setMaxStops(String(p?.max_stops_per_shift ?? ""));
+                  setMaxJars(String(p?.max_jars_per_shift ?? ""));
+                  setFeePaise(String(p?.per_stop_fee ?? ""));
+                  setDialog("capacity");
+                }}
+              >
+                Edit capacity
+              </Button>
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Zones</p>
-              <p className="font-medium text-sm">{data.zones.map((z) => z.name).join(", ") || "—"}</p>
+              {data.zones.length ? (
+                <div className="flex flex-col gap-1">
+                  {data.zones.map((z) => (
+                    <div key={z.id} className="flex items-center gap-2 text-sm">
+                      <span className="font-medium">{z.name}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        disabled={busy}
+                        onClick={() =>
+                          void mutate(`/v1/admin/zones/${z.id}/vendors/${vendorId}/detach`, { reason: "detach from vendor detail" }, "Zone detached")
+                        }
+                      >
+                        Detach
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="font-medium text-sm">—</p>
+              )}
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  aria-label="Attach zone"
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  value={attachZone}
+                  onChange={(e) => setAttachZone(e.target.value)}
+                >
+                  <option value="">Attach zone…</option>
+                  {(zones?.data ?? [])
+                    .filter((z) => !data.zones.some((mine) => mine.id === z.id))
+                    .map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  disabled={busy || !attachZone}
+                  onClick={() =>
+                    void mutate(
+                      `/v1/admin/zones/${attachZone}/vendors/attach`,
+                      { vendor_id: vendorId, priority: 0 },
+                      "Zone attached",
+                    )
+                  }
+                >
+                  Attach
+                </Button>
+              </div>
             </div>
             <div>
               <p className="text-muted-foreground text-xs">KYC note</p>
@@ -177,6 +287,27 @@ export function VendorDetail() {
           <CardHeader>
             <CardTitle>Payouts</CardTitle>
             <CardDescription>Weekly settlements (net of deductions)</CardDescription>
+            <CardAction>
+              <div className="flex items-center gap-2">
+                <Input
+                  aria-label="Payout period YYYY-MM"
+                  className="h-8 w-28"
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                  placeholder="YYYY-MM"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || !/^\d{4}-\d{2}$/.test(period)}
+                  onClick={() =>
+                    void mutate("/v1/admin/payouts/generate", { vendor_id: vendorId, period }, "Payout generated")
+                  }
+                >
+                  Generate
+                </Button>
+              </div>
+            </CardAction>
           </CardHeader>
           <CardContent className="px-0 pb-2">
             <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
@@ -187,6 +318,7 @@ export function VendorDetail() {
                   <TableHead className="py-3">Gross</TableHead>
                   <TableHead className="py-3">Net</TableHead>
                   <TableHead className="py-3">Status</TableHead>
+                  <TableHead className="py-3">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -200,11 +332,24 @@ export function VendorDetail() {
                       <TableCell className="px-3 py-3 text-sm">
                         <Badge variant="outline">{o.status}</Badge>
                       </TableCell>
+                      <TableCell className="px-3 py-3 text-sm">
+                        {o.status === "pending" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7"
+                            disabled={busy}
+                            onClick={() => void mutate(`/v1/admin/payouts/${o.id}/approve`, {}, "Payout approved")}
+                          >
+                            Approve
+                          </Button>
+                        ) : null}
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
                       No payouts yet.
                     </TableCell>
                   </TableRow>
@@ -242,7 +387,40 @@ export function VendorDetail() {
             <DialogTitle>{dialogTitle(dialog, blocked, hold)}</DialogTitle>
             <DialogDescription>{dialogDescription(dialog, blocked, hold)}</DialogDescription>
           </DialogHeader>
-          {!(dialog === "block" && blocked) && !(dialog === "hold" && hold) ? (
+          {dialog === "capacity" ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="vd-stops">Max stops / shift</Label>
+                <Input
+                  id="vd-stops"
+                  inputMode="numeric"
+                  value={maxStops}
+                  onChange={(e) => setMaxStops(e.target.value)}
+                  placeholder="25"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="vd-jars">Max jars / shift</Label>
+                <Input
+                  id="vd-jars"
+                  inputMode="numeric"
+                  value={maxJars}
+                  onChange={(e) => setMaxJars(e.target.value)}
+                  placeholder="60"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="vd-fee">Per-stop fee (paise)</Label>
+                <Input
+                  id="vd-fee"
+                  inputMode="numeric"
+                  value={feePaise}
+                  onChange={(e) => setFeePaise(e.target.value)}
+                  placeholder="0 = salary model"
+                />
+              </div>
+            </div>
+          ) : !(dialog === "block" && blocked) && !(dialog === "hold" && hold) ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="vd-note">Note {dialog === "block" ? "(reason, min 3 chars)" : "(optional)"}</Label>
               <Input id="vd-note" value={text} onChange={(e) => setText(e.target.value)} placeholder="Reason" />
@@ -255,7 +433,7 @@ export function VendorDetail() {
             <Button
               variant={dialog === "block" && !blocked ? "destructive" : "default"}
               disabled={busy || (dialog === "block" && !blocked && text.trim().length < 3)}
-              onClick={() => void act(dialog === "block" ? "block" : "hold")}
+              onClick={() => void (dialog === "capacity" ? saveCapacity() : act(dialog === "block" ? "block" : "hold"))}
             >
               {busy ? "Working…" : "Confirm"}
             </Button>

@@ -1,10 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import * as React from "react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useAdminQuery } from "@/hooks/use-admin-api";
+import { toast } from "@/components/ui/toast";
+import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { Page, Reconciliation } from "@/lib/admin-types";
 import { num, rupees } from "@/lib/money";
+import { adminPostServer } from "@/server/admin-api";
 
 import { Dunning } from "./-components/dunning";
 import { MoneyCards } from "./-components/money-cards";
@@ -23,10 +28,56 @@ export const Route = createFileRoute("/(main)/dashboard/finance/")({
 function FinancePage() {
   const { data: reco } = useAdminQuery<Page<Reconciliation>>("/v1/admin/reconciliation");
   const rows = reco?.data ?? [];
+  const invalidate = useInvalidateAdmin();
+  const [day, setDay] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = React.useState(false);
+  const [closed, setClosed] = React.useState<Record<string, number | string | boolean> | null>(null);
+
+  async function closeDay() {
+    setBusy(true);
+    try {
+      const res = (await adminPostServer({
+        data: { path: "/v1/admin/reconciliation/close", body: { date: day } },
+      })) as unknown as Record<string, number | string | boolean>;
+      setClosed(res);
+      toast.add({ title: "Day closed", description: `${String(res.date)} snapshot in audit` });
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Close failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <MoneyCards />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Close the day</CardTitle>
+          <CardDescription>Snapshot books + collected cash/UPI + custody into the audit trail</CardDescription>
+          <CardAction>
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label="Close date"
+                className="h-8 w-36"
+                value={day}
+                onChange={(e) => setDay(e.target.value)}
+                placeholder="YYYY-MM-DD"
+              />
+              <Button size="sm" disabled={busy || !/^\d{4}-\d{2}-\d{2}$/.test(day)} onClick={() => void closeDay()}>
+                {busy ? "Closing…" : "Close day"}
+              </Button>
+            </div>
+          </CardAction>
+        </CardHeader>
+        {closed ? (
+          <CardContent>
+            <p className="text-sm tabular-nums">{`Jama cash ${rupees(Number(closed.collected_cash ?? 0))} · UPI ${rupees(Number(closed.collected_upi ?? 0))} · custody ${rupees(Number(closed.custody_in_hand ?? 0))} · dues ${rupees(Number(closed.dues_receivable ?? 0))}`}</p>
+          </CardContent>
+        ) : null}
+      </Card>
 
       <Card>
         <CardHeader>

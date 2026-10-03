@@ -23,15 +23,14 @@ from app.services.vendor_service import (  # noqa: E402
     PodOtpError,
     StaleStopError,
     VendorService,
-    _DUTY,
-    _QUALITY,
     pod_otp,
-    seed_quality,
 )
 
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").read_text()
 M004 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
+M005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
+M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_text()
 
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 FUTURE = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat()
@@ -39,7 +38,7 @@ FUTURE = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat
 
 def _conn():
     c = get_connection(":memory:")
-    c.executescript(M002 + M003 + M004)
+    c.executescript(M002 + M003 + M004 + M005 + M007)
     c.execute(
         "INSERT INTO users(id, phone, role, created_at) VALUES "
         "('v1', '+911111111111', 'vendor', ?), ('v2', '+913333333333', 'vendor', ?),"
@@ -89,15 +88,6 @@ def _svc(c) -> VendorService:
     return VendorService(AsyncSqliteConn(c))
 
 
-@pytest.fixture(autouse=True)
-def _clean_mem():
-    _DUTY.clear()
-    _QUALITY.clear()
-    yield
-    _DUTY.clear()
-    _QUALITY.clear()
-
-
 def _triple(**over) -> dict:
     base = {"fulls_given": 2, "empties_back": 1, "cash": 100, "upi": 0,
             "caps_missing": 0, "version": 1}
@@ -105,14 +95,37 @@ def _triple(**over) -> dict:
     return base
 
 
-# -- duty + route -----------------------------------------------------------
+# -- duty (F5: persisted on vendor_profile, survives service instances) ---------
 
-def test_duty_on_off_in_memory():
+async def test_duty_on_off_persisted():
     c = _conn()
-    assert _svc(c).duty("v1", True) == {"vendor_id": "v1", "duty_on": True,
-                                        "since": _DUTY["v1"]["since"]}
-    assert _svc(c).is_on_duty("v1") is True
-    assert _svc(c).duty("v1", False)["duty_on"] is False
+    on = await _svc(c).duty("v1", True)
+    assert on == {"vendor_id": "v1", "duty_on": True, "since": on["since"]}
+    # Fresh service instance reads the same truth (no in-memory store).
+    assert await VendorService(AsyncSqliteConn(c)).is_on_duty("v1") is True
+    assert c.execute("SELECT on_duty, duty_on FROM vendor_profile WHERE user_id = 'v1'").fetchone()["on_duty"] == 1
+    off = await _svc(c).duty("v1", False)
+    assert off["duty_on"] is False
+    assert await _svc(c).is_on_duty("v1") is False
+
+
+async def test_ensure_profile_converges_011_shape():
+    """F5: 011-first DBs (profile cols only) gain the 007 ops columns."""
+    from app.services.dispatch_service import ensure_profile
+
+    c = get_connection(":memory:")
+    c.executescript(M002)
+    c.execute(
+        "CREATE TABLE vendor_profile(user_id TEXT PRIMARY KEY, name TEXT,"
+        " phone TEXT, address TEXT, hours TEXT, updated_at TEXT)")
+    c.execute("INSERT INTO users(id, phone, role, created_at) VALUES ('v1', '+911111111111', 'vendor', ?)",
+              (_dt.datetime.now(_dt.timezone.utc).isoformat(),))
+    c.commit()
+    prof = await ensure_profile(AsyncSqliteConn(c), "v1")
+    assert prof["on_duty"] == 0 and prof["in_hand"] == 0 and prof["max_stops_per_shift"] == 25
+    assert await _svc(c).is_on_duty("v1") is False
+    await _svc(c).duty("v1", True)
+    assert await _svc(c).is_on_duty("v1") is True
 
 
 async def test_today_route_loading_and_skip():
@@ -295,6 +308,73 @@ async def test_earnings_totals_and_flagged_hold():
     assert "held out of payouts" in out["note"]
 
 
+# -- cash post (F2: doorstep cash → money truth) ------------------------------------
+
+async def test_cash_post_full_flips_paid_cash():
+    c = _conn()
+    out = await _svc(c).cash_post("v1", "s1", 20600)  # o1 total 20600 COD
+    assert out["order"]["payment_status"] == "paid_cash"
+    assert out["payment"]["method"] == "cod" and out["payment"]["amount"] == 20600
+    assert out["ledger"]["dues"] == 0
+    assert c.execute("SELECT COUNT(*) c FROM payments").fetchone()["c"] == 1
+
+
+async def test_cash_post_partial_carries_dues():
+    c = _conn()
+    out = await _svc(c).cash_post("v1", "s1", 1000)
+    assert out["order"]["payment_status"] == "partial_dues"
+    assert out["ledger"]["dues"] == 19600  # remainder carried (VR-08)
+    again = await _svc(c).cash_post("v1", "s1", 19600)  # top-up completes
+    assert again["order"]["payment_status"] == "paid_cash"
+
+
+async def test_cash_post_replay_and_cross_vendor():
+    c = _conn()
+    s = _svc(c)
+    o1 = await s.cash_post("v1", "s1", 20600)
+    o2 = await s.cash_post("v1", "s1", 20600)  # same stop+amount → replay
+    assert o2["replay"] is True and o1["payment"]["id"] == o2["payment"]["id"]
+    assert c.execute("SELECT COUNT(*) c FROM payments").fetchone()["c"] == 1
+    with pytest.raises(AppError) as e:  # other vendor's stop == not-found, zero writes
+        await s.cash_post("v2", "s1", 100)
+    assert e.value.code == "NOT_FOUND" and e.value.status_code == 404
+    assert c.execute("SELECT COUNT(*) c FROM payments").fetchone()["c"] == 1
+    with pytest.raises(AppError) as e:  # new amount after full → already paid 409
+        await s.cash_post("v1", "s1", 50)
+    assert e.value.code == "STATE_CONFLICT" and e.value.status_code == 409
+
+
+async def test_cash_post_rejects_zero():
+    with pytest.raises(AppError) as e:
+        await _svc(_conn()).cash_post("v1", "s1", 0)
+    assert e.value.code == "VALIDATION"
+
+
+async def test_sync_batch_rides_cash():
+    c = _conn()
+    out = await _svc(c).sync_batch("v1", [{"stop_id": "s2", **_triple(fulls_given=1, empties_back=0),
+                               "cash_amount": 20600}])  # o2 total 20600 COD
+    assert out["applied"] == ["s2"] and out["rejected"] == []
+    assert c.execute("SELECT payment_status FROM orders WHERE id = 'o2'").fetchone()["payment_status"] == "paid_cash"
+
+
+# -- hold flag (F3: today_route + get_stop surface held>3) ---------------------------
+
+async def test_hold_blocked_flag_boundary():
+    from app.repositories.ledger_repo import LedgerRepo
+
+    c = _conn()
+    await LedgerRepo(AsyncSqliteConn(c)).apply_event("u1", d_held=4, ref="seed", actor="t", reason="t")
+    route = await _svc(c).today_route("v1", DAY)
+    assert all(s["hold_blocked"] is True for s in route["stops"])
+    assert all("deposit" in (s["hold_reason"] or "") for s in route["stops"])
+    assert (await _svc(c).get_stop("v1", "s1"))["hold_blocked"] is True
+    # Held exactly 3 → not blocked (rule is > 3).
+    c2 = _conn()
+    await LedgerRepo(AsyncSqliteConn(c2)).apply_event("u1", d_held=3, ref="seed", actor="t", reason="t")
+    assert all(s["hold_blocked"] is False for s in (await _svc(c2).today_route("v1", DAY))["stops"])
+
+
 # -- complaint + quality (§14.3) ------------------------------------------------------
 
 async def test_complaint_verify_agree_resolves():
@@ -310,16 +390,75 @@ async def test_complaint_verify_disagree_freezes_for_admin():
     assert e.value.code == "NOT_FOUND"
 
 
-def test_quality_vendor_check_paths():
+async def test_quality_vendor_check_paths():
+    """F4: checks land on the quality_incidents table (admin reads the same)."""
     c = _conn()
-    seed_quality({"id": "q1", "order_id": "o1", "reason_code": "water_quality"})
-    agree = _svc(c).vendor_check_quality("v1", "q1", True, "seal", "seal intact, smell off")
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO quality_incidents(id, order_id, vendor_id, reason_code, status, created_at)"
+        " VALUES ('q1', 'o1', 'v1', 'water_quality', 'open', ?),"
+        " ('q2', 'o1', 'v1', 'water_quality', 'open', ?)",
+        (now, now),
+    )
+    c.commit()
+    agree = await _svc(c).vendor_check_quality("v1", "q1", True, "seal", "seal intact, smell off")
     assert agree["status"] == "confirmed" and agree["vendor_agree"] == 1
-    seed_quality({"id": "q2", "order_id": "o1", "reason_code": "water_quality"})
-    dis = _svc(c).vendor_check_quality("v1", "q2", False, "visual", "looks fine")
-    assert dis["status"] == "disputed"  # frozen → 48h admin triage
-    with pytest.raises(AppError):
-        _svc(c).vendor_check_quality("v1", "missing", True, "", "")
+    assert agree["vendor_note"] == "seal intact, smell off"
+    dis = await _svc(c).vendor_check_quality("v1", "q2", False, "visual", "looks fine")
+    assert dis["status"] == "open" and dis["vendor_agree"] == 0  # frozen → 48h admin triage
+    with pytest.raises(AppError):  # unknown id → 404
+        await _svc(c).vendor_check_quality("v1", "missing", True, "", "")
+    # o9 is not on v1's route → 404, no oracle (needs its own incident row).
+    c.execute(
+        "INSERT INTO quality_incidents(id, order_id, vendor_id, reason_code, status, created_at)"
+        " VALUES ('q9', 'o9', 'v1', 'water_quality', 'open', ?)",
+        (now,),
+    )
+    c.commit()
+    with pytest.raises(AppError) as e:
+        await _svc(c).vendor_check_quality("v1", "q9", True, "", "")
+    assert e.value.code == "NOT_FOUND"
+
+
+# -- returns pickup (F8: empties collect on own route) ------------------------------
+
+def _return(c, rid="ret1", qty=2, status="requested"):
+    c.execute(
+        "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
+        " VALUES (?, 'u1', ?, 'a1', ?, '2026-10-15', ?)",
+        (rid, qty, status, _dt.datetime.now(_dt.timezone.utc).isoformat()),
+    )
+    c.commit()
+
+
+def test_return_pickup_ledger_and_isolation():
+    from app.repositories.ledger_repo import LedgerRepo
+
+    c = _conn()
+    _session(c, "v1", "vendor", "tok-vendor")
+    _session(c, "v2", "vendor", "tok-v2")
+    _return(c)
+    c.execute(
+        "INSERT INTO stops(id, route_id, return_id, customer_id, seq, fulls_exp,"
+        " empties_exp, version, status) VALUES ('sp1', 'r1', 'ret1', 'u1', 9, 0, 2, 1, 'pending')")
+    c.commit()
+    client = _client(c)
+    h1 = {"Authorization": "Bearer tok-vendor"}
+    # Held first so the pickup decrement is meaningful (raw seed, no loop).
+    c.execute("INSERT INTO ledger(customer_id, held) VALUES ('u1', 2)")
+    c.commit()
+    r = client.post("/v1/returns/ret1/pickup",
+                    json={"empties_collected": 2, "caps_missing": 1}, headers=h1)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "picked" and r.json()["cap_charge"] == 300
+    assert c.execute("SELECT held, dues FROM ledger WHERE customer_id = 'u1'").fetchone()["held"] == 0
+    assert c.execute("SELECT status FROM returns WHERE id = 'ret1'").fetchone()["status"] == "picked"
+    # Settled → 409; other vendor (no stop link) → 404 with no write.
+    assert client.post("/v1/returns/ret1/pickup", json={"empties_collected": 1},
+                       headers=h1).status_code == 409
+    _return(c, rid="ret2")
+    assert client.post("/v1/returns/ret2/pickup", json={"empties_collected": 1},
+                       headers={"Authorization": "Bearer tok-v2"}).status_code == 404
 
 
 # -- router -------------------------------------------------------------------------
@@ -331,11 +470,13 @@ def _client(c):
 
     from app.api.deps import get_db_conn
     from app.api.v1.vendor import router
+    from app.api.v1.returns import router as returns_router
     from app.core.errors import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
+    app.include_router(returns_router, prefix="/v1")
     # get_current_user resolves via get_db_conn (Phase-A T2): same DB.
     app.dependency_overrides[get_db_conn] = lambda: (
         c if isinstance(c, AsyncSqliteConn) else AsyncSqliteConn(c)
@@ -363,8 +504,9 @@ def test_router_vendor_gate_and_duty_roundtrip():
                       headers={"Authorization": "Bearer tok-user"}).status_code == 403  # wrong role
     r = client.post("/v1/vendor/duty", json={"on": True},
                     headers={"Authorization": "Bearer tok-vendor"})
-    assert r.status_code == 200 and r.json() == {"vendor_id": "v1", "duty_on": True,
-                                                "since": _DUTY["v1"]["since"]}
+    body = r.json()
+    assert r.status_code == 200 and body["vendor_id"] == "v1" and body["duty_on"] is True
+    assert c.execute("SELECT on_duty FROM vendor_profile WHERE user_id = 'v1'").fetchone()["on_duty"] == 1
     assert client.get("/v1/vendor/routes/today",
                       headers={"Authorization": "Bearer tok-vendor"}).json()["route"]["id"] == "r1"
 

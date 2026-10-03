@@ -10,7 +10,7 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
-016 vendor dashboard BUILT on branch 016-vendor-dashboard (2026-10-03, ADR-064, spec approved): Route-tab one-screen composition (TodayStrip users/jars/UPI-COD collect via pure summarizeToday fold, one CTA per state Sync→Triple→all-done, inline earnings money + flagged-hold, nonzero-only can-ledger rows), backend zone-scoped placed_pool (instr pincode-cluster match, unzoned admin-only) + held/dues on customers, regression tests (cross-vendor placed isolation, ledger fields, strip/badge/totals). Verify: backend 196, vendor 30 green, analyzes 0. Unrelated admin_app working-tree edits found mid-task — NOT this branch, left untouched. Next: merge call + device run.
+016 + 017 MERGED to main (2026-10-03, ADR-064 + ADR-065): dashboard one-screen composition + zone-scoped pool (016) and full vendor↔user↔admin handoff repair (017: OTP, cash truth, hold flags, quality/duty on tables, admin money writes, dues pay-link, returns end-to-end). Verify at merge: backend + both apps green, analyzes 0 (re-verified post-merge below). Next: push (release cuts dual APKs) + device run (COD cash, OTP handoff, pickup, payouts).
 
 015 MERGED + PUSHED to main (f006067, 2026-10-03, ADR-060/061/062): user LIVE orders wiring + payment badges + bill mode + sub Due/Paid + hygiene + FCM token register, vendor JOIN + placed pool + Pull + badges + skeleton + waiver + brilliance + purge + channels, backend due_today + queue_or_log + exclusion test, Android notify/backup rules. Verify: backend 194, user/vendor green, analyzes 0. Release CI cuts dual APKs. Next: device run; real FCM sends need secrets.
 

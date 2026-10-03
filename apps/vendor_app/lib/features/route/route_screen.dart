@@ -437,20 +437,24 @@ class _RouteScreenState extends State<RouteScreen> {
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // F8: pickup stops show jars-to-collect, not delivery facts.
               Text(
-                  '${s.fullsExpected} jars • ${s.emptiesExpected} khaali expected • ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
+                  s.returnId.isNotEmpty
+                      ? 'Khaali pickup • ${s.emptiesExpected} jars wapas lein'
+                      : '${s.fullsExpected} jars • ${s.emptiesExpected} khaali expected • ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis),
-              // 015: payment mode + paid state badge.
-              Text(
-                s.isPaid
-                    ? '${s.paymentMode.toUpperCase()} • Paid'
-                    : '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: ShodashaTheme.blue, fontWeight: FontWeight.w700, fontSize: 12),
-              ),
+              // 015: payment mode + paid state badge (delivery stops only).
+              if (s.returnId.isEmpty)
+                Text(
+                  s.isPaid
+                      ? '${s.paymentMode.toUpperCase()} • Paid'
+                      : '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: ShodashaTheme.blue, fontWeight: FontWeight.w700, fontSize: 12),
+                ),
               if (s.address.isNotEmpty)
                 Text(s.address,
                     maxLines: 1, overflow: TextOverflow.ellipsis),

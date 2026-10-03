@@ -344,13 +344,17 @@ class ApiClient {
           idempotencyKey: idemKey)) as Map<String, dynamic>;
 
   /// POST /orders/{id}/reschedule {window_start} → OrderOut.
+  /// Key sent (replay-safe on retry) though the server currently ignores it.
   Future<Map<String, dynamic>> rescheduleApi(
     String id,
     String windowStart,
+    String idemKey,
   ) async =>
-      (await send('POST', '/orders/$id/reschedule', body: {
-        'window_start': windowStart,
-      })) as Map<String, dynamic>;
+      (await send('POST', '/orders/$id/reschedule',
+          body: {
+            'window_start': windowStart,
+          },
+          idempotencyKey: idemKey)) as Map<String, dynamic>;
 
   /// POST /orders/{id}/rating {stars} → {order_id, stars,
   /// complaint_shortcut}. Endpoint verified live in
