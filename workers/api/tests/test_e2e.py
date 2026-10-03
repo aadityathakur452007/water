@@ -193,30 +193,30 @@ async def test_e2e_full_lifecycle(client):
     assert r.status_code == 201, r.text
     address_id = r.json()["id"]
 
-    # (3) quote: 2 refills (5600) + (2-1) x Rs150 deposit (15000) = 20600 ------
+    # (3) 014 quote: 2 refills (5600) + refill never deposits = 5600 ------
     quote = http.post("/v1/quotes", json=_quote_payload(address_id)).json()
-    assert (quote["water_bill"], quote["deposit_due"], quote["total"]) == (5600, 15000, 20600)
+    assert (quote["water_bill"], quote["deposit_due"], quote["total"]) == (5600, 0, 5600)
 
-    # (4) order create: 201 + server-frozen totals + deposit ledger entry ------
+    # (4) order create: 201 + server-frozen totals, no deposit ledger ------
     r = http.post(
         "/v1/orders", json=_order_payload(quote, address_id),
         headers={**_auth(user_tok), "Idempotency-Key": "e2e-o1"},
     )
     assert r.status_code == 201, r.text
     order = r.json()
-    assert (order["state"], order["total"]) == ("placed", 20600)
-    assert (order["water_bill"], order["deposit_due"]) == (5600, 15000)
+    assert (order["state"], order["total"]) == ("placed", 5600)
+    assert (order["water_bill"], order["deposit_due"]) == (5600, 0)
     oid = order["id"]
     me = http.get("/v1/auth/me", headers=_auth(user_tok)).json()
-    assert me["ledger_summary"]["deposit_paid"] == 15000
+    assert me["ledger_summary"]["deposit_paid"] == 0
 
     # (5) COD confirm -> dues --------------------------------------------------
     r = http.post(f"/v1/orders/{oid}/cod-confirm", headers=_auth(user_tok))
     assert r.status_code == 200, r.text
-    assert r.json()["payment_status"] == "unpaid" and r.json()["dues"] == 20600
-    assert http.get("/v1/billing/dues", headers=_auth(user_tok)).json()["dues"] == 20600
+    assert r.json()["payment_status"] == "unpaid" and r.json()["dues"] == 5600
+    assert http.get("/v1/billing/dues", headers=_auth(user_tok)).json()["dues"] == 5600
     inv = http.get(f"/v1/invoices/{oid}", headers=_auth(user_tok)).json()
-    assert inv["total"] == 20600 and inv["amount_due"] == 20600
+    assert inv["total"] == 5600 and inv["amount_due"] == 5600
 
     # (6) admin seed direct-DB -> assign to vendor ------------------------------
     await _seed_admin_vendor(conn)
@@ -250,23 +250,23 @@ async def test_e2e_full_lifecycle(client):
     assert r.status_code == 200, r.text
     detail = http.get(f"/v1/orders/{oid}", headers=_auth(user_tok)).json()
     assert detail["state"] == "delivered"
-    assert detail["bill"]["total"] == 20600
+    assert detail["bill"]["total"] == 5600
 
     # (8) ledger/dues/reconcile consistent ---------------------------------------
     me = http.get("/v1/auth/me", headers=_auth(user_tok)).json()["ledger_summary"]
-    assert (me["held"], me["deposit_paid"], me["deposit_refunded"]) == (1, 15000, 0)
+    assert (me["held"], me["deposit_paid"], me["deposit_refunded"]) == (1, 0, 0)
     inv = http.get(f"/v1/invoices/{oid}", headers=_auth(user_tok)).json()
     assert inv["water_bill"] + inv["deposit_due"] + inv["cap_charge"] - inv["paid"] == inv["amount_due"]
-    assert inv["amount_due"] == 20600  # COD unpaid: bill = water+deposit-payments
+    assert inv["amount_due"] == 5600  # COD unpaid: bill = water+deposit-payments
     dues = http.get("/v1/billing/dues", headers=_auth(user_tok)).json()
-    assert dues["dues"] == 20600
-    assert any(line["order_id"] == oid and line["due"] == 20600 for line in dues["lines"])
+    assert dues["dues"] == 5600
+    assert any(line["order_id"] == oid and line["due"] == 5600 for line in dues["lines"])
     rec = http.get("/v1/admin/reconciliation", headers=_auth("tok-admin-1")).json()
     assert rec["jars_out"] == me["held"] == 1
-    assert rec["deposit_liability"] == me["deposit_paid"] - me["deposit_refunded"] == 15000
-    assert rec["dues_receivable"] == 20600
+    assert rec["deposit_liability"] == me["deposit_paid"] - me["deposit_refunded"] == 0
+    assert rec["dues_receivable"] == 5600
 
-    # (9) second order -> cancel -> void + deposit reversal, bill 0 --------------
+    # (9) second order -> cancel -> void, no deposit (refill never deposits) ----
     r = http.post(
         "/v1/orders", json=_order_payload(quote, address_id),
         headers={**_auth(user_tok), "Idempotency-Key": "e2e-o2"},
@@ -281,12 +281,12 @@ async def test_e2e_full_lifecycle(client):
     cancelled = r.json()
     assert cancelled == {
         "order_id": oid2, "state": "cancelled", "bill_total": 0,
-        "deposit_reversed": 15000, "refund": None,  # unpaid COD: void, no refund row
+        "deposit_reversed": 0, "refund": None,  # unpaid COD: void, no refund row
     }
     me = http.get("/v1/auth/me", headers=_auth(user_tok)).json()["ledger_summary"]
-    assert (me["deposit_paid"], me["deposit_refunded"]) == (30000, 15000)
+    assert (me["deposit_paid"], me["deposit_refunded"]) == (0, 0)
     rec = http.get("/v1/admin/reconciliation", headers=_auth("tok-admin-1")).json()
-    assert rec["deposit_liability"] == 15000  # order-1 liability survives
+    assert rec["deposit_liability"] == 0
 
     # (10) abuse ------------------------------------------------------------------
     # cross-user read: not-yours == not-found (no oracle)

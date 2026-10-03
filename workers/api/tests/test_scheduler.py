@@ -69,7 +69,7 @@ async def test_due_run_creates_orders_once_replay_same_day_no_dupes():
     assert len(out1["created"]) == 1 and out1["failed"] == []
     got = out1["created"][0]
     assert got["sub_id"] == s["id"] and got["user_id"] == "u1"
-    assert got["total"] == 2 * 2800 + 2 * 15000  # fresh quote: water + full deposit (e=0)
+    assert got["total"] == 2 * 2800  # 014: refill never deposits (e=0)
     assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
     out2 = await run_due_subscriptions(AsyncSqliteConn(c), DAY)  # idempotent replay
     assert out2["created"] == [] and out2["failed"] == []

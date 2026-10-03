@@ -80,14 +80,28 @@ def _payload(items=None, e=1, **over) -> dict:
 
 # -- create ---------------------------------------------------------------
 
+# 014: refill never deposits; container deposits once, waived after.
 async def test_create_ok_freezes_server_totals():
     c = _conn()
     o = await _svc(c).create("u1", _payload(), "k1")
-    assert o["state"] == "placed" and o["total"] == 5600 + 15000
+    assert o["state"] == "placed" and o["total"] == 5600
     assert o["idempotency_key"] == "POST /v1/orders:k1"  # scoped key stored
     led = await LedgerRepo(_w(c)).get("u1")
-    assert led["deposit_paid"] == 15000  # deposit entry in same insert txn
+    assert led["deposit_paid"] == 0
     assert (await OrderRepo(_w(c)).events(o["id"]))[0]["to_state"] == "placed"
+
+
+async def test_container_first_deposit_then_waived():
+    c = _conn()
+    s = _svc(c)
+    cont = _payload(items=[{"sku": "container", "qty": 1}], e=0)
+    o1 = await s.create("u1", cont, "kc1")
+    assert o1["deposit_due"] == 15000
+    led = await LedgerRepo(_w(c)).get("u1")
+    assert led["deposit_paid"] == 15000
+    # Second container: pre-waiver quote still accepted, order waives to 0.
+    o2 = await s.create("u1", cont, "kc2")
+    assert o2["deposit_due"] == 0 and o2["total"] == 3000
 
 
 async def test_stale_quote_409():
@@ -144,9 +158,9 @@ async def test_create_cancel_void_unpaid_bill_zero_deposit_reversed():
     o = await s.create("u1", _payload(), "k1")
     out = await s.cancel("u1", o["id"], "changed mind", "c1")
     assert out == {"order_id": o["id"], "state": "cancelled", "bill_total": 0,
-                   "deposit_reversed": 15000, "refund": None}
+                   "deposit_reversed": 0, "refund": None}
     led = await LedgerRepo(_w(c)).get("u1")
-    assert (led["deposit_paid"], led["deposit_refunded"]) == (15000, 15000)
+    assert (led["deposit_paid"], led["deposit_refunded"]) == (0, 0)
     assert c.execute("SELECT COUNT(*) c FROM refunds").fetchone()["c"] == 0
 
 
@@ -275,7 +289,7 @@ def test_router_create_replay_and_cross_user():
     oid = r1.json()["id"]
     assert client.get(f"/v1/orders/{oid}").status_code == 200
     body = client.get(f"/v1/orders/{oid}").json()
-    assert body["tracker"]["current"] == "placed" and body["bill"]["total"] == 20600
+    assert body["tracker"]["current"] == "placed" and body["bill"]["total"] == 5600
     assert body["rider"] is None and isinstance(body["events"], list)
     other = _client(c, user="u2")
     assert other.get(f"/v1/orders/{oid}").status_code == 404  # not-yours == not-found

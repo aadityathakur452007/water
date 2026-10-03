@@ -20,17 +20,26 @@ from app.services import pricing
 RATES = {"refill": 2800, "container": 3000, "deposit": 15000}
 
 
+# 014: once-only container deposit — refill never carries deposit.
 def test_worked_example_2_refills_1_empty():
     q = pricing.compute_quote(
         [{"sku": "refill", "qty": 2}], 1, RATES, address_id="a1", window_start="2026-09-30T08:00:00Z"
     )
     assert q["water_bill"] == 5600
+    assert q["deposit_due"] == 0
+    assert q["total"] == 5600
+
+
+def test_container_first_time_deposit_once():
+    q = pricing.compute_quote([{"sku": "container", "qty": 1}], 0, RATES)
     assert q["deposit_due"] == 15000
-    assert q["total"] == 20600
+    q2 = pricing.compute_quote([{"sku": "container", "qty": 1}], 0, RATES,
+                                deposit_already_paid_paise=15000)
+    assert q2["deposit_due"] == 0
 
 
 def test_mixed_skus_deposit_on_uncovered_only():
-    q = pricing.compute_quote([{"sku": "refill", "qty": 2}, {"sku": "container", "qty": 1}], 2, RATES)
+    q = pricing.compute_quote([{"sku": "refill", "qty": 2}, {"sku": "container", "qty": 1}], 0, RATES)
     assert q["water_bill"] == 5600 + 3000
     assert q["deposit_due"] == 15000
     assert q["total"] == 5600 + 3000 + 15000
@@ -81,7 +90,7 @@ def test_router_quote_200_and_expiry():
     r = c.post("/v1/quotes", json=_quote_payload())
     assert r.status_code == 200, r.text
     body = r.json()
-    assert (body["water_bill"], body["deposit_due"], body["total"]) == (5600, 15000, 20600)
+    assert (body["water_bill"], body["deposit_due"], body["total"]) == (5600, 0, 5600)
     assert len(body["quote_hash"]) == 64
     delta = datetime.fromisoformat(body["expires_at"]) - datetime.now(timezone.utc)
     assert timedelta(minutes=14) < delta <= timedelta(minutes=16)
