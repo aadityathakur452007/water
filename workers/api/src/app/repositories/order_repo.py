@@ -154,6 +154,17 @@ class OrderRepo:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    async def route_date_for_order(self, order_id: str) -> str | None:
+        """Latest route date carrying this order (F1 PoD OTP display)."""
+        row = (
+            await self._conn.execute(
+                "SELECT r.date AS d FROM stops s JOIN routes r ON r.id = s.route_id"
+                " WHERE s.order_id = ? ORDER BY r.date DESC LIMIT 1",
+                (order_id,),
+            )
+        ).fetchone()
+        return str(row["d"]) if row is not None else None
+
     # -- writes (each = exactly one transaction) --------------------------
 
     async def insert(self, order: dict, deposit_event: dict | None = None) -> dict:

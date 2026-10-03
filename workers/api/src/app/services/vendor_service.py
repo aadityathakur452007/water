@@ -5,14 +5,13 @@ atomic triple commit, PoD with OTP + soft GPS flag, offline sync batch,
 earnings with flagged-hold note, complaint verify, quality door-check.
 
 Scope deviations (documented, ponytail-minimal):
-- Duty lives in-memory (``_DUTY``). Persistent ``vendor_profile`` is D4's 006
-  migration — this slice must NOT create tables outside its scope. TODO(006).
+- Duty persists on vendor_profile.on_duty (F5, via ensure_profile column
+  convergence — 007 vs 011 shape conflict resolved in code, no migration).
 - PoD OTP is ``pod_otp(order_id, route_date)`` — a server-known deterministic
   code (v1 simplification). TODO: per-order random OTP stored at dispatch.
-- Quality incidents live in-memory (``_QUALITY``). The ``quality_incidents``
-  table lands with the admin trust-board migration. TODO.
-- Triple mutates jar ``held`` only; cash/UPI ride in the stop triple and are
-  aggregated by ``earnings``. Dues settlement is the payments slice's job. TODO.
+- Quality door-checks write the quality_incidents table (F4, single truth).
+- Cash posts to money truth via POST .../cash → mark_paid_cash (F2);
+  in_hand custody bumps with duty convergence (F5).
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ import hashlib
 import hmac
 import json
 import math
-import uuid
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
@@ -35,6 +33,7 @@ Conn = D1Conn | AsyncSqliteConn
 GPS_FLAG_M = 200.0  # §12: drift beyond this soft-flags for admin, never blocks
 
 TRIPLE_ENDPOINT = "POST /v1/vendor/stops/{id}/triple"
+CASH_ENDPOINT = "POST /v1/vendor/stops/{id}/cash"
 
 
 class StaleStopError(AppError):
@@ -52,9 +51,8 @@ class PayloadMismatchError(AppError):
     status_code = 422
 
 
-# -- in-memory seams (TODOs above) -------------------------------------------
-_DUTY: dict[str, dict] = {}  # vendor_id -> {"on": bool, "since": iso}
-_QUALITY: dict[str, dict] = {}  # incident_id -> stub record
+# -- module seams ---------------------------------------------------------------
+# (F4/F5 retired the _QUALITY/_DUTY in-memory stores to their tables.)
 
 
 def _now() -> str:
@@ -87,13 +85,6 @@ def _triple_core(t: dict) -> dict:
     return {k: int(t.get(k, 0)) for k in ("fulls_given", "empties_back", "cash", "upi", "caps_missing")}
 
 
-def seed_quality(incident: dict) -> dict:
-    """Test/admin seam until the quality_incidents table lands. TODO(006+)."""
-    rec = {"id": incident.get("id") or uuid.uuid4().hex, "status": "open", **incident}
-    _QUALITY[rec["id"]] = rec
-    return rec
-
-
 class VendorService:
     """Service-per-use-case for vendor ops (python card: services stay DB-agnostic)."""
 
@@ -103,14 +94,38 @@ class VendorService:
 
     # -- duty -----------------------------------------------------------------
 
-    def duty(self, vendor_id: str, on: bool) -> dict:
-        # TODO(006): persist on vendor_profile once D4's migration lands.
-        rec = {"on": bool(on), "since": _now()}
-        _DUTY[vendor_id] = rec
-        return {"vendor_id": vendor_id, "duty_on": rec["on"], "since": rec["since"]}
+    # -- duty (F5: persisted on vendor_profile via ensure_profile) --------------
 
-    def is_on_duty(self, vendor_id: str) -> bool:
-        return bool(_DUTY.get(vendor_id, {}).get("on"))
+    async def duty(self, vendor_id: str, on: bool) -> dict:
+        from app.services.dispatch_service import ensure_profile
+
+        await ensure_profile(self._conn, vendor_id)
+        since = _now()
+        with WRITE_LOCK:
+            try:
+                if on:
+                    await self._conn.execute(
+                        "UPDATE vendor_profile SET on_duty = 1, duty_on = ?,"
+                        " duty_off = NULL WHERE user_id = ?",
+                        (since, vendor_id),
+                    )
+                else:
+                    await self._conn.execute(
+                        "UPDATE vendor_profile SET on_duty = 0, duty_off = ?"
+                        " WHERE user_id = ?",
+                        (since, vendor_id),
+                    )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        return {"vendor_id": vendor_id, "duty_on": bool(on), "since": since}
+
+    async def is_on_duty(self, vendor_id: str) -> bool:
+        from app.services.dispatch_service import ensure_profile
+
+        prof = await ensure_profile(self._conn, vendor_id)
+        return bool(prof.get("on_duty"))
 
     # -- route sheet ------------------------------------------------------------
 
@@ -133,6 +148,17 @@ class VendorService:
             (route["id"],),
         )).fetchall()
         stops = [self._stop_out(dict(r)) for r in rows]
+        # F3: hold-block surfacing (same >3 rule as order create).
+        # Lights the vendor's existing hold UI; bounded reads (route ≤ caps).
+        from app.services.order_service import HOLD_BLOCK_LIMIT
+
+        for s in stops:
+            held = 0
+            if s.get("customer_id"):
+                held = int((await self.ledger.get(s["customer_id"])).get("held", 0))
+            s["hold_blocked"] = held > HOLD_BLOCK_LIMIT
+            if s["hold_blocked"]:
+                s["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
             "route": dict(route),
@@ -241,6 +267,64 @@ class VendorService:
 
     # -- PoD ----------------------------------------------------------------------
 
+    async def cash_post(self, vendor_id: str, stop_id: str, amount: int) -> dict:
+        """Post doorstep cash to money truth (F2: closes the COD loop).
+
+        Vendor-scoped via _owned_stop (cross-vendor → 404, zero writes).
+        Delegates to PaymentRepo.mark_paid_cash: payment row + paid_cash /
+        partial_dues + dues reconcile, all in its own txn. Already-paid
+        replays propagate as 409 (app treats as "pehle se jama").
+
+        Dedupe is deterministic on (stop, amount): same-stop same-amount
+        retries replay the stored outcome; a different amount (partial
+        top-up) is a new scope and posts the remainder. No client key
+        needed — the dedupe dimension is fully server-known.
+        in_hand custody bump lands with F5 (column shape reconciled there).
+        """
+        if amount is None or int(amount) <= 0:
+            raise ValidationError(message="Cash amount must be > 0.", details={"stop_id": stop_id})
+        core = {"stop_id": stop_id, "amount": int(amount)}
+        scoped = f"{CASH_ENDPOINT}:{stop_id}:{int(amount)}"
+        phash = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
+        # No outer WRITE_LOCK: mark_paid_cash takes it itself (non-reentrant).
+        # Correctness rests on its already-paid guard; the idem row is replay
+        # fast-path only (concurrent duplicate → honest 409, never double-post).
+        stop = await self._owned_stop(vendor_id, stop_id)
+        if not stop["order_id"]:
+            raise ValidationError(message="Stop has no order to post cash against.",
+                                  details={"stop_id": stop_id})
+        stored = await self._idem_get(vendor_id, scoped)
+        if stored is not None:
+            if stored["payload_hash"] != phash:
+                raise PayloadMismatchError(
+                    message="Cash scope was already used with a different payload.",
+                    details={"stop_id": stop_id},
+                )
+            return {**json.loads(stored["result"]), "replay": True}
+        from app.repositories.payment_repo import PaymentRepo
+
+        out = await PaymentRepo(self._conn).mark_paid_cash(
+            stop["order_id"], int(amount), vendor_id)
+        # F5: custody truth — agency cash in the vendor's pocket (own txn;
+        # day-close reconciles from payments if this ever lags).
+        from app.services.dispatch_service import ensure_profile
+
+        await ensure_profile(self._conn, vendor_id)
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "UPDATE vendor_profile SET in_hand = in_hand + ? WHERE user_id = ?",
+                    (int(amount), vendor_id),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        result = {"stop_id": stop_id, "order_id": stop["order_id"],
+                  "payment": out["payment"], "order": out["order"], "ledger": out["ledger"]}
+        await self._idem_put(vendor_id, scoped, stop_id, phash, result)
+        return result
+
     async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
         """OTP-gated PoD. Wrong OTP → 401. GPS drift → flagged, never blocked."""
         stop = await self._owned_stop(vendor_id, stop_id)
@@ -296,6 +380,14 @@ class VendorService:
             sid = it.get("stop_id", "")
             try:
                 out = await self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
+                # F2: queued cash rides the triple; post after jars applied.
+                # Already-paid 409 = money truth already recorded → absorbed.
+                cash = int(it.get("cash_amount", 0) or 0)
+                if cash > 0:
+                    try:
+                        await self.cash_post(vendor_id, sid, cash)
+                    except ConflictError:
+                        pass
                 (replayed if out.get("replay") else applied).append(sid)
             except AppError as e:
                 rejected.append({"stop_id": sid, "code": e.code, "message": e.message})
@@ -463,16 +555,39 @@ class VendorService:
                 raise
         return {**dict(row), "vendor_agree": 1 if agree else 0, "vendor_note": note[:500], "status": status}
 
-    def vendor_check_quality(self, vendor_id: str, incident_id: str, agree: bool,
-                             check: str = "", note: str = "") -> dict:
-        # TODO: move to quality_incidents table once the admin migration lands.
-        rec = _QUALITY.get(incident_id)
-        if rec is None:
-            raise NotFoundError(message="Quality incident not found.", details={"id": incident_id})
-        rec.update({"vendor_agree": 1 if agree else 0, "vendor_check": check,
-                    "vendor_note": note[:500], "checked_by": vendor_id,
-                    "status": "confirmed" if agree else "disputed"})  # disputed → 48h admin triage
-        return dict(rec)
+    async def vendor_check_quality(self, vendor_id: str, incident_id: str, agree: bool,
+                                 check: str = "", note: str = "") -> dict:
+        """F4: door/pickup verification on the quality_incidents table (single
+        truth with admin). Ownership via the incident's order on this vendor's
+        route — else 404, no oracle. Agree → confirmed; disagree stays open
+        with vendor_agree=0, frozen for 48h admin triage (CHECK allows only
+        open/confirmed/rejected)."""
+        with WRITE_LOCK:
+            row = (await self._conn.execute(
+                "SELECT * FROM quality_incidents WHERE id = ?", (incident_id,))).fetchone()
+            if row is None:
+                raise NotFoundError(message="Quality incident not found.", details={"id": incident_id})
+            link = (await self._conn.execute(
+                "SELECT 1 FROM stops s JOIN routes r ON r.id = s.route_id"
+                " WHERE s.order_id = ? AND r.vendor_id = ?",
+                (row["order_id"], vendor_id),
+            )).fetchone()
+            if link is None:
+                raise NotFoundError(message="Quality incident not found.", details={"id": incident_id})
+            try:
+                await self._conn.execute(
+                    "UPDATE quality_incidents SET vendor_agree = ?, vendor_check = ?,"
+                    " vendor_note = ?, status = ? WHERE id = ?",
+                    (1 if agree else 0, check[:80], note[:500],
+                     "confirmed" if agree else "open", incident_id),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            fresh = (await self._conn.execute(
+                "SELECT * FROM quality_incidents WHERE id = ?", (incident_id,))).fetchone()
+            return dict(fresh)
 
     # -- internals ----------------------------------------------------------------------
 
@@ -490,7 +605,17 @@ class VendorService:
         )).fetchone()
         if row is None:  # IDOR rule: not-yours reads as not-found (no oracle)
             raise NotFoundError(message="Stop not found.", details={"id": stop_id})
-        return dict(row)
+        stop = dict(row)
+        # F3: same hold rule as the route list (single-stop path).
+        from app.services.order_service import HOLD_BLOCK_LIMIT
+
+        held = 0
+        if stop.get("customer_id"):
+            held = int((await self.ledger.get(stop["customer_id"])).get("held", 0))
+        stop["hold_blocked"] = held > HOLD_BLOCK_LIMIT
+        if stop["hold_blocked"]:
+            stop["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+        return stop
 
     async def _stop_pin(self, stop: dict) -> tuple[float, float] | None:
         if not stop["order_id"]:

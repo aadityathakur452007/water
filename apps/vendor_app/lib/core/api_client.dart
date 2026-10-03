@@ -318,6 +318,29 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
+  /// F2: doorstep cash → money truth. Replay-safe server-side
+  /// (deterministic stop+amount scope), so background retry is allowed.
+  Future<Map<String, dynamic>> postStopCash({
+    required String stopId,
+    required int amountPaise,
+  }) async {
+    final raw = await send('POST', '/vendor/stops/$stopId/cash',
+        body: {'amount': amountPaise}, retryPost: true);
+    return (raw as Map<String, dynamic>);
+  }
+
+  /// F8: empty-jar pickup for a return (vendor's own route only).
+  Future<Map<String, dynamic>> pickupReturn({
+    required String returnId,
+    required int emptiesCollected,
+    required int capsMissing,
+  }) async {
+    final raw = await send('POST', '/returns/$returnId/pickup',
+        body: {'empties_collected': emptiesCollected, 'caps_missing': capsMissing},
+        retryPost: true);
+    return (raw as Map<String, dynamic>);
+  }
+
   Future<Map<String, dynamic>> syncBatch(
       List<Map<String, dynamic>> items) async {
     // Background flush waits longer than interactive calls (Workers cold

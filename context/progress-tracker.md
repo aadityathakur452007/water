@@ -10,6 +10,10 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+017 flow sync BUILT on branch 017-flow-sync (2026-10-03, ADR-065, spec approved): Phase A (PoD OTP on order detail + user code row; POST vendor cash→mark_paid_cash + in_hand + sync ride + one-tap UI + outbox fix; hold flags light dead UI), Phase B (quality on table; duty persisted via ensure convergence; admin payouts gen/approve, custody confirm, reco close, zones list + capacity/zone/refund/payout/day-close/custody UI + BFF PATCH), Phase C (dues pay-link, reschedule key; returns assign/pickup/refund end-to-end + vendor pickup UI + admin buttons). Verify: backend 207, vendor 30, user 97 green, analyzes 0. Merge order with 016 matters (shared files + ADR-064/065). Next: merge call + device run (COD cash + OTP + pickup + payouts).
+
+016 committed on 016-vendor-dashboard (79a6053): dashboard composition + zone-scoped pool, backend 196 + vendor 30 green. Awaiting merge.
+
 015 MERGED + PUSHED to main (f006067, 2026-10-03, ADR-060/061/062): user LIVE orders wiring + payment badges + bill mode + sub Due/Paid + hygiene + FCM token register, vendor JOIN + placed pool + Pull + badges + skeleton + waiver + brilliance + purge + channels, backend due_today + queue_or_log + exclusion test, Android notify/backup rules. Verify: backend 194, user/vendor green, analyzes 0. Release CI cuts dual APKs. Next: device run; real FCM sends need secrets.
 
 014 MERGED to main (474d91b): once-only deposit + order fix + home simplify (ADR-059). See decision log.

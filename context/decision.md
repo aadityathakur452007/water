@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-065 | 2026-10-03 | 017 flow sync A+B+C: PoD OTP to user, vendor cash→money truth, hold flags, quality/duty on tables, admin money writes, user nits, returns end-to-end (064 reserved by 016 on its branch) | Accepted | workers/api vendor/order/dispatch/admin/returns + tests, vendor_app stops/sync/route/shell, user_app orders/subs, admin_app BFF/vendor-detail/finance/dispatch/payments, branch 017-flow-sync |
 | ADR-063 | 2026-10-03 | 013 round 2: analytics/finance/dispatch surfaces + ledger adjust + returns tab from PDF/FR research; cutover — new dashboard renamed apps/admin_app_v2 → apps/admin_app, legacy admin + branch 005 deleted, zero backend changes | Accepted | apps/admin_app (TanStack Start), Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, branch 013-premium-admin-dashboard |
 | ADR-062 | 2026-10-03 | 015 finish: user orders LIVE wiring + vendor brilliance within tokens + contract proof shapes | Accepted | apps/user_app orders/api/main/tests, apps/vendor_app route/stops/sync/earnings/tests, branch 015-vendor-user-sync |
 | ADR-061 | 2026-10-03 | 015 parallel remainder: sub due_today in list + FCM queue_or_log (no sends) + badge test + PoD hint + skeleton (no new deps) | Accepted | workers/api subscription/fcm/scheduler/tests, apps/user_app test, apps/vendor_app stops, branch 015-vendor-user-sync |
@@ -118,6 +119,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-065: 017 flow sync — handoff seams closed (Phases A+B+C)
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: Audit found 8 breaks, all at handoff seams (cash→ledger, OTP→user, flagged→admin). Spec approved (Feature_docs/flow-sync/spec.md): F1 OTP, F2 cash, F3 hold, F4 quality, F5 duty, F6 admin writes, F7 nits, F8 returns.
+- **Options considered**: cash inside triple txn (rejected — triple is jar-custody atomic + version-fenced replay; cash needs payment-row/dues semantics mark_paid_cash already owns; separate endpoint, deterministic stop+amount scope, no client key); auto-post cash on triple (rejected per approval — explicit one-tap); 012 migration for vendor_profile shapes (rejected — first-wins ambiguity makes ALTER unsafe; PRAGMA+conditional-ALTER convergence in ensure_profile instead, truly idempotent); flagged_hold clear endpoint (dropped — no flag store exists, nothing to clear; honest cut); bill prev/payments mapping (dropped — server never sends them and rows are !=0-guarded; comment already honest); held naming unify (dropped — local-only names, mapped once); returns assign route_id-only (chose vendor_id+date via route_for_vendor — better UX, same audit).
+- **Decision**: A: delivery_otp on order detail (owner + assigned/dispatched) + user code row; POST /vendor/stops/{id}/cash (owned-stop, deterministic dedupe, in_hand bump, sync cash_amount ride, 409=already-jama); hold_blocked on route+stop (ledger>3). B: quality on table (disagree stays open, cross-vendor 404); duty/in_hand on vendor_profile (ensure convergence, router awaits); admin payouts generate/approve+list, custody confirm, reco close, zones list, capacity/zone/refund UI + BFF PATCH. C: dues pay-link button, reschedule key; returns assign (vendor+date)/pickup (owned-stop, held−/dues+cap)/refund (picked-only, deposit math from settings) + vendor pickup UI + admin assign/refund buttons. Deadlock lesson: never nest WRITE_LOCK — mark_paid_cash takes it itself.
+- **Why**: Every seam now has a request/response with owner-scoping + tests; shortest diff per seam, zero new packages, 2 new UI-only tables avoided (duty via convergence, close via audit row).
+- **Consequences**: Merge order with 016 matters — both touch vendor.py/vendor_service/route files + decision index (064 vs 065 noted); admin_app .env/README/routeTree + user windows gen noise are NOT this branch (left untouched); admin `npm run check` NOT run (admin AGENTS.md bars unasked validation — user runs it).
+- **Affects**: (see index row)
 
 ### ADR-063: 013 round 2 — premium surfaces from field research + folder cutover
 - **Date**: 2026-10-03

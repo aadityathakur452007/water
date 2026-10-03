@@ -211,8 +211,18 @@ class OrderService:
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         events = await self.orders.events(order_id)
+        # F1: PoD delivery code for the owner, only while a stop is active.
+        # Hidden before assignment (no route yet) and after terminal states.
+        delivery_otp: str | None = None
+        if order["state"] in ("assigned", "dispatched"):
+            day = await self.orders.route_date_for_order(order_id)
+            if day is not None:
+                from app.services.vendor_service import pod_otp
+
+                delivery_otp = pod_otp(order_id, day)
         return {
             **order,
+            "delivery_otp": delivery_otp,
             "tracker": {"steps": ["placed", "packed", "dispatched", "delivered"], "current": order["state"]},
             "rider": None,  # populated once assigned (assignment slice owns stops/routes)
             "bill": {

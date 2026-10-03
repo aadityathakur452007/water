@@ -249,5 +249,15 @@ void main() {
         ),
       );
     });
+
+    test('F1 delivery_otp maps iff server sends it (tracking row source)',
+        () async {
+      final withOtp = orderFromApi({...detailJson(), 'delivery_otp': '482913'});
+      expect(withOtp.deliveryOtp, '482913');
+      final withoutOtp = orderFromApi(detailJson());
+      expect(withoutOtp.deliveryOtp, isNull);
+      final listed = orderFromApi(orderJson());
+      expect(listed.deliveryOtp, isNull); // list rows never carry it
+    });
   });
 }

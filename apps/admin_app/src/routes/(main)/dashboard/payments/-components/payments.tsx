@@ -3,14 +3,17 @@ import * as React from "react";
 import { Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
+import { toast } from "@/components/ui/toast";
+import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { Page, PaymentRow, RefundRow } from "@/lib/admin-types";
 import { dateTime, phoneMasked, rupees } from "@/lib/money";
+import { adminPostServer } from "@/server/admin-api";
 
 import { PaymentsTable } from "./payments-table";
 
@@ -118,6 +121,22 @@ export function Payments() {
 }
 
 function RefundStream({ rows }: { rows: RefundRow[] }) {
+  const invalidate = useInvalidateAdmin();
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+
+  async function act(id: string, action: "claim" | "done" | "failed") {
+    setBusyId(id);
+    try {
+      await adminPostServer({ data: { path: `/v1/refunds/${id}/${action}`, body: {} } });
+      toast.add({ title: `Refund ${action}`, description: id });
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Action failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
       <TableHeader className="[&_tr]:border-t">
@@ -128,6 +147,7 @@ function RefundStream({ rows }: { rows: RefundRow[] }) {
           <TableHead className="py-3">Amount</TableHead>
           <TableHead className="py-3">Status</TableHead>
           <TableHead className="py-3">Done at</TableHead>
+          <TableHead className="py-3">Action</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -147,11 +167,48 @@ function RefundStream({ rows }: { rows: RefundRow[] }) {
                 <Badge variant="outline">{r.status}</Badge>
               </TableCell>
               <TableCell className="px-3 py-3 text-muted-foreground text-sm">{dateTime(r.done_at)}</TableCell>
+              <TableCell className="px-3 py-3 text-sm">
+                <div className="flex gap-1">
+                  {r.status === "pending" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      disabled={busyId === r.id}
+                      onClick={() => void act(r.id, "claim")}
+                    >
+                      Claim
+                    </Button>
+                  ) : null}
+                  {r.status === "claimed" ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        disabled={busyId === r.id}
+                        onClick={() => void act(r.id, "done")}
+                      >
+                        Done
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7"
+                        disabled={busyId === r.id}
+                        onClick={() => void act(r.id, "failed")}
+                      >
+                        Fail
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </TableCell>
             </TableRow>
           ))
         ) : (
           <TableRow>
-            <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
               No refunds claimed.
             </TableCell>
           </TableRow>

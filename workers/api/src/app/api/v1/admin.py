@@ -317,6 +317,12 @@ async def vendor_release(vendor_id: str, conn=Depends(get_db_conn), user=Admin):
 
 # -- zones attach/detach (custody-zero guard, §14.2) ----------------------------
 
+@router.get("/admin/zones")
+async def zone_list(conn=Depends(get_db_conn), user=Admin):
+    rows = (await conn.execute(
+        "SELECT id, name, pincodes, active FROM zones ORDER BY name LIMIT 200")).fetchall()
+    return {"data": [dict(r) for r in rows]}
+
 @router.post("/admin/zones/{zone_id}/vendors/attach")
 async def zone_attach(zone_id: str, payload: AttachIn, conn=Depends(get_db_conn), user=Admin):
     with WRITE_LOCK:
@@ -419,6 +425,137 @@ async def dunning(conn=Depends(get_db_conn), user=Admin):
     return {"data": [dict(r) for r in rows]}
 
 
+class PayoutGenerateIn(BaseModel):
+    vendor_id: str = Field(min_length=1)
+    period: str = Field(pattern=r"^\d{4}-\d{2}$")  # YYYY-MM
+
+
+# -- payouts + day-close + custody confirm (F6: admin writes close the loop) ---
+
+@router.get("/admin/payouts")
+async def payouts_list(vendor_id: str | None = None, status: str | None = None,
+                 conn=Depends(get_db_conn), user=Admin):
+    args: list[object] = []
+    clauses = []
+    if vendor_id:
+        clauses.append("vendor_id = ?")
+        args.append(vendor_id)
+    if status:
+        clauses.append("status = ?")
+        args.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = (await conn.execute(
+        f"SELECT * FROM payouts {where} ORDER BY created_at DESC LIMIT 200", (*args,)))  # noqa: S608
+    return {"data": [dict(r) for r in rows.fetchall()]}
+
+
+@router.post("/admin/payouts/generate")
+async def payout_generate(payload: PayoutGenerateIn, conn=Depends(get_db_conn), user=Admin):
+    """Accrue a pending payout: done stops in period × per_stop_fee."""
+    with WRITE_LOCK:
+        prof = await ensure_profile(conn, payload.vendor_id)
+        dup = (await conn.execute("SELECT id FROM payouts WHERE vendor_id = ? AND period = ?",
+                           (payload.vendor_id, payload.period))).fetchone()
+        if dup is not None:
+            raise ConflictError(message="Payout already generated for this period.",
+                                details={"vendor_id": payload.vendor_id, "period": payload.period})
+        n = (await conn.execute(
+            "SELECT COUNT(*) c FROM stops s JOIN routes r ON r.id = s.route_id"
+            " WHERE r.vendor_id = ? AND r.date LIKE ? AND s.status = 'done'",
+            (payload.vendor_id, f"{payload.period}%"))).fetchone()["c"]
+        gross = int(n) * int(prof.get("per_stop_fee", 0))
+        pid = uuid.uuid4().hex
+        now = _now()
+        await conn.execute(
+            "INSERT INTO payouts(id, vendor_id, period, stops_done, gross_fee,"
+            " deductions, net, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, 0, ?, 'pending', ?)",
+            (pid, payload.vendor_id, payload.period, int(n), gross, gross, now),
+        )
+        row = dict((await conn.execute("SELECT * FROM payouts WHERE id = ?", (pid,))).fetchone())
+        await _audit(conn, user, "payout.generate", "payouts", pid, "", row)
+        conn.commit()
+    return row
+
+
+@router.post("/admin/payouts/{payout_id}/approve")
+async def payout_approve(payout_id: str, conn=Depends(get_db_conn), user=Admin):
+    with WRITE_LOCK:
+        row = (await conn.execute("SELECT * FROM payouts WHERE id = ?", (payout_id,))).fetchone()
+        if row is None:
+            raise NotFoundError(message="Payout not found.", details={"id": payout_id})
+        if row["status"] != "pending":
+            raise ConflictError(message="Only pending payouts can be approved.",
+                                details={"id": payout_id, "status": row["status"]})
+        await conn.execute("UPDATE payouts SET status = 'approved', approved_by = ? WHERE id = ?",
+                     (_uid(user), payout_id))
+        after = dict((await conn.execute("SELECT * FROM payouts WHERE id = ?", (payout_id,))).fetchone())
+        await _audit(conn, user, "payout.approve", "payouts", payout_id, dict(row), after)
+        conn.commit()
+    return after
+
+
+class CustodyConfirmIn(BaseModel):
+    vendor_id: str = Field(min_length=1)
+    amount: int = Field(ge=1)
+
+
+@router.post("/admin/custody/confirm")
+async def custody_confirm(payload: CustodyConfirmIn, conn=Depends(get_db_conn), user=Admin):
+    """Record cash handover received from a vendor (decrements in_hand)."""
+    with WRITE_LOCK:
+        prof = await ensure_profile(conn, payload.vendor_id)
+        hand = int(prof.get("in_hand", 0))
+        if hand < int(payload.amount):
+            raise ValidationError(message="Handover exceeds cash in hand.",
+                                  details={"in_hand": hand, "amount": payload.amount})
+        await conn.execute("UPDATE vendor_profile SET in_hand = in_hand - ? WHERE user_id = ?",
+                     (int(payload.amount), payload.vendor_id))
+        after = int((await conn.execute("SELECT in_hand FROM vendor_profile WHERE user_id = ?",
+                                  (payload.vendor_id,))).fetchone()["in_hand"])
+        await _audit(conn, user, "custody.confirm", "users", payload.vendor_id,
+               {"in_hand": hand}, {"in_hand": after, "confirmed": int(payload.amount)})
+        conn.commit()
+    return {"vendor_id": payload.vendor_id, "confirmed": int(payload.amount), "in_hand": after}
+
+
+class RecoCloseIn(BaseModel):
+    route: str = Field(default="")
+    date: str = Field(default="")
+
+
+@router.post("/admin/reconciliation/close")
+async def reconciliation_close(payload: RecoCloseIn, conn=Depends(get_db_conn), user=Admin):
+    """Day-close marker: snapshot books + collected + custody into audit_log."""
+    day = payload.date.strip() or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    led = (await conn.execute(
+        "SELECT COALESCE(SUM(held),0) h, COALESCE(SUM(deposit_paid),0) p,"
+        " COALESCE(SUM(deposit_refunded),0) r, COALESCE(SUM(dues),0) d FROM ledger"
+    )).fetchone()
+    hand = (await conn.execute("SELECT COALESCE(SUM(in_hand),0) t FROM vendor_profile")).fetchone()["t"]
+    triples = (await conn.execute(
+        "SELECT s.triple FROM stops s JOIN routes r ON r.id = s.route_id"
+        " WHERE r.date = ? AND s.status = 'done'", (day,))).fetchall()
+    cash = upi = 0
+    for t in triples:
+        try:
+            j = json.loads(t["triple"]) if t["triple"] else {}
+        except (ValueError, TypeError):
+            j = {}
+        cash += int(j.get("cash", 0))
+        upi += int(j.get("upi", 0))
+    snapshot = {"date": day, "route": payload.route,
+                "jars_out": int(led["h"]),
+                "deposit_liability": int(led["p"]) - int(led["r"]),
+                "dues_receivable": int(led["d"]),
+                "collected_cash": cash, "collected_upi": upi,
+                "custody_in_hand": int(hand)}
+    with WRITE_LOCK:
+        await _audit(conn, user, "reco.close", "reconciliation", f"{day}:{payload.route}", "", snapshot)
+        conn.commit()
+    return {**snapshot, "closed": True}
+
+
 # -- returns / complaints / quality --------------------------------------------
 
 @router.get("/admin/returns")
@@ -431,6 +568,82 @@ async def returns_queue(status: str | None = Query(default=None), conn=Depends(g
     rows = await conn.execute(
         f"SELECT * FROM returns {where} ORDER BY created_at DESC LIMIT 200", (*args,))  # noqa: S608
     return {"data": [dict(r) for r in rows.fetchall()]}
+
+
+class ReturnAssignIn(BaseModel):
+    vendor_id: str = Field(min_length=1)
+    date: str = Field(default="")
+
+
+@router.post("/admin/returns/{return_id}/assign")
+async def return_assign(return_id: str, payload: ReturnAssignIn,
+                  conn=Depends(get_db_conn), user=Admin):
+    """F8: queue a pickup stop for a requested return on a vendor's route."""
+    import uuid as _uuid
+
+    from app.services.dispatch_service import route_for_vendor
+
+    with WRITE_LOCK:
+        ret = (await conn.execute("SELECT * FROM returns WHERE id = ?", (return_id,))).fetchone()
+        if ret is None:
+            raise NotFoundError(message="Return not found.", details={"id": return_id})
+        if ret["status"] != "requested":
+            raise ConflictError(message="Only requested returns can be assigned.",
+                                details={"id": return_id, "status": ret["status"]})
+        dup = (await conn.execute("SELECT id FROM stops WHERE return_id = ?",
+                            (return_id,))).fetchone()
+        if dup is not None:
+            raise ConflictError(message="Return is already assigned to a route.",
+                                details={"id": return_id, "stop_id": dup["id"]})
+        day = payload.date.strip() or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+        route_id = await route_for_vendor(conn, payload.vendor_id, day)
+        seq = (await conn.execute("SELECT COALESCE(MAX(seq), -1) m FROM stops WHERE route_id = ?",
+                            (route_id,))).fetchone()["m"] + 1
+        sid = _uuid.uuid4().hex
+        await conn.execute(
+            "INSERT INTO stops(id, route_id, return_id, customer_id, seq,"
+            " fulls_exp, empties_exp, version, status)"
+            " VALUES (?, ?, ?, ?, ?, 0, ?, 1, 'pending')",
+            (sid, route_id, return_id, ret["user_id"], int(seq), int(ret["qty"])),
+        )
+        await _audit(conn, user, "return.assign", "returns", return_id, "",
+               {"route_id": route_id, "vendor_id": payload.vendor_id})
+        conn.commit()
+    return {"id": return_id, "stop_id": sid, "route_id": route_id, "vendor_id": payload.vendor_id}
+
+
+class ReturnRefundIn(BaseModel):
+    method: str = Field(pattern=r"^(upi|manual)$")
+    qty: int = Field(ge=1)
+
+
+@router.post("/admin/returns/{return_id}/refund")
+async def return_refund(return_id: str, payload: ReturnRefundIn,
+                  conn=Depends(get_db_conn), user=Admin):
+    """F8: refund deposit for collected empties (picked only, audited)."""
+    from app.api.deps import get_settings
+
+    with WRITE_LOCK:
+        ret = (await conn.execute("SELECT * FROM returns WHERE id = ?", (return_id,))).fetchone()
+        if ret is None:
+            raise NotFoundError(message="Return not found.", details={"id": return_id})
+        if ret["status"] != "picked":
+            raise ConflictError(message="Only picked returns can be refunded.",
+                                details={"id": return_id, "status": ret["status"]})
+        if int(payload.qty) > int(ret["qty"]):
+            raise ValidationError(message="Refund qty exceeds requested.",
+                                  details={"qty": ret["qty"]})
+        rate = int(get_settings().deposit_per_jar_paise)
+        after = await LedgerRepo(conn).apply_event(
+            ret["user_id"], d_deposit=-(int(payload.qty) * rate),
+            ref=f"return-refund:{return_id}", actor=_uid(user),
+            reason=f"deposit refund via {payload.method}", commit=False)
+        await conn.execute("UPDATE returns SET status = 'refunded' WHERE id = ?", (return_id,))
+        await _audit(conn, user, "return.refund", "returns", return_id, dict(ret),
+               {"qty": int(payload.qty), "method": payload.method})
+        conn.commit()
+    return {"id": return_id, "status": "refunded",
+            "refunded": int(payload.qty) * rate, "ledger": after}
 
 
 @router.get("/admin/complaints")

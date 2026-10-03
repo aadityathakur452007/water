@@ -44,13 +44,18 @@ export type AdminEnvelope = {
 export function apiMode(): "live" | "mock" {
   const mode = process.env.API_MODE;
   if (mode === "mock") return "mock";
-  if (mode) return "live";
-  return "mock";
+  // live is the safe default: a forgotten API_MODE in production must never
+  // silently render fixture data. Set API_MODE=mock explicitly for offline dev.
+  return "live";
 }
 
 const ADMIN_PREFIX = "/v1/admin";
 
-async function workerFetch(path: string, method: "GET" | "POST", body?: unknown): Promise<Response> {
+async function workerFetch(
+  path: string,
+  method: "GET" | "POST" | "PATCH",
+  body?: unknown,
+): Promise<Response> {
   const access = getCookie(SESSION_COOKIE) ?? "";
   return fetch(`${apiUrl()}${path}`, {
     method,
@@ -58,7 +63,7 @@ async function workerFetch(path: string, method: "GET" | "POST", body?: unknown)
       "content-type": "application/json",
       authorization: `Bearer ${access}`,
     },
-    body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+    body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });
@@ -111,13 +116,14 @@ export const adminGetServer = createServerFn({ method: "GET" })
 
 /**
  * POST /v1/admin/* (writes). Forward cookie bearer + idempotency key; the
- * same silent-refresh-once contract as GET.
+ * same silent-refresh-once contract as GET. Refund writes live under
+ * /v1/refunds/* (admin-gated server-side) — allowed alongside /v1/admin/*.
  */
 export const adminPostServer = createServerFn({ method: "POST" })
   .validator((input: { path: string; body?: unknown }) => input)
   .handler(async ({ data }): Promise<AdminEnvelope> => {
     const { path, body } = data;
-    if (!path.startsWith(ADMIN_PREFIX)) {
+    if (!path.startsWith(ADMIN_PREFIX) && !path.startsWith("/v1/refunds/")) {
       throw new AdminApiError(400, "VALIDATION", "path must be an admin /v1 path");
     }
     if (apiMode() === "mock") {
@@ -139,6 +145,42 @@ export const adminPostServer = createServerFn({ method: "POST" })
         res.status,
         err.error?.code ?? "SERVER",
         err.error?.message ?? `POST ${path} failed`,
+        err.error?.trace_id ?? "",
+      );
+    }
+    return parseEnvelope(text, {}) as unknown as AdminEnvelope;
+  });
+
+/**
+ * PATCH /v1/admin/* (partial updates, e.g. vendor capacity). Same guard +
+ * refresh-once contract as POST.
+ */
+export const adminPatchServer = createServerFn({ method: "POST" })
+  .validator((input: { path: string; body?: unknown }) => input)
+  .handler(async ({ data }): Promise<AdminEnvelope> => {
+    const { path, body } = data;
+    if (!path.startsWith(ADMIN_PREFIX)) {
+      throw new AdminApiError(400, "VALIDATION", "path must be an admin /v1 path");
+    }
+    if (apiMode() === "mock") {
+      const { resolveFixture } = await import("#/data/admin/mock-resolver");
+      return resolveFixture(path, "PATCH", body) as unknown as AdminEnvelope;
+    }
+    let res = await workerFetch(path, "PATCH", body);
+    if (res.status === 401) {
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+        res = await workerFetch(path, "PATCH", body);
+      }
+    }
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      const err = parseEnvelope<WorkerErrorShape>(text, {}) as WorkerErrorShape;
+      throw new AdminApiError(
+        res.status,
+        err.error?.code ?? "SERVER",
+        err.error?.message ?? `PATCH ${path} failed`,
         err.error?.trace_id ?? "",
       );
     }

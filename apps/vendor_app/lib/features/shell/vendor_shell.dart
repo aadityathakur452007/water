@@ -93,6 +93,7 @@ class _VendorShellState extends State<VendorShell> {
           controller: widget.stops,
           stopId: stop.id,
           stopLabel: 'Stop ${stop.seq}: ${stop.customerName}',
+          outbox: widget.sync,
         ),
       ),
     );

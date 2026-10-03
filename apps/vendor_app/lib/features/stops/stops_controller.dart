@@ -64,6 +64,10 @@ class StopsController extends ChangeNotifier {
   int get version => (_stop?['version'] as num?)?.toInt() ?? 1;
   String get status => (_stop?['status'] ?? 'pending') as String;
 
+  /// F2: last cash-post failure was network (caller may queue offline).
+  bool _networkFail = false;
+  bool get lastWasNetwork => _networkFail;
+
   Future<void> load(String stopId) async {
     _state = StopDetailState.loading;
     _error = null;
@@ -162,5 +166,79 @@ class StopsController extends ChangeNotifier {
   void clearNotice() {
     _notice = null;
     notifyListeners();
+  }
+
+  /// F8: empty-jar pickup for a return stop. Reloads the stop so the card
+  /// flips to done; 409 (already picked) counts as settled truth.
+  Future<bool> completePickup({
+    required String returnId,
+    required String stopId,
+    required int emptiesCollected,
+    required int capsMissing,
+  }) async {
+    _submitting = true;
+    _notice = null;
+    notifyListeners();
+    try {
+      await _api.pickupReturn(
+        returnId: returnId,
+        emptiesCollected: emptiesCollected,
+        capsMissing: capsMissing,
+      );
+      await load(stopId);
+      _notice = 'Khaali jama ho gaye';
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      if (e.code == 'STATE_CONFLICT' || e.statusCode == 409) {
+        await load(stopId);
+        _notice = 'Pickup pehle se ho gayi hai';
+        notifyListeners();
+        return true;
+      }
+      _notice = e.isNetwork ? 'Network nahi — dobara try karein' : e.message;
+      notifyListeners();
+      return false;
+    } finally {
+      _submitting = false;
+      notifyListeners();
+    }
+  }
+
+  /// F2: one-tap cash post → money truth (payment row + dues reconcile).
+  /// Returns true when cash is truth (posted now, or 409 already-paid —
+  /// same outcome, stop reloaded so the badge flips). Network failure
+  /// returns false with [lastWasNetwork] set; the caller queues offline.
+  Future<bool> postCash({
+    required String stopId,
+    required int amountPaise,
+  }) async {
+    _submitting = true;
+    _notice = null;
+    _networkFail = false;
+    notifyListeners();
+    try {
+      await _api.postStopCash(stopId: stopId, amountPaise: amountPaise);
+      await load(stopId);
+      _notice = 'Cash jama ho gaya';
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      if (e.code == 'STATE_CONFLICT' || e.statusCode == 409) {
+        await load(stopId);
+        _notice = 'Cash pehle se jama hai';
+        notifyListeners();
+        return true;
+      }
+      _networkFail = e.isNetwork;
+      _notice = e.isNetwork
+          ? 'Network nahi — cash Sync me queue karein'
+          : e.message;
+      notifyListeners();
+      return false;
+    } finally {
+      _submitting = false;
+      notifyListeners();
+    }
   }
 }

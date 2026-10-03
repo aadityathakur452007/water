@@ -14,12 +14,15 @@ import uuid
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.auth_deps import get_current_user, require_active_user
+from app.api.auth_deps import get_current_user, require_active_user, require_role
 from app.api.deps import get_db_conn
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
+from app.repositories.ledger_repo import LedgerRepo
 
 router = APIRouter(tags=["returns"])
+
+_vendor = require_role("vendor")
 
 SLA_WORKING_DAYS = 10  # Bisleri rulebook: pickup within 10 working days (E2)
 
@@ -84,3 +87,55 @@ async def list_returns(user=Depends(get_current_user), conn=Depends(get_db_conn)
         (str(user.get("id")),),
     )).fetchall()
     return {"data": [dict(r) for r in rows]}
+
+
+class PickupIn(BaseModel):
+    empties_collected: int = Field(ge=0)
+    caps_missing: int = Field(ge=0, default=0)
+
+
+@router.post("/returns/{return_id}/pickup")
+async def pickup_return(return_id: str, payload: PickupIn,
+                  conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """F8: vendor collects empties for a return on their own route.
+
+    Ownership via the pickup stop (return_id on vendor's route) — else 404.
+    Ledger: held decreases, cap-missing × Rs 3 posts to dues. Pickup stop
+    completes with the counts in its triple JSON.
+    """
+    import json as _json
+
+    from app.services.pricing import CAP_PAISE
+
+    vid = str(user.get("id"))
+    with WRITE_LOCK:
+        ret = (await conn.execute("SELECT * FROM returns WHERE id = ?", (return_id,))).fetchone()
+        if ret is None:
+            raise NotFoundError(message="Return not found.", details={"id": return_id})
+        if ret["status"] != "requested":
+            raise ConflictError(message="Return is already settled.",
+                                details={"id": return_id, "status": ret["status"]})
+        if int(payload.empties_collected) > int(ret["qty"]):
+            raise ValidationError(message="Cannot collect more than requested.",
+                                  details={"qty": ret["qty"]})
+        link = (await conn.execute(
+            "SELECT s.id FROM stops s JOIN routes r ON r.id = s.route_id"
+            " WHERE s.return_id = ? AND r.vendor_id = ?", (return_id, vid))).fetchone()
+        if link is None:
+            raise NotFoundError(message="Return not found.", details={"id": return_id})
+        cap_paise = int(payload.caps_missing) * int(CAP_PAISE)
+        led = await LedgerRepo(conn).apply_event(
+            ret["user_id"], d_held=-int(payload.empties_collected), d_dues=cap_paise,
+            ref=f"return:{return_id}", actor=vid, reason="empty-jar pickup", commit=False)
+        await conn.execute(
+            "UPDATE returns SET status = 'picked' WHERE id = ?", (return_id,))
+        await conn.execute(
+            "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE return_id = ?",
+            (_json.dumps({"empties_collected": int(payload.empties_collected),
+                          "caps_missing": int(payload.caps_missing)}),
+             _dt.datetime.now(_dt.timezone.utc).isoformat(), return_id),
+        )
+        conn.commit()
+    return {"id": return_id, "status": "picked",
+            "empties_collected": int(payload.empties_collected),
+            "cap_charge": cap_paise, "ledger": led}

@@ -54,6 +54,13 @@ export type UserRow = {
   created_at: string;
 };
 
+export type ZoneRow = {
+  id: string;
+  name: string;
+  pincodes: string;
+  active: number;
+};
+
 export type UserDetail = {
   user: UserRow;
   orders_count: number;

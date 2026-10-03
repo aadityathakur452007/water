@@ -215,6 +215,105 @@ def test_config_effective_from_stored():
     assert row["value"] == "200000" and row["effective_from"]
 
 
+def _seed_done_stop(c, day="2026-10-03"):
+    c.execute("INSERT INTO routes(id, date, vendor_id, zone, status)"
+              " VALUES ('r1', ?, 'v1', 'z1', 'open')", (day,))
+    c.execute(
+        "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+        " empties_exp, version, triple, status, synced_at)"
+        " VALUES ('s1', 'r1', 'o1', 'u1', 0, 2, 1, 2,"
+        " '{\"fulls_given\": 2, \"empties_back\": 1, \"cash\": 20600, \"upi\": 0}',"
+        " 'done', 't')")
+    c.commit()
+
+
+def test_payout_generate_approve_and_double_guards():
+    c = _conn()
+    _seed_base(c)
+    _order(c, "o1", state="delivered")
+    _seed_done_stop(c)
+    c.execute("UPDATE vendor_profile SET per_stop_fee = 500 WHERE user_id = 'v1'")
+    c.commit()
+    client = _client(c)
+    g = client.post("/v1/admin/payouts/generate",
+                    json={"vendor_id": "v1", "period": "2026-10"})
+    assert g.status_code == 200, g.text
+    assert g.json()["stops_done"] == 1 and g.json()["gross_fee"] == 500
+    assert g.json()["status"] == "pending"
+    dup = client.post("/v1/admin/payouts/generate",
+                      json={"vendor_id": "v1", "period": "2026-10"})
+    assert dup.status_code == 409  # one payout per vendor+period
+    pid = g.json()["id"]
+    ok = client.post(f"/v1/admin/payouts/{pid}/approve")
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "approved" and ok.json()["approved_by"] == "admin1"
+    again = client.post(f"/v1/admin/payouts/{pid}/approve")
+    assert again.status_code == 409  # pending-only
+    listed = client.get("/v1/admin/payouts", params={"vendor_id": "v1"}).json()["data"]
+    assert any(p["id"] == pid and p["status"] == "approved" for p in listed)
+
+
+def test_custody_confirm_decrements_and_guards():
+    c = _conn()
+    _seed_base(c)
+    client = _client(c)
+    c.execute("UPDATE vendor_profile SET in_hand = 5000 WHERE user_id = 'v1'")
+    c.commit()
+    r = client.post("/v1/admin/custody/confirm",
+                    json={"vendor_id": "v1", "amount": 2000})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"vendor_id": "v1", "confirmed": 2000, "in_hand": 3000}
+    over = client.post("/v1/admin/custody/confirm",
+                       json={"vendor_id": "v1", "amount": 99999})
+    assert over.status_code == 400  # cannot confirm more than held
+
+
+def test_reconciliation_close_snapshots_and_audits():
+    c = _conn()
+    _seed_base(c)
+    _order(c, "o1", state="delivered")
+    _seed_done_stop(c)
+    client = _client(c)
+    r = client.post("/v1/admin/reconciliation/close", json={"date": "2026-10-03"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["closed"] is True and body["collected_cash"] == 20600
+    assert body["collected_upi"] == 0
+    audit = client.get("/v1/admin/audit", params={"entity": "reconciliation"}).json()["data"]
+    assert any(a["action"] == "reco.close" for a in audit)
+
+
+def test_returns_assign_pickup_shape_refund_flow():
+    c = _conn()
+    _seed_base(c)
+    client = _client(c)
+    c.execute(
+        "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
+        " VALUES ('ret1', 'u1', 2, 'a1', 'requested', '2026-10-15', 't')")
+    c.commit()
+    a = client.post("/v1/admin/returns/ret1/assign",
+                    json={"vendor_id": "v1", "date": "2026-10-03"})
+    assert a.status_code == 200, a.text
+    stop = c.execute("SELECT route_id, empties_exp, status FROM stops WHERE return_id = 'ret1'").fetchone()
+    assert stop is not None and stop["empties_exp"] == 2 and stop["status"] == "pending"
+    again = client.post("/v1/admin/returns/ret1/assign",
+                        json={"vendor_id": "v1", "date": "2026-10-03"})
+    assert again.status_code == 409  # already on a route — no duplicate stop
+    # Refund before pickup → 409; pickup happens vendor-side (tested in test_vendor).
+    early = client.post("/v1/admin/returns/ret1/refund",
+                        json={"method": "upi", "qty": 2})
+    assert early.status_code == 409
+    c.execute("UPDATE returns SET status = 'picked' WHERE id = 'ret1'")
+    c.execute("INSERT INTO ledger(customer_id, held, deposit_paid) VALUES ('u1', 2, 30000)")
+    c.commit()
+    f = client.post("/v1/admin/returns/ret1/refund",
+                    json={"method": "upi", "qty": 2})
+    assert f.status_code == 200, f.text
+    assert f.json()["status"] == "refunded" and f.json()["refunded"] == 30000
+    led = c.execute("SELECT deposit_refunded FROM ledger WHERE customer_id = 'u1'").fetchone()
+    assert led["deposit_refunded"] == 30000
+
+
 def test_admin_authz_and_vendor_lifecycle_and_metrics():
     c = _conn()
     _seed_base(c)

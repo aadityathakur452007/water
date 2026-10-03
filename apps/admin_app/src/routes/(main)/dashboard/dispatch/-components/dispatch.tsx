@@ -7,9 +7,19 @@ import { ClipboardList, PackageOpen, Route as RouteIcon, Truck } from "lucide-re
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
-import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
+import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { CustodyRow, OrderRow, Page, Reconciliation } from "@/lib/admin-types";
 import { num, rupees } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
@@ -30,6 +40,30 @@ export function Dispatch() {
   const { data: reco } = useAdminQuery<Page<Reconciliation>>("/v1/admin/reconciliation");
   const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
   const [generating, setGenerating] = React.useState(false);
+  const invalidate = useInvalidateAdmin();
+  const [confirmVendor, setConfirmVendor] = React.useState<string | null>(null);
+  const [handoverRs, setHandoverRs] = React.useState("");
+  const [confirming, setConfirming] = React.useState(false);
+
+  async function confirmHandover() {
+    if (!confirmVendor) return;
+    const paise = Math.round(Number(handoverRs) * 100);
+    if (!Number.isFinite(paise) || paise <= 0) return;
+    setConfirming(true);
+    try {
+      const res = (await adminPostServer({
+        data: { path: "/v1/admin/custody/confirm", body: { vendor_id: confirmVendor, amount: paise } },
+      })) as unknown as { in_hand?: number };
+      toast.add({ title: "Handover confirmed", description: `In hand now ${rupees(Number(res.in_hand ?? 0))}` });
+      setConfirmVendor(null);
+      setHandoverRs("");
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Confirm failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setConfirming(false);
+    }
+  }
 
   const rows = orders?.data ?? [];
   const counts = Object.fromEntries(
@@ -137,16 +171,29 @@ export function Dispatch() {
                   <p className="truncate font-medium text-sm">{c.name ?? c.vendor_id}</p>
                   <p className="text-muted-foreground text-xs">{`on duty ${num(c.on_duty)}`}</p>
                 </div>
-                <Badge
-                  variant="outline"
-                  className={
-                    c.in_hand > 30
-                      ? "border-amber-500/20 bg-amber-500/10 text-amber-600"
-                      : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
-                  }
-                >
-                  {`${num(c.in_hand)} jars`}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      c.in_hand > 30
+                        ? "border-amber-500/20 bg-amber-500/10 text-amber-600"
+                        : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+                    }
+                  >
+                    {`${num(c.in_hand)} jars`}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => {
+                      setConfirmVendor(c.vendor_id);
+                      setHandoverRs("");
+                    }}
+                  >
+                    Confirm handover
+                  </Button>
+                </div>
               </div>
             ))}
             {(custody?.data ?? []).length === 0 ? (
@@ -209,6 +256,33 @@ export function Dispatch() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={confirmVendor != null} onOpenChange={(open) => !open && setConfirmVendor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm cash handover</DialogTitle>
+            <DialogDescription>Cash received from the vendor decrements agency money in hand. Audited.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="dispatch-handover">Amount (Rs)</Label>
+            <Input
+              id="dispatch-handover"
+              inputMode="decimal"
+              value={handoverRs}
+              onChange={(e) => setHandoverRs(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmVendor(null)}>
+              Cancel
+            </Button>
+            <Button disabled={confirming || !(Number(handoverRs) > 0)} onClick={() => void confirmHandover()}>
+              {confirming ? "Confirming…" : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

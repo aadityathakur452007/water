@@ -18,8 +18,12 @@ import {
   vendorsFixture,
 } from "./fixtures";
 
-export function resolveFixture(path: string, method: "GET" | "POST", _body?: unknown): unknown {
-  if (method === "POST") {
+export function resolveFixture(
+  path: string,
+  method: "GET" | "POST" | "PATCH",
+  _body?: unknown,
+): unknown {
+  if (method === "POST" || method === "PATCH") {
     // Writes succeed in mock mode (optionally echoing affected ids).
     if (path.includes("/suspend") || path.includes("/unsuspend")) return { ok: true, revoked_sessions: 2 };
     if (path.includes("/generate")) return { ok: true, routes: 2 };
@@ -28,6 +32,8 @@ export function resolveFixture(path: string, method: "GET" | "POST", _body?: unk
 
   if (path.startsWith("/v1/admin/metrics/overview")) return metricsFixture;
   if (path.startsWith("/v1/admin/metrics")) return { quality_open: metricsFixture.quality_open };
+  if (path.startsWith("/v1/admin/zones")) return { data: [] };
+  if (path.startsWith("/v1/admin/payouts")) return { data: [] };
   if (path.startsWith("/v1/admin/orders")) return ordersFixture;
   if (path.startsWith("/v1/admin/users/")) {
     const id = path.split("/")[4] ?? "";

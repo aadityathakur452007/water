@@ -8,6 +8,7 @@
 // States.md: list skeleton → empty → error; every async op has feedback.
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -99,6 +100,9 @@ class SubscriptionController extends ChangeNotifier {
 
   /// 015: pay-per-day totals — Due today (qty × rate) + Paid till now (dues).
   int duesPaise = 0;
+
+  /// F7: server UPI intent for the outstanding dues (null when none).
+  String? duesPayLink;
   int get dueTodayPaise => _items.fold(0, (s, e) => s + e.qty * 2800);
 
   Future<void> load() async {
@@ -115,8 +119,11 @@ class SubscriptionController extends ChangeNotifier {
       try {
         final dues = await _api.billingDues();
         duesPaise = (dues['dues'] as num?)?.toInt() ?? 0;
+        final link = dues['pay_link'];
+        duesPayLink = link is String && link.isNotEmpty ? link : null;
       } catch (_) {
         duesPaise = 0;
+        duesPayLink = null;
       }
       _status = SubStatus.loaded;
     } on ApiException catch (e) {
@@ -404,9 +411,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       borderRadius:
                           BorderRadius.circular(ShodashaTheme.radius),
                     ),
-                    child: Text(
-                      'Due today Rs ${c.dueTodayPaise ~/ 100} • Paid till now Rs ${c.duesPaise ~/ 100}',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Due today Rs ${c.dueTodayPaise ~/ 100} • Paid till now Rs ${c.duesPaise ~/ 100}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        // F7: server UPI intent for outstanding dues.
+                        if (c.duesPayLink != null)
+                          TextButton(
+                            onPressed: () => launchUrl(
+                              Uri.parse(c.duesPayLink!),
+                              mode: LaunchMode.externalApplication,
+                            ),
+                            child: const Text('Pay dues'),
+                          ),
+                      ],
                     ),
                   );
                 }
