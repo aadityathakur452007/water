@@ -121,16 +121,31 @@ class OrderService:
             raise StaleQuoteError(message="Rate version moved. Please re-quote.",
                                    details={"quote_rate_version": payload.get("quote_rate_version"),
                                             "current": current_rv})
+        # Once-only wallet-held deposit: refill never, container only when
+        # ledger holds < one deposit. Accept the pre-waiver quote too so old
+        # /quotes estimates (full deposit) don't STALE-loop the first waived order.
+        led_now = await self.ledger.get(user_id)
+        held_paid = int(led_now.get("deposit_paid", 0)) - int(led_now.get("deposit_refunded", 0))
         try:
             q = self.pricing.compute_quote(
                 items, e, self.rates,
                 address_id=payload.get("address_id", ""),
                 window_start=payload.get("window_start", ""),
                 rate_version=current_rv,
+                deposit_already_paid_paise=held_paid,
+            )
+            q_full = self.pricing.compute_quote(
+                items, e, self.rates,
+                address_id=payload.get("address_id", ""),
+                window_start=payload.get("window_start", ""),
+                rate_version=current_rv,
+                deposit_already_paid_paise=0,
             )
         except ValueError as ex:
             raise ValidationError(message=str(ex), details={}) from ex
-        if int(payload.get("quote_total", -1)) != int(q["total"]) or payload.get("quote_hash") != q["quote_hash"]:
+        if int(payload.get("quote_total", -1)) == int(q_full["total"]) and payload.get("quote_hash") == q_full["quote_hash"]:
+            pass  # pre-waiver estimate: totals below use the waived q
+        elif int(payload.get("quote_total", -1)) != int(q["total"]) or payload.get("quote_hash") != q["quote_hash"]:
             raise StaleQuoteError(message="Quote changed or mismatched. Please re-quote.",
                                    details={"expected_total": q["total"]})
         expires = _parse_dt(payload.get("quote_expires_at"))
@@ -142,10 +157,10 @@ class OrderService:
                 message="Maximum 10 jars per order. For larger (tanker) requirements, please contact support.",
                 details={"n": q["n_total"], "max": MAX_JARS_PER_ORDER},
             )
-        if int((await self.ledger.get(user_id))["held"]) > HOLD_BLOCK_LIMIT:
+        if int(led_now.get("held", 0)) > HOLD_BLOCK_LIMIT:
             raise HoldBlockedError(
                 message="Too many jars held. Return empties to order again.",
-                details={"held": (await self.ledger.get(user_id))["held"], "max": HOLD_BLOCK_LIMIT},
+                details={"held": int(led_now.get("held", 0)), "max": HOLD_BLOCK_LIMIT},
             )
 
         window_end = self._window_end(str(payload.get("window_start", "")))

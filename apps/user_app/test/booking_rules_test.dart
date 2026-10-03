@@ -8,10 +8,26 @@ BookingController _c() => BookingController();
 
 void main() {
   group('quote math (paise integer)', () {
-    test('2 refill + 1 empty: 5600 water + 15000 deposit', () {
+    // 014: refill never deposits.
+    test('2 refill + 1 empty: 5600 water + 0 deposit', () {
       expect(
         computeQuoteTotalPaise(refill: 2, container: 0, empties: 1),
-        2 * 2800 + 1 * 15000,
+        2 * 2800,
+      );
+    });
+
+    test('1 container first time: 3000 + 15000 deposit', () {
+      expect(
+        computeQuoteTotalPaise(refill: 0, container: 1, empties: 0),
+        3000 + 15000,
+      );
+    });
+
+    test('deposit waived when wallet holds it', () {
+      expect(
+        computeQuoteTotalPaise(
+            refill: 0, container: 1, empties: 0, depositPaidPaise: 15000),
+        3000,
       );
     });
 
@@ -36,7 +52,7 @@ void main() {
 
     test('full empties → zero deposit', () {
       expect(
-        computeDepositDuePaise(total: 3, empties: 3),
+        computeDepositDuePaise(container: 3, empties: 3),
         0,
       );
     });
@@ -164,16 +180,10 @@ void main() {
   });
 
   group('windows + idempotency', () {
-    test('Sunday is skipped (2026-10-04 is a Sunday)', () {
-      // Friday 2026-10-02 → next serviceable skips Sun 2026-10-04.
-      final next = nextServiceableDay(DateTime(2026, 10, 2));
-      expect(next.weekday, isNot(DateTime.sunday));
-      expect(next, DateTime(2026, 10, 3)); // Saturday
-    });
-
-    test('Saturday → Monday (Sunday skipped)', () {
+    // 014: all days water — Sundays are serviceable now.
+    test('Saturday → Sunday (no Sunday skip)', () {
       final next = nextServiceableDay(DateTime(2026, 10, 3));
-      expect(next, DateTime(2026, 10, 5));
+      expect(next, DateTime(2026, 10, 4));
     });
 
     test('holiday is skipped', () {
@@ -181,7 +191,7 @@ void main() {
         DateTime(2026, 10, 2),
         holidays: {DateTime(2026, 10, 3)},
       );
-      expect(next, DateTime(2026, 10, 5));
+      expect(next, DateTime(2026, 10, 4));
     });
 
     test('idempotency minted once, reused on retry', () {

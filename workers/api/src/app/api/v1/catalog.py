@@ -9,7 +9,7 @@ from app.schemas.catalog import CatalogOut, SkuOut
 router = APIRouter(tags=["catalog"])
 
 _PINCODE_RE = r"^[1-9]\d{5}$"
-_HOURS_DEFAULT = "08:00-20:00, closed Sundays"
+_HOURS_DEFAULT = "08:00-20:00, all days"
 
 
 def _prefixes() -> list[str]:
@@ -43,10 +43,11 @@ def get_catalog() -> CatalogOut:
     )
 
 
+# 014: all-days delivery — Sundays serviceable, holidays still skip.
 def _next_serviceable_day(day: dt.date | None) -> dt.date:
     holidays = set(getattr(get_settings(), "holidays", None) or [])
     d = day or dt.date.today()
-    while d.weekday() == 6 or d.isoformat() in holidays:  # ex-Sun
+    while d.isoformat() in holidays:
         d += dt.timedelta(days=1)
     return d
 

@@ -64,6 +64,22 @@ async def billing_dues(conn=Depends(get_db_conn), user=Depends(get_current_user)
     return await _service(conn).get_dues(_uid(user))
 
 
+# 014: wallet truth for the app (held + deposit wallet + dues in one call).
+# The Flutter ledgerMe() already calls GET /ledger/me — it 404'd before.
+@router.get("/ledger/me")
+async def ledger_me(conn=Depends(get_db_conn), user=Depends(get_current_user)):
+    led = await LedgerRepo(conn).get(_uid(user))
+    paid = int(led.get("deposit_paid", 0))
+    refunded = int(led.get("deposit_refunded", 0))
+    return {
+        "held": int(led.get("held", 0)),
+        "deposit_paid": paid,
+        "deposit_refunded": refunded,
+        "wallet_held": max(0, paid - refunded),
+        "dues": int(led.get("dues", 0)),
+    }
+
+
 @router.get("/invoices/{order_id}")
 async def invoice(order_id: str, conn=Depends(get_db_conn), user=Depends(get_current_user)):
     return await _service(conn).get_invoice(_uid(user), order_id)

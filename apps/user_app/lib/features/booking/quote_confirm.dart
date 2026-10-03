@@ -108,6 +108,25 @@ class _ConfirmSheet extends StatelessWidget {
                 child: const Text('Pause / skip kabhi bhi kar sakte hain'),
               ),
             ],
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.blueTint,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.shield_outlined,
+                      size: 18, color: ShodashaTheme.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                      child: Text(
+                          'Safety deposit app me safe hai — Profile me Wallet me dekhein',
+                          style: TextStyle(fontSize: 13))),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,

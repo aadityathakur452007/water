@@ -21,7 +21,8 @@ def _sku_qty(item):
     return item.sku, int(item.qty)
 
 
-def compute_quote(items, e, rates=None, address_id="", window_start="", rate_version=RATE_VERSION):
+def compute_quote(items, e, rates=None, address_id="", window_start="", rate_version=RATE_VERSION,
+                    deposit_already_paid_paise=0):
     rates = rates or {}
     refill = int(rates.get("refill", REFILL_PAISE))
     container = int(rates.get("container", CONTAINER_PAISE))
@@ -39,7 +40,14 @@ def compute_quote(items, e, rates=None, address_id="", window_start="", rate_ver
             n_container += qty
     n_total = n_refill + n_container
     water_bill = n_refill * refill + n_container * container
-    deposit_due = max(0, n_total - int(e)) * deposit
+    # Once-only deposit: refill never carries deposit; container carries
+    # (n_container - empties_against_containers) only when the wallet does
+    # not already hold >= one deposit. Damage/quit settlement stays in ledger.
+    if n_container <= 0 or int(deposit_already_paid_paise or 0) >= deposit:
+        deposit_due = 0
+    else:
+        e_vs_containers = max(0, min(int(e), n_container))
+        deposit_due = max(0, n_container - e_vs_containers) * deposit
     total = water_bill + deposit_due
     canonical = json.dumps(
         {

@@ -1,8 +1,9 @@
 // 011-grocery-verify — runtime proof the grocery lift is actually rendered
-// (shapes + motion, not just source): greeting header, pill search, section
-// header, slim 2-col grid with corner add buttons, staggered Animate
+// (shapes + motion, not just source): greeting header, schedule cards,
+// wallet strip, slim 2-col grid with corner add buttons, staggered Animate
 // wrappers, and the tap-card → buy-box path with its lifted shape.
 // MockClient-free: home + buy-box touch no API. No backend.
+// 014: pill search killed (2 SKUs); schedule + wallet replace it.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -31,9 +32,11 @@ void main() {
 
     // Greeting header rhythm (overline slot + bold title).
     expect(find.text('Paani book karein'), findsOneWidget);
-    // Pill search.
-    expect(find.text('Khoj'), findsOneWidget);
-    // Section-header row (filter-aware title).
+    // 014 schedule cards + wallet strip (search killed).
+    expect(find.text('Choose Your Schedule'), findsOneWidget);
+    expect(find.text('Ek Baar'), findsOneWidget);
+    expect(find.text('Roz ka Plan'), findsOneWidget);
+    // Section-header row.
     expect(find.text('Sab products'), findsOneWidget);
     // Slim 2-col grid: photo cards with name + price + corner add.
     expect(find.byType(GridView), findsOneWidget);
@@ -49,13 +52,16 @@ void main() {
     final c = BookingController();
     await _pumpHome(tester, c);
 
-    await tester.tap(find.text('Refill (20L)'));
+    final card = find.text('Refill (20L)');
+    await tester.ensureVisible(card);
+    await tester.pumpAndSettle();
+    await tester.tap(card);
     await tester.pumpAndSettle();
 
     // Buy-box shape: stepper row, BUY primary, honest deposit facts.
     expect(find.text('Kitne jar?'), findsOneWidget);
     expect(find.textContaining('BUY'), findsOneWidget);
-    expect(find.textContaining('refundable deposit'), findsWidgets);
+    expect(find.textContaining('safety deposit'), findsWidgets);
     c.dispose();
   });
 }

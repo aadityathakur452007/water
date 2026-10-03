@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-059 | 2026-10-03 | Once-only Rs150 container deposit + Flutter order-contract fix + simplify home to 2 schedule cards + fixed 8-12 + kill search | Accepted | workers/api pricing/order_service/tests, apps/user_app api_client/checkout/home/booking_sheet/confirm + tests, branch 014-deposit-wallet-simplify |
 | ADR-058 | 2026-10-02 | Fix user address entry: live Bearer wiring + login-gate + picker auto-locate + selection race | Accepted | apps/user_app main/address_screen/map_picker + test, branch 012-address-auth |
 | ADR-057 | 2026-10-02 | UI lift (layout shapes only) from premium grocery reference into 6 user+vendor surfaces | Accepted | apps/user_app booking/auth + test, apps/vendor_app route/stops/customers/support/earnings/inventory/core + tests, branch 010-grocery-ui |
 | ADR-056 | 2026-10-02 | Wave-1 UX polish: vendor 4-tab + More, address Stepper, login hero, ink/theme honesty, F1 caps, critical states | Accepted | apps/user_app auth/addresses/booking/orders/theme, apps/vendor_app shell/route/support/duty/sync/inventory, workers/api F1 caps + test |
@@ -113,6 +114,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-059: Once-only container deposit + order-contract fix + home simplify
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: User: deposit on every delivery is wrong — only Rs30 container, only once, wallet-held, damage-forfeit, quit-refund; assure via UI wallet message; schedule fixed Subah 8-12; kill search; choose best UX; prove backend 500 via live request; branch from main.
+- **Options considered**: Per-jar-every-order deposit (rejected — violates once-only rule, proven by pricing.py:42); wallet table migration now (deferred — ledger deposit_paid/refunded already wallet truth, wallet_balance stays 0 for v2); 3-step checkout + slot chips + calendar kept (rejected — 8+slot+calendar CTAs confuse, fixed 8-12 approved); Sunday skip kept (rejected — all-days approved).
+- **Decision**: pricing.compute_quote adds deposit_already_paid_paise (refill 0, container (n_c-min(e,n_c)) only when held<15000); order_service waives + accepts pre-waiver quote to avoid STALE loop; Flutter api_client/checkout_service now send quote_total/rate_version/expires_at (was 400 every order); home kills search/chips, adds 2 schedule cards + wallet-safe strip; booking_sheet shows fixed 8-12 card; nextServiceableDay all-days; confirm adds wallet-safe message. Tests updated to new rule (quotes/orders/e2e/scheduler/app). Verify: backend 193, user 86, analyzes 0.
+- **Why**: Fixes 100%-fail checkout at root + implements wallet trust by visibility (Profile shows held money) with smallest diff, no colour change, no new deps.
+- **Consequences**: Damage-deduct + quit-refund endpoints still open (ledger holds truth, no UI yet). First device run must verify COD/UPI end-to-end + wallet strip with real ledger.
+- **Affects**: workers/api pricing/order_service/tests, apps/user_app api_client/checkout/home/booking_sheet/confirm/tests, branch 014-deposit-wallet-simplify
 
 ### ADR-058: Fix user address entry (Bearer wiring + login-gate + auto-locate + race)
 - **Date**: 2026-10-02

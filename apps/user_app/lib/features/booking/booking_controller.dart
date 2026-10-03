@@ -86,22 +86,31 @@ String rupeesLabel(int paise) => 'Rs ${paise ~/ 100}';
 int computeWaterBillPaise({required int refill, required int container}) =>
     refill * kRateRefillPaise + container * kRateContainerPaise;
 
-/// Deposit due: (N − E) × 150, never negative (E clamped to N by callers).
-int computeDepositDuePaise({required int total, required int empties}) {
-  final billable = (total - empties).clamp(0, total);
-  return billable * kDepositPerJarPaise;
+/// 014 deposit: container-only, once-only. Refill never deposits.
+/// Matches pricing.py: (n_container - min(e,n_container)) unless wallet
+/// already holds >= one deposit.
+int computeDepositDuePaise({
+  required int container,
+  required int empties,
+  int depositPaidPaise = 0,
+}) {
+  if (container <= 0) return 0;
+  if (depositPaidPaise >= kDepositPerJarPaise) return 0;
+  final against = empties.clamp(0, container);
+  return (container - against) * kDepositPerJarPaise;
 }
 
-/// Full quote total: water + deposit + caps-missing × Rs 3.
+/// Full quote total: water + once-only container deposit + caps × Rs 3.
 int computeQuoteTotalPaise({
   required int refill,
   required int container,
   required int empties,
   int capsMissing = 0,
+  int depositPaidPaise = 0,
 }) {
-  final total = refill + container;
   return computeWaterBillPaise(refill: refill, container: container) +
-      computeDepositDuePaise(total: total, empties: empties) +
+      computeDepositDuePaise(
+          container: container, empties: empties, depositPaidPaise: depositPaidPaise) +
       capsMissing * kCapChargePaise;
 }
 
@@ -143,8 +152,8 @@ String quoteHashOf({
 /// uuid v4 (dep present in pubspec since F1 landed it).
 String newIdempotencyKey() => const Uuid().v4();
 
-/// Next serviceable day: skips Sundays + [holidays] (date-only compare).
-/// Used for the default "kal subah" window (8–20, ex-Sun/holiday).
+/// Next serviceable day: 014 — all days water (no Sunday skip).
+/// Fixed Subah 8–12 promise; holidays still skipped when supplied.
 DateTime nextServiceableDay(DateTime from, {Set<DateTime>? holidays}) {
   DateTime day(DateTime d) => DateTime(d.year, d.month, d.day);
   var cursor = day(from).add(const Duration(days: 1));
@@ -155,11 +164,14 @@ DateTime nextServiceableDay(DateTime from, {Set<DateTime>? holidays}) {
     );
   }
 
-  while (cursor.weekday == DateTime.sunday || isHoliday(cursor)) {
+  while (isHoliday(cursor)) {
     cursor = cursor.add(const Duration(days: 1));
   }
   return cursor;
 }
+
+/// Fixed morning window label (014): never promise van-times.
+const String kFixedWindowLabel = 'Subah 8–12';
 
 // ── Catalog fetch-and-cache seam ─────────────────────────────────────────
 
@@ -254,9 +266,21 @@ class BookingController extends ChangeNotifier {
   int emptiesQty = 0;
   int capsMissing = 0;
 
-  /// Server-known ledger inputs (set by F1 wiring; default = clean user).
+  /// Server-known ledger inputs (014: refreshed from GET /ledger/me).
   int duesPaise = 0;
   int heldJars = 0;
+  int depositPaidPaise = 0;
+
+  /// 014: wallet already holds safety deposit — display + waive logic.
+  bool get walletHoldsDeposit => depositPaidPaise >= kDepositPerJarPaise;
+
+  void applyLedger({required int dues, required int held, required int depositPaid}) {
+    duesPaise = dues;
+    heldJars = held;
+    depositPaidPaise = depositPaid;
+    _clampEmpties();
+    notifyListeners();
+  }
 
   PaymentMode paymentMode = PaymentMode.upi;
 
@@ -318,14 +342,15 @@ class BookingController extends ChangeNotifier {
         container: containerQty,
       );
 
-  int get depositDuePaise =>
-      computeDepositDuePaise(total: totalJars, empties: emptiesQty);
+  int get depositDuePaise => computeDepositDuePaise(
+      container: containerQty, empties: emptiesQty, depositPaidPaise: depositPaidPaise);
 
   int get quoteTotalPaise => computeQuoteTotalPaise(
         refill: refillQty,
         container: containerQty,
         empties: emptiesQty,
         capsMissing: capsMissing,
+        depositPaidPaise: depositPaidPaise,
       );
 
   String get currentHash => quoteHashOf(

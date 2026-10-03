@@ -155,14 +155,21 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     }
   }
 
-  String get _windowStart =>
-      _slots.isEmpty ? '' : '${_slotDate}T${_slots[_slotIdx].start}:00';
+  // 014: never send blank window_start (backend min_length=1 → 400).
+  // Slots mint the ISO; fallback is serviceable-day 08:00.
+  String get _windowStart {
+    if (_slots.isNotEmpty) return '${_slotDate}T${_slots[_slotIdx].start}:00';
+    final day = _slotDate.isNotEmpty
+        ? _slotDate
+        : ApiClient.dateOnly(nextServiceableDay(DateTime.now()));
+    return '${day}T08:00:00';
+  }
 
+  // 014: single fixed promise — Subah 8–12. Slots still load to mint a
+  // valid window_start ISO, but the user never picks times.
   String get _windowLabel {
     if (_isOnce) {
-      return _slots.isEmpty
-          ? _slotDate
-          : '$_slotDate ${_slots[_slotIdx].start}–${_slots[_slotIdx].end}';
+      return _slotDate.isEmpty ? 'Subah 8–12' : '$_slotDate Subah 8–12';
     }
     if (_isCustom) {
       final days = _customDays.toList()..sort();
@@ -182,7 +189,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       case 0:
         return widget.address != null;
       case 1:
-        if (_isOnce) return _slots.isNotEmpty;
+        // 014: fixed 8-12 needs no slot payload — address is the only gate.
         if (_isCustom) return _customDays.isNotEmpty;
         return true;
       default:
@@ -443,55 +450,27 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         ),
         const SizedBox(height: 12),
         if (_isOnce) ...[
-          if (busy && _slots.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: CircularProgressIndicator(),
-              ),
-            )
-          else if (_unserviceable)
-            const Text(
-              'Is pincode par delivery nahi — address badlein',
-              style: TextStyle(color: ShodashaTheme.danger),
-            )
-          else if (_slots.isEmpty)
-            Row(
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: const Row(
               children: [
-                const Expanded(
-                  child: Text(
-                    'Slot load nahi hue',
-                    style: TextStyle(color: ShodashaTheme.muted),
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _phase == _Phase.loadingSlots ? null : _loadSlots,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Retry'),
-                ),
+                Icon(Icons.wb_sunny_outlined, color: ShodashaTheme.blue),
+                SizedBox(width: 8),
+                Expanded(
+                    child: Text('Delivery: Subah 8–12 (fixed window)',
+                        style: TextStyle(fontWeight: FontWeight.w700))),
               ],
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < _slots.length; i++)
-                  ChoiceChip(
-                    label: Text('${_slots[i].start}–${_slots[i].end}'),
-                    selected: i == _slotIdx,
-                    onSelected: (_) => setState(() => _slotIdx = i),
-                    selectedColor: ShodashaTheme.ink,
-                    labelStyle: TextStyle(
-                      color: i == _slotIdx ? ShodashaTheme.bg : ShodashaTheme.ink,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: const BorderSide(color: ShodashaTheme.border),
-                    ),
-                  ),
-              ],
+            ),
+          ),
+          if (_unserviceable)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Is pincode par delivery nahi — address badlein',
+                  style: TextStyle(color: ShodashaTheme.danger)),
             ),
         ] else if (_isCustom) ...[
           TableCalendar<DateTime>(

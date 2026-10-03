@@ -65,9 +65,10 @@ class _DetailSheet extends StatefulWidget {
   State<_DetailSheet> createState() => _DetailSheetState();
 }
 
+// 014: qty-only buy-box — schedule lives on home cards + checkout.
+// No second delivery picker here (was duplicating booking_sheet chips).
 class _DetailSheetState extends State<_DetailSheet> {
   late int _qty;
-  DeliveryType _delivery = DeliveryType.once;
 
   @override
   void initState() {
@@ -75,7 +76,6 @@ class _DetailSheetState extends State<_DetailSheet> {
     final c = widget.controller;
     _qty = widget.sku.id == SkuId.refill ? c.refillQty : c.containerQty;
     if (_qty < 1) _qty = 1;
-    _delivery = c.deliveryType;
   }
 
   int get _waterPaise => _qty * widget.sku.pricePaise;
@@ -89,7 +89,6 @@ class _DetailSheetState extends State<_DetailSheet> {
       c.setContainer(_qty);
       c.setRefill(0);
     }
-    c.deliveryType = _delivery;
     Navigator.of(context).pop();
     widget.onBuy();
   }
@@ -218,8 +217,8 @@ class _DetailSheetState extends State<_DetailSheet> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Rs 150/jar refundable deposit sirf naye jar par • '
-                      'Dhakkan gum par Rs 3 • Delivery subah 8–8 (Ravivar band)',
+                      'Rs 150 safety deposit sirf pehle container par, ek baar • '
+                      'Dhakkan gum par Rs 3 • Delivery Subah 8–12, har din',
                       style:
                           TextStyle(fontSize: 13, color: ShodashaTheme.ink),
                     ),
@@ -245,48 +244,6 @@ class _DetailSheetState extends State<_DetailSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Delivery kaisi ho?',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: DeliveryType.values.map((t) {
-                final selected = t == _delivery;
-                return ChoiceChip(
-                  avatar: Icon(
-                    deliveryTypeIcons[t],
-                    size: 18,
-                    color: selected ? ShodashaTheme.bg : ShodashaTheme.blue,
-                  ),
-                  label: Text(deliveryTypeLabels[t]!),
-                  selected: selected,
-                  onSelected: (_) => setState(() => _delivery = t),
-                  selectedColor: ShodashaTheme.ink,
-                  labelStyle: TextStyle(
-                    color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ShodashaTheme.radius),
-                    side: const BorderSide(color: ShodashaTheme.border),
-                  ),
-                );
-              }).toList(),
-            ),
-            if (_delivery != DeliveryType.once)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Subscription banega — pause/skip kabhi bhi kar sakte hain. '
-                  'Tareekhein checkout mein pakki hongi.',
-                  style: TextStyle(fontSize: 13, color: ShodashaTheme.blue),
-                ),
-              ),
             const SizedBox(height: 12),
             PressScale(
               onTap: () => showProductDetail(

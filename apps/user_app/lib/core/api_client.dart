@@ -183,8 +183,12 @@ class ApiClient {
       send('DELETE', '/addresses/$id', authed: true);
 
   // ── Subscriptions / pause / skip (§4.5, EC-S) ─────────────────────────────
-  Future<List<dynamic>> listSubscriptions() async =>
-      (await send('GET', '/subscriptions')) as List<dynamic>;
+  // Backend returns {data:[...]} — unwrap to List (014 contract fix).
+  Future<List<dynamic>> listSubscriptions() async {
+    final res = await send('GET', '/subscriptions');
+    if (res is List<dynamic>) return res;
+    return ((res as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
 
   Future<Map<String, dynamic>> pauseSubscription(
     String id,
@@ -235,8 +239,11 @@ class ApiClient {
         'text': text,
       })) as Map<String, dynamic>;
 
-  Future<List<dynamic>> listComplaints() async =>
-      (await send('GET', '/complaints')) as List<dynamic>;
+  Future<List<dynamic>> listComplaints() async {
+    final res = await send('GET', '/complaints');
+    if (res is List<dynamic>) return res;
+    return ((res as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
 
   // ── Profile (§4.1 /auth/me) ───────────────────────────────────────────────
   Future<Map<String, dynamic>> me() async =>
@@ -272,13 +279,17 @@ class ApiClient {
       })) as Map<String, dynamic>;
 
   /// POST /orders {items, e, address_id, window_start, quote_hash,
-  /// payment_mode} + Idempotency-Key → 201 server-minted order.
+  /// quote_total, quote_rate_version, quote_expires_at, payment_mode}
+  /// + Idempotency-Key → 201 server-minted order.
   Future<Map<String, dynamic>> createOrder({
     required List<Map<String, dynamic>> items,
     required int empties,
     required String addressId,
     required String windowStart,
     required String quoteHash,
+    required int quoteTotal,
+    required String quoteRateVersion,
+    required String quoteExpiresAt,
     required String paymentMode,
     required String idempotencyKey,
   }) async =>
@@ -289,6 +300,9 @@ class ApiClient {
             'address_id': addressId,
             'window_start': windowStart,
             'quote_hash': quoteHash,
+            'quote_total': quoteTotal,
+            'quote_rate_version': quoteRateVersion,
+            'quote_expires_at': quoteExpiresAt,
             'payment_mode': paymentMode,
           },
           idempotencyKey: idempotencyKey)) as Map<String, dynamic>;

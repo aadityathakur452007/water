@@ -48,10 +48,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _query = '';
-  SkuId? _filter; // null = All
-  final TextEditingController _search = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -68,7 +64,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     widget.controller.removeListener(_onChange);
     widget.addresses?.removeListener(_onChange);
-    _search.dispose();
     super.dispose();
   }
 
@@ -76,20 +71,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  List<CatalogSku> get _visible {
-    var list = searchCatalog(_query);
-    if (_filter != null) {
-      list = list.where((s) => s.id == _filter).toList();
-    }
-    return list;
-  }
-
-  /// Slim-grid title for the section-header row (filter-aware).
-  String get _sectionTitle => switch (_filter) {
-        SkuId.refill => 'Refill',
-        SkuId.container => 'Containers',
-        null => 'Sab products',
-      };
+  // Search killed per 014 approval (2 SKUs need no search/filter).
+  List<CatalogSku> get _visible => kCatalog;
 
   /// Staggered card entrance — transform + opacity only; static render
   /// when the OS asks for reduced motion.
@@ -170,94 +153,16 @@ class _HomeScreenState extends State<HomeScreen> {
             onChange: widget.onOpenAddresses,
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _search,
-            onChanged: (v) => setState(() => _query = v),
-            decoration: InputDecoration(
-              labelText: 'Khoj',
-              hintText: 'Search: refill, container.',
-              prefixIcon: const Icon(Icons.search),
-              // ADR-057 exception (approved): pill search only — r8 stays
-              // everywhere else. Clear ✕ mirrors the reference search field.
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(28),
-                borderSide: const BorderSide(color: ShodashaTheme.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(28),
-                borderSide: const BorderSide(color: ShodashaTheme.blue),
-              ),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.clear),
-                      tooltip: 'Saaf karein',
-                      onPressed: () => setState(() {
-                        _search.clear();
-                        _query = '';
-                      }),
-                    ),
-            ),
-          ),
+          // 014: Choose Your Schedule (HYDROFAST layout, our tokens).
+          // Two cards only — one-tap, no slot-times, fixed Subah 8–12 promise.
+          _ScheduleCards(controller: c),
           const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _Chip(
-                  label: 'All',
-                  selected: _filter == null,
-                  onTap: () => setState(() => _filter = null),
-                ),
-                const SizedBox(width: 8),
-                _Chip(
-                  label: 'Refill',
-                  selected: _filter == SkuId.refill,
-                  onTap: () => setState(() => _filter = SkuId.refill),
-                ),
-                const SizedBox(width: 8),
-                _Chip(
-                  label: 'Containers',
-                  selected: _filter == SkuId.container,
-                  onTap: () => setState(() => _filter = SkuId.container),
-                ),
-              ],
-            ),
-          ),
+          // 014: wallet-safe strip — deposit trust earned by showing it.
+          _WalletStrip(addresses: widget.addresses),
           const SizedBox(height: 4),
-          // Section-header row (reference rhythm): bold title left, honest
-          // count right — no See-all link, it would be a fake affordance.
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _sectionTitle,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: ShodashaTheme.ink,
-                ),
-              ),
-              Text(
-                '${items.length}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: ShodashaTheme.muted,
-                ),
-              ),
-            ],
-          ),
+          const Text('Sab products',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ShodashaTheme.ink)),
           const SizedBox(height: 8),
-          if (items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Text(
-                  'Kuch nahi mila — search badal kar dekhein',
-                  style: TextStyle(color: ShodashaTheme.muted),
-                ),
-              ),
-            ),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -364,14 +269,63 @@ class _AddressBar extends StatelessWidget {
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
 
-  final String label;
+
+/// 014: Two schedule cards (HYDROFAST layout, Shodasha tokens).
+/// Ek Baar = once, fixed Subah 8–12. Roz ka Plan = daily subscription.
+/// No slot-times, no calendar — one tap sets controller.deliveryType.
+class _ScheduleCards extends StatelessWidget {
+  const _ScheduleCards({required this.controller});
+  final BookingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final isOnce = controller.deliveryType == DeliveryType.once;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('ORDER WATER',
+            style: TextStyle(fontSize: 11, color: ShodashaTheme.muted, fontWeight: FontWeight.w700)),
+        const Text('Choose Your Schedule',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ShodashaTheme.ink)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _ScheduleCard(
+                title: 'Ek Baar',
+                sub: 'Subah 8–12',
+                icon: Icons.bolt_outlined,
+                selected: isOnce,
+                onTap: () => controller.deliveryType = DeliveryType.once,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ScheduleCard(
+                title: 'Roz ka Plan',
+                sub: 'Auto-refill',
+                icon: Icons.repeat,
+                selected: !isOnce,
+                onTap: () => controller.deliveryType = DeliveryType.daily,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text('Har din paani — Subah 8–12 fixed window',
+            style: TextStyle(fontSize: 12, color: ShodashaTheme.muted)),
+      ],
+    );
+  }
+}
+
+class _ScheduleCard extends StatelessWidget {
+  const _ScheduleCard(
+      {required this.title, required this.sub, required this.icon, required this.selected, required this.onTap});
+  final String title;
+  final String sub;
+  final IconData icon;
   final bool selected;
   final VoidCallback onTap;
 
@@ -380,21 +334,50 @@ class _Chip extends StatelessWidget {
     return PressScale(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected ? ShodashaTheme.ink : ShodashaTheme.bg,
+          color: selected ? ShodashaTheme.blueTint : ShodashaTheme.bg,
           border: Border.all(
-            color: selected ? ShodashaTheme.ink : ShodashaTheme.border,
-          ),
+              color: selected ? ShodashaTheme.blue : ShodashaTheme.border),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
-            fontWeight: FontWeight.w600,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: ShodashaTheme.blue),
+            const SizedBox(height: 8),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(sub, style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted)),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+/// 014: wallet-safe strip — shows held deposit so trust is earned by
+/// visibility, not a badge. Data comes from ledger when wired; until then
+/// honest fallback copy (no invented balances).
+class _WalletStrip extends StatelessWidget {
+  const _WalletStrip({required this.addresses});
+  final AddressController? addresses;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.shield_outlined, size: 18, color: ShodashaTheme.blue),
+          SizedBox(width: 8),
+          Expanded(
+              child: Text('Safety deposit app me safe hai — Profile me dekhein',
+                  style: TextStyle(fontSize: 13))),
+        ],
       ),
     );
   }

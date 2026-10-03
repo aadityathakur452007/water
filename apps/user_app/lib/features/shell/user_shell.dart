@@ -67,13 +67,41 @@ class _UserShellState extends State<UserShell> {
   void initState() {
     super.initState();
     widget.addresses?.addListener(_onAddresses);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _offerFirstRun());
+    widget.bookingController.addListener(_onBooking);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _offerFirstRun();
+      _refreshLedger();
+    });
   }
 
   @override
   void dispose() {
     widget.addresses?.removeListener(_onAddresses);
+    widget.bookingController.removeListener(_onBooking);
     super.dispose();
+  }
+
+  void _onBooking() {
+    if (mounted) setState(() {});
+  }
+
+  /// 014: live wallet/dues into booking so COD gate + deposit display match
+  /// the server. Best-effort — never blocks home on failure.
+  Future<void> _refreshLedger() async {
+    final api = widget.api;
+    if (api == null || !widget.isAuthenticated()) return;
+    try {
+      final led = await api.ledgerMe();
+      widget.bookingController.applyLedger(
+        dues: (led['dues'] as num?)?.toInt() ?? 0,
+        held: (led['held'] as num?)?.toInt() ?? 0,
+        depositPaid: (led['wallet_held'] as num?)?.toInt() ??
+            (led['deposit_paid'] as num?)?.toInt() ??
+            0,
+      );
+    } catch (_) {
+      // Offline/guest — controller keeps clean-user defaults.
+    }
   }
 
   void _onAddresses() {

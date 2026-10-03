@@ -77,13 +77,20 @@ Future<CheckoutResult> placeCheckout({
     );
   }
 
-  Future<Map<String, dynamic>> createOnce(String hash) =>
+  // Fixed morning promise: backend accepts any non-blank window_start;
+  // we always send the serviceable-day 08:00 ISO so the server 30-min
+  // window_end stays honest without promising van-times to the user.
+  Future<Map<String, dynamic>> createOnce(Map<String, dynamic> quote) =>
       api.createOrder(
         items: items,
         empties: controller.emptiesQty,
         addressId: addressId,
         windowStart: windowStart,
-        quoteHash: hash,
+        quoteHash: (quote['quote_hash'] ?? '') as String,
+        quoteTotal: (quote['total'] as num?)?.toInt() ?? 0,
+        quoteRateVersion: 'v1',
+        quoteExpiresAt: (quote['expires_at'] as String?) ??
+            DateTime.now().toUtc().add(const Duration(minutes: 15)).toIso8601String(),
         paymentMode:
             controller.paymentMode == PaymentMode.upi ? 'upi' : 'cod',
         idempotencyKey: key,
@@ -97,7 +104,7 @@ Future<CheckoutResult> placeCheckout({
   );
   Map<String, dynamic> order;
   try {
-    order = await createOnce((quote['quote_hash'] ?? '') as String);
+    order = await createOnce(quote);
   } on ApiException catch (e) {
     if (e.code != 'STALE_QUOTE') rethrow;
     quote = await api.createQuote(
@@ -106,7 +113,7 @@ Future<CheckoutResult> placeCheckout({
       addressId: addressId,
       windowStart: windowStart,
     );
-    order = await createOnce((quote['quote_hash'] ?? '') as String);
+    order = await createOnce(quote);
   }
   final data = (order['order'] as Map<String, dynamic>?) ?? order;
   final orderId = (data['id'] ?? '') as String;
