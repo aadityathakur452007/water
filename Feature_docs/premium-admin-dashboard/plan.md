@@ -16,7 +16,7 @@
 ## 1. Foundation (serial — everyone depends on it)
 
 ```
-apps/admin_app_v2/
+apps/admin_app/   # (imported as admin_app_v2 in round 1; renamed on round-2 cutover, replaces legacy admin)
 ├── src/
 │   ├── routes/(main)/dashboard/-components/     # KEEP: app shell, header, sidebar — VERBATIM
 │   ├── navigation/sidebar/sidebar-items.ts      # EDIT: our nav tree only

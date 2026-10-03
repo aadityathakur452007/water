@@ -34,6 +34,7 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
 - Port gaps (ADR-055): address form (house/street/area + Use-current-location via LocationService → POST/PATCH /addresses full format) → SelectedAddressStore id → Home bar + checkout resolve() agree; vendor Customers tab → GET /vendor/customers (stops grouped by customer, search) → detail sheet; Stock tab reads RouteController loading sheet (no new endpoint); Profile tab → GET/PATCH /vendor/profile (synced label); Support tab → GET /vendor/complaints queue (tap fills verify-by-id) → existing verify. D1 prerequisite: 011_port.sql applied once (ALTERs are apply-once; CREATEs idempotent).
 - 014 simplify (ADR-059): Home `_ScheduleCards(Ek Baar 8-12 once / Roz ka Plan daily)` → controller.deliveryType → `_WalletStrip(safe message)` → grid (no search) → buy-box (qty only) → `placeCheckout(api.createQuote → api.createOrder[quote_total/rate_version/expires_at] → upiIntent/cod)` → `showOrderConfirm(wallet-safe message)` → track. Backend `compute_quote(deposit_already_paid)` container-only once-only; `OrderService.create` waives + accepts pre-waiver quote. Fixed `Subah 8-12` label, slots only mint window_start ISO. All-days `nextServiceableDay` (no Sunday skip).
 - 015 sync (ADR-060): User `Order(+paymentMode/Status)` → tracking badge + bill mode; subs Due/Paid via dues; `UserShell._refreshLedger(api.ledgerMe→applyLedger)`. Vendor `today_route/_owned_stop JOIN orders+addresses` → `RouteStop(+payment/total/status)` → stop badge; `GET /vendor/placed` pool for Pull button; `GET /ledger/me` wallet truth. Android `POST_NOTIFICATIONS` + `backup_rules/data_extraction` (no backup of tokens).
+- 015 finish (ADR-062): User orders LIVE `ApiBackedOrdersRepository(_api)` over `GET /orders?cursor` → `data/next_cursor` (base64url created_at|id), detail `tracker/rider/bill/events`, cancel `reason+Idempotency-Key`, reschedule ISO, rating stars; `UserShell._registerDevice(getToken→POST /devices)`; vendor brilliance (48dp/ellipsis/honest states, no new deps).
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]
@@ -173,7 +174,7 @@ AuthGate (auth_gate.dart: splash → restoreSession → home / login)
 
 ### Feature: premium admin dashboard v2 (013, 2026-10-03, ADR-061)
 ```
-Browser (TanStack Start SSR + client components)                    apps/admin_app_v2 (:3200)
+Browser (TanStack Start SSR + client components)                    apps/admin_app (:3200) — renamed from admin_app_v2 in round 2; legacy Next.js admin removed, branch 005-super-admin-panel deleted (Cloudflare deploy path unchanged)
   └─ useAdminQuery(path) (hooks/use-admin-api.ts, TanStack Query)
        └─ adminGetServer/adminPostServer (server/server/admin-api.ts)  GET|POST /v1/admin/*
             ├─ API_MODE=mock → data/admin/mock-resolver.ts (fixtures, same shapes)
@@ -183,9 +184,12 @@ Browser (TanStack Start SSR + client components)                    apps/admin_a
 Login: /auth/v1/login → admin-login-form.tsx → loginStartServer/loginVerifyServer
   └─ Workers /v1/auth/otp/start|verify (role=admin gate) → HttpOnly sh_session(30m)+sh_refresh(7d) set in server fn
 Guard: dashboard/route.tsx loader → hasSessionServer → redirect /auth/v1/login?next=…
-Surfaces (sidebar-items.ts = nav source of truth): overview /dashboard, orders(+/$orderId),
-  users(+$userId, block/unblock), vendors(+$vendorId, review-hold), payments(+refunds), ledger,
-  operations(reco/custody/dues/routes-generate), trust(quality/strikes/complaints), audit, config.
+Surfaces (sidebar-items.ts = nav source of truth; 4 nav groups Monitor/Money/People/Operate):
+  Monitor: overview /dashboard, analytics (FR-33 KPI matrix, payment-mix, on-time, leaderboards), orders(+/$orderId, CSV export);
+  Money: finance (FR-30/31 cards + day-close leak watch + dunning wa.me reminders + audited write-off), payments(+refunds), ledger (per-row POST …/ledger/{id}/adjust, deltas + mandatory reason);
+  People: users(+$userId, block/unblock), vendors(+$vendorId, review-hold), trust(quality/strikes/complaints/returns);
+  Operate: dispatch (FR-26 funnel/pool/custody/route-board + routes-generate), operations(reco/custody/dues/routes-generate), audit, config.
+Dunning enrichment: GET /v1/admin/dunning returns bare {customer_id, dues}; names/phones joined client-side from GET /v1/admin/ledger (users LEFT JOIN) for WhatsApp addressing.
 Money: integer paise on wire → lib/money.ts rupees() for display; server computes all money.
 ```
 

@@ -35,7 +35,9 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
-| ADR-061 | 2026-10-03 | Premium admin rebuild: import Studio Admin TanStack template as apps/admin_app_v2 (own dashboard, .git stripped, ~20 screens removed, all 10 admin surfaces ported on template components, BFF server-fn cookies → Python Workers; old admin untouched until cutover) | Accepted | apps/admin_app_v2/**, .gitignore (data/ → workers/api/data/), branch 013-premium-admin-dashboard |
+| ADR-063 | 2026-10-03 | 013 round 2: analytics/finance/dispatch surfaces + ledger adjust + returns tab from PDF/FR research; cutover — new dashboard renamed apps/admin_app_v2 → apps/admin_app, legacy admin + branch 005 deleted, zero backend changes | Accepted | apps/admin_app (TanStack Start), Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, branch 013-premium-admin-dashboard |
+| ADR-062 | 2026-10-03 | 015 finish: user orders LIVE wiring + vendor brilliance within tokens + contract proof shapes | Accepted | apps/user_app orders/api/main/tests, apps/vendor_app route/stops/sync/earnings/tests, branch 015-vendor-user-sync |
+| ADR-061 | 2026-10-03 | 015 parallel remainder: sub due_today in list + FCM queue_or_log (no sends) + badge test + PoD hint + skeleton (no new deps) | Accepted | workers/api subscription/fcm/scheduler/tests, apps/user_app test, apps/vendor_app stops, branch 015-vendor-user-sync |
 | ADR-060 | 2026-10-03 | Vendor-user sync: stop payment/address/total join + placed pool + ledger/me + 4-state + payment badges + sub Due/Paid + Android notify/backup basics | Accepted | workers/api vendor/payments/catalog, apps/user_app orders/shell, apps/vendor_app route/money, android manifests + xml, branch 015-vendor-user-sync |
 | ADR-059 | 2026-10-03 | Once-only Rs150 container deposit + Flutter order-contract fix + simplify home to 2 schedule cards + fixed 8-12 + kill search | Accepted | workers/api pricing/order_service/tests, apps/user_app api_client/checkout/home/booking_sheet/confirm + tests, branch 014-deposit-wallet-simplify |
 | ADR-058 | 2026-10-02 | Fix user address entry: live Bearer wiring + login-gate + picker auto-locate + selection race | Accepted | apps/user_app main/address_screen/map_picker + test, branch 012-address-auth |
@@ -116,6 +118,33 @@
 ---
 
 ## Decision Entries
+
+### ADR-063: 013 round 2 — premium surfaces from field research + folder cutover
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: Round-1 template admin was live but flat (10 surfaces, no analytics/money/operate depth). PaniBox PDF + Feature_docs/synthesis/feature-requirements.md (FR-26…FR-34) named the real super-admin powers: dispatch funnel + route sheets, day-close leak watch, WhatsApp Hindi dunning (Pure Pani loses ₹18k–70k/mo to unbilled COD), ledger adjust as the only manual money mutation, returns SLA queue, analytics pillars (on-time, fulfilment, repeat, UPI-vs-COD).
+- **Decision**: Build analytics/finance/dispatch surfaces + ledger adjust sheet + trust returns tab + orders CSV export + 4-group sidebar (Monitor/Money/People/Operate) using ONLY template components (zero invented design) against existing worker endpoints (zero backend changes; wa.me deep links instead of a WhatsApp provider; dunning enriched client-side from /admin/ledger because /admin/dunning returns bare {customer_id, dues}). Cutover: legacy Next.js apps/admin_app deleted, new dashboard renamed to apps/admin_app so the Cloudflare deploy path is unchanged; old-admin branch 005-super-admin-panel deleted. Parked (needs backend): invoice WhatsApp send, calendar FR-27, CRM-lite aggregates, fleet page, RBAC.
+- **Why**: Maximum admin leverage per unit of risk — every new power maps to an endpoint that already exists and is audit-logged server-side; rename keeps deploy config untouched.
+- **Consequences**: User runs manual screen verification; production issues get pasted back. Unchanged worker API means zero migration risk on merge.
+- **Affects**: apps/admin_app routes/-components/navigation/server, Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, context docs, branch 013-premium-admin-dashboard
+
+### ADR-062: 015 finish — live orders wiring + brilliance within tokens
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: Biggest remaining gap was user orders on Stub (never hit backend). Three parallel tracks closed it + vendor brilliance + contract proof.
+- **Decision**: `ApiBackedOrdersRepository` over send seam (list/detail/cancel/reschedule/rating, cursor passthrough, NETWORK rethrow) + main swap (Bearer already carried) + state/payment/rider/bill map (unknown→placed, server bill has no prev/payments → honest 0s) + copyWith qty fix + 7 mapping tests; vendor 48dp/ellipsis/honest empty-error-copy (no new deps, tokens unchanged); contract shapes proven (orders list/detail/cancel/reschedule/rating + base64url cursor). Security: placed vendor-gated, ledger/me owner-scoped, devices require_active, orders IDOR-404, no secrets/tables/deps. Verify: backend 194, user batches green, vendor 28, analyzes 0.
+- **Why**: Makes user↔backend actually live (request/response per contract) with minimum resources: one repo, zero new packages, zero new endpoints.
+- **Consequences**: Device run + merge still owed; real FCM sends need secrets.
+- **Affects**: user orders/api/main/tests, vendor route/stops/sync/earnings/tests, branch 015-vendor-user-sync
+
+### ADR-061: 015 parallel remainder (design-safe, no new deps)
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: Three parallel tracks closed the 015 remainder: backend (sub dues, FCM, placed test), user (badge test), vendor (PoD hint + skeleton).
+- **Decision**: `subscription list` adds `due_today_paise` (qty×rate, paid stays in /billing/dues); `fcm.queue_or_log` durable-row-if-table-else-log (never raises, no sends/secrets); payment-badge widget test (upi/paid stub, no timer hang); PoD collect hint via existing caller values; stop-detail skeleton (no shimmer pkg). Verify: backend 194, user 89, vendor 28, analyzes 0.
+- **Why**: Smallest close-out that keeps money truth server-side, push readiness without secrets, and premium states with zero new dependencies.
+- **Consequences**: Real FCM sends need service-account secrets + device run; outbox-table migration is a future decision.
+- **Affects**: workers/api subscription/fcm/scheduler/tests, user test, vendor stops, branch 015-vendor-user-sync
 
 ### ADR-060: Vendor-user sync + payment visibility + Android basics
 - **Date**: 2026-10-03
