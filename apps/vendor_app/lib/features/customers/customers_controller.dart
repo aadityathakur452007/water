@@ -39,6 +39,8 @@ class VendorCustomer {
     required this.fullsExpected,
     required this.emptiesExpected,
     required this.done,
+    this.held = 0,
+    this.duesPaise = 0,
   });
 
   final String id;
@@ -48,6 +50,12 @@ class VendorCustomer {
   final int fullsExpected;
   final int emptiesExpected;
   final int done;
+
+  /// 016: server-computed can ledger (display-only). `held` = jars with the
+  /// customer; `duesPaise` = paise still owed. Zero = honest zero from the
+  /// server (never null-money); rows hide zero parts when rendering.
+  final int held;
+  final int duesPaise;
 
   int get total => stops.length;
   int get pending => total - done;
@@ -63,6 +71,8 @@ class VendorCustomer {
         fullsExpected: (j['fulls_exp'] as num?)?.toInt() ?? 0,
         emptiesExpected: (j['empties_exp'] as num?)?.toInt() ?? 0,
         done: (j['done'] as num?)?.toInt() ?? 0,
+        held: (j['held'] as num?)?.toInt() ?? 0,
+        duesPaise: (j['dues'] as num?)?.toInt() ?? 0,
       );
 }
 

@@ -15,6 +15,7 @@ class RouteStop {
     required this.id,
     required this.seq,
     required this.customerName,
+    this.customerId = '',
     required this.address,
     required this.fullsExpected,
     required this.emptiesExpected,
@@ -31,6 +32,10 @@ class RouteStop {
   final String id;
   final int seq;
   final String customerName;
+
+  /// 016: server stop customer id (today_route selects s.customer_id).
+  /// Falls back to the display name for the users-count fold.
+  final String customerId;
   final String address;
   final int fullsExpected;
   final int emptiesExpected;
@@ -53,6 +58,7 @@ class RouteStop {
         seq: (j['seq'] as num?)?.toInt() ?? 0,
         customerName:
             (j['customer_name'] ?? j['customer_id'] ?? 'Customer') as String,
+        customerId: (j['customer_id'] ?? '') as String,
         address: (j['address_text'] ?? j['address'] ?? j['formatted'] ?? '') as String,
         fullsExpected: (j['fulls_exp'] as num?)?.toInt() ?? 0,
         emptiesExpected: (j['empties_exp'] as num?)?.toInt() ?? 0,
@@ -68,6 +74,7 @@ class RouteStop {
 }
 
 class RouteController extends ChangeNotifier {
+
   RouteController({required ApiClient api}) : _api = api;
 
   final ApiClient _api;
@@ -141,4 +148,57 @@ class RouteController extends ChangeNotifier {
       return _placed.length;
     }
   }
+}
+
+/// 016 dashboard §3(a): today-at-a-glance folded client-side from the
+/// already-loaded stops. Paid stops leave "collect"; they count in "jama"
+/// via earnings, never here. Pure function — unit-tested, no widgets.
+@immutable
+class TodaySummary {
+  const TodaySummary({
+    required this.users,
+    required this.jars,
+    required this.upiCollect,
+    required this.codCollect,
+    required this.done,
+    required this.total,
+  });
+
+  final int users;
+  final int jars;
+  final int upiCollect;
+  final int codCollect;
+  final int done;
+  final int total;
+
+  int get collect => upiCollect + codCollect;
+}
+
+TodaySummary summarizeToday(List<RouteStop> stops) {
+  final ids = <String>{};
+  var jars = 0, upi = 0, cod = 0, done = 0;
+  for (final s in stops) {
+    ids.add(s.customerId.isNotEmpty ? s.customerId : s.customerName);
+    jars += s.fullsExpected;
+    if (s.isDone) {
+      done++;
+    } else if (!s.isPaid) {
+      // Paid-but-pending stops are still visits (jars/users count)
+      // but add nothing to collect — money already in.
+      final due = s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise;
+      if (s.paymentMode == 'upi') {
+        upi += due;
+      } else {
+        cod += due;
+      }
+    }
+  }
+  return TodaySummary(
+    users: ids.length,
+    jars: jars,
+    upiCollect: upi,
+    codCollect: cod,
+    done: done,
+    total: stops.length,
+  );
 }

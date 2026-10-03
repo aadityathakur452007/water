@@ -104,9 +104,10 @@ async def routes_today(date: str | None = None, conn=Depends(get_db_conn), user=
 
 
 # 015: placed pool for the Pull button (simple, no geo/auto-assign).
+# 016: zone-scoped — vendor sees only their zones' placed orders.
 @router.get("/vendor/placed")
 async def placed_orders(limit: int = 20, conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return await _svc(conn).placed_pool(limit)
+    return await _svc(conn).placed_pool(_uid(user), limit)
 
 
 @router.get("/vendor/stops/{stop_id}")
