@@ -35,6 +35,8 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-061 | 2026-10-03 | Premium admin rebuild: import Studio Admin TanStack template as apps/admin_app_v2 (own dashboard, .git stripped, ~20 screens removed, all 10 admin surfaces ported on template components, BFF server-fn cookies → Python Workers; old admin untouched until cutover) | Accepted | apps/admin_app_v2/**, .gitignore (data/ → workers/api/data/), branch 013-premium-admin-dashboard |
+| ADR-060 | 2026-10-03 | Vendor-user sync: stop payment/address/total join + placed pool + ledger/me + 4-state + payment badges + sub Due/Paid + Android notify/backup basics | Accepted | workers/api vendor/payments/catalog, apps/user_app orders/shell, apps/vendor_app route/money, android manifests + xml, branch 015-vendor-user-sync |
 | ADR-059 | 2026-10-03 | Once-only Rs150 container deposit + Flutter order-contract fix + simplify home to 2 schedule cards + fixed 8-12 + kill search | Accepted | workers/api pricing/order_service/tests, apps/user_app api_client/checkout/home/booking_sheet/confirm + tests, branch 014-deposit-wallet-simplify |
 | ADR-058 | 2026-10-02 | Fix user address entry: live Bearer wiring + login-gate + picker auto-locate + selection race | Accepted | apps/user_app main/address_screen/map_picker + test, branch 012-address-auth |
 | ADR-057 | 2026-10-02 | UI lift (layout shapes only) from premium grocery reference into 6 user+vendor surfaces | Accepted | apps/user_app booking/auth + test, apps/vendor_app route/stops/customers/support/earnings/inventory/core + tests, branch 010-grocery-ui |
@@ -114,6 +116,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-060: Vendor-user sync + payment visibility + Android basics
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: User approved 015: pay-per-day + totals, 4 states + mode/money + vendor-collect note, simple Pull placed, Android premium research. Audits proved vendor blind (no payment/total/address), user payment invisible post-order, ledger/me 404, Sunday mismatch, detail 5-chip duplication, no channels/backup rules.
+- **Options considered**: Auto-assign placed→vendor on create (rejected — needs geo/zones, simple Pull button approved); monthly prepay wallet now (rejected — pay-per-day + Paid-till-now approved); full FCM wiring now (deferred — backend stub + no vendor messaging dep, in-app note first).
+- **Decision**: vendor _stop_out/today_route JOIN orders+addresses; GET /vendor/placed pool; GET /ledger/me wallet truth; Order +paymentMode/Status + tracking badge + bill mode; RouteStop +payment/total/status; money container-only waiver flag; catalog all-days; detail qty-only; POST_NOTIFICATIONS + backup/data-extraction rules both apps. Spec: Feature_docs/vendor-user-sync/spec.md. Verify: backend 193, user 88, vendor 28, analyzes 0.
+- **Why**: Smallest sync that makes user-created orders vendor-actionable with money truth, earns trust via visible payment state, and lifts Android to 2026 baseline without new deps.
+- **Consequences**: FCM end-to-end, vendor premium skeleton states, dead-dep purge, device run still owed.
+- **Affects**: workers/api vendor/payments/catalog, user orders/shell, vendor route/money, android manifests/xml, branch 015-vendor-user-sync
 
 ### ADR-059: Once-only container deposit + order-contract fix + home simplify
 - **Date**: 2026-10-03
