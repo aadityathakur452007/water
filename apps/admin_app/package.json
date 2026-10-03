@@ -9,6 +9,8 @@
     "dev": "vite dev --port 3200",
     "generate-routes": "tsr generate",
     "build": "vite build",
+    "build:cloudflare": "NITRO_PRESET=cloudflare_module vite build",
+    "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "preview": "vite preview",
     "format": "biome format",
     "lint": "biome lint",
@@ -75,6 +77,7 @@
     "lint-staged": "^16.4.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
-    "vite": "^8.3.2"
+    "vite": "^8.3.2",
+    "wrangler": "^4.147.0"
   }
 }

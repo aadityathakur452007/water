@@ -44,8 +44,9 @@ export type AdminEnvelope = {
 export function apiMode(): "live" | "mock" {
   const mode = process.env.API_MODE;
   if (mode === "mock") return "mock";
-  if (mode) return "live";
-  return "mock";
+  // live is the safe default: a forgotten API_MODE in production must never
+  // silently render fixture data. Set API_MODE=mock explicitly for offline dev.
+  return "live";
 }
 
 const ADMIN_PREFIX = "/v1/admin";

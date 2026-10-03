@@ -45,9 +45,24 @@ cd workers/api && SHODASHA_DB_PATH=./data/shodasha.db python -m uvicorn app.main
 cd apps/admin_app && npm install && npm run dev
 ```
 
-`.env.example` documents every variable. `API_MODE=mock` (default) renders fixtures offline;
-`API_MODE=live` + `API_URL=http://127.0.0.1:8000` uses the real worker. Without Firebase env vars the
+`.env.example` documents every variable. `API_MODE` defaults to **live** (production-safe — a forgotten
+var can never silently render fixtures); set `API_MODE=mock` explicitly for offline dev.
+`API_URL=http://127.0.0.1:8000` points at the real worker. Without Firebase env vars the
 sign-in uses the worker's `DEV_AUTH` path (`dev|<phone>|…`) — never enable that in production.
+
+## Deploy (Cloudflare Workers Builds)
+
+Root directory `apps/admin_app`. In the Cloudflare dashboard set:
+
+- **Build command:** `npm run build:cloudflare` (Nitro `cloudflare_module` preset → `.output/`)
+- **Deploy command:** `npx wrangler deploy`
+- **Build variables:** `API_URL=https://water.adityathakur452007.workers.dev` (bare origin — the app appends
+  `/v1/...` server-side) and the three `VITE_FIREBASE_*` vars for admin OTP
+  (the old `NEXT_PUBLIC_FIREBASE_*` names are Next.js-only — Vite builds read `VITE_*`).
+
+`wrangler.jsonc` pins the worker name (`shodasha-admin`), `nodejs_compat`, static assets at
+`.output/public` and the entrypoint at `.output/server/index.mjs`; Nitro regenerates the deploy config
+on every build. Local preview of the production build: `npm run build:cloudflare && npx wrangler dev`.
 
 ## Checks
 

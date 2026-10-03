@@ -1,0 +1,24 @@
+// Cloudflare Workers (Workers Builds) deploy config — premium admin dashboard.
+//
+// Cloudflare dashboard settings for this project:
+//   Build command:    npm run build:cloudflare
+//   Deploy command:   npx wrangler deploy
+//   Root directory:   apps/admin_app
+//
+// Build variables (dashboard, or wrangler secret put for secrets):
+//   API_URL=https://water.adityathakur452007.workers.dev   (bare origin; /v1/... is appended server-side)
+//   VITE_FIREBASE_API_KEY / VITE_FIREBASE_AUTH_DOMAIN / VITE_FIREBASE_PROJECT_ID  (Firebase phone OTP, client)
+//   API_MODE unset → live (fixtures only with explicit API_MODE=mock)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shodasha-admin",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".output/public"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
