@@ -17,6 +17,8 @@ class TripleSheet extends StatefulWidget {
     required this.fullsExp,
     required this.emptiesExp,
     this.outbox,
+    this.collectPaise = 0,
+    this.paymentMode = 'cod',
   });
 
   final StopsController controller;
@@ -24,6 +26,10 @@ class TripleSheet extends StatefulWidget {
   final int fullsExp;
   final int emptiesExp;
   final SyncController? outbox;
+
+  /// 015: collect hint from the joined stop (total + mode).
+  final int collectPaise;
+  final String paymentMode;
 
   @override
   State<TripleSheet> createState() => _TripleSheetState();
@@ -98,6 +104,15 @@ class _TripleSheetState extends State<TripleSheet> {
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             Text('Expected: ${widget.fullsExp} diye • ${widget.emptiesExp} wapas',
                 style: const TextStyle(color: ShodashaTheme.muted)),
+            if (widget.collectPaise > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '${widget.paymentMode.toUpperCase()} • Collect ${rupees(widget.collectPaise)}',
+                  style: const TextStyle(
+                      color: ShodashaTheme.blue, fontWeight: FontWeight.w700),
+                ),
+              ),
             const SizedBox(height: 12),
             _stepper('Jars diye', _fulls, (v) => setState(() => _fulls = v)),
             _stepper('Khaali wapas', _empties,

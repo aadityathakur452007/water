@@ -118,9 +118,25 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 borderRadius:
                     BorderRadius.circular(ShodashaTheme.radius),
               ),
-              child: Text(
-                '${c.flaggedStops} stops review me — ${rupees(c.flaggedHold)} hold par (admin clear ke baad payout)',
-                style: const TextStyle(color: ShodashaTheme.danger),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    c.flaggedHold > 0
+                        ? '${c.flaggedStops} stops review me — ${rupees(c.flaggedHold)} hold par'
+                        : '${c.flaggedStops} stops review me',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: ShodashaTheme.danger),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Sirf jankari — payout admin clear ke baad, yahan se action nahi.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: ShodashaTheme.muted, fontSize: 12),
+                  ),
+                ],
               ),
             ),
           ],

@@ -125,6 +125,13 @@ class BillScreen extends StatelessWidget {
                         label: 'Bhugtan',
                         amount: '−${formatRupees(o.paymentsPaise)}',
                       ),
+                    // 015: payment mode + vendor-collect note (trust by visibility).
+                    _Line(
+                      label: 'Mode',
+                      amount: o.isPaid
+                          ? '${o.paymentMode.toUpperCase()} • Paid'
+                          : '${o.paymentMode.toUpperCase()} • Due',
+                    ),
                     const Divider(color: OrdersTokens.border, height: 24),
                     Row(
                       children: [

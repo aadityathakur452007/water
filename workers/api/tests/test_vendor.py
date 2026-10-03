@@ -120,7 +120,27 @@ async def test_today_route_loading_and_skip():
     assert out["route"]["id"] == "r1" and len(out["stops"]) == 4
     assert out["loading"] == {"take_fulls": 4, "expect_empties": 3}
     assert [s["id"] for s in out["skip"]] == ["s4"]
+    # 015: payment/address join rides on stops.
+    s1 = next(s for s in out["stops"] if s["id"] == "s1")
+    assert s1["payment_mode"] == "cod" and s1["total"] == 20600
     assert (await _svc(_conn()).today_route("v1", "2000-01-01"))["route"] is None
+
+
+async def test_placed_pool_lists_unrouted_placed():
+    c = _conn()
+    # o2 placed but already routed via s2/s3; insert fresh placed o3.
+    c.execute(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill, deposit_due,"
+        " total, payment_mode, state, window_start, idempotency_key, created_at)"
+        " VALUES ('o3', 'u1', 'a1', '[]', 1, 0, 2800, 0, 2800, 'upi', 'placed', '2026-10-01T08:00Z', 'seed:o3', ?)",
+        (_dt.datetime.now(_dt.timezone.utc).isoformat(),),
+    )
+    c.commit()
+    out = await _svc(c).placed_pool()
+    ids = [r["order_id"] for r in out["data"]]
+    assert "o3" in ids and "o1" not in ids and "o2" not in ids  # dispatched excluded, routed placed excluded
+    o3 = next(r for r in out["data"] if r["order_id"] == "o3")
+    assert o3["payment_mode"] == "upi" and o3["total"] == 2800
 
 
 async def test_stop_idor_no_oracle():

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../core/money.dart';
 import '../../core/theme.dart';
 import 'stops_controller.dart';
 
@@ -13,10 +14,16 @@ class PodSheet extends StatefulWidget {
     super.key,
     required this.controller,
     required this.stopId,
+    this.collectPaise = 0,
+    this.paymentMode = 'cod',
   });
 
   final StopsController controller;
   final String stopId;
+
+  /// 015: collect hint from the joined stop (total + mode).
+  final int collectPaise;
+  final String paymentMode;
 
   @override
   State<PodSheet> createState() => _PodSheetState();
@@ -75,6 +82,14 @@ class _PodSheetState extends State<PodSheet> {
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const Text('Customer ke phone par OTP batayein',
                 style: TextStyle(color: ShodashaTheme.muted)),
+            // 015: amount to collect (mode line only when total unknown).
+            Text(
+              widget.collectPaise > 0
+                  ? '${widget.paymentMode.toUpperCase()} • Collect ${rupees(widget.collectPaise)}'
+                  : widget.paymentMode.toUpperCase(),
+              style: const TextStyle(
+                  color: ShodashaTheme.blue, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _otp,

@@ -103,6 +103,12 @@ async def routes_today(date: str | None = None, conn=Depends(get_db_conn), user=
     return await _svc(conn).today_route(_uid(user), date)
 
 
+# 015: placed pool for the Pull button (simple, no geo/auto-assign).
+@router.get("/vendor/placed")
+async def placed_orders(limit: int = 20, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).placed_pool(limit)
+
+
 @router.get("/vendor/stops/{stop_id}")
 async def get_stop(stop_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).get_stop(_uid(user), stop_id)

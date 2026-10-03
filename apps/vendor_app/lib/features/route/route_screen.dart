@@ -80,10 +80,34 @@ class _RouteScreenState extends State<RouteScreen> {
     );
   }
 
+  Future<void> _pullPlaced(RouteController c) async {
+    final n = await c.refreshPlaced();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(n > 0
+            ? '$n placed orders — dispatch se assign karvayein'
+            : 'Koi naya placed order nahi')));
+  }
+
   Widget _body(RouteController c) {
     switch (c.state) {
       case RouteState.loading:
-        return const Center(child: CircularProgressIndicator());
+        // 015 premium: skeleton cards instead of bare spinner.
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            for (var i = 0; i < 3; i++)
+              Container(
+                height: 76,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.blueTint.withValues(alpha: 0.5),
+                  borderRadius:
+                      BorderRadius.circular(ShodashaTheme.radius),
+                ),
+              ),
+          ],
+        );
       case RouteState.empty:
         return const Center(
           child: Padding(
@@ -131,6 +155,18 @@ class _RouteScreenState extends State<RouteScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // 015: Pull placed pool (simple — no geo/auto-assign).
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _pullPlaced(c),
+                icon: const Icon(Icons.download_outlined, size: 18),
+                label: Text(c.placed.isEmpty
+                    ? 'Placed orders kheenchein'
+                    : 'Placed (${c.placed.length}) — dispatch se assign'),
+              ),
+            ),
+            const SizedBox(height: 12),
             // Loading-sheet header row (section-header rhythm): label left,
             // done/total right, facts below. Same controller data, no tint.
             Container(
@@ -209,6 +245,7 @@ class _RouteScreenState extends State<RouteScreen> {
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
         child: ListTile(
+          minTileHeight: ShodashaTheme.minTarget,
           onTap: greyed ? null : () => widget.onOpenStop(s),
           leading: CircleAvatar(
             radius: 24,
@@ -219,18 +256,34 @@ class _RouteScreenState extends State<RouteScreen> {
             child: Text('${s.seq}'),
           ),
           title: Text(s.customerName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600)),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                  '${s.fullsExpected} jars • ${s.emptiesExpected} khaali expected • ${rupees(s.cashDuePaise)}'),
+                  '${s.fullsExpected} jars • ${s.emptiesExpected} khaali expected • ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+              // 015: payment mode + paid state badge.
+              Text(
+                s.isPaid
+                    ? '${s.paymentMode.toUpperCase()} • Paid'
+                    : '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: ShodashaTheme.blue, fontWeight: FontWeight.w700, fontSize: 12),
+              ),
               if (s.address.isNotEmpty)
                 Text(s.address,
                     maxLines: 1, overflow: TextOverflow.ellipsis),
               if (s.holdBlocked)
                 Text(
                   s.holdReason ?? 'Hold limit — deposit mangein',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: ShodashaTheme.danger),
                 ),
             ],
@@ -246,6 +299,8 @@ class _RouteScreenState extends State<RouteScreen> {
                   icon: const Icon(Icons.navigation_outlined,
                       color: ShodashaTheme.blue),
                   tooltip: 'Navigate karein',
+                  constraints: const BoxConstraints(
+                      minWidth: 48, minHeight: 48),
                   onPressed: () => _navigate(s.address),
                 ),
             ],

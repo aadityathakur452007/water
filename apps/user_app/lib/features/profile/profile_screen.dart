@@ -9,6 +9,7 @@
 // Language: Hindi default, English fallback — maps merge so no key is blank.
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -432,6 +433,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       value: _c.hindi,
                       onChanged: (v) => _c.hindi = v,
+                    ),
+                    const Divider(),
+                    // 015: cache hygiene — clears prefs (address/first-run),
+                    // secure session stays until logout (never leaks tokens).
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.cleaning_services_outlined),
+                      title: const Text('Cache saaf karein'),
+                      onTap: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove('selected_address_id');
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Cache saaf ho gaya')));
+                        }
+                      },
                     ),
                     const Divider(),
                     ListTile(

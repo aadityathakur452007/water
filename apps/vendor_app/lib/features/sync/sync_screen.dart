@@ -66,8 +66,34 @@ class _SyncScreenState extends State<SyncScreen> {
             color: ShodashaTheme.blueTint,
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(c.result!,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    c.result!.contains('Network')
+                        ? Icons.cloud_off_outlined
+                        : (c.result!.contains('fail') ||
+                                c.rejected.isNotEmpty
+                            ? Icons.error_outline
+                            : Icons.check_circle_outline),
+                    size: 20,
+                    color: c.result!.contains('Network')
+                        ? ShodashaTheme.muted
+                        : (c.result!.contains('fail') ||
+                                c.rejected.isNotEmpty
+                            ? ShodashaTheme.danger
+                            : ShodashaTheme.blue),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(c.result!,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
             ),
           ),
         ElevatedButton.icon(
@@ -84,22 +110,30 @@ class _SyncScreenState extends State<SyncScreen> {
           Card(
             shape: ShodashaTheme.shape,
             child: ListTile(
+              minTileHeight: ShodashaTheme.minTarget,
               leading: const Icon(Icons.pending_outlined,
                   color: ShodashaTheme.blue),
               title: Text('Stop ${q.stopId}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  '${q.triple['fulls_given'] ?? 0} diye • ${q.triple['empties_back'] ?? 0} wapas • queued ${q.queuedAtIso}'),
+                  '${q.triple['fulls_given'] ?? 0} diye • ${q.triple['empties_back'] ?? 0} wapas • queued ${q.queuedAtIso}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
             ),
           ),
         for (final r in c.rejected)
           Card(
             shape: ShodashaTheme.shape,
             child: ListTile(
+              minTileHeight: ShodashaTheme.minTarget,
               leading: const Icon(Icons.error_outline,
                   color: ShodashaTheme.danger),
-              title: Text('Rejected: ${r['stop_id'] ?? ''}'),
-              subtitle: Text('${r['code'] ?? ''} — ${r['message'] ?? ''}'),
+              title: Text('Rejected: ${r['stop_id'] ?? ''}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text('${r['code'] ?? ''} — ${r['message'] ?? ''}',
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
             ),
           ),
       ],

@@ -90,6 +90,21 @@ def _row(r: sqlite3.Row) -> dict:
     return dict(r)
 
 
+def _due_today(qty: object, sku_mix: object) -> int:
+    """Today's dues preview: qty x rate (container 3000, else refill 2800).
+
+    Paid/previous dues stay with GET /billing/dues (no new endpoint here).
+    """
+    from app.services import pricing  # noqa: PLC0415 (leaf module, no cycle)
+
+    try:
+        q = max(0, int(qty or 0))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        q = 0
+    rate = pricing.CONTAINER_PAISE if str(sku_mix or "").strip().lower() == "container" else pricing.REFILL_PAISE
+    return q * rate
+
+
 class SubscriptionService:
     """Owner-scoped subscription use-cases (IDOR: miss -> 404, no oracle)."""
 
@@ -143,7 +158,12 @@ class SubscriptionService:
         rows = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY rowid", (user_id,)
         )).fetchall()
-        return [_row(r) for r in rows]
+        out = []
+        for r in rows:
+            d = _row(r)
+            d["due_today_paise"] = _due_today(d.get("qty"), d.get("sku_mix"))
+            out.append(d)
+        return out
 
     async def get_owned(self, user_id: str, sub_id: str) -> dict | None:
         row = (await self._conn.execute(

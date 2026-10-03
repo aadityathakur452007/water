@@ -28,6 +28,23 @@ void main() {
                 'fulls_exp': 2,
                 'empties_exp': 1,
                 'cash_due': 8600,
+                'total': 8600,
+                'payment_mode': 'cod',
+                'payment_status': 'unpaid',
+                'version': 1,
+                'status': 'pending',
+              },
+              {
+                'id': 's2',
+                'seq': 2,
+                'customer_name': 'Verma Ji',
+                'address': '7 Station Road',
+                'fulls_exp': 1,
+                'empties_exp': 1,
+                'cash_due': 15000,
+                'total': 15000,
+                'payment_mode': 'upi',
+                'payment_status': 'paid_upi',
                 'version': 1,
                 'status': 'pending',
               },
@@ -55,6 +72,13 @@ void main() {
 
     expect(find.textContaining('40 fulls lein'), findsOneWidget);
     expect(find.text('Sharma Ji'), findsOneWidget);
-    expect(find.textContaining('Rs 86'), findsOneWidget);
+    expect(find.text('Verma Ji'), findsOneWidget);
+    // 015: payment badges — mode + collect/paid hint, amounts via rupees().
+    expect(find.textContaining('Rs 86'), findsWidgets);
+    expect(find.textContaining('Rs 150'), findsWidgets);
+    expect(find.textContaining('COD'), findsWidgets);
+    expect(find.textContaining('UPI'), findsWidgets);
+    expect(find.textContaining('Collect'), findsOneWidget);
+    expect(find.textContaining('Paid'), findsOneWidget);
   });
 }

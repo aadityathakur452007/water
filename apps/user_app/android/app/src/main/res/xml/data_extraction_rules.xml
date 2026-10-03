@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 015: API 31+ backup rules — never back up tokens. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="FlutterSecureStorage"/>
+        <exclude domain="database" path="flutter_secure_storage.db"/>
+    </cloud-backup>
+</data-extraction-rules>

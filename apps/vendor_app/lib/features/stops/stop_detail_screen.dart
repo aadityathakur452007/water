@@ -60,7 +60,28 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
 
   Widget _body(StopsController c) {
     if (c.state == StopDetailState.loading) {
-      return const Center(child: CircularProgressIndicator());
+      // Skeleton-ish boxes (same blueTint rhythm as route) — no new deps.
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            height: 96,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+          ),
+          Container(
+            height: 76,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+          ),
+        ],
+      );
     }
     if (c.state == StopDetailState.error ||
         c.state == StopDetailState.offline) {
@@ -89,10 +110,17 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     final name =
         (s['customer_name'] ?? s['customer_id'] ?? 'Customer') as String;
     final phone = (s['customer_phone'] ?? '') as String;
-    final address = (s['address'] ?? '') as String;
+    final address = (s['address_text'] ?? s['address'] ?? '') as String;
     final fullsExp = (s['fulls_exp'] as num?)?.toInt() ?? 0;
     final emptiesExp = (s['empties_exp'] as num?)?.toInt() ?? 0;
-    final cashDue = (s['cash_due'] as num?)?.toInt() ?? 0;
+    final totalPaise = (s['total'] as num?)?.toInt() ??
+        (s['cash_due'] as num?)?.toInt() ??
+        0;
+    final cashDue = totalPaise;
+    final paymentMode = (s['payment_mode'] ?? 'cod') as String;
+    final paymentStatus = (s['payment_status'] ?? 'unpaid') as String;
+    final isPaid =
+        paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
     final held = (s['held'] as num?)?.toInt();
     final deposit = (s['deposit_balance'] as num?)?.toInt();
     final dues = (s['dues'] as num?)?.toInt();
@@ -115,9 +143,30 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.w700)),
-                if (address.isNotEmpty) Text(address),
+                // 015: payment badge — mode + paid/collect state (prominent,
+                // amount only when server sent a total; never "Rs 0").
+                Text(
+                  isPaid
+                      ? (totalPaise > 0
+                          ? '${paymentMode.toUpperCase()} • Paid ${rupees(totalPaise)}'
+                          : '${paymentMode.toUpperCase()} • Paid')
+                      : (totalPaise > 0
+                          ? '${paymentMode.toUpperCase()} • Collect ${rupees(totalPaise)}'
+                          : paymentMode.toUpperCase()),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: ShodashaTheme.blue,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13),
+                ),
+                if (address.isNotEmpty)
+                  Text(address,
+                      maxLines: 3, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 8),
                 if (phone.isNotEmpty)
                   TextButton.icon(
@@ -153,13 +202,27 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                   children: [
                     Text(
                         '$fullsExp jars dene • $emptiesExp khaali expected • ${rupees(cashDue)}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style:
                             const TextStyle(fontWeight: FontWeight.w600)),
-                    if (held != null || deposit != null || dues != null)
+                    // Ledger: only non-zero server values render — null and
+                    // 0 never show as "-" or "Rs 0" (honest, no confusion).
+                    if ((held != null && held > 0) ||
+                        (deposit != null && deposit > 0) ||
+                        (dues != null && dues > 0))
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'Ledger: ${held ?? '-'} held • ${deposit == null ? '-' : rupees(deposit)} deposit • ${dues == null ? '-' : rupees(dues)} baaki',
+                          'Ledger: ${[
+                            if (held != null && held > 0) '$held held',
+                            if (deposit != null && deposit > 0)
+                              '${rupees(deposit)} deposit',
+                            if (dues != null && dues > 0)
+                              '${rupees(dues)} baaki',
+                          ].join(' • ')}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style:
                               const TextStyle(color: ShodashaTheme.muted),
                         ),
@@ -169,6 +232,8 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                         padding: EdgeInsets.only(top: 8),
                         child: Text(
                           'Hold limit — pehle deposit, phir delivery',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: ShodashaTheme.danger),
                         ),
                       ),
@@ -190,6 +255,8 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                       stopId: widget.stopId,
                       fullsExp: fullsExp,
                       emptiesExp: emptiesExp,
+                      collectPaise: totalPaise,
+                      paymentMode: paymentMode,
                     ),
                   ),
           icon: const Icon(Icons.inventory_2_outlined),
@@ -205,6 +272,8 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                     builder: (_) => PodSheet(
                       controller: c,
                       stopId: widget.stopId,
+                      collectPaise: totalPaise,
+                      paymentMode: paymentMode,
                     ),
                   ),
           icon: const Icon(Icons.check_circle_outline),

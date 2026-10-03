@@ -123,9 +123,13 @@ class VendorService:
         if route is None:
             return {"route": None, "stops": [], "loading": {"take_fulls": 0, "expect_empties": 0}, "skip": []}
         rows = (await self._conn.execute(
-            "SELECT id, route_id, order_id, return_id, customer_id, seq, fulls_exp,"
-            " empties_exp, version, triple, status, synced_at"
-            " FROM stops WHERE route_id = ? ORDER BY seq",
+            "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
+            " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
+            " o.payment_mode, o.payment_status, o.total, o.deposit_due, o.state AS order_state,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode"
+            " FROM stops s LEFT JOIN orders o ON o.id = s.order_id"
+            " LEFT JOIN addresses a ON a.id = o.address_id"
+            " WHERE s.route_id = ? ORDER BY s.seq",
             (route["id"],),
         )).fetchall()
         stops = [self._stop_out(dict(r)) for r in rows]
@@ -139,6 +143,21 @@ class VendorService:
             },
             "skip": [s for s in stops if s["status"] == "skipped"],
         }
+
+    # 015: simple placed pool — user-created orders with no stop yet.
+    # Vendor pulls today's placed orders (no geo, no auto-assign).
+    async def placed_pool(self, limit: int = 50) -> dict:
+        rows = (await self._conn.execute(
+            "SELECT o.id AS order_id, o.user_id AS customer_id, o.n, o.total,"
+            " o.deposit_due, o.payment_mode, o.payment_status, o.window_start,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode"
+            " FROM orders o LEFT JOIN addresses a ON a.id = o.address_id"
+            " WHERE o.state = 'placed' AND o.id NOT IN"
+            " (SELECT order_id FROM stops WHERE order_id IS NOT NULL)"
+            " ORDER BY o.created_at DESC LIMIT ?",
+            (max(1, min(int(limit), 50)),),
+        )).fetchall()
+        return {"data": [dict(r) for r in rows]}
 
     async def get_stop(self, vendor_id: str, stop_id: str) -> dict:
         return self._stop_out(await self._owned_stop(vendor_id, stop_id))
@@ -460,8 +479,12 @@ class VendorService:
     async def _owned_stop(self, vendor_id: str, stop_id: str) -> dict:
         row = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
-            " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at"
+            " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
+            " o.payment_mode, o.payment_status, o.total, o.deposit_due, o.state AS order_state,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode"
             " FROM stops s JOIN routes r ON r.id = s.route_id"
+            " LEFT JOIN orders o ON o.id = s.order_id"
+            " LEFT JOIN addresses a ON a.id = o.address_id"
             " WHERE s.id = ? AND r.vendor_id = ?",
             (stop_id, vendor_id),
         )).fetchone()

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 015: exclude secure-storage + tokens from Auto Backup (reinstall must not restore session). -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage"/>
+    <exclude domain="sharedpref" path="shodasha_secure"/>
+    <exclude domain="database" path="flutter_secure_storage.db"/>
+</full-backup-content>
