@@ -78,7 +78,9 @@ void main() {
     expect(find.textContaining('Rs 150'), findsWidgets);
     expect(find.textContaining('COD'), findsWidgets);
     expect(find.textContaining('UPI'), findsWidgets);
-    expect(find.textContaining('Collect'), findsOneWidget);
+    expect(find.textContaining('Collect'), findsWidgets); // 016 strip + badge
     expect(find.textContaining('Paid'), findsOneWidget);
+    // 016 dashboard strip renders above the cards.
+    expect(find.text('Aaj ka hisaab'), findsOneWidget);
   });
 }

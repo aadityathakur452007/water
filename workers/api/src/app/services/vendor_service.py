@@ -144,9 +144,12 @@ class VendorService:
             "skip": [s for s in stops if s["status"] == "skipped"],
         }
 
-    # 015: simple placed pool — user-created orders with no stop yet.
-    # Vendor pulls today's placed orders (no geo, no auto-assign).
-    async def placed_pool(self, limit: int = 50) -> dict:
+    # 016: zone-scoped placed pool — a vendor sees ONLY placed orders whose
+    # address pincode falls in a zone they serve (vendor_zones). Matching
+    # semantics mirror dispatch_service.order_zone (exact pincode-cluster
+    # token match); NULL/unzoned pincodes match nothing, so unzoned orders
+    # stay admin-queue-only (contract §9.1). Proves no cross-vendor read.
+    async def placed_pool(self, vendor_id: str, limit: int = 50) -> dict:
         rows = (await self._conn.execute(
             "SELECT o.id AS order_id, o.user_id AS customer_id, o.n, o.total,"
             " o.deposit_due, o.payment_mode, o.payment_status, o.window_start,"
@@ -154,8 +157,11 @@ class VendorService:
             " FROM orders o LEFT JOIN addresses a ON a.id = o.address_id"
             " WHERE o.state = 'placed' AND o.id NOT IN"
             " (SELECT order_id FROM stops WHERE order_id IS NOT NULL)"
+            " AND EXISTS (SELECT 1 FROM zones z JOIN vendor_zones vz"
+            " ON vz.zone_id = z.id AND vz.vendor_id = ?"
+            " WHERE instr(',' || z.pincodes || ',', ',' || a.pincode || ',') > 0)"
             " ORDER BY o.created_at DESC LIMIT ?",
-            (max(1, min(int(limit), 50)),),
+            (vendor_id, max(1, min(int(limit), 50))),
         )).fetchall()
         return {"data": [dict(r) for r in rows]}
 
@@ -421,7 +427,20 @@ class VendorService:
             g["fulls_exp"] += int(r["fulls_exp"] or 0)
             g["empties_exp"] += int(r["empties_exp"] or 0)
             g["done"] += 1 if r["status"] == "done" else 0
-        return {"date": day, "customers": list(grouped.values())}
+        customers = list(grouped.values())
+        # 016: additive can-ledger fields (server truth, display-only).
+        # Owner-scoped by construction: customers derive from this vendor's
+        # own stops. Keys mirror ledger_repo.get (`held` = jars, `dues` =
+        # paise); missing ledger row → honest 0s, never nulls.
+        for g in customers:
+            if g["customer_id"]:
+                led = await self.ledger.get(g["customer_id"])
+                g["held"] = int(led.get("held", 0))
+                g["dues"] = int(led.get("dues", 0))
+            else:
+                g["held"] = 0
+                g["dues"] = 0
+        return {"date": day, "customers": customers}
 
     # -- vendor complaint queue (011_port: ticket thread reads, verify writes) ---
 

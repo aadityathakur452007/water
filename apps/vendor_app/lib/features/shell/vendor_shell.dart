@@ -202,6 +202,9 @@ class _VendorShellState extends State<VendorShell> {
                 CustomersScreen(controller: widget.customers)),
             onOpenSync: () =>
                 _push(SyncScreen(controller: widget.sync)),
+            // 016 dashboard: money + ledger sections reuse tab controllers.
+            earnings: widget.earnings,
+            customers: widget.customers,
           ),
           EarningsScreen(controller: widget.earnings),
           SupportScreen(controller: widget.support),

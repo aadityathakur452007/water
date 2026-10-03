@@ -128,6 +128,9 @@ async def test_today_route_loading_and_skip():
 
 async def test_placed_pool_lists_unrouted_placed():
     c = _conn()
+    # 016: pool is zone-scoped — seed v1's zone covering a1's pincode.
+    c.execute("INSERT INTO zones(id, name, pincodes) VALUES ('z1', 'core', '560001')")
+    c.execute("INSERT INTO vendor_zones(vendor_id, zone_id) VALUES ('v1', 'z1')")
     # o2 placed but already routed via s2/s3; insert fresh placed o3.
     c.execute(
         "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill, deposit_due,"
@@ -136,11 +139,50 @@ async def test_placed_pool_lists_unrouted_placed():
         (_dt.datetime.now(_dt.timezone.utc).isoformat(),),
     )
     c.commit()
-    out = await _svc(c).placed_pool()
+    out = await _svc(c).placed_pool("v1")
     ids = [r["order_id"] for r in out["data"]]
     assert "o3" in ids and "o1" not in ids and "o2" not in ids  # dispatched excluded, routed placed excluded
     o3 = next(r for r in out["data"] if r["order_id"] == "o3")
     assert o3["payment_mode"] == "upi" and o3["total"] == 2800
+
+
+async def test_placed_pool_zone_isolation_no_cross_vendor_read():
+    """016 regression: vendor sees ONLY their zones' placed orders.
+    Other-zone + unzoned orders are invisible (no oracle, just absent)."""
+    c = _conn()
+    c.execute("INSERT INTO zones(id, name, pincodes) VALUES ('z1', 'core', '560001'), ('z2', 'far', '560002')")
+    c.execute("INSERT INTO vendor_zones(vendor_id, zone_id) VALUES ('v1', 'z1'), ('v2', 'z2')")
+    c.execute(
+        "INSERT INTO addresses(id, user_id, type, lat, lng, pincode, created_at)"
+        " VALUES ('a2', 'u9', 'home', 12.9, 77.5, '560002', ?),"
+        " ('a3', 'u9', 'home', 12.9, 77.5, '999999', ?)",
+        (_dt.datetime.now(_dt.timezone.utc).isoformat(),) * 2,
+    )
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill, deposit_due,"
+        " total, payment_mode, state, window_start, idempotency_key, created_at)"
+        " VALUES ('oz2', 'u9', 'a2', '[]', 1, 0, 2800, 0, 2800, 'cod', 'placed', '2026-10-01T08:00Z', 'seed:oz2', ?),"
+        " ('oz9', 'u9', 'a3', '[]', 1, 0, 2800, 0, 2800, 'cod', 'placed', '2026-10-01T08:00Z', 'seed:oz9', ?)",
+        (now, now),
+    )
+    c.commit()
+    v1_ids = [r["order_id"] for r in (await _svc(c).placed_pool("v1"))["data"]]
+    v2_ids = [r["order_id"] for r in (await _svc(c).placed_pool("v2"))["data"]]
+    assert "oz2" not in v1_ids and "oz9" not in v1_ids  # other-zone + unzoned invisible to v1
+    assert v2_ids == ["oz2"]  # v2 sees only their zone; unzoned invisible to both
+
+
+async def test_today_customers_carries_ledger_held_dues():
+    """016: customers response gains server-computed held (jars) + dues (paise)."""
+    c = _conn()
+    from app.repositories.ledger_repo import LedgerRepo
+
+    await LedgerRepo(AsyncSqliteConn(c)).apply_event("u1", d_held=2, d_dues=8600,
+                                                     ref="seed", actor="t", reason="t")
+    out = await _svc(c).today_customers("v1", DAY)
+    u1 = next(g for g in out["customers"] if g["customer_id"] == "u1")
+    assert u1["held"] == 2 and u1["dues"] == 8600
 
 
 async def test_stop_idor_no_oracle():

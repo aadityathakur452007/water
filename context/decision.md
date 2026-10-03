@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-064 | 2026-10-03 | 016 vendor dashboard: one-screen Route-tab composition (TodayStrip fold + inline earnings + per-customer held/dues) + zone-scoped placed pool + ledger fields on customers | Accepted | workers/api vendor_service/vendor.py/tests, apps/vendor_app route/customers/shell/tests, Feature_docs/vendor-dashboard/spec.md, branch 016-vendor-dashboard |
 | ADR-063 | 2026-10-03 | 013 round 2: analytics/finance/dispatch surfaces + ledger adjust + returns tab from PDF/FR research; cutover — new dashboard renamed apps/admin_app_v2 → apps/admin_app, legacy admin + branch 005 deleted, zero backend changes | Accepted | apps/admin_app (TanStack Start), Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, branch 013-premium-admin-dashboard |
 | ADR-062 | 2026-10-03 | 015 finish: user orders LIVE wiring + vendor brilliance within tokens + contract proof shapes | Accepted | apps/user_app orders/api/main/tests, apps/vendor_app route/stops/sync/earnings/tests, branch 015-vendor-user-sync |
 | ADR-061 | 2026-10-03 | 015 parallel remainder: sub due_today in list + FCM queue_or_log (no sends) + badge test + PoD hint + skeleton (no new deps) | Accepted | workers/api subscription/fcm/scheduler/tests, apps/user_app test, apps/vendor_app stops, branch 015-vendor-user-sync |
@@ -118,6 +119,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-064: 016 vendor dashboard — one-screen composition + zone-scoped pool
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: User approved 016 spec (one screen answering today-totals/stop-list/money/can-ledger, one CTA per state, vendor-only isolation, pincode-zone region rule reusing vendor_zones/order_zone/generate_routes/next_run, server paise + rupees() display, once-only deposit untouched).
+- **Options considered**: New dashboard tab/route (rejected — 4-tab shell locked ADR-056, dashboard is a Route-tab section); new aggregate endpoint (rejected — (a) folds client-side from today_route stops, (c) reuses earnings, (d) needs only 2 additive keys on customers); per-order Python zone filter reusing order_zone() (rejected — N queries; single SQL EXISTS with identical instr token-match semantics, cited to dispatch_service.order_zone); specify init . (skipped — prompts to merge templates into non-empty root; phases honored via spec + task list instead); held_paise key name (rejected — held is jars not paise; keys are `held` + `dues` mirroring ledger_repo.get).
+- **Decision**: RouteScreen gains TodayStrip (summarizeToday pure fold: distinct users, jars, UPI/COD collect with paid-excluded) + one CTA (Sync backlog → Triple first-pending → all-done text) + inline money (earnings controller reuse, flagged-hold note, no invented pending-payout number) + can-ledger rows (customers held/dues, nonzero-only); shell passes earnings + customers controllers. Backend: placed_pool(vendor_id) zone-scoped via zones/vendor_zones instr match (unzoned invisible — admin queue only); today_customers gains held/dues via ledger.get (owner-scoped by construction). Verify: backend 196, vendor 30, both analyzes 0.
+- **Why**: Shortest diff that answers all four questions with zero new tabs/endpoints/tables/packages; isolation proven per endpoint + regression test (cross-vendor placed read closed).
+- **Consequences**: Untracked/admin_app working-tree changes found mid-task are NOT this branch's (left untouched, reported). Merge + device run still owed.
+- **Affects**: workers/api vendor_service.py (placed_pool/customers/today_route customer_id passthrough) + vendor.py + test_vendor.py, vendor_app route_controller/route_screen/shell/customers_controller + dashboard_strip_test + route_screen_test, Feature_docs/vendor-dashboard/spec.md, branch 016-vendor-dashboard
 
 ### ADR-063: 013 round 2 — premium surfaces from field research + folder cutover
 - **Date**: 2026-10-03

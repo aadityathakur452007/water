@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/cascade.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../customers/customers_controller.dart';
+import '../earnings/earnings_controller.dart';
 import 'route_controller.dart';
 
 class RouteScreen extends StatefulWidget {
@@ -15,6 +17,8 @@ class RouteScreen extends StatefulWidget {
     required this.onOpenStop,
     this.onOpenCustomers,
     this.onOpenSync,
+    this.earnings,
+    this.customers,
   });
 
   final RouteController controller;
@@ -23,6 +27,11 @@ class RouteScreen extends StatefulWidget {
   /// Drawer destinations surfaced as Route sections (Wave 1 shell merge).
   final VoidCallback? onOpenCustomers;
   final VoidCallback? onOpenSync;
+
+  /// 016 dashboard: inline money (c) + can-ledger (d) reuse the tab
+  /// controllers — no new fetch shape, no new endpoint.
+  final EarningsController? earnings;
+  final CustomersController? customers;
 
   @override
   State<RouteScreen> createState() => _RouteScreenState();
@@ -34,6 +43,12 @@ class _RouteScreenState extends State<RouteScreen> {
     super.initState();
     widget.controller.addListener(_onChange);
     widget.controller.load();
+    // 016: dashboard sections share the tab controllers. One load per
+    // screen lifetime; tab visits refetch as before (existing behavior).
+    widget.earnings?.addListener(_onChange);
+    widget.customers?.addListener(_onChange);
+    widget.earnings?.load();
+    widget.customers?.load();
   }
 
   void _onChange() {
@@ -43,6 +58,8 @@ class _RouteScreenState extends State<RouteScreen> {
   @override
   void dispose() {
     widget.controller.removeListener(_onChange);
+    widget.earnings?.removeListener(_onChange);
+    widget.customers?.removeListener(_onChange);
     super.dispose();
   }
 
@@ -109,12 +126,22 @@ class _RouteScreenState extends State<RouteScreen> {
           ],
         );
       case RouteState.empty:
-        return const Center(
+        return Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              'Aaj koi stop nahi — duty on karke dobara dekhein',
-              textAlign: TextAlign.center,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Aaj koi stop nahi — duty on karke dobara dekhein',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => c.load(),
+                  child: const Text('Dobara try karein'),
+                ),
+              ],
             ),
           ),
         );
@@ -155,6 +182,9 @@ class _RouteScreenState extends State<RouteScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // 016 dashboard: today strip + one CTA + money + can ledger.
+            _todayStrip(c),
+            const SizedBox(height: 12),
             // 015: Pull placed pool (simple — no geo/auto-assign).
             SizedBox(
               width: double.infinity,
@@ -230,6 +260,151 @@ class _RouteScreenState extends State<RouteScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// 016 dashboard §3(a): one banner strip + ONE primary CTA per state.
+  /// States: outbox non-empty → Sync; else first pending stop → Triple;
+  /// else all done → honest text, no fake action. Black 48dp CTA only.
+  Widget _todayStrip(RouteController c) {
+    final s = summarizeToday(c.stops);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Aaj ka hisaab',
+                  style:
+                      TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              Text('${s.done}/${s.total}',
+                  style: const TextStyle(
+                      color: ShodashaTheme.muted, fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${s.users} grahak · ${s.jars} jars',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+          ),
+          Text(
+            'Collect ${rupees(s.collect)} (UPI ${rupees(s.upiCollect)} · COD ${rupees(s.codCollect)})',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          _dashboardCta(c),
+          _moneyRow(),
+          _ledgerRows(),
+        ],
+      ),
+    );
+  }
+
+  Widget _dashboardCta(RouteController c) {
+    if (c.pendingSync > 0 && widget.onOpenSync != null) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: widget.onOpenSync,
+          icon: const Icon(Icons.sync_outlined, size: 18),
+          label: Text('Sync karein (${c.pendingSync} baaki)'),
+        ),
+      );
+    }
+    final pending = c.stops.where((s) => !s.isDone).toList()
+      ..sort((a, b) => a.seq.compareTo(b.seq));
+    if (pending.isNotEmpty) {
+      final first = pending.first;
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: () => widget.onOpenStop(first),
+          icon: const Icon(Icons.inventory_2_outlined, size: 18),
+          label: Text('Triple: ${first.customerName}',
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      );
+    }
+    return const Text('Sab stops done — badhai',
+        style: TextStyle(color: ShodashaTheme.success, fontSize: 13));
+  }
+
+  /// 016 §3(c): inline money, display-only server paise. Shown only when
+  /// the earnings controller actually loaded — never invented, never Rs 0
+  /// for missing data (real server zeros do render: they are truth).
+  Widget _moneyRow() {
+    final e = widget.earnings;
+    if (e == null || e.state != EarningsState.loaded) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Jama ${rupees(e.cashTotal + e.upiTotal)} '
+            '(Cash ${rupees(e.cashTotal)} + UPI ${rupees(e.upiTotal)})',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13),
+          ),
+          if (e.flaggedHold > 0)
+            Text('${e.flaggedStops} stops review me — ${rupees(e.flaggedHold)} hold par',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: ShodashaTheme.danger, fontSize: 12)),
+          const Text('Sirf jankari — payout admin clear ke baad.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: ShodashaTheme.muted, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  /// 016 §3(d): per-customer can ledger. Only customers with held>0 or
+  /// dues>0 render (Q2: zero rows hidden honestly); section hidden when
+  /// empty or still loading.
+  Widget _ledgerRows() {
+    final cu = widget.customers;
+    if (cu == null || cu.state != CustomersState.loaded) {
+      return const SizedBox.shrink();
+    }
+    final flagged =
+        cu.items.where((v) => v.held > 0 || v.duesPaise > 0).toList();
+    if (flagged.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Can ledger',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          for (final v in flagged)
+            Text(
+              '${v.name} — ${[
+                if (v.held > 0) '${v.held} held',
+                if (v.duesPaise > 0) '${rupees(v.duesPaise)} baaki',
+              ].join(' · ')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style:
+                  const TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+            ),
+        ],
       ),
     );
   }
