@@ -10,7 +10,7 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
-015-vendor-user-sync IN PROGRESS (2026-10-03, branch 015-vendor-user-sync): user LIVE orders wiring (ApiBackedOrdersRepository + main swap + state/payment/rider/bill map + cancel/reschedule/rating + 7 mapping tests) + payment badge + bill mode + sub Due/Paid + billingDues + cache-clear + logout wipe + FCM token register, vendor JOIN + placed pool + Pull + badges + skeleton + money waiver + brilliance (48dp/ellipsis/honest states) + purge, backend sub due_today + queue_or_log + exclusion test, Android notify/backup rules + channels. Verify: backend 194, user green incl. 7 new mapping tests (batches all passed), vendor 28 green, both analyzes 0. Spec: Feature_docs/vendor-user-sync/spec.md. Security: placed vendor-gated, ledger/me owner-scoped, orders IDOR-404, no secrets/tables/deps. Next: device run + merge call.
+015 MERGED + PUSHED to main (f006067, 2026-10-03, ADR-060/061/062): user LIVE orders wiring + payment badges + bill mode + sub Due/Paid + hygiene + FCM token register, vendor JOIN + placed pool + Pull + badges + skeleton + waiver + brilliance + purge + channels, backend due_today + queue_or_log + exclusion test, Android notify/backup rules. Verify: backend 194, user/vendor green, analyzes 0. Release CI cuts dual APKs. Next: device run; real FCM sends need secrets.
 
 014 MERGED to main (474d91b): once-only deposit + order fix + home simplify (ADR-059). See decision log.
 
