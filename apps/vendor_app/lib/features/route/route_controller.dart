@@ -23,6 +23,9 @@ class RouteStop {
     required this.status,
     this.holdBlocked = false,
     this.holdReason,
+    this.paymentMode = 'cod',
+    this.totalPaise = 0,
+    this.paymentStatus = 'unpaid',
   });
 
   final String id;
@@ -37,21 +40,30 @@ class RouteStop {
   final bool holdBlocked;
   final String? holdReason;
 
+  /// 015: payment visibility from server join (UPI/COD + total + status).
+  final String paymentMode;
+  final int totalPaise;
+  final String paymentStatus;
+
   bool get isDone => status == 'done';
+  bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
 
   static RouteStop fromJson(Map<String, dynamic> j) => RouteStop(
         id: (j['id'] ?? '') as String,
         seq: (j['seq'] as num?)?.toInt() ?? 0,
         customerName:
             (j['customer_name'] ?? j['customer_id'] ?? 'Customer') as String,
-        address: (j['address'] ?? j['formatted'] ?? '') as String,
+        address: (j['address_text'] ?? j['address'] ?? j['formatted'] ?? '') as String,
         fullsExpected: (j['fulls_exp'] as num?)?.toInt() ?? 0,
         emptiesExpected: (j['empties_exp'] as num?)?.toInt() ?? 0,
-        cashDuePaise: (j['cash_due'] as num?)?.toInt() ?? 0,
+        cashDuePaise: ((j['total'] ?? j['cash_due']) as num?)?.toInt() ?? 0,
         version: (j['version'] as num?)?.toInt() ?? 1,
         status: (j['status'] ?? 'pending') as String,
         holdBlocked: (j['hold_blocked'] as bool?) ?? false,
         holdReason: j['hold_reason'] as String?,
+        paymentMode: (j['payment_mode'] ?? 'cod') as String,
+        totalPaise: (j['total'] as num?)?.toInt() ?? 0,
+        paymentStatus: (j['payment_status'] ?? 'unpaid') as String,
       );
 }
 
@@ -113,5 +125,20 @@ class RouteController extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  /// 015: placed pool count for the Pull button (simple, no geo).
+  List<Map<String, dynamic>> _placed = const [];
+  List<Map<String, dynamic>> get placed => _placed;
+
+  Future<int> refreshPlaced() async {
+    try {
+      final raw = await _api.placedPool();
+      _placed = raw.whereType<Map<String, dynamic>>().toList();
+      notifyListeners();
+      return _placed.length;
+    } catch (_) {
+      return _placed.length;
+    }
   }
 }

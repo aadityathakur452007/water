@@ -287,6 +287,14 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
+  /// 015: placed pool for the Pull button (placed orders, no route yet).
+  Future<List<dynamic>> placedPool({int limit = 20}) async {
+    final raw = await send('GET', '/vendor/placed',
+        query: {'limit': '$limit'});
+    if (raw is List<dynamic>) return raw;
+    return ((raw as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
   Future<Map<String, dynamic>> getStop(String id) async {
     final raw = await send('GET', '/vendor/stops/$id');
     return (raw as Map<String, dynamic>);

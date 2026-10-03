@@ -6,6 +6,7 @@
 // logged-out mid-session (States.md auth states): guest + un-authed tab
 // actions route through [AuthGate] via the commit-gate callback.
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
@@ -71,6 +72,7 @@ class _UserShellState extends State<UserShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _offerFirstRun();
       _refreshLedger();
+      _registerDevice();
     });
   }
 
@@ -83,6 +85,21 @@ class _UserShellState extends State<UserShell> {
 
   void _onBooking() {
     if (mounted) setState(() {});
+  }
+
+  /// 015 client-half FCM: register token for order updates (server send
+  /// deferred — tokens land in device_tokens via existing POST /devices).
+  /// Best-effort, never blocks shell.
+  Future<void> _registerDevice() async {
+    final api = widget.api;
+    if (api == null || !widget.isAuthenticated()) return;
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) return;
+      await api.registerDevice(deviceId: api.deviceId, fcmToken: token);
+    } catch (_) {
+      // No permission / no network — in-app timeline still works.
+    }
   }
 
   /// 014: live wallet/dues into booking so COD gate + deposit display match

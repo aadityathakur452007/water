@@ -2,8 +2,10 @@
 // reasons, reschedule slots, client search, poll backoff, rating-once).
 // Run: flutter test test/order_states_test.dart
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shodasha_app/features/orders/orders_controller.dart';
+import 'package:shodasha_app/features/orders/tracking_screen.dart';
 
 Order _order({
   String id = 'o1',
@@ -210,6 +212,48 @@ void main() {
       expect(await c.cancel('P1', 'changed_mind'), isTrue);
       expect(c.findById('P1')!.state, OrderState.cancelled);
       expect(await c.cancel('X1', 'changed_mind'), isFalse);
+      c.dispose();
+    });
+  });
+
+  group('payment badge — tracking header UPI/COD + Paid/due (015)', () {
+    testWidgets('header shows UPI Paid + tappable bill note → bill Mode line',
+        (tester) async {
+      final order = Order(
+        id: 'T1',
+        state: OrderState.placed,
+        windowStart: DateTime(2026, 9, 30, 9, 0),
+        windowEnd: DateTime(2026, 9, 30, 9, 30),
+        itemSummary: '2 jars',
+        addressLabel: 'Sector 21',
+        totalPaise: 5600,
+        paymentsPaise: 2000,
+        paymentMode: 'upi',
+        paymentStatus: 'paid_upi',
+      );
+      final c = OrdersController(repo: StubOrdersRepository([order]));
+      await c.load();
+      await tester.pumpWidget(
+        MaterialApp(home: TrackingScreen(controller: c, orderId: 'T1')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+
+      // Header badge: mode + paid state (ui-checklist: payment method used).
+      expect(find.textContaining('UPI'), findsWidgets);
+      expect(find.textContaining('Paid'), findsWidgets);
+      // Vendor-collect note renders because paymentsPaise > 0.
+      expect(find.textContaining('Vendor ko'), findsOneWidget);
+      // Bill row is tappable (InkWell, was dead Container).
+      await tester.tap(find.textContaining('Bill dekhein'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Bill screen shows the Mode line with the same badge.
+      expect(find.text('Mode'), findsOneWidget);
+      expect(find.textContaining('UPI'), findsWidgets);
+      c.stopTracking();
       c.dispose();
     });
   });

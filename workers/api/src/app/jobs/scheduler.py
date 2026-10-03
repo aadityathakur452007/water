@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import datetime as _dt
 import json
+import logging
 import sqlite3
 import sys
 
@@ -44,6 +45,8 @@ QUOTE_TTL_MIN = 15
 SUB_WINDOW_START = "08:00:00+00:00"  # subs carry free-text window; orders need an ISO slot
 
 Conn = D1Conn | AsyncSqliteConn
+
+log = logging.getLogger(__name__)
 
 
 def _now() -> _dt.datetime:
@@ -111,6 +114,9 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
 async def collect_reminders(conn: Conn, today: object = None) -> dict:
     """Build reminder payloads only — no sending (FCM/WhatsApp senders own that).
 
+    No real pushes here (no secrets): the future sender queues via
+    fcm.queue_or_log ONLY if an outbox table exists, else this structured log.
+
     dues: ledger.dues > 0 · low_balance: held jars not covered by deposit net ·
     resume: paused subs whose hold_to falls within [today, today+2d].
     """
@@ -137,6 +143,8 @@ async def collect_reminders(conn: Conn, today: object = None) -> dict:
               for r in (await conn.execute(
                   "SELECT id, user_id, hold_to FROM subscriptions WHERE status = 'paused'"
                   " AND hold_to IS NOT NULL AND hold_to >= ? AND hold_to <= ?", (tday, horizon))).fetchall()]
+    log.info("reminders date=%s dues=%d low=%d resume=%d (payloads only, no sends)",
+             tday, len(dues), len(low), len(resume))
     return {"date": tday, "dues": dues, "low_balance": low, "resume": resume,
             "total": len(dues) + len(low) + len(resume)}
 

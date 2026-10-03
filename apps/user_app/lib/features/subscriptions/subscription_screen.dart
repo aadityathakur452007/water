@@ -97,6 +97,10 @@ class SubscriptionController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get busy => _busy;
 
+  /// 015: pay-per-day totals — Due today (qty × rate) + Paid till now (dues).
+  int duesPaise = 0;
+  int get dueTodayPaise => _items.fold(0, (s, e) => s + e.qty * 2800);
+
   Future<void> load() async {
     if (_status == SubStatus.loading) return;
     _status = SubStatus.loading;
@@ -108,6 +112,12 @@ class SubscriptionController extends ChangeNotifier {
           .whereType<Map<String, dynamic>>()
           .map(SubscriptionEntry.fromApi)
           .toList();
+      try {
+        final dues = await _api.billingDues();
+        duesPaise = (dues['dues'] as num?)?.toInt() ?? 0;
+      } catch (_) {
+        duesPaise = 0;
+      }
       _status = SubStatus.loaded;
     } on ApiException catch (e) {
       _status = SubStatus.error;
@@ -382,10 +392,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             onRefresh: c.load,
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: c.items.length,
+              itemCount: c.items.length + 1,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
-                final s = c.items[i];
+                // 015: totals header — Due today + Paid till now (pay-per-day).
+                if (i == 0) {
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.blueTint,
+                      borderRadius:
+                          BorderRadius.circular(ShodashaTheme.radius),
+                    ),
+                    child: Text(
+                      'Due today Rs ${c.dueTodayPaise ~/ 100} • Paid till now Rs ${c.duesPaise ~/ 100}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  );
+                }
+                final s = c.items[i - 1];
                 return Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(

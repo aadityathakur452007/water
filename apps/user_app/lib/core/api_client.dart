@@ -217,6 +217,10 @@ class ApiClient {
   Future<Map<String, dynamic>> ledgerMe() async =>
       (await send('GET', '/ledger/me')) as Map<String, dynamic>;
 
+  /// GET /billing/dues → {dues, lines, pay_link} (sub Paid-till-now).
+  Future<Map<String, dynamic>> billingDues() async =>
+      (await send('GET', '/billing/dues')) as Map<String, dynamic>;
+
   /// POST /returns {qty, address_id} → request id + 10-working-day SLA.
   Future<Map<String, dynamic>> createReturn({
     required int qty,
@@ -309,8 +313,52 @@ class ApiClient {
 
   /// GET /orders/{id} → order + tracker + bill (verify paid status here,
   /// never trust the client-side gateway callback alone).
-  Future<Map<String, dynamic>> getOrder(String id) async =>
+  /// Same path as [getOrderFull] (kept for existing callers).
+  Future<Map<String, dynamic>> getOrder(String id) => getOrderFull(id);
+
+  // ── Orders list/detail/mutations (§4.4 — ApiBackedOrdersRepository seam) ──
+  /// GET /orders?limit=&cursor= → {data:[OrderOut], next_cursor}.
+  Future<Map<String, dynamic>> listOrders({
+    String? cursor,
+    int limit = 20,
+  }) async =>
+      (await send('GET', '/orders', query: {
+        'limit': '$limit',
+        ...?cursor == null ? null : {'cursor': cursor},
+      })) as Map<String, dynamic>;
+
+  /// GET /orders/{id} → OrderDetailOut (tracker + rider {name,call} + bill).
+  Future<Map<String, dynamic>> getOrderFull(String id) async =>
       (await send('GET', '/orders/$id')) as Map<String, dynamic>;
+
+  /// POST /orders/{id}/cancel {reason} + Idempotency-Key → CancelOut
+  /// ({order_id, state, bill_total, deposit_reversed, refund} — no full
+  /// order; callers re-read via [getOrderFull]).
+  Future<Map<String, dynamic>> cancelOrderApi(
+    String id,
+    String reason,
+    String idemKey,
+  ) async =>
+      (await send('POST', '/orders/$id/cancel',
+          body: {'reason': reason},
+          idempotencyKey: idemKey)) as Map<String, dynamic>;
+
+  /// POST /orders/{id}/reschedule {window_start} → OrderOut.
+  Future<Map<String, dynamic>> rescheduleApi(
+    String id,
+    String windowStart,
+  ) async =>
+      (await send('POST', '/orders/$id/reschedule', body: {
+        'window_start': windowStart,
+      })) as Map<String, dynamic>;
+
+  /// POST /orders/{id}/rating {stars} → {order_id, stars,
+  /// complaint_shortcut}. Endpoint verified live in
+  /// workers/api/src/app/api/v1/ratings.py (once per delivered order).
+  Future<Map<String, dynamic>> submitRatingApi(String id, int stars) async =>
+      (await send('POST', '/orders/$id/rating', body: {
+        'stars': stars,
+      })) as Map<String, dynamic>;
 
   // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
   /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
@@ -342,6 +390,20 @@ class ApiClient {
       (await send('POST', '/payments/upi-intent',
           body: {'order_id': orderId},
           idempotencyKey: idempotencyKey)) as Map<String, dynamic>;
+
+  /// POST /devices {device_id, fcm_token, platform} → token registered
+  /// for order/dispatch updates (015 client half; server send deferred).
+  Future<void> registerDevice({
+    required String deviceId,
+    required String fcmToken,
+    String platform = 'android',
+  }) async {
+    await send('POST', '/devices', body: {
+      'device_id': deviceId,
+      'fcm_token': fcmToken,
+      'platform': platform,
+    });
+  }
 
   /// date → `YYYY-MM-DD` (hold_from/hold_to/skips date format).
   static String dateOnly(DateTime d) =>

@@ -33,6 +33,8 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
 - Demo: Demo sheet → POST /v1/auth/demo (config flag + code hash → normal session) → demo customer sees Rs-206 dues order; demo vendor sees today route stop → triple → PoD → earnings. D1 prerequisite (ADR-054): config/audit_log come from 010_config_audit.sql (never existed on D1 — init_schema is local-only); pre-010 DB fails closed (401, not 500).
 - Port gaps (ADR-055): address form (house/street/area + Use-current-location via LocationService → POST/PATCH /addresses full format) → SelectedAddressStore id → Home bar + checkout resolve() agree; vendor Customers tab → GET /vendor/customers (stops grouped by customer, search) → detail sheet; Stock tab reads RouteController loading sheet (no new endpoint); Profile tab → GET/PATCH /vendor/profile (synced label); Support tab → GET /vendor/complaints queue (tap fills verify-by-id) → existing verify. D1 prerequisite: 011_port.sql applied once (ALTERs are apply-once; CREATEs idempotent).
 - 014 simplify (ADR-059): Home `_ScheduleCards(Ek Baar 8-12 once / Roz ka Plan daily)` → controller.deliveryType → `_WalletStrip(safe message)` → grid (no search) → buy-box (qty only) → `placeCheckout(api.createQuote → api.createOrder[quote_total/rate_version/expires_at] → upiIntent/cod)` → `showOrderConfirm(wallet-safe message)` → track. Backend `compute_quote(deposit_already_paid)` container-only once-only; `OrderService.create` waives + accepts pre-waiver quote. Fixed `Subah 8-12` label, slots only mint window_start ISO. All-days `nextServiceableDay` (no Sunday skip).
+- 015 sync (ADR-060): User `Order(+paymentMode/Status)` → tracking badge + bill mode; subs Due/Paid via dues; `UserShell._refreshLedger(api.ledgerMe→applyLedger)`. Vendor `today_route/_owned_stop JOIN orders+addresses` → `RouteStop(+payment/total/status)` → stop badge; `GET /vendor/placed` pool for Pull button; `GET /ledger/me` wallet truth. Android `POST_NOTIFICATIONS` + `backup_rules/data_extraction` (no backup of tokens).
+- 015 finish (ADR-062): User orders LIVE `ApiBackedOrdersRepository(_api)` over `GET /orders?cursor` → `data/next_cursor` (base64url created_at|id), detail `tracker/rider/bill/events`, cancel `reason+Idempotency-Key`, reschedule ISO, rating stars; `UserShell._registerDevice(getToken→POST /devices)`; vendor brilliance (48dp/ellipsis/honest states, no new deps).
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]
@@ -169,6 +171,24 @@ AuthGate (auth_gate.dart: splash → restoreSession → home / login)
 ```
 - `normalizeIndianPhone` / `isValidIndianPhone` / `maskPhone` (auth_controller.dart) ← covered by `test/auth_validation_test.dart` (14 tests)
 - Backend endpoints touched (already live): `POST /v1/auth/otp/start|verify`, `POST /v1/auth/logout` (refresh rotation + FCM-device scoping land with F1 wiring)
+
+### Feature: premium admin dashboard v2 (013, 2026-10-03, ADR-061)
+```
+Browser (TanStack Start SSR + client components)                    apps/admin_app_v2 (:3200)
+  └─ useAdminQuery(path) (hooks/use-admin-api.ts, TanStack Query)
+       └─ adminGetServer/adminPostServer (server/server/admin-api.ts)  GET|POST /v1/admin/*
+            ├─ API_MODE=mock → data/admin/mock-resolver.ts (fixtures, same shapes)
+            └─ API_MODE=live → fetch(API_URL) Bearer sh_session (cookie read server-side)
+                 ├─ 401 → refreshSessionServer (/v1/auth/refresh) → retry once → else redirect /auth/v1/login?next=
+                 └─ Workers /v1/admin/* (require_role('admin')) → D1
+Login: /auth/v1/login → admin-login-form.tsx → loginStartServer/loginVerifyServer
+  └─ Workers /v1/auth/otp/start|verify (role=admin gate) → HttpOnly sh_session(30m)+sh_refresh(7d) set in server fn
+Guard: dashboard/route.tsx loader → hasSessionServer → redirect /auth/v1/login?next=…
+Surfaces (sidebar-items.ts = nav source of truth): overview /dashboard, orders(+/$orderId),
+  users(+$userId, block/unblock), vendors(+$vendorId, review-hold), payments(+refunds), ledger,
+  operations(reco/custody/dues/routes-generate), trust(quality/strikes/complaints), audit, config.
+Money: integer paise on wire → lib/money.ts rupees() for display; server computes all money.
+```
 
 ### Feature: [feature name]
 - `[Function A]` calls `[Function B]` to [why]

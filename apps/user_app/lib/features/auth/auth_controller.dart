@@ -21,6 +21,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
 
@@ -445,6 +446,8 @@ class AuthController extends ChangeNotifier {
   }
 
   /// Logout: revoke server-side (best-effort) + wipe local session (contract).
+  /// 015: also clears user-scoped prefs (selected address) so the next
+  /// login never inherits the previous user's delivery address.
   Future<void> logout() async {
     final token = _session?.accessToken;
     if (token != null) {
@@ -455,6 +458,13 @@ class AuthController extends ChangeNotifier {
       }
     }
     await _store.clear();
+    try {
+      final prefs =
+          await SharedPreferences.getInstance();
+      await prefs.remove('selected_address_id');
+    } catch (_) {
+      // Prefs wipe is best-effort — secure session already cleared.
+    }
     _reset();
     _status = AuthStatus.idle;
     _notify();

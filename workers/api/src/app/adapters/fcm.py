@@ -63,3 +63,43 @@ def notify(sender: FcmSender | None, token: str, title: str, body: str,
         log.warning("fcm notify failed (best-effort): %s", e)
         return False
     return True
+
+
+async def queue_or_log(conn, user_id: str, kind: str, message: str,
+                       channels: list[str] | None = None) -> bool:
+    """Durable outbox ONLY if an outbox table exists, else structured log.
+
+    Never sends a real push, needs no secrets, creates no tables (a future
+    migration owns the schema; unknown schemas fall back to log). Never
+    raises. Returns True if a row was queued.
+    """
+    try:
+        tables = {r["name"] for r in (await conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")).fetchall()}
+    except Exception as e:  # noqa: BLE001 — queueing is best-effort
+        log.info("fcm outbox check failed user=%s kind=%s err=%s", user_id, kind, e)
+        return False
+    target = ("notification_outbox" if "notification_outbox" in tables
+              else ("outbox" if "outbox" in tables else None))
+    if target is None:
+        log.info("fcm reminder user=%s kind=%s channels=%s msg=%s",
+                 user_id, kind, ",".join(channels or ["fcm"]), message)
+        return False
+    try:
+        cols = {r["name"] for r in (await conn.execute(f"PRAGMA table_info({target})")).fetchall()}
+        if {"user_id", "kind", "message"} <= cols:
+            import datetime as _dt
+            import uuid as _uuid
+
+            await conn.execute(
+                f"INSERT INTO {target}(id, user_id, kind, message, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (_uuid.uuid4().hex, user_id, kind, message,
+                 _dt.datetime.now(_dt.timezone.utc).isoformat()),
+            )
+            conn.commit()
+            return True
+        log.info("fcm outbox schema-mismatch user=%s kind=%s msg=%s", user_id, kind, message)
+    except Exception as e:  # noqa: BLE001 — queueing is best-effort
+        log.info("fcm outbox queue failed user=%s kind=%s err=%s", user_id, kind, e)
+    return False

@@ -27,7 +27,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../core/api_client.dart';
 import '../../core/theme.dart';
 
 /// Hindi-first copy for the orders feature (local map per approved answer 1).
@@ -226,6 +228,8 @@ class Order {
     this.createdAt,
     this.refillQty = 0,
     this.containerQty = 0,
+    this.paymentMode = 'cod',
+    this.paymentStatus = 'unpaid',
   });
 
   final String id;
@@ -252,6 +256,12 @@ class Order {
   final int refillQty;
   final int containerQty;
 
+  /// 015: payment visibility (UPI/COD + paid state) on timeline + bill.
+  final String paymentMode;
+  final String paymentStatus;
+
+  bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+
   /// Reorder possible only when the mix is known.
   bool get canReorder => refillQty + containerQty >= 1;
 
@@ -269,6 +279,10 @@ class Order {
     bool? rated,
     int? stars,
     int? totalPaise,
+    String? paymentMode,
+    String? paymentStatus,
+    int? refillQty,
+    int? containerQty,
   }) {
     return Order(
       id: id,
@@ -277,6 +291,8 @@ class Order {
       windowEnd: windowEnd ?? this.windowEnd,
       riderName: riderName ?? this.riderName,
       riderPhone: riderPhone ?? this.riderPhone,
+      paymentMode: paymentMode ?? this.paymentMode,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
       itemSummary: itemSummary,
       addressLabel: addressLabel,
       waterBillPaise: waterBillPaise,
@@ -290,6 +306,8 @@ class Order {
       rated: rated ?? this.rated,
       stars: stars ?? this.stars,
       createdAt: createdAt,
+      refillQty: refillQty ?? this.refillQty,
+      containerQty: containerQty ?? this.containerQty,
     );
   }
 }
@@ -425,6 +443,114 @@ class StubOrdersRepository implements OrdersRepository {
     final updated = current.copyWith(rated: true, stars: stars);
     _orders[idx] = updated;
     return updated;
+  }
+}
+
+/// Maps one server order (OrderOut, or OrderDetailOut which adds
+/// tracker/rider/bill/events) onto [Order].
+///
+/// Wire notes (verified against workers/api schemas/orders.py +
+/// services/order_service.py): `items` is [{sku: refill|container, qty}];
+/// `bill` (detail only) is {water_bill, deposit_due, cap_charge, total,
+/// payment_status} — it has NO prev/payments keys, so those stay 0;
+/// `rider` is {name, call} once assigned, else null; `window_end` may be
+/// "" (→ null); unknown `state` strings fall back to placed (never crash).
+Order orderFromApi(Map<String, dynamic> json) {
+  int paise(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
+  DateTime? tryDate(dynamic v) {
+    if (v is! String || v.isEmpty) return null;
+    return DateTime.tryParse(v);
+  }
+
+  var refill = 0;
+  var container = 0;
+  final parts = <String>[];
+  final items = json['items'];
+  if (items is List) {
+    for (final it in items) {
+      if (it is! Map) continue;
+      final sku = '${it['sku'] ?? ''}';
+      final qty = paise(it['qty']);
+      if (qty <= 0) continue;
+      if (sku == 'refill') refill += qty;
+      if (sku == 'container') container += qty;
+      parts.add('$qty $sku');
+    }
+  }
+
+  Map<String, dynamic> section(dynamic v) =>
+      v is Map<String, dynamic> ? v : Map<String, dynamic>.from(v as Map);
+  final bill = json['bill'] == null
+      ? const <String, dynamic>{}
+      : section(json['bill']);
+  final rider = json['rider'] == null
+      ? const <String, dynamic>{}
+      : section(json['rider']);
+
+  return Order(
+    id: '${json['id'] ?? ''}',
+    state: orderStateFromString('${json['state'] ?? 'placed'}'),
+    windowStart:
+        tryDate(json['window_start']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    windowEnd: tryDate(json['window_end']),
+    riderName: rider['name']?.toString(),
+    riderPhone: rider['call']?.toString(),
+    itemSummary: parts.join(' + '),
+    waterBillPaise: paise(bill['water_bill'] ?? json['water_bill']),
+    depositDuePaise: paise(bill['deposit_due'] ?? json['deposit_due']),
+    capChargePaise: paise(bill['cap_charge'] ?? json['cap_charge']),
+    totalPaise: paise(bill['total'] ?? json['total']),
+    paymentMode: '${json['payment_mode'] ?? 'cod'}',
+    paymentStatus:
+        '${json['payment_status'] ?? bill['payment_status'] ?? 'unpaid'}',
+    refillQty: refill,
+    containerQty: container,
+    createdAt: tryDate(json['created_at']),
+  );
+}
+
+/// Live backend repository over [ApiClient.send] (no new deps).
+/// [ApiException]s (incl. NETWORK) are rethrown untouched — the controller
+/// already maps failures to its offline/error states.
+class ApiBackedOrdersRepository implements OrdersRepository {
+  ApiBackedOrdersRepository(this._api);
+
+  final ApiClient _api;
+
+  @override
+  Future<OrdersPage> fetchOrders({String? cursor}) async {
+    final res = await _api.listOrders(cursor: cursor);
+    final data = res['data'] is List ? res['data'] as List : const [];
+    return OrdersPage(
+      orders: data
+          .whereType<Map>()
+          .map((e) => orderFromApi(Map<String, dynamic>.from(e)))
+          .toList(),
+      nextCursor: res['next_cursor'] as String?,
+    );
+  }
+
+  @override
+  Future<Order> fetchOrder(String id) async =>
+      orderFromApi(await _api.getOrderFull(id));
+
+  @override
+  Future<Order> cancelOrder(String id, String reasonCode) async {
+    await _api.cancelOrderApi(id, reasonCode, const Uuid().v4());
+    // CancelOut carries no full order — re-read the settled truth.
+    return fetchOrder(id);
+  }
+
+  @override
+  Future<Order> rescheduleOrder(String id, DateTime windowStart) async =>
+      orderFromApi(await _api.rescheduleApi(id, windowStart.toIso8601String()));
+
+  @override
+  Future<Order> submitRating(String id, int stars) async {
+    final res = await _api.submitRatingApi(id, stars);
+    final fresh = await fetchOrder(id);
+    final rated = res['stars'];
+    return fresh.copyWith(rated: true, stars: rated is int ? rated : stars);
   }
 }
 

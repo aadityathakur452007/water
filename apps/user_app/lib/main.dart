@@ -77,7 +77,7 @@ class _ShodashaAppState extends State<ShodashaApp> {
       deviceId: 'pending-device',
     );
     _booking = BookingController(catalog: _HardcodedCatalog());
-    _orders = OrdersController(repo: StubOrdersRepository());
+    _orders = OrdersController(repo: ApiBackedOrdersRepository(_api));
     _addresses = AddressController(api: _api);
     _selectedStore = SelectedAddressStore();
     // Persistence behind the live selection: restore once, then the

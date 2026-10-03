@@ -66,6 +66,9 @@ class PaymentService:
 
     @staticmethod
     def _notify_paid(payment: dict) -> None:
+        # No real push (no secrets): durable outbox ONLY if a table exists —
+        # no conn here, so structured log with order_id+provider_ref; the
+        # future sender fans out via device_tokens / fcm.queue_or_log.
         try:  # FCM push-only receipt; failures must not roll back money (Observer stub)
             log.info("payment receipt order=%s ref=%s", payment.get("order_id"),
                      payment.get("provider_ref"))

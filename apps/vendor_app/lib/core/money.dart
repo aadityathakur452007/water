@@ -11,9 +11,11 @@ String rupees(int paise) {
   return '${neg ? '-' : ''}Rs $body';
 }
 
-/// Deposit due at handover display: max(0, N - E) × 150 Rs (spec: Rs 150/jar).
-int depositDueRs(int jarsOrdered, int emptiesDeclared) {
-  final short = jarsOrdered - emptiesDeclared;
+/// 015 deposit display: container-only once-only (server truth).
+/// Repeat containers show Rs 0 — server waives when wallet holds deposit.
+int depositDueRs(int containersOrdered, int emptiesDeclared, {bool walletHoldsDeposit = false}) {
+  if (containersOrdered <= 0 || walletHoldsDeposit) return 0;
+  final short = containersOrdered - emptiesDeclared.clamp(0, containersOrdered);
   return (short > 0 ? short : 0) * 150;
 }
 

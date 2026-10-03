@@ -374,6 +374,13 @@ class _HeaderCard extends StatelessWidget {
                   color: OrdersTokens.ink,
                 ),
               ),
+              // 015: payment mode + paid state badge (UPI/COD visibility).
+              Text(
+                order.isPaid
+                    ? '${order.paymentMode.toUpperCase()} • Paid'
+                    : '${order.paymentMode.toUpperCase()} • ${formatRupees(order.totalPaise - order.paymentsPaise)} due',
+                style: const TextStyle(fontSize: 11, color: OrdersTokens.blue, fontWeight: FontWeight.w700),
+              ),
               if (order.refundPending)
                 Text(
                   ordersStringsHi['refundPending']!,
@@ -618,28 +625,49 @@ class _BillRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: OrdersTokens.white,
-        border: Border.all(color: OrdersTokens.border),
-        borderRadius: BorderRadius.circular(OrdersTokens.radius),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '${ordersStringsHi['viewBill']!} • '
-              '${formatRupees(order.totalPaise)}',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: OrdersTokens.ink,
-              ),
+    // 015: tappable bill row (was dead Container) + vendor-collect note.
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(OrdersTokens.radius),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: OrdersTokens.white,
+          border: Border.all(color: OrdersTokens.border),
+          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${ordersStringsHi['viewBill']!} • '
+                    '${formatRupees(order.totalPaise)}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: OrdersTokens.ink,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: OrdersTokens.muted),
+              ],
             ),
-          ),
-          const Icon(Icons.chevron_right, color: OrdersTokens.muted),
-        ],
+            if (order.paymentsPaise > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Vendor ko ${formatRupees(order.paymentsPaise)} diye — bill me confirm karein',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      color: OrdersTokens.blue,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
