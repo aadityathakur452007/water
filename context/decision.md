@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-063 | 2026-10-03 | 013 round 2: analytics/finance/dispatch surfaces + ledger adjust + returns tab from PDF/FR research; cutover — new dashboard renamed apps/admin_app_v2 → apps/admin_app, legacy admin + branch 005 deleted, zero backend changes | Accepted | apps/admin_app (TanStack Start), Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, branch 013-premium-admin-dashboard |
 | ADR-062 | 2026-10-03 | 015 finish: user orders LIVE wiring + vendor brilliance within tokens + contract proof shapes | Accepted | apps/user_app orders/api/main/tests, apps/vendor_app route/stops/sync/earnings/tests, branch 015-vendor-user-sync |
 | ADR-061 | 2026-10-03 | 015 parallel remainder: sub due_today in list + FCM queue_or_log (no sends) + badge test + PoD hint + skeleton (no new deps) | Accepted | workers/api subscription/fcm/scheduler/tests, apps/user_app test, apps/vendor_app stops, branch 015-vendor-user-sync |
 | ADR-060 | 2026-10-03 | Vendor-user sync: stop payment/address/total join + placed pool + ledger/me + 4-state + payment badges + sub Due/Paid + Android notify/backup basics | Accepted | workers/api vendor/payments/catalog, apps/user_app orders/shell, apps/vendor_app route/money, android manifests + xml, branch 015-vendor-user-sync |
@@ -117,6 +118,15 @@
 ---
 
 ## Decision Entries
+
+### ADR-063: 013 round 2 — premium surfaces from field research + folder cutover
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: Round-1 template admin was live but flat (10 surfaces, no analytics/money/operate depth). PaniBox PDF + Feature_docs/synthesis/feature-requirements.md (FR-26…FR-34) named the real super-admin powers: dispatch funnel + route sheets, day-close leak watch, WhatsApp Hindi dunning (Pure Pani loses ₹18k–70k/mo to unbilled COD), ledger adjust as the only manual money mutation, returns SLA queue, analytics pillars (on-time, fulfilment, repeat, UPI-vs-COD).
+- **Decision**: Build analytics/finance/dispatch surfaces + ledger adjust sheet + trust returns tab + orders CSV export + 4-group sidebar (Monitor/Money/People/Operate) using ONLY template components (zero invented design) against existing worker endpoints (zero backend changes; wa.me deep links instead of a WhatsApp provider; dunning enriched client-side from /admin/ledger because /admin/dunning returns bare {customer_id, dues}). Cutover: legacy Next.js apps/admin_app deleted, new dashboard renamed to apps/admin_app so the Cloudflare deploy path is unchanged; old-admin branch 005-super-admin-panel deleted. Parked (needs backend): invoice WhatsApp send, calendar FR-27, CRM-lite aggregates, fleet page, RBAC.
+- **Why**: Maximum admin leverage per unit of risk — every new power maps to an endpoint that already exists and is audit-logged server-side; rename keeps deploy config untouched.
+- **Consequences**: User runs manual screen verification; production issues get pasted back. Unchanged worker API means zero migration risk on merge.
+- **Affects**: apps/admin_app routes/-components/navigation/server, Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, context docs, branch 013-premium-admin-dashboard
 
 ### ADR-062: 015 finish — live orders wiring + brilliance within tokens
 - **Date**: 2026-10-03
