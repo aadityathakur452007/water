@@ -44,12 +44,20 @@ export type LoginVerifyResult =
 export const loginStartServer = createServerFn({ method: "POST" })
   .validator((input: { phone: string }) => input)
   .handler(async ({ data }): Promise<LoginStartResult> => {
-    const res = await fetch(`${apiUrl()}/v1/auth/otp/start`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone: data.phone }),
-      signal: AbortSignal.timeout(15_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${apiUrl()}/v1/auth/otp/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone: data.phone }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      // Worker unreachable from the admin isolate (DNS/edge/timeout) —
+      // previously invisible: no log line and the form showed a bare string.
+      console.error(`[admin-auth] otp/start fetch failed: ${e instanceof Error ? e.message : e}`);
+      throw new Error("API worker unreachable. Check API_URL and worker status.");
+    }
     const body = (await res.json().catch(() => ({}))) as {
       sent_to_masked?: string;
       resend_after_s?: number;
@@ -69,12 +77,18 @@ export const loginStartServer = createServerFn({ method: "POST" })
 export const loginVerifyServer = createServerFn({ method: "POST" })
   .validator((input: { id_token: string }) => input)
   .handler(async ({ data }): Promise<LoginVerifyResult> => {
-    const res = await fetch(`${apiUrl()}/v1/auth/otp/verify`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ firebase_id_token: data.id_token, device: { id: "admin-web" } }),
-      signal: AbortSignal.timeout(15_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${apiUrl()}/v1/auth/otp/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ firebase_id_token: data.id_token, device: { id: "admin-web" } }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      console.error(`[admin-auth] otp/verify fetch failed: ${e instanceof Error ? e.message : e}`);
+      return { ok: false, status: 0, code: "NETWORK", message: "API worker unreachable. Check API_URL and worker status." };
+    }
     const body = (await res.json().catch(() => ({}))) as {
       access_token?: string;
       refresh_token?: string;
