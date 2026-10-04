@@ -138,12 +138,19 @@ export const loginDemoServer = createServerFn({ method: "POST" })
       console.error(`[admin-auth] demo fetch failed: ${e instanceof Error ? e.message : e}`);
       return { ok: false, status: 0, code: "NETWORK", message: "API worker unreachable. Check API_URL and worker status." };
     }
-    const body = (await res.json().catch(() => ({}))) as {
+    const rawText = await res.text().catch(() => "");
+    let body: {
       access_token?: string;
       refresh_token?: string;
       role?: string;
       error?: { code: string; message: string };
-    };
+    } = {};
+    try {
+      body = JSON.parse(rawText) as typeof body;
+    } catch {
+      // Non-JSON error page (edge HTML, proxy text) — snippet it for the tail.
+      console.error(`[admin-auth] demo non-JSON error body: ${rawText.slice(0, 200)}`);
+    }
     if (!res.ok) {
       const code = body.error?.code ?? "UNAUTH";
       console.error(`[admin-auth] demo failed: POST /v1/auth/demo → ${res.status} ${code}`);
@@ -151,7 +158,7 @@ export const loginDemoServer = createServerFn({ method: "POST" })
         ok: false,
         status: res.status,
         code,
-        message: body.error?.message ?? "Access code not accepted.",
+        message: body.error?.message ?? `Access code not accepted (${res.status}).`,
       };
     }
     if (body.role !== "admin") {
