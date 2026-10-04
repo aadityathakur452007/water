@@ -12,15 +12,13 @@
 import 'package:flutter/material.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
 import 'checkout_service.dart';
-import 'product_detail_sheet.dart'
-    show deliveryTypeLabels, deliveryTypeIcons;
+import 'product_detail_sheet.dart' show deliveryTypeLabels;
 
 /// Opens checkout. [address] may be null → step 1 prompts to pick one.
 Future<void> showCheckoutSheet(
@@ -264,28 +262,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     }
   }
 
-  /// UPI collection: real Razorpay ref → gateway; FAKE-* → upi:// link.
+  /// 026 Razorpay-truth: gateway only, never upi:// (no UPI VPA configured —
+  /// the webhook is the money truth). FAKE-*/empty refs fail closed to COD.
   Future<void> _collectUpi(CheckoutResult result) async {
-    if (result.providerRef.isEmpty) {
-      widget.onDone(result);
-      return;
-    }
-    if (!result.needsGateway) {
-      final ok = await launchUrl(
-        Uri.parse(
-          'upi://pay?pa=shodasha@upi&pn=Shodasha&am=${result.totalPaise / 100}&cu=INR&tr=${result.providerRef}',
-        ),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!mounted) return;
-      if (!ok) {
+    if (result.providerRef.isEmpty || !result.needsGateway) {
+      if (mounted) {
         setState(() {
           _phase = _Phase.error;
-          _error = 'UPI app nahi mila — COD chunein ya retry karein';
+          _error =
+              'Online payment maintenance chal raha hai — COD chunein ya retry karein';
         });
-        return;
       }
-      widget.onDone(result);
       return;
     }
     if (widget.razorpayKeyId.isEmpty) {
@@ -418,35 +405,38 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return true;
   }
 
+  /// 026 compact schedule: 1 dropdown + progressive disclosure (no 5-chip wall).
   Widget _scheduleStep(bool busy) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: DeliveryType.values.map((t) {
-            final selected = t == c.deliveryType;
-            return ChoiceChip(
-              avatar: Icon(
-                deliveryTypeIcons[t],
-                size: 18,
-                color: selected ? ShodashaTheme.bg : ShodashaTheme.blue,
+        DropdownButtonFormField<DeliveryType>(
+          initialValue: c.deliveryType,
+          decoration: InputDecoration(
+            labelText: 'Delivery ka plan',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          items: [
+            for (final t in DeliveryType.values)
+              DropdownMenuItem(
+                value: t,
+                child: Text(deliveryTypeLabels[t]!),
               ),
-              label: Text(deliveryTypeLabels[t]!),
-              selected: selected,
-              onSelected: (_) => setState(() => c.deliveryType = t),
-              selectedColor: ShodashaTheme.ink,
-              labelStyle: TextStyle(
-                color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
-                fontWeight: FontWeight.w600,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: ShodashaTheme.border),
-              ),
-            );
-          }).toList(),
+          ],
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() {
+              c.deliveryType = v;
+              // Once orders are always per-delivery; subscriptions keep choice.
+              if (v == DeliveryType.once) {
+                c.billingMode = BillingMode.perDelivery;
+              } else if (c.billingMode == BillingMode.perDelivery) {
+                c.billingMode = BillingMode.monthlyPrepaid;
+              }
+            });
+          },
         ),
         const SizedBox(height: 12),
         if (_isOnce) ...[
@@ -530,11 +520,46 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           '${rupeesLabel(c.quoteTotalPaise)}',
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
+        // 026 monthly choice for subscriptions (once stays per-delivery).
+        if (!_isOnce) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<BillingMode>(
+            initialValue: c.billingMode == BillingMode.perDelivery
+                ? BillingMode.monthlyPrepaid
+                : c.billingMode,
+            decoration: InputDecoration(
+              labelText: 'Billing',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: BillingMode.monthlyPrepaid,
+                child: Text('UPI monthly • prepaid (30 din advance)'),
+              ),
+              DropdownMenuItem(
+                value: BillingMode.monthlyPostpaid,
+                child: Text('Monthly • postpaid (mahine ke ant me)'),
+              ),
+            ],
+            onChanged: (v) {
+              if (v == null) return;
+              setState(() {
+                c.billingMode = v;
+                // Prepaid settles upfront → UPI; postpaid allows COD too.
+                if (v == BillingMode.monthlyPrepaid) {
+                  c.paymentMode = PaymentMode.upi;
+                }
+              });
+            },
+          ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [
             _PayChip(
-              label: 'UPI',
+              label: _isOnce ? 'UPI' : 'UPI monthly',
               selected: c.paymentMode == PaymentMode.upi,
               onTap: () => setState(() => c.paymentMode = PaymentMode.upi),
             ),

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-072 | 2026-10-04 | 026 Razorpay-only UPI + monthly prepaid/postpaid billing_mode + compact schedule dropdown | Accepted | workers/api subs/payments/scheduler/tests + 012_monthly, user_app booking/subs, branch 026-upi-monthly-redesign |
 | ADR-071 | 2026-10-04 | 025 vendors crash-proof date + admin-visible error text + silent session renew in dashboard gate | Accepted | apps/admin_app vendors/root-error/dashboard-route, branch 025-vendors-crash-and-session |
 | ADR-070 | 2026-10-04 | 023 restore WATER_API service binding (dropped in 013 cutover) as binding-first transport; edge rejects worker-to-worker HTTPS with opaque 403 | Accepted | apps/admin_app wrangler/server, branch 023-water-api-binding |
 | ADR-069 | 2026-10-04 | 021 temporary access-code admin login (config-gated demo door + form mode) while phone OTP is repaired; no Firebase SDK in bundle so client Firebase path can never work as built | Accepted | apps/admin_app server/form, branch 021-admin-demo-door |
@@ -126,6 +127,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-072: 026 Razorpay-only UPI + monthly billing + compact schedule
+- **Date**: 2026-10-04
+- **Status**: Accepted
+- **Context**: UPI tap either opened a `upi://` intent to an unconfigured VPA (`shodasha@upi`, `UPI_PROVIDER=fake`) or hit an empty Razorpay key with a dead end; schedule step showed a 5-chip `Wrap` + always-visible calendar/note wall; subscriptions knew only `payment_method`, no monthly.
+- **Options considered**: UPI-intent-first with Razorpay fallback (rejected by user — no UPI account configured, webhook is the money truth); new money tables for monthly (rejected — ledger dues/held + order `payment_mode` already the truth, monthly lives on the subscription); new vendor tab / admin subs page (rejected — vendor stops already show mode/collect + held/dues, admin payments/dues already filter it; dedicated pages parked).
+- **Decision**: Backend `012_monthly.sql` (`subscriptions.billing_mode` per_delivery|monthly_prepaid|monthly_postpaid) + service validation/convergence + `monthly_estimate_paise` on list + `billing_mode` through `process_due`/scheduler descriptors; `get_dues` gains `provider` + `razorpay_ready` (pay_link stays informational). User app: Razorpay-only `_collectUpi` (FAKE/empty fails closed to COD), schedule dropdown + progressive disclosure, pay-step monthly toggle, `createSubscription` carries `billing_mode/payment_method`, subs screen shows mode badge + estimate + provider-gated dues. Spec: `Feature_docs/upi-monthly/spec.md`. Verify: backend 215, user 98, vendor 32 green, both flutters analyze 0.
+- **Why**: Removes the unpayable `upi://` path at the root, makes monthly a first-class server-validated mode with prepaid+postpaid, and compacts the schedule UI without inventing design (ShodashaTheme tokens, dropdown + disclosure).
+- **Consequences**: D1 needs `012_monthly.sql` applied once (ALTER apply-once); live Razorpay still needs `UPI_PROVIDER=razorpay` + keys + webhook secret before real money moves; vendor/admin monthly visibility rides existing dues/mode surfaces.
+- **Affects**: workers/api 012 + subscription_service/subscriptions router/payments dues/scheduler + test_monthly_billing, user_app booking_controller/api_client/checkout_service/booking_sheet/subscription_screen + checkout_payload_test, branch 026-upi-monthly-redesign
 
 ### ADR-066: 018 admin login diagnosability
 - **Date**: 2026-10-03

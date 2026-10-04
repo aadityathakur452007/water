@@ -10,6 +10,10 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+026 IN PROGRESS on branch 026-upi-monthly-redesign (ADR-072, spec Feature_docs/upi-monthly/spec.md): Razorpay-only UPI (no upi:// — no VPA configured, webhook is money truth) + monthly prepaid/postpaid billing_mode (012_monthly + service convergence + dues provider flag + scheduler carry) + compact schedule dropdown + pay-step monthly toggle + subs badges/estimate + provider-gated dues. Verify so far: backend 215, user 98, vendor 32 green, both analyzes 0. Next: commit + merge call, D1 apply 012 once, device run (Razorpay dues/monthly, COD fallback).
+
+009 MERGED to main (6d7e740): 011 ALTERs onto real 007 vendor_profile shape. Main pushed; 026 branched from it.
+
 018 admin login MERGED to main (ca79808, ADR-066, pushed — Workers Builds redeploys): prod diagnosability (apiUrl normalize, status-carrying errors, tail logs) + Firebase naming guard. Root cause of prod 'Verification failed': Cloudflare vars VITE_PUBLIC_FIREBASE_* ≠ code's VITE_FIREBASE_* (+ possible API_URL shape). Owner: rename 3 vars + rebuild; confirm worker FIREBASE_PROJECT_ID + admin role on prod D1. Next: device/admin login verify.
 
 016 + 017 MERGED to main (2026-10-03, ADR-064 + ADR-065): dashboard one-screen composition + zone-scoped pool (016) and full vendor↔user↔admin handoff repair (017: OTP, cash truth, hold flags, quality/duty on tables, admin money writes, dues pay-link, returns end-to-end). Verify at merge: backend + both apps green, analyzes 0 (re-verified post-merge below). Next: push (release cuts dual APKs) + device run (COD cash, OTP handoff, pickup, payouts).

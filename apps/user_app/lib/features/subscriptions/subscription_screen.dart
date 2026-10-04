@@ -57,6 +57,9 @@ class SubscriptionEntry {
     this.holdFrom,
     this.holdTo,
     this.nextRun,
+    this.billingMode = 'per_delivery',
+    this.paymentMethod = 'cod',
+    this.monthlyEstimatePaise = 0,
   });
 
   final String id;
@@ -68,6 +71,16 @@ class SubscriptionEntry {
   final String? holdFrom; // YYYY-MM-DD
   final String? holdTo; // YYYY-MM-DD
   final String? nextRun; // YYYY-MM-DD
+  // 026 monthly: server billing_mode + payment_method + 30-day estimate.
+  final String billingMode;
+  final String paymentMethod;
+  final int monthlyEstimatePaise;
+
+  static String billingLabel(String mode) => switch (mode) {
+        'monthly_prepaid' => 'Monthly • prepaid',
+        'monthly_postpaid' => 'Monthly • postpaid',
+        _ => 'Har delivery par',
+      };
 
   static SubscriptionEntry fromApi(Map<String, dynamic> j) =>
       SubscriptionEntry(
@@ -80,6 +93,10 @@ class SubscriptionEntry {
         holdFrom: j['hold_from'] as String?,
         holdTo: j['hold_to'] as String?,
         nextRun: j['next_run'] as String?,
+        billingMode: (j['billing_mode'] ?? 'per_delivery') as String,
+        paymentMethod: (j['payment_method'] ?? 'cod') as String,
+        monthlyEstimatePaise:
+            (j['monthly_estimate_paise'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -101,8 +118,12 @@ class SubscriptionController extends ChangeNotifier {
   /// 015: pay-per-day totals — Due today (qty × rate) + Paid till now (dues).
   int duesPaise = 0;
 
-  /// F7: server UPI intent for the outstanding dues (null when none).
+  /// F7: server dues link (null when none). 026: only honored when the
+  /// provider is Razorpay-ready — no UPI VPA is configured, so a raw upi://
+  /// link must never auto-launch (Razorpay webhook is the money truth).
   String? duesPayLink;
+  String duesProvider = 'fake';
+  bool get duesRazorpayReady => duesProvider == 'razorpay' && duesPayLink != null;
   int get dueTodayPaise => _items.fold(0, (s, e) => s + e.qty * 2800);
 
   Future<void> load() async {
@@ -121,9 +142,13 @@ class SubscriptionController extends ChangeNotifier {
         duesPaise = (dues['dues'] as num?)?.toInt() ?? 0;
         final link = dues['pay_link'];
         duesPayLink = link is String && link.isNotEmpty ? link : null;
+        final prov = dues['provider'];
+        duesProvider =
+            prov is String && prov == 'razorpay' ? 'razorpay' : 'fake';
       } catch (_) {
         duesPaise = 0;
         duesPayLink = null;
+        duesProvider = 'fake';
       }
       _status = SubStatus.loaded;
     } on ApiException catch (e) {
@@ -420,14 +445,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 const TextStyle(fontWeight: FontWeight.w700),
                           ),
                         ),
-                        // F7: server UPI intent for outstanding dues.
-                        if (c.duesPayLink != null)
+                        // 026: dues settle via Razorpay-ready link only;
+                        // otherwise COD-to-vendor guidance (no upi:// launch).
+                        if (c.duesRazorpayReady)
                           TextButton(
                             onPressed: () => launchUrl(
                               Uri.parse(c.duesPayLink!),
                               mode: LaunchMode.externalApplication,
                             ),
                             child: const Text('Pay dues'),
+                          )
+                        else if (c.duesPaise > 0)
+                          const Text(
+                            'Bakaya vendor ko cash/UPI par dein',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: ShodashaTheme.muted),
                           ),
                       ],
                     ),
@@ -454,6 +487,27 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               ),
                             ),
                           ),
+                          // 026 monthly badge (vendor/admin see the same via API).
+                          Container(
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: ShodashaTheme.blueTint,
+                              borderRadius: BorderRadius.circular(
+                                ShodashaTheme.radius,
+                              ),
+                            ),
+                            child: Text(
+                              SubscriptionEntry.billingLabel(s.billingMode),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: ShodashaTheme.blue,
+                              ),
+                            ),
+                          ),
                           if (s.paused)
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -476,6 +530,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             ),
                         ],
                       ),
+                      if (s.billingMode != 'per_delivery' &&
+                          s.monthlyEstimatePaise > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Mahina ~Rs ${s.monthlyEstimatePaise ~/ 100} • ${s.paymentMethod.toUpperCase()}',
+                            style: const TextStyle(
+                              color: ShodashaTheme.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 4),
                       Text(
                         '${subStringsHi['qty']}: ${s.qty} • '

@@ -226,6 +226,24 @@ class CachingCatalogApi implements CatalogApi {
 
 enum PaymentMode { upi, cod }
 
+/// 026 monthly billing: per-delivery default; subscriptions may choose
+/// monthly prepaid (30-day estimate upfront, UPI) or monthly postpaid
+/// (month-end settle, UPI or COD). Once orders always stay per-delivery.
+enum BillingMode { perDelivery, monthlyPrepaid, monthlyPostpaid }
+
+/// Server wire value for [BillingMode].
+String billingModeOf(BillingMode b) => switch (b) {
+      BillingMode.perDelivery => 'per_delivery',
+      BillingMode.monthlyPrepaid => 'monthly_prepaid',
+      BillingMode.monthlyPostpaid => 'monthly_postpaid',
+    };
+
+BillingMode billingModeFrom(String? s) => switch (s) {
+      'monthly_prepaid' => BillingMode.monthlyPrepaid,
+      'monthly_postpaid' => BillingMode.monthlyPostpaid,
+      _ => BillingMode.perDelivery,
+    };
+
 /// Buy path: one-time order vs recurring subscription (005-home-ux).
 /// Maps to POST /orders (once) vs POST /subscriptions (schedule_type).
 enum DeliveryType { once, daily, alternate, weekly, custom }
@@ -283,6 +301,9 @@ class BookingController extends ChangeNotifier {
   }
 
   PaymentMode paymentMode = PaymentMode.upi;
+
+  /// 026: monthly choice for subscriptions (once forces perDelivery).
+  BillingMode billingMode = BillingMode.perDelivery;
 
   /// Buy path chosen in the detail sheet (once → POST /orders,
   /// else → POST /subscriptions with scheduleTypeOf(deliveryType)).

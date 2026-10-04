@@ -90,6 +90,36 @@ def _row(r: sqlite3.Row) -> dict:
     return dict(r)
 
 
+BILLING_MODES = ("per_delivery", "monthly_prepaid", "monthly_postpaid")
+PAYMENT_METHODS = ("upi", "cod")
+
+
+async def _ensure_billing_mode(conn: Conn) -> None:
+    """026 convergence: 012 ALTER on old DBs (PRAGMA + conditional ALTER).
+
+    Precedent: vendor_profile ensure convergence (ADR-065) — ALTER is
+    apply-once, CREATE would no-op on the real table. Keeps :memory: test DBs
+    built from 004-only harnesses working without a migration run.
+    """
+    try:
+        cols = (await conn.execute("PRAGMA table_info(subscriptions)")).fetchall()
+        names = {str(dict(r).get("name", "")) for r in cols}
+    except Exception:
+        return
+    if "billing_mode" not in names:
+        try:
+            await conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN billing_mode"
+                " TEXT NOT NULL DEFAULT 'per_delivery'"
+            )
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def _due_today(qty: object, sku_mix: object) -> int:
     """Today's dues preview: qty x rate (container 3000, else refill 2800).
 
@@ -103,6 +133,11 @@ def _due_today(qty: object, sku_mix: object) -> int:
         q = 0
     rate = pricing.CONTAINER_PAISE if str(sku_mix or "").strip().lower() == "container" else pricing.REFILL_PAISE
     return q * rate
+
+
+def _monthly_estimate(qty: object, sku_mix: object) -> int:
+    """026: 30-day prepaid estimate (qty x rate x 30). Postpaid settles dues."""
+    return _due_today(qty, sku_mix) * 30
 
 
 class SubscriptionService:
@@ -124,7 +159,19 @@ class SubscriptionService:
             raise SubNotFoundError(message="Address not found.", details={"id": address_id})
         schedule = str(payload.get("schedule_type") or "daily")
         recurrence = str(payload.get("recurrence") or "")
+        payment_method = str(payload.get("payment_method") or "cod").strip().lower()
+        if payment_method not in PAYMENT_METHODS:
+            raise SubValidationError(
+                message="payment_method must be upi or cod.", details={"payment_method": payment_method}
+            )
+        billing_mode = str(payload.get("billing_mode") or "per_delivery").strip().lower()
+        if billing_mode not in BILLING_MODES:
+            raise SubValidationError(
+                message="billing_mode must be per_delivery, monthly_prepaid or monthly_postpaid.",
+                details={"billing_mode": billing_mode},
+            )
         next_run = _parse_day(payload.get("next_run")) or self._default_next_run()
+        await _ensure_billing_mode(self._conn)
         sub = {
             "id": uuid.uuid4().hex,
             "user_id": user_id,
@@ -135,18 +182,19 @@ class SubscriptionService:
             "next_run": next_run,
             "schedule_type": schedule,
             "recurrence": recurrence,
-            "payment_method": str(payload.get("payment_method") or "cod"),
+            "payment_method": payment_method,
+            "billing_mode": billing_mode,
             "status": "active",
         }
         with WRITE_LOCK:
             try:
                 await self._conn.execute(
                     "INSERT INTO subscriptions(id, user_id, address_id, qty, sku_mix, window,"
-                    " next_run, schedule_type, recurrence, payment_method,"
+                    " next_run, schedule_type, recurrence, payment_method, billing_mode,"
                     " tier, discount_pct, perks, status, hold_from, hold_to)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'active', NULL, NULL)",
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'active', NULL, NULL)",
                     (sub["id"], user_id, address_id, qty, sub["sku_mix"], sub["window"],
-                     next_run, schedule, recurrence, sub["payment_method"]),
+                     next_run, schedule, recurrence, sub["payment_method"], sub["billing_mode"]),
                 )
                 self._conn.commit()
             except Exception:
@@ -155,21 +203,31 @@ class SubscriptionService:
         return await self.get_owned(user_id, sub["id"]) or sub
 
     async def list(self, user_id: str) -> list[dict]:
+        await _ensure_billing_mode(self._conn)
         rows = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY rowid", (user_id,)
         )).fetchall()
         out = []
         for r in rows:
             d = _row(r)
+            d.setdefault("billing_mode", "per_delivery")
+            d.setdefault("payment_method", "cod")
             d["due_today_paise"] = _due_today(d.get("qty"), d.get("sku_mix"))
+            d["monthly_estimate_paise"] = _monthly_estimate(d.get("qty"), d.get("sku_mix"))
             out.append(d)
         return out
 
     async def get_owned(self, user_id: str, sub_id: str) -> dict | None:
+        await _ensure_billing_mode(self._conn)
         row = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE id = ? AND user_id = ?", (sub_id, user_id)
         )).fetchone()
-        return _row(row) if row is not None else None
+        if row is None:
+            return None
+        d = _row(row)
+        d.setdefault("billing_mode", "per_delivery")
+        d.setdefault("payment_method", "cod")
+        return d
 
     # -- pause / resume / skip --------------------------------------------
 
@@ -304,7 +362,9 @@ class SubscriptionService:
                         "sub_id": s["id"], "user_id": s["user_id"],
                         "address_id": s["address_id"], "qty": s["qty"],
                         "sku_mix": s["sku_mix"], "window": s["window"],
-                        "payment_method": s["payment_method"], "date": d.isoformat(),
+                        "payment_method": s.get("payment_method", "cod"),
+                        "billing_mode": s.get("billing_mode", "per_delivery"),
+                        "date": d.isoformat(),
                     })
                     await self._advance_past(s, _dt.date.fromisoformat(tday))
                 self._conn.commit()

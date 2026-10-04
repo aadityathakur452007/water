@@ -24,6 +24,7 @@ class SubCreateIn(BaseModel):
     schedule_type: str = Field(default="daily", max_length=16)
     recurrence: str = Field(default="", max_length=64)
     payment_method: str = Field(default="cod", max_length=16)
+    billing_mode: str = Field(default="per_delivery", max_length=24)
     next_run: str | None = Field(default=None, max_length=32)
 
 

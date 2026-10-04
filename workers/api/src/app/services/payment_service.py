@@ -127,9 +127,20 @@ class PaymentService:
             from app.adapters.upi import agency_vpa as _vpa  # noqa: PLC0415
 
             vpa = _vpa()
+        # 026 Razorpay-truth: upi:// pay_link is informational only — no UPI VPA
+        # is configured (UPI_PROVIDER defaults to fake), so the app must never
+        # auto-launch it. Razorpay webhook is the money truth.
+        try:
+            from app.adapters.upi import _setting as _upi_setting  # noqa: PLC0415
+
+            provider = str(_upi_setting("UPI_PROVIDER", "fake")).lower()
+        except Exception:
+            provider = "fake"
+        provider = "razorpay" if provider == "razorpay" else "fake"
         pay_link = (f"upi://pay?pa={vpa}&pn=Shodasha&am={dues / 100:.2f}&cu=INR"
                     if dues > 0 else None)
-        return {"dues": dues, "lines": lines, "pay_link": pay_link}
+        return {"dues": dues, "lines": lines, "pay_link": pay_link,
+                "provider": provider, "razorpay_ready": provider == "razorpay"}
 
     async def get_invoice(self, user_id: str, order_id: str) -> dict:
         order = await self.orders.find_owned(order_id, user_id)

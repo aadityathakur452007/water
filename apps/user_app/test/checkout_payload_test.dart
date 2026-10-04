@@ -64,6 +64,19 @@ void main() {
       expect(c.deliveryType, DeliveryType.once);
       c.dispose();
     });
+
+    // 026: monthly billing wire mapping (prepaid + postpaid, per-delivery default).
+    test('billing mode maps to server values', () {
+      expect(billingModeOf(BillingMode.perDelivery), 'per_delivery');
+      expect(billingModeOf(BillingMode.monthlyPrepaid), 'monthly_prepaid');
+      expect(billingModeOf(BillingMode.monthlyPostpaid), 'monthly_postpaid');
+      expect(billingModeFrom('monthly_prepaid'), BillingMode.monthlyPrepaid);
+      expect(billingModeFrom('monthly_postpaid'), BillingMode.monthlyPostpaid);
+      expect(billingModeFrom(null), BillingMode.perDelivery);
+      final c = BookingController();
+      expect(c.billingMode, BillingMode.perDelivery);
+      c.dispose();
+    });
   });
 
   group('repeat history gates (006-auth-flow)', () {

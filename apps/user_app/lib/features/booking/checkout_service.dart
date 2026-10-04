@@ -66,6 +66,9 @@ Future<CheckoutResult> placeCheckout({
       window: windowLabel,
       scheduleType: scheduleTypeOf(controller.deliveryType),
       recurrence: recurrence,
+      billingMode: billingModeOf(controller.billingMode),
+      paymentMethod:
+          controller.paymentMode == PaymentMode.upi ? 'upi' : 'cod',
     );
     final data = (sub['subscription'] as Map<String, dynamic>?) ?? sub;
     return CheckoutResult(

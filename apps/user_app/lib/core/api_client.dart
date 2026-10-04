@@ -374,6 +374,8 @@ class ApiClient {
     required String window,
     required String scheduleType,
     String recurrence = '',
+    String billingMode = 'per_delivery',
+    String paymentMethod = 'cod',
   }) async =>
       (await send('POST', '/subscriptions', body: {
         'address_id': addressId,
@@ -382,6 +384,8 @@ class ApiClient {
         'window': window,
         'schedule_type': scheduleType,
         'recurrence': recurrence,
+        'billing_mode': billingMode,
+        'payment_method': paymentMethod,
       })) as Map<String, dynamic>;
 
   // ── UPI intent (§4.4 — Razorpay order for the in-app gateway) ─────────────
