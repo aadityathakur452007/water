@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-069 | 2026-10-04 | 021 temporary access-code admin login (config-gated demo door + form mode) while phone OTP is repaired; no Firebase SDK in bundle so client Firebase path can never work as built | Accepted | apps/admin_app server/form, branch 021-admin-demo-door |
 | ADR-068 | 2026-10-04 | 020 login passthrough: form shows server message (was discarding it — the bare 'Could not send the code'), fetch failures logged + returned as NETWORK | Accepted | apps/admin_app server/form, branch 020-login-error-passthrough |
 | ADR-067 | 2026-10-03 | 019 pasteable login errors: worker message passthrough on start + Copy triage bundle (never secrets) | Accepted | apps/admin_app server/form, branch 019-pasteable-login-errors |
 | ADR-066 | 2026-10-03 | 018 admin login: prod diagnosability (apiUrl normalize, status-carrying errors, tail logs) + Firebase naming guard + VITE_PUBLIC trap doc | Accepted | apps/admin_app server/form/wrangler, branch 018-admin-login-observability |
