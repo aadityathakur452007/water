@@ -60,8 +60,13 @@ const ADMIN_PREFIX = "/v1/admin";
  */
 async function bindingFetch(path: string, init: RequestInit): Promise<Response | null> {
   try {
-    const { env } = await import("cloudflare:workers");
-    const binding = env.WATER_API as { fetch: typeof fetch } | undefined;
+    // @vite-ignore keeps this runtime-only: the client bundle must not try
+    // to resolve the workers runtime import (build failure otherwise). This
+    // only ever executes inside server functions on the worker / wrangler dev.
+    const { env } = await import(/* @vite-ignore */ "cloudflare:workers");
+    const binding = (env as Record<string, unknown>).WATER_API as
+      | { fetch: typeof fetch }
+      | undefined;
     if (!binding) return null;
     return await binding.fetch(`https://water.internal${path}`, init);
   } catch {
