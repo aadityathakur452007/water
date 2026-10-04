@@ -20,6 +20,8 @@ from app.db import get_connection, init_schema  # noqa: E402
 def _apply_migration(conn) -> None:
     base = Path(__file__).resolve().parents[1] / "src" / "app" / "db" / "migrations"
     conn.executescript((base / "003_addresses.sql").read_text())
+    # 007 owns vendor_profile (011 ALTERs Slice-1 columns onto it).
+    conn.executescript((base / "007_ops.sql").read_text())
     conn.executescript((base / "011_port.sql").read_text())  # full-format columns
     conn.commit()
 
