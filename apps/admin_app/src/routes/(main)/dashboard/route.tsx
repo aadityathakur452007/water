@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { users } from "@/data/users";
-import { hasSessionServer } from "@/server/admin-session";
+import { hasSessionServer, refreshSessionServer, storeRotatedSessionServer } from "@/server/admin-session";
 import { getDashboardLayout } from "@/server/server-actions";
 
 import { AccountSwitcher } from "./-components/header/account-switcher";
@@ -27,7 +27,15 @@ export const Route = createFileRoute("/(main)/dashboard")({
   loader: async () => {
     const { authed } = await hasSessionServer();
     if (!authed) {
-      throw redirect({ to: "/auth/v1/login", search: { next: "/dashboard" }, replace: true });
+      // Session cookie expired but the 7-day refresh cookie may live:
+      // silently renew once before bouncing to sign-in, so desktops keep
+      // their login across the 30-minute access TTL.
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+      } else {
+        throw redirect({ to: "/auth/v1/login", search: { next: "/dashboard" }, replace: true });
+      }
     }
     return getDashboardLayout();
   },

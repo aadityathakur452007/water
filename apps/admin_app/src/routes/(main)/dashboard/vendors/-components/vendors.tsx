@@ -35,6 +35,17 @@ type VendorView = {
 
 const VENDOR_COUNT = 50;
 
+/** Crash-proof date: one bad created_at must never take down the page. */
+function joinedLabel(value: unknown): string {
+  try {
+    const d = value instanceof Date ? value : new Date(value as string);
+    if (Number.isNaN(d.getTime())) return "—";
+    return format(d, "dd MMM yyyy");
+  } catch {
+    return "—";
+  }
+}
+
 function holdLabel(busy: boolean, held: boolean): string {
   if (busy) return "…";
   return held ? "Release hold" : "Review hold";
@@ -54,7 +65,7 @@ export function Vendors() {
           phone: v.phone,
           kyc: v.kyc_status,
           status: v.suspended ? "Blocked" : "Active",
-          joinedDate: format(new Date(v.created_at), "dd MMM yyyy"),
+          joinedDate: joinedLabel(v.created_at),
           onDuty: 0,
           inHand: 0,
           reviewHold: 0,
