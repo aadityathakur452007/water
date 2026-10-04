@@ -117,6 +117,51 @@ export const loginVerifyServer = createServerFn({ method: "POST" })
     return { ok: true, role: body.role };
   });
 
+/**
+ * Temporary access-code login (doorstep unblock while phone OTP is down).
+ * Calls the worker's config-gated demo door (demo_codes hash + flag), mints
+ * a normal role-checked session, and sets the same cookies. Revoke by
+ * deleting the demo_codes row or flipping the flag — see runbook in chat.
+ */
+export const loginDemoServer = createServerFn({ method: "POST" })
+  .validator((input: { phone: string; code: string }) => input)
+  .handler(async ({ data }): Promise<LoginVerifyResult> => {
+    let res: Response;
+    try {
+      res = await fetch(`${apiUrl()}/v1/auth/demo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phone: data.phone, demo_code: data.code, device: { id: "admin-web" } }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      console.error(`[admin-auth] demo fetch failed: ${e instanceof Error ? e.message : e}`);
+      return { ok: false, status: 0, code: "NETWORK", message: "API worker unreachable. Check API_URL and worker status." };
+    }
+    const body = (await res.json().catch(() => ({}))) as {
+      access_token?: string;
+      refresh_token?: string;
+      role?: string;
+      error?: { code: string; message: string };
+    };
+    if (!res.ok) {
+      const code = body.error?.code ?? "UNAUTH";
+      console.error(`[admin-auth] demo failed: POST /v1/auth/demo → ${res.status} ${code}`);
+      return {
+        ok: false,
+        status: res.status,
+        code,
+        message: body.error?.message ?? "Access code not accepted.",
+      };
+    }
+    if (body.role !== "admin") {
+      return { ok: false, status: 403, code: "FORBIDDEN", message: "This number is not an admin." };
+    }
+    setCookie(SESSION_COOKIE, body.access_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 30 });
+    setCookie(REFRESH_COOKIE, body.refresh_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 60 * 24 * 7 });
+    return { ok: true, role: body.role };
+  });
+
 /** Silent renewal: sh_refresh → /v1/auth/refresh → rotated pair. Returns null when unusable. */
 export const refreshSessionServer = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ access: string; refresh: string } | null> => {
