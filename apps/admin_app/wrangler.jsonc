@@ -20,6 +20,15 @@
   "assets": {
     "directory": ".output/public"
   },
+  "services": [
+    {
+      // Backend API in the same account. The BFF prefers this over public
+      // HTTPS, which the edge can reject on worker-to-worker fetch
+      // (1003 historically, opaque 403 now). Restored from the old admin.
+      "binding": "WATER_API",
+      "service": "water"
+    }
+  ],
   "observability": {
     "enabled": true
   }

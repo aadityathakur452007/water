@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie, setCookie } from "@tanstack/react-start/server";
 
+import { callWorkerPublic } from "./admin-api";
+
 /**
  * Admin session against the Python Workers API (BFF — mirrors
  * apps/admin_app's /api/auth/otp routes 1:1: same endpoint calls, same
@@ -46,12 +48,7 @@ export const loginStartServer = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<LoginStartResult> => {
     let res: Response;
     try {
-      res = await fetch(`${apiUrl()}/v1/auth/otp/start`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone: data.phone }),
-        signal: AbortSignal.timeout(15_000),
-      });
+      res = await callWorkerPublic("/v1/auth/otp/start", { phone: data.phone });
     } catch (e) {
       // Worker unreachable from the admin isolate (DNS/edge/timeout) —
       // previously invisible: no log line and the form showed a bare string.
@@ -79,11 +76,9 @@ export const loginVerifyServer = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<LoginVerifyResult> => {
     let res: Response;
     try {
-      res = await fetch(`${apiUrl()}/v1/auth/otp/verify`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ firebase_id_token: data.id_token, device: { id: "admin-web" } }),
-        signal: AbortSignal.timeout(15_000),
+      res = await callWorkerPublic("/v1/auth/otp/verify", {
+        firebase_id_token: data.id_token,
+        device: { id: "admin-web" },
       });
     } catch (e) {
       console.error(`[admin-auth] otp/verify fetch failed: ${e instanceof Error ? e.message : e}`);
@@ -128,11 +123,10 @@ export const loginDemoServer = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<LoginVerifyResult> => {
     let res: Response;
     try {
-      res = await fetch(`${apiUrl()}/v1/auth/demo`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone: data.phone, demo_code: data.code, device: { id: "admin-web" } }),
-        signal: AbortSignal.timeout(15_000),
+      res = await callWorkerPublic("/v1/auth/demo", {
+        phone: data.phone,
+        demo_code: data.code,
+        device: { id: "admin-web" },
       });
     } catch (e) {
       console.error(`[admin-auth] demo fetch failed: ${e instanceof Error ? e.message : e}`);
@@ -174,11 +168,9 @@ export const refreshSessionServer = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ access: string; refresh: string } | null> => {
     const refresh_token = getCookie(REFRESH_COOKIE);
     if (!refresh_token) return null;
-    const res = await fetch(`${apiUrl()}/v1/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refresh_token, device: { id: "admin-web" } }),
-      signal: AbortSignal.timeout(15_000),
+    const res = await callWorkerPublic("/v1/auth/refresh", {
+      refresh_token,
+      device: { id: "admin-web" },
     });
     if (!res.ok) return null;
     const data = (await res.json().catch(() => null)) as { access_token?: string; refresh_token?: string } | null;
@@ -199,12 +191,11 @@ export const logoutServer = createServerFn({ method: "POST" }).handler(async () 
   const access = getCookie(SESSION_COOKIE);
   if (access) {
     // Best-effort worker-side revocation; cookie clearing always wins.
-    await fetch(`${apiUrl()}/v1/auth/logout`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${access}` },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(5_000),
-    }).catch(() => undefined);
+    await callWorkerPublic(
+      "/v1/auth/logout",
+      {},
+      { authorization: `Bearer ${access}` },
+    ).catch(() => undefined);
   }
   setCookie(SESSION_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
   setCookie(REFRESH_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
