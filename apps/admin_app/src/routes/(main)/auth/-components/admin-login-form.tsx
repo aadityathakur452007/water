@@ -9,7 +9,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { toast } from "@/components/ui/toast";
-import { loginStartServer, loginVerifyServer } from "@/server/admin-session";
+import { loginDemoServer, loginStartServer, loginVerifyServer } from "@/server/admin-session";
 
 /**
  * Admin phone-OTP login — same two-step flow as the old admin's login page
@@ -58,6 +58,36 @@ export function AdminLoginForm() {
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  // Temporary access-code mode (doorstep unblock while phone OTP is down).
+  const [accessMode, setAccessMode] = React.useState(false);
+  const [accessCode, setAccessCode] = React.useState("");
+
+  async function signInDemo() {
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      setError("Enter a valid Indian mobile number.");
+      return;
+    }
+    if (accessCode.trim().length < 4) {
+      setError("Enter the access code.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await loginDemoServer({ data: { phone: normalized, code: accessCode.trim() } });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      toast.add({ title: "Signed in", description: "Welcome back." });
+      await navigate({ href: next?.startsWith("/") ? next : "/dashboard", replace: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sign-in failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function copyError() {
     if (!error) return;
@@ -190,22 +220,54 @@ export function AdminLoginForm() {
   }
 
   const submitLabel = () => {
+    if (accessMode) return "Sign in with code";
     if (!FIREBASE_API_KEY) return "Sign in";
     return step === "phone" ? "Send code" : "Sign in";
   };
 
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (accessMode) void signInDemo();
+    else if (step === "phone") void startOtp();
+    else void verifyOtp();
+  }
+
   return (
     <form
       noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (step === "phone") void startOtp();
-        else void verifyOtp();
-      }}
+      onSubmit={onSubmit}
       className="flex flex-col gap-4"
     >
       <FieldGroup className="gap-4">
-        {step === "phone" ? (
+        {accessMode ? (
+          <>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="admin-phone">Phone number</FieldLabel>
+              <Input
+                id="admin-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="+91 93021 90067"
+                className="tabular-nums"
+              />
+              <FieldDescription>Your admin number, then the one-time access code.</FieldDescription>
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="admin-access-code">Access code</FieldLabel>
+              <Input
+                id="admin-access-code"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                autoComplete="one-time-code"
+                placeholder="Issued by the owner"
+                className="tabular-nums"
+              />
+              <FieldDescription>Temporary entry while phone OTP is down. Revoke it after use.</FieldDescription>
+            </Field>
+          </>
+        ) : step === "phone" ? (
           <Field className="gap-1.5">
             <FieldLabel htmlFor="admin-phone">Phone number</FieldLabel>
             <Input
@@ -275,6 +337,18 @@ export function AdminLoginForm() {
         {submitLabel()}
         <ArrowRight aria-hidden />
       </Button>
+      <button
+        type="button"
+        onClick={() => {
+          setAccessMode((v) => !v);
+          setError(null);
+          setCode("");
+          setAccessCode("");
+        }}
+        className="self-center text-muted-foreground text-xs underline"
+      >
+        {accessMode ? "Back to phone OTP" : "Use access code instead"}
+      </button>
       <p className="flex items-center justify-center gap-1.5 text-muted-foreground text-xs">
         <ShieldCheck className="size-3.5" aria-hidden />
         Sessions are HttpOnly · role enforced on every request
