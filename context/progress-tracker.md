@@ -10,6 +10,8 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+018 admin login MERGED to main (ca79808, ADR-066, pushed — Workers Builds redeploys): prod diagnosability (apiUrl normalize, status-carrying errors, tail logs) + Firebase naming guard. Root cause of prod 'Verification failed': Cloudflare vars VITE_PUBLIC_FIREBASE_* ≠ code's VITE_FIREBASE_* (+ possible API_URL shape). Owner: rename 3 vars + rebuild; confirm worker FIREBASE_PROJECT_ID + admin role on prod D1. Next: device/admin login verify.
+
 016 + 017 MERGED to main (2026-10-03, ADR-064 + ADR-065): dashboard one-screen composition + zone-scoped pool (016) and full vendor↔user↔admin handoff repair (017: OTP, cash truth, hold flags, quality/duty on tables, admin money writes, dues pay-link, returns end-to-end). Verify at merge: backend + both apps green, analyzes 0 (re-verified post-merge below). Next: push (release cuts dual APKs) + device run (COD cash, OTP handoff, pickup, payouts).
 
 015 MERGED + PUSHED to main (f006067, 2026-10-03, ADR-060/061/062): user LIVE orders wiring + payment badges + bill mode + sub Due/Paid + hygiene + FCM token register, vendor JOIN + placed pool + Pull + badges + skeleton + waiver + brilliance + purge + channels, backend due_today + queue_or_log + exclusion test, Android notify/backup rules. Verify: backend 194, user/vendor green, analyzes 0. Release CI cuts dual APKs. Next: device run; real FCM sends need secrets.

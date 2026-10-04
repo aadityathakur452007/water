@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-066 | 2026-10-03 | 018 admin login: prod diagnosability (apiUrl normalize, status-carrying errors, tail logs) + Firebase naming guard + VITE_PUBLIC trap doc | Accepted | apps/admin_app server/form/wrangler, branch 018-admin-login-observability |
 | ADR-064 | 2026-10-03 | 016 vendor dashboard: one-screen Route-tab composition (TodayStrip fold + inline earnings + per-customer held/dues) + zone-scoped placed pool + ledger fields on customers | Accepted | workers/api vendor_service/vendor.py/tests, apps/vendor_app route/customers/shell/tests, Feature_docs/vendor-dashboard/spec.md, branch 016-vendor-dashboard |
 | ADR-065 | 2026-10-03 | 017 flow sync A+B+C: PoD OTP to user, vendor cash→money truth, hold flags, quality/duty on tables, admin money writes, user nits, returns end-to-end | Accepted | workers/api vendor/order/dispatch/admin/returns + tests, vendor_app stops/sync/route/shell, user_app orders/subs, admin_app BFF/vendor-detail/finance/dispatch/payments, branch 017-flow-sync |
 | ADR-063 | 2026-10-03 | 013 round 2: analytics/finance/dispatch surfaces + ledger adjust + returns tab from PDF/FR research; cutover — new dashboard renamed apps/admin_app_v2 → apps/admin_app, legacy admin + branch 005 deleted, zero backend changes | Accepted | apps/admin_app (TanStack Start), Feature_docs/premium-admin-dashboard/upgrade-roadmap.md, branch 013-premium-admin-dashboard |
@@ -120,6 +121,15 @@
 ---
 
 ## Decision Entries
+
+### ADR-066: 018 admin login diagnosability
+- **Date**: 2026-10-03
+- **Status**: Accepted
+- **Context**: Prod admin login failed with bare 'Verification failed' while localhost worked. Diagnosis: (1) Cloudflare vars named VITE_PUBLIC_FIREBASE_* don't match code's VITE_FIREBASE_* (Vite bakes exact names at build) so prod silently took the dev-login path, which a DEV_AUTH-off worker always rejects; (2) malformed API_URL (trailing slash or /v1 suffix) yields non-envelope 404s the old fallback string hid.
+- **Decision**: Normalize apiUrl + log host once per isolate; status-carrying error strings + [admin-auth]/[admin-api] tail logs (platform observability already on both workers); prod guard shows config-missing notice instead of a doomed dev attempt; wrangler.jsonc documents the naming trap. Single VITE_FIREBASE_* convention kept (no dual-name fallback).
+- **Why**: Turns the next failure into a one-line tail read instead of a guessing game; refuses to fake a login in prod.
+- **Consequences**: Needs Cloudflare var rename + rebuild to take effect; user runs npm run check (barred unasked).
+- **Affects**: admin-session.ts, admin-api.ts, admin-login-form.tsx, wrangler.jsonc
 
 ### ADR-064: 016 vendor dashboard — one-screen composition + zone-scoped pool
 - **Date**: 2026-10-03
