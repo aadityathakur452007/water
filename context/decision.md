@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-070 | 2026-10-04 | 023 restore WATER_API service binding (dropped in 013 cutover) as binding-first transport; edge rejects worker-to-worker HTTPS with opaque 403 | Accepted | apps/admin_app wrangler/server, branch 023-water-api-binding |
 | ADR-069 | 2026-10-04 | 021 temporary access-code admin login (config-gated demo door + form mode) while phone OTP is repaired; no Firebase SDK in bundle so client Firebase path can never work as built | Accepted | apps/admin_app server/form, branch 021-admin-demo-door |
 | ADR-068 | 2026-10-04 | 020 login passthrough: form shows server message (was discarding it — the bare 'Could not send the code'), fetch failures logged + returned as NETWORK | Accepted | apps/admin_app server/form, branch 020-login-error-passthrough |
 | ADR-067 | 2026-10-03 | 019 pasteable login errors: worker message passthrough on start + Copy triage bundle (never secrets) | Accepted | apps/admin_app server/form, branch 019-pasteable-login-errors |
