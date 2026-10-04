@@ -50,12 +50,20 @@ export const loginStartServer = createServerFn({ method: "POST" })
       body: JSON.stringify({ phone: data.phone }),
       signal: AbortSignal.timeout(15_000),
     });
+    const body = (await res.json().catch(() => ({}))) as {
+      sent_to_masked?: string;
+      resend_after_s?: number;
+      error?: { code: string; message: string };
+    };
     if (!res.ok) {
-      // No phone number in logs — path + status is enough to triage.
-      console.error(`[admin-auth] otp/start failed: POST /v1/auth/otp/start → ${res.status}`);
-      throw new Error(`Could not send the code (${res.status}).`);
+      const code = body.error?.code ?? "SERVER";
+      // No phone number in logs — path + status + worker code triages it.
+      // The worker's own message (e.g. rate-limit) is passed through so the
+      // UI can show — and copy — the real reason.
+      console.error(`[admin-auth] otp/start failed: POST /v1/auth/otp/start → ${res.status} ${code}`);
+      throw new Error(body.error?.message ?? `Could not send the code (${res.status} ${code}).`);
     }
-    return (await res.json().catch(() => ({}))) as LoginStartResult;
+    return { sent_to_masked: body.sent_to_masked, resend_after_s: body.resend_after_s };
   });
 
 export const loginVerifyServer = createServerFn({ method: "POST" })
