@@ -57,6 +57,26 @@ export function AdminLoginForm() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [info, setInfo] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  async function copyError() {
+    if (!error) return;
+    // Pasteable triage bundle: visible error + when + firebase-configured?
+    // Never includes secrets — keys stay out of the bundle by construction.
+    const bundle = [
+      `admin-login error @ ${new Date().toISOString()}`,
+      error,
+      `otp-configured: ${FIREBASE_API_KEY ? "yes" : "no"}`,
+      `page: ${typeof window !== "undefined" ? window.location.href : ""}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(bundle);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   async function signIn(idToken: string) {
     setBusy(true);
@@ -221,9 +241,17 @@ export function AdminLoginForm() {
           </Field>
         )}
         {error ? (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium text-destructive text-xs">
-            {error}
-          </p>
+          <div role="alert" className="flex items-start justify-between gap-2 rounded-md bg-destructive/10 px-3 py-2">
+            <p className="font-medium text-destructive text-xs">{error}</p>
+            <button
+              type="button"
+              onClick={() => void copyError()}
+              className="shrink-0 text-destructive text-xs underline"
+              aria-label="Copy error details"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
         ) : null}
       </FieldGroup>
       {step === "otp" ? (
