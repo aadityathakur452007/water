@@ -89,8 +89,10 @@ export function AdminLoginForm() {
       }
       toast.add({ title: "Signed in", description: "Welcome back." });
       await navigate({ href: next?.startsWith("/") ? next : "/dashboard", replace: true });
-    } catch {
-      setError("Sign-in failed. Is the API running?");
+    } catch (e) {
+      // Server throws only when the worker is unreachable (fetch failed);
+      // worker rejections arrive as {ok:false} above. Show the real cause.
+      setError(e instanceof Error ? e.message : "Sign-in failed. Is the API running?");
     } finally {
       setBusy(false);
     }
@@ -121,8 +123,8 @@ export function AdminLoginForm() {
       setInfo(data.sent_to_masked ? `Code sent to ${data.sent_to_masked}` : "Code sent");
       setPhone(normalized);
       setStep("otp");
-    } catch {
-      setError("Could not send the code.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send the code.");
     } finally {
       setBusy(false);
     }
