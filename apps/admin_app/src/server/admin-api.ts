@@ -51,22 +51,70 @@ export function apiMode(): "live" | "mock" {
 
 const ADMIN_PREFIX = "/v1/admin";
 
+/**
+ * Direct Worker-to-Worker call via the WATER_API service binding (same
+ * account). Public HTTPS fetch between workers.dev hosts can be stopped at
+ * the edge (error 1003 historically, opaque 403 now) — the binding never
+ * leaves Cloudflare's network: no DNS, no edge, no 403. Returns null when
+ * unavailable (local `vite dev`) so callers fall back to API_URL.
+ */
+async function bindingFetch(path: string, init: RequestInit): Promise<Response | null> {
+  try {
+    const { env } = await import("cloudflare:workers");
+    const binding = env.WATER_API as { fetch: typeof fetch } | undefined;
+    if (!binding) return null;
+    return await binding.fetch(`https://water.internal${path}`, init);
+  } catch {
+    return null;
+  }
+}
+
 async function workerFetch(
   path: string,
   method: "GET" | "POST" | "PATCH",
   body?: unknown,
 ): Promise<Response> {
   const access = getCookie(SESSION_COOKIE) ?? "";
-  return fetch(`${apiUrl()}${path}`, {
+  const init: RequestInit = {
     method,
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${access}`,
     },
-    body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
-  });
+  };
+  if (method !== "GET") init.body = JSON.stringify(body ?? {});
+  const viaBinding = await bindingFetch(path, init);
+  if (viaBinding) {
+    console.log(`[admin-api] ${method} ${path} via WATER_API binding`);
+    return viaBinding;
+  }
+  return fetch(`${apiUrl()}${path}`, init);
+}
+
+/**
+ * Unauthenticated worker POST without the admin cookie (login/logout edge).
+ * Binding-first like workerFetch; extra headers (logout Bearer) pass through.
+ */
+export async function callWorkerPublic(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body ?? {}),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  };
+  const viaBinding = await bindingFetch(path, init);
+  if (viaBinding) {
+    console.log(`[admin-api] POST ${path} via WATER_API binding`);
+    return viaBinding;
+  }
+  return fetch(`${apiUrl()}${path}`, init);
 }
 
 function parseEnvelope<T>(raw: string, fallback: T): T | WorkerErrorShape {
