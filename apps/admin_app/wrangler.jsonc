@@ -8,6 +8,8 @@
 // Build variables (dashboard, or wrangler secret put for secrets):
 //   API_URL=https://water.adityathakur452007.workers.dev   (bare origin; /v1/... is appended server-side)
 //   VITE_FIREBASE_API_KEY / VITE_FIREBASE_AUTH_DOMAIN / VITE_FIREBASE_PROJECT_ID  (Firebase phone OTP, client)
+//   NOTE: exact names — VITE_PUBLIC_FIREBASE_* is NOT read by the app and
+//   silently falls back to the dev login, which always fails in production.
 //   API_MODE unset → live (fixtures only with explicit API_MODE=mock)
 {
   "$schema": "node_modules/wrangler/config-schema.json",

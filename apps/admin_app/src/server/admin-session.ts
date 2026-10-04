@@ -11,8 +11,22 @@ import { getCookie, setCookie } from "@tanstack/react-start/server";
 export const SESSION_COOKIE = "sh_session";
 export const REFRESH_COOKIE = "sh_refresh";
 
+let loggedApiHost = false;
+
 export function apiUrl(): string {
-  return process.env.API_URL ?? "http://127.0.0.1:8000";
+  // Bare worker origin (wrangler.jsonc documents the value). A trailing
+  // slash — or a pasted "/v1" suffix — used to silently build //v1 or
+  // /v1/v1 paths: the worker answers those with a non-envelope 404 and the
+  // UI could only say "Verification failed." Normalize + log the host once
+  // per isolate so `wrangler tail` shows what prod actually dials.
+  const raw = (process.env.API_URL ?? "http://127.0.0.1:8000").trim();
+  const url = raw.replace(/\/+$/, "").replace(/\/v1$/, "");
+  if (!loggedApiHost) {
+    loggedApiHost = true;
+    if (url !== raw) console.error(`[admin-auth] normalized API_URL ${raw} → ${url}`);
+    else console.log(`[admin-auth] API_URL ${url}`);
+  }
+  return url;
 }
 
 const COOKIE_FLAGS = {
@@ -37,7 +51,9 @@ export const loginStartServer = createServerFn({ method: "POST" })
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
-      throw new Error("Could not send the code.");
+      // No phone number in logs — path + status is enough to triage.
+      console.error(`[admin-auth] otp/start failed: POST /v1/auth/otp/start → ${res.status}`);
+      throw new Error(`Could not send the code (${res.status}).`);
     }
     return (await res.json().catch(() => ({}))) as LoginStartResult;
   });
@@ -58,11 +74,16 @@ export const loginVerifyServer = createServerFn({ method: "POST" })
       error?: { code: string; message: string };
     };
     if (!res.ok) {
+      const code = body.error?.code ?? "UNAUTH";
+      // Never log tokens — status + worker code is the triage signal.
+      // A non-envelope error (wrong API_URL path, proxy HTML) lands here
+      // with the HTTP status appended instead of a bare "failed".
+      console.error(`[admin-auth] otp/verify failed: POST /v1/auth/otp/verify → ${res.status} ${code}`);
       return {
         ok: false,
         status: res.status,
-        code: body.error?.code ?? "UNAUTH",
-        message: body.error?.message ?? "Verification failed.",
+        code,
+        message: body.error?.message ?? `Verification failed (${res.status} ${code}). Check API_URL in Cloudflare.`,
       };
     }
     if (body.role !== "admin") {

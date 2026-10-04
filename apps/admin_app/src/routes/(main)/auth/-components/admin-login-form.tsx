@@ -83,6 +83,13 @@ export function AdminLoginForm() {
       return;
     }
     if (!FIREBASE_API_KEY) {
+      if (import.meta.env.PROD) {
+        // Production builds without phone-OTP config must say so loudly:
+        // the dev shortcut below only works against a DEV_AUTH=1 worker and
+        // always fails in prod with "verification failed".
+        setError("Phone sign-in is not configured on this deployment (missing Firebase web keys).");
+        return;
+      }
       // Dev fallback (worker DEV_AUTH=1): one click signs the env admin in.
       await signIn(`dev|${normalized}|local`);
       return;
@@ -111,6 +118,9 @@ export function AdminLoginForm() {
     try {
       let idToken = code.trim();
       if (!FIREBASE_API_KEY) {
+        if (import.meta.env.PROD) {
+          throw new Error("Phone sign-in is not configured on this deployment (missing Firebase web keys).");
+        }
         const normalized = normalizePhone(phone);
         if (!normalized) throw new Error("Enter a valid Indian mobile number.");
         idToken = `dev|${normalized}|local`;
