@@ -104,6 +104,9 @@ export const adminGetServer = createServerFn({ method: "GET" })
     const text = await res.text().catch(() => "");
     if (!res.ok) {
       const err = parseEnvelope<WorkerErrorShape>(text, {}) as WorkerErrorShape;
+      console.error(
+        `[admin-api] GET ${path} → ${res.status} ${err.error?.code ?? "SERVER"} (tail: wrangler tail shodasha-admin)`,
+      );
       throw new AdminApiError(
         res.status,
         err.error?.code ?? "SERVER",
@@ -141,6 +144,9 @@ export const adminPostServer = createServerFn({ method: "POST" })
     const text = await res.text().catch(() => "");
     if (!res.ok) {
       const err = parseEnvelope<WorkerErrorShape>(text, {}) as WorkerErrorShape;
+      console.error(
+        `[admin-api] POST ${path} → ${res.status} ${err.error?.code ?? "SERVER"} (tail: wrangler tail shodasha-admin)`,
+      );
       throw new AdminApiError(
         res.status,
         err.error?.code ?? "SERVER",
@@ -177,6 +183,9 @@ export const adminPatchServer = createServerFn({ method: "POST" })
     const text = await res.text().catch(() => "");
     if (!res.ok) {
       const err = parseEnvelope<WorkerErrorShape>(text, {}) as WorkerErrorShape;
+      console.error(
+        `[admin-api] PATCH ${path} → ${res.status} ${err.error?.code ?? "SERVER"} (tail: wrangler tail shodasha-admin)`,
+      );
       throw new AdminApiError(
         res.status,
         err.error?.code ?? "SERVER",
