@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-067 | 2026-10-03 | 019 pasteable login errors: worker message passthrough on start + Copy triage bundle (never secrets) | Accepted | apps/admin_app server/form, branch 019-pasteable-login-errors |
 | ADR-066 | 2026-10-03 | 018 admin login: prod diagnosability (apiUrl normalize, status-carrying errors, tail logs) + Firebase naming guard + VITE_PUBLIC trap doc | Accepted | apps/admin_app server/form/wrangler, branch 018-admin-login-observability |
 | ADR-064 | 2026-10-03 | 016 vendor dashboard: one-screen Route-tab composition (TodayStrip fold + inline earnings + per-customer held/dues) + zone-scoped placed pool + ledger fields on customers | Accepted | workers/api vendor_service/vendor.py/tests, apps/vendor_app route/customers/shell/tests, Feature_docs/vendor-dashboard/spec.md, branch 016-vendor-dashboard |
 | ADR-065 | 2026-10-03 | 017 flow sync A+B+C: PoD OTP to user, vendor cash→money truth, hold flags, quality/duty on tables, admin money writes, user nits, returns end-to-end | Accepted | workers/api vendor/order/dispatch/admin/returns + tests, vendor_app stops/sync/route/shell, user_app orders/subs, admin_app BFF/vendor-detail/finance/dispatch/payments, branch 017-flow-sync |
