@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-068 | 2026-10-04 | 020 login passthrough: form shows server message (was discarding it — the bare 'Could not send the code'), fetch failures logged + returned as NETWORK | Accepted | apps/admin_app server/form, branch 020-login-error-passthrough |
 | ADR-067 | 2026-10-03 | 019 pasteable login errors: worker message passthrough on start + Copy triage bundle (never secrets) | Accepted | apps/admin_app server/form, branch 019-pasteable-login-errors |
 | ADR-066 | 2026-10-03 | 018 admin login: prod diagnosability (apiUrl normalize, status-carrying errors, tail logs) + Firebase naming guard + VITE_PUBLIC trap doc | Accepted | apps/admin_app server/form/wrangler, branch 018-admin-login-observability |
 | ADR-064 | 2026-10-03 | 016 vendor dashboard: one-screen Route-tab composition (TodayStrip fold + inline earnings + per-customer held/dues) + zone-scoped placed pool + ledger fields on customers | Accepted | workers/api vendor_service/vendor.py/tests, apps/vendor_app route/customers/shell/tests, Feature_docs/vendor-dashboard/spec.md, branch 016-vendor-dashboard |
