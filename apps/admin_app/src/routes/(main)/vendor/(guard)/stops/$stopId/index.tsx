@@ -6,7 +6,7 @@ import { useVendorQuery } from "@/hooks/use-vendor-api";
 import type { VendorStop } from "@/lib/vendor-types";
 import { num } from "@/lib/money";
 
-import { VendorEmpty, VendorError, VendorLoading } from "../../../../-components/vendor-states";
+import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
 import { StopActions } from "./-components/stop-actions";
 
 export const Route = createFileRoute("/(main)/vendor/(guard)/stops/$stopId/")({

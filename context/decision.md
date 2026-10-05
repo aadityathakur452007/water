@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-079 | 2026-10-05 | 029 remediation Phase 0 safety: baselines re-recorded + P0-0 one-line import fix, admin build green | Accepted | apps/admin_app vendor stop route, branch 029-remediation |
 | ADR-078 | 2026-10-05 | Principal platform audit (6 tracks) + master report with P0×10, baselines, dependency graph, 10-phase plan; no fixes before approval | Accepted | Feature_docs/platform-audit/report.md, branch 028-access-code-auth |
 | ADR-077 | 2026-10-04 | 028 user name+number register Flutter slice: register+demoLogin, NameNumberScreen, Firebase purge | Accepted | apps/user_app auth/main/shell/pubspec/android/test, branch 028-access-code-auth |
 | ADR-076 | 2026-10-04 | 028 access-code auth admin-web slice: code-only AdminLoginForm + loginCodeServer + orphan/OTP deletion | Accepted | apps/admin_app auth form/admin-session/.env.example/wrangler, branch 028-access-code-auth |
@@ -133,6 +134,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-079: 029 remediation Phase 0 safety (baselines + P0-0 build unblock)
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Phase 0 spec (`Feature_docs/platform-audit/specs/phase-00-safety.md`) on branch `029-remediation` from main tip `47c90a1` (which already merges 027 vendor RBAC + 028 access-code auth — the §0.3 merge dependency is satisfied). Scope was ONLY: re-run baselines + one-line P0-0 import fix + `npm run build` green. Design approval pre-granted for Phase 0 only.
+- **Options considered**: Fixing the intermittent `test_firebase_rsa.py` failure inline (rejected — out of Phase 0 scope; recorded as a watch item for Phase 10 verify; root hint: `rsa_verify.py:_read_tlv` raises raw `IndexError` on truncated buffers while `rsa_pubkey_from_cert_pem` only catches `ValueError`, so some random throwaway certs escape parsing); hand-editing `routeTree.gen.ts` (rejected — generated file, regen via build was byte-identical); expanding scope past the one import (rejected — build went green with the single line, per §0.2 STOP rule there was nothing more to fix).
+- **Decision**: Re-ran all baselines on `029-remediation` (pytest 241 green once in ~6.4s; `flutter test` user 99 green ~13.4s + `flutter analyze` 0 issues ~12.8s; vendor 40 green ~7.6s + analyze 0 issues ~7.7s); applied the single §0.2 import fix (`stops/$stopId/index.tsx:9`: `../../../../-components/vendor-states` → `../../../-components/vendor-states`, verified against the `vendor/-components/vendor-states.tsx` location + 10 sibling imports); `npm run build` green (vite client 3675 modules in 1.55s + SSR 924ms + nitro 1.30s, zero `UNRESOLVED_IMPORT`, only pre-existing `@base-ui`/`lucide` `MODULE_LEVEL_DIRECTIVE` warnings). No commit (owner commits). `flow.md` untouched (no route/function/API change — same route, same components, import path only).
+- **Why**: Phase 0 exists to freeze the starting point and unblock all admin verification with the smallest possible diff; one import line does exactly that with zero behavior change (ssdlc gates stay green: no secrets, no authz touched; folder-structure: no moves, co-location intact).
+- **Consequences**: Admin verification unblocked; branch ready for Phase 1 (awaiting explicit approval — Phase 1 NOT started). Watch items: (1) pre-existing pytest flake — two follow-up runs each failed a different RSA test (`test_rsa_direct_roundtrip_and_flip` IndexError once, `test_fallback_valid` UnauthError once) while isolated re-runs pass; needs a Phase 10 (or test-hygiene) fix in the DER parser (`IndexError` → `ValueError`) — never a Phase 0 fix. (2) Worktree shows 4 extra `M` entries with zero byte diff (`routeTree.gen.ts` + 3 Flutter registrants) — tooling stat/line-ending noise, content diff is exactly the 1-line fix. (3) `.freebuff/.idea/.utim_tmp` junk untouched/uncommitted.
+- **Affects**: apps/admin_app src/routes/(main)/vendor/(guard)/stops/$stopId/index.tsx, branch 029-remediation
 
 ### ADR-078: Principal platform audit + master report (no fixes)
 - **Date**: 2026-10-05
