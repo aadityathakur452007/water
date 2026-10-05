@@ -163,6 +163,16 @@ def test_vendor_pull_zone_capacity_replay():
     # v2 serves z2 only — the order's address is in z1.
     other = _vendor(c, "v2")
     assert other.post("/v1/vendor/placed/o1/accept").status_code == 422
+    assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "placed"
+    assert c.execute("SELECT COUNT(*) c FROM stops").fetchone()["c"] == 0
+    # Capacity: v1 capped at 0 stops also fails cheap (zero writes).
+    # (init_schema seeds v1/v2 profiles with 25/60 caps.)
+    c.execute("UPDATE vendor_profile SET max_stops_per_shift = 0 WHERE user_id = 'v1'")
+    assert vendor.post("/v1/vendor/placed/o1/accept").status_code == 422
+    assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "placed"
+    assert c.execute("SELECT COUNT(*) c FROM stops").fetchone()["c"] == 0
+    assert c.execute("SELECT COUNT(*) c FROM order_events WHERE order_id = 'o1'").fetchone()["c"] == 0
+    c.execute("UPDATE vendor_profile SET max_stops_per_shift = 25 WHERE user_id = 'v1'")
     first = vendor.post("/v1/vendor/placed/o1/accept")
     assert first.status_code == 200, first.text
     assert first.json()["stop_id"]

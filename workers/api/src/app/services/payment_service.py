@@ -100,6 +100,9 @@ class PaymentService:
         return await self.payments.claim_refund(refund_id, actor_id)
 
     async def complete_refund(self, actor_id: str, refund_id: str, to_status: str) -> dict:
+        """Close a claimed refund (maker-checker: claimer ≠ closer, enforced in
+        the repo). `done` = status settlement only — the actual provider payout
+        moves out-of-band (out of scope, noted per spec)."""
         return await self.payments.complete_refund(refund_id, to_status, actor_id)
 
     # -- dues-pay intent (settles ledger dues over UPI) ---------------------
