@@ -209,8 +209,17 @@ Browser (same TanStack Start app, separate /vendor/* subtree)        apps/admin_
 Login: /vendor/login (public, outside guard) → vendor-login-form.tsx → loginVendorVerifyServer
   └─ POST /v1/auth/vendor/login {phone, code, device:{id:"vendor-web"}} → role==="vendor" assert
      → HttpOnly sh_session(30m)+sh_refresh(7d), same flags as admin (server/vendor-session.ts)
-Guard: vendor/(guard)/route.tsx loader → hasVendorSessionServer → refresh once → redirect /vendor/login
+Guard: vendor/(guard)/route.tsx loader → hasVendorSessionServer → refresh once via
+  refreshVendorSessionServer (device vendor-web, §1.8 — admin-web id 401s here) → redirect /vendor/login
   (pathless group so login never guards itself; vendor header nav, NOT the admin sidebar)
+Vendor proxy refresh (server/vendor-api.ts): 401 → refreshVendorSessionServer once → retry
+  → else VendorApiError (401/403 → /vendor/login link)
+Admin guard: dashboard/route.tsx loader → hasSessionServer → refresh once → adminRoleServer
+  (GET /v1/auth/me role probe, server/admin-api.ts) → role!=="admin" bounces to
+  /auth/v1/login?reason=denied with access-denied notice, zero admin chrome (§1.4)
+Admin logout: account-switcher Log out item → logoutServer (worker revoke + clear cookies)
+  → /auth/v1/login. Cookies: COOKIE_FLAGS now httpOnly (§1.3; browser document.cookie
+  holders are theme/sidebar prefs only — never sh_session).
 Screens (each: index.tsx thin + -components/, skeleton + honest empty + error+retry, no delete affordance):
   /vendor/ overview (today-strip fold + money jama/baaki/hold + ledger held/dues),
   /vendor/route (stop list + SKIP + one CTA per state + placed-pool read-only refresh),

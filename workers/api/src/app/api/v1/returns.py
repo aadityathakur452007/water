@@ -2,7 +2,8 @@
 
 POST /returns {qty, address_id} -> 10-working-day SLA + request id (E rulebook).
 GET /returns -> own history (requested -> picked -> refunded). Owner-scoped;
-suspended users keep read access, writes need require_active_user.
+suspended users keep read access; creation needs role=='user' (vendor/admin
+sessions get 403, no oracle).
 """
 
 from __future__ import annotations
@@ -23,6 +24,10 @@ from app.repositories.ledger_repo import LedgerRepo
 router = APIRouter(tags=["returns"])
 
 _vendor = require_role("vendor")
+
+# Module-level so tests can override this exact dep (same pattern as
+# `_vendor` above): return requests are a user-role-only write.
+_user = require_role("user")
 
 SLA_WORKING_DAYS = 10  # Bisleri rulebook: pickup within 10 working days (E2)
 
@@ -55,7 +60,7 @@ async def _owned_address(conn, user_id: str, address_id: str) -> bool:
 
 
 @router.post("/returns", status_code=201)
-async def create_return(payload: ReturnIn, user=Depends(require_active_user),
+async def create_return(payload: ReturnIn, user=Depends(_user),
                   conn=Depends(get_db_conn)):
     uid = str(user.get("id"))
     if not await _owned_address(conn, uid, payload.address_id):

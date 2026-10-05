@@ -52,7 +52,7 @@ async def upsert_device(payload: DeviceIn, user=Depends(require_active_user),
 
 
 @router.delete("/devices")
-async def delete_device(payload: DeviceDelIn, user=Depends(get_current_user),
+async def delete_device(payload: DeviceDelIn, user=Depends(require_active_user),
                   conn=Depends(get_db_conn)):
     uid = str(user.get("id"))
     with WRITE_LOCK:

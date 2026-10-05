@@ -2,16 +2,18 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { AdminLoginForm } from "../../-components/admin-login-form";
 
-type LoginSearch = { next?: string };
+type LoginSearch = { next?: string; reason?: string };
 
 export const Route = createFileRoute("/(main)/auth/v1/login")({
   validateSearch: (search: Record<string, unknown>): LoginSearch => ({
     next: typeof search.next === "string" ? search.next : undefined,
+    reason: typeof search.reason === "string" ? search.reason : undefined,
   }),
   component: LoginV1,
 });
 
 function LoginV1() {
+  const { reason } = Route.useSearch();
   return (
     <div className="flex h-dvh">
       <div className="hidden bg-primary lg:block lg:w-1/3">
@@ -34,6 +36,11 @@ function LoginV1() {
             </div>
           </div>
           <div className="space-y-4">
+            {reason === "denied" ? (
+              <p role="alert" className="text-center text-amber-600 text-sm">
+                That session is not an admin session. Sign in with an admin number.
+              </p>
+            ) : null}
             <AdminLoginForm />
           </div>
         </div>

@@ -2,7 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
 import { bindingFetch } from "./admin-api";
-import { apiUrl, refreshSessionServer, SESSION_COOKIE, storeRotatedSessionServer } from "./admin-session";
+import { apiUrl, SESSION_COOKIE, storeRotatedSessionServer } from "./admin-session";
+import { refreshVendorSessionServer } from "./vendor-session";
 
 /**
  * Vendor read/write proxy (BFF adapter for the /vendor/* subtree). Mirrors
@@ -107,7 +108,7 @@ export const vendorGetServer = createServerFn({ method: "GET" })
     }
     let res = await vendorWorkerFetch(path, "GET");
     if (res.status === 401) {
-      const pair = await refreshSessionServer();
+      const pair = await refreshVendorSessionServer();
       if (pair) {
         await storeRotatedSessionServer({ data: pair });
         res = await vendorWorkerFetch(path, "GET");
@@ -158,7 +159,7 @@ export const vendorPostServer = createServerFn({ method: "POST" })
     const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
     let res = await vendorWorkerFetch(path, method, body, headers);
     if (res.status === 401) {
-      const pair = await refreshSessionServer();
+      const pair = await refreshVendorSessionServer();
       if (pair) {
         await storeRotatedSessionServer({ data: pair });
         res = await vendorWorkerFetch(path, method, body, headers);

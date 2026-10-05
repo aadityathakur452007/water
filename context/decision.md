@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-080 | 2026-10-05 | Phase 1 execution plan: W1a backend first then W1b; two splits (Split 1 = §1.1–§1.4+§1.8, Split 2 = §1.5–§1.7); webhook fail-closed now; OTP migration 015 additive + legacy-tolerant | Accepted | workers/api authz/webhook/OTP/adjudication, apps/admin_app cookies/guards, branch 029-remediation |
 | ADR-079 | 2026-10-05 | 029 remediation Phase 0 safety: baselines re-recorded + P0-0 one-line import fix, admin build green | Accepted | apps/admin_app vendor stop route, branch 029-remediation |
 | ADR-078 | 2026-10-05 | Principal platform audit (6 tracks) + master report with P0×10, baselines, dependency graph, 10-phase plan; no fixes before approval | Accepted | Feature_docs/platform-audit/report.md, branch 028-access-code-auth |
 | ADR-077 | 2026-10-04 | 028 user name+number register Flutter slice: register+demoLogin, NameNumberScreen, Firebase purge | Accepted | apps/user_app auth/main/shell/pubspec/android/test, branch 028-access-code-auth |

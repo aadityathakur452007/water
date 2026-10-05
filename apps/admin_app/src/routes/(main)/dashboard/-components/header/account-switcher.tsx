@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { useNavigate } from "@tanstack/react-router";
 import { cn } from "cn";
 import { BadgeCheck, Bell, Check, CreditCard, LogOut } from "lucide-react";
 
@@ -13,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getInitials } from "@/lib/utils";
+import { logoutServer } from "@/server/admin-session";
 
 export function AccountSwitcher({
   users,
@@ -26,9 +28,15 @@ export function AccountSwitcher({
   }>;
 }) {
   const [activeUser, setActiveUser] = useState(users[0]);
+  const navigate = useNavigate();
 
   if (!activeUser) {
     return null;
+  }
+
+  async function logout() {
+    await logoutServer();
+    await navigate({ to: "/auth/v1/login", replace: true });
   }
 
   return (
@@ -81,7 +89,7 @@ export function AccountSwitcher({
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void logout()}>
           <LogOut />
           Log out
         </DropdownMenuItem>

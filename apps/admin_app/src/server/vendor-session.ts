@@ -19,6 +19,10 @@ export type VendorLoginResult =
   | { ok: true; role: string }
   | { ok: false; status: number; code: string; message: string };
 
+// Device id minted at vendor login — the worker pins refresh to it, so the
+// vendor guard/proxy must refresh with this id, never ADMIN_WEB_DEVICE.
+export const VENDOR_WEB_DEVICE = "vendor-web";
+
 /** Phone + admin-issued access code → vendor session (no OTP, no signup). */
 export const loginVendorVerifyServer = createServerFn({ method: "POST" })
   .validator((input: { phone: string; code: string }) => input)
@@ -28,7 +32,7 @@ export const loginVendorVerifyServer = createServerFn({ method: "POST" })
       res = await callWorkerPublic("/v1/auth/vendor/login", {
         phone: data.phone,
         code: data.code,
-        device: { id: "vendor-web" },
+        device: { id: VENDOR_WEB_DEVICE },
       });
     } catch (e) {
       console.error(`[vendor-auth] login fetch failed: ${e instanceof Error ? e.message : e}`);
@@ -70,6 +74,23 @@ export const hasVendorSessionServer = createServerFn({ method: "GET" }).handler(
   // every call, and vendorGet/PostServer bounce 401/403 to /vendor/login.
   authed: Boolean(getCookie(SESSION_COOKIE)),
 }));
+
+/** Vendor silent renewal: same contract as refreshSessionServer but pinned
+ * to the vendor device id (the worker rejects cross-device refresh). */
+export const refreshVendorSessionServer = createServerFn({ method: "POST" }).handler(
+  async (): Promise<{ access: string; refresh: string } | null> => {
+    const refresh_token = getCookie(REFRESH_COOKIE);
+    if (!refresh_token) return null;
+    const res = await callWorkerPublic("/v1/auth/refresh", {
+      refresh_token,
+      device: { id: VENDOR_WEB_DEVICE },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as { access_token?: string; refresh_token?: string } | null;
+    if (!data?.access_token || !data?.refresh_token) return null;
+    return { access: data.access_token, refresh: data.refresh_token };
+  },
+);
 
 export const logoutVendorServer = createServerFn({ method: "POST" }).handler(async () => {
   const access = getCookie(SESSION_COOKIE);

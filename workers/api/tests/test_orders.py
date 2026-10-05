@@ -250,7 +250,9 @@ def _client(c, user="u1"):
     from fastapi.testclient import TestClient
 
     from app.api.deps import get_db_conn
+    from app.api.v1.orders import _user as orders_create_guard
     from app.api.v1.orders import get_current_user as orders_guard
+    from app.api.v1.orders import require_active_user as orders_write_guard
     from app.api.v1.orders import router
     from app.core.errors import register_exception_handlers
     from app.db_d1 import AsyncSqliteConn
@@ -260,11 +262,16 @@ def _client(c, user="u1"):
     app.include_router(router, prefix="/v1")
     app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     # Real session auth (C1) retired the X-User-Id stub: canned user per test.
-    app.dependency_overrides[orders_guard] = lambda: {
+    # Reads stay on get_current_user; cancel/reschedule need require_active_user;
+    # creation needs require_role("user") (module `_user`).
+    canned = {
         "id": user, "role": "user", "phone": "+919000000000",
         "suspended": False, "session_id": "s", "family_id": "f",
         "device_fp": "d",
     }
+    app.dependency_overrides[orders_guard] = lambda: canned
+    app.dependency_overrides[orders_write_guard] = lambda: canned
+    app.dependency_overrides[orders_create_guard] = lambda: canned
     client = TestClient(app)
     return client
 

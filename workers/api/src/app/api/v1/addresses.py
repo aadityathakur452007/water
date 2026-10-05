@@ -1,13 +1,15 @@
 """Address routes: Pydantic boundary -> service rules -> AddressRepo -> 2xx.
 
 Bare `router` (mounted under /v1 by the app factory — same pattern as
-quotes.py). Every endpoint is owner-scoped behind get_current_user (C1 owns
+quotes.py). Every endpoint is owner-scoped behind session auth (C1 owns
 app.api.auth_deps; the ImportError fallback below is slice-2 scaffolding only
 and raises 401 until C1 lands — this file never defines auth itself).
 
 IDOR: repo miss -> NotFoundError (same shape as not-found, no oracle §3).
 Pydantic boundary failures -> 400 VALIDATION via B1's handler. Active-order
 edit/delete blocks -> 409 STATE_CONFLICT from the repo.
+Reads stay on get_current_user (suspended users keep history); create/update/
+delete need require_active_user (suspended -> 403, zero writes).
 """
 
 from fastapi import APIRouter, Depends, Response
@@ -16,10 +18,15 @@ from app.api.deps import get_db_conn
 from app.core.errors import NotFoundError
 
 try:  # C1 owns app.api.auth_deps; fallback 401s until it lands.
-    from app.api.auth_deps import get_current_user  # type: ignore
+    from app.api.auth_deps import get_current_user, require_active_user  # type: ignore
 except ImportError:  # pragma: no cover
 
     async def get_current_user():  # type: ignore
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    async def require_active_user():  # type: ignore
         from fastapi import HTTPException
 
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -67,7 +74,7 @@ async def list_addresses(user=Depends(get_current_user), conn=Depends(get_db_con
 
 
 @router.post("/addresses", response_model=AddressOut, status_code=201)
-async def create_address(payload: AddressIn, user=Depends(get_current_user), conn=Depends(get_db_conn)):
+async def create_address(payload: AddressIn, user=Depends(require_active_user), conn=Depends(get_db_conn)):
     address_service.verify_place_id_stub(payload.place_id)
     serviceable = address_service.serviceability(payload.pincode)
     address_service.lookup_zone(payload.pincode, payload.lat, payload.lng)  # STUB -> None
@@ -76,7 +83,7 @@ async def create_address(payload: AddressIn, user=Depends(get_current_user), con
 
 
 @router.patch("/addresses/{addr_id}", response_model=AddressOut)
-async def update_address(addr_id: str, payload: AddressPatch, user=Depends(get_current_user), conn=Depends(get_db_conn)):
+async def update_address(addr_id: str, payload: AddressPatch, user=Depends(require_active_user), conn=Depends(get_db_conn)):
     repo = AddressRepo(conn)
     if await repo.get_owned(addr_id, _user_id(user)) is None:
         raise NotFoundError("Address not found", {"id": addr_id})
@@ -89,7 +96,7 @@ async def update_address(addr_id: str, payload: AddressPatch, user=Depends(get_c
 
 
 @router.delete("/addresses/{addr_id}", status_code=204)
-async def delete_address(addr_id: str, user=Depends(get_current_user), conn=Depends(get_db_conn)):
+async def delete_address(addr_id: str, user=Depends(require_active_user), conn=Depends(get_db_conn)):
     ok = await AddressRepo(conn).delete_owned(addr_id, _user_id(user))
     if not ok:
         raise NotFoundError("Address not found", {"id": addr_id})

@@ -132,6 +132,30 @@ function parseEnvelope<T>(raw: string, fallback: T): T | WorkerErrorShape {
 }
 
 /**
+ * Role probe for the dashboard guard: GET /v1/auth/me with the session
+ * cookie → the worker's current role (or null when unauthenticated/dead).
+ * Cheap, read-only, owner-scoped by construction. Mock mode reports admin
+ * so offline dev keeps the shell.
+ */
+export const adminRoleServer = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ role: string } | null> => {
+    if (apiMode() === "mock") return { role: "admin" };
+    let res = await workerFetch("/v1/auth/me", "GET");
+    if (res.status === 401) {
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+        res = await workerFetch("/v1/auth/me", "GET");
+      }
+    }
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { user?: { role?: unknown } } | null;
+    const role = body?.user?.role;
+    return typeof role === "string" ? { role } : null;
+  },
+);
+
+/**
  * GET /v1/admin/* (reads). On 401: one silent refresh + retry, then throws
  * AdminApiError(401) so the client guard bounces to sign-in.
  */
