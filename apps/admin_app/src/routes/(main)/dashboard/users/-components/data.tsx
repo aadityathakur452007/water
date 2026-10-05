@@ -1,28 +1,20 @@
 export type UserStatus = "Active" | "Suspended" | "Restricted" | "Pending KYC" | "Deactivated";
 
-const teamValues = ["Customer Ops", "Delivery Ops", "Admin"] as const;
-
-export type UserTeam = (typeof teamValues)[number];
-
-/** Adapter view over the worker's UserRow (apps/admin_app/src/lib/types.ts shape). */
+/** Adapter view over the worker's UserRow — every field is server-sourced
+ * (invented Team/workspace/lastActive removed: the worker has no such data). */
 export type UserRow = {
   id: string;
   email: string;
   joinedDate: string;
-  lastActive: number;
   name: string;
   phone: string | null;
   role: string;
   status: UserStatus;
-  team: UserTeam;
-  workspace: string[];
 };
 
 export const filters = {
   role: ["All", "Customer", "Delivery Partner", "Admin"],
-  team: ["All", ...teamValues],
   status: ["All", "Active", "Suspended", "Restricted", "Pending KYC", "Deactivated"],
-  workspace: ["All", "Shodasha"],
 };
 
 export const statusMeta: Record<UserStatus, { badgeClass: string; dotClass: string }> = {

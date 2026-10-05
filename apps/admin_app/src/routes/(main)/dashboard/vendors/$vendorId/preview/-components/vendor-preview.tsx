@@ -6,15 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
 import type { AuditRow, Page } from "@/lib/admin-types";
 import { dateTime, num, phoneMasked, rupees } from "@/lib/money";
-import type { VendorComplaint, VendorCustomer, VendorPreview } from "@/lib/vendor-types";
-
-function asCustomers(value: VendorPreview["customers"]): VendorCustomer[] {
-  return Array.isArray(value) ? value : (value?.customers ?? []);
-}
-
-function asComplaints(value: VendorPreview["complaints"]): VendorComplaint[] {
-  return Array.isArray(value) ? value : (value?.data ?? []);
-}
+import type { VendorPreview } from "@/lib/vendor-types";
 
 /**
  * Read-only "view as vendor" — composes the vendor's own reads through the
@@ -39,8 +31,8 @@ export function VendorPreview() {
   const today = data.route;
   const stops = today?.stops ?? [];
   const done = stops.filter((s) => s.status === "done").length;
-  const customers = asCustomers(data.customers);
-  const complaints = asComplaints(data.complaints);
+  const customers = data.customers.customers;
+  const complaints = data.complaints.data;
   const trail = audit?.data ?? [];
 
   return (

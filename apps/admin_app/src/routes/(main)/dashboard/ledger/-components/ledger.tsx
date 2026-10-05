@@ -4,15 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
-import type { LedgerRow, Page } from "@/lib/admin-types";
+import { errorMessage } from "@/hooks/use-admin-api";
+import { useCursorPages } from "@/hooks/use-cursor-pages";
+import type { LedgerRow } from "@/lib/admin-types";
 import { num, phoneMasked, rupees } from "@/lib/money";
 
 import { AdjustSheet } from "./adjust-sheet";
 
 export function Ledger() {
-  const { data, isError, error } = useAdminQuery<Page<LedgerRow>>("/v1/admin/ledger");
-  const rows = data?.data ?? [];
+  const { rows, nextCursor, loadMore, isError, error } = useCursorPages<LedgerRow>("/v1/admin/ledger");
   const [adjustTarget, setAdjustTarget] = React.useState<LedgerRow | null>(null);
 
   return (
@@ -48,7 +48,7 @@ export function Ledger() {
                     </TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
                       {num(r.held)}
-                      {r.held > 10 ? (
+                      {r.held > 3 ? (
                         <Badge variant="outline" className="ml-2 border-amber-500/20 bg-amber-500/10 text-amber-600">
                           hold limit
                         </Badge>
@@ -76,6 +76,16 @@ export function Ledger() {
             </TableBody>
           </Table>
         )}
+        <div className="flex items-center justify-between px-4 pb-2">
+          <p className="text-muted-foreground text-xs">
+            {`${rows.length} loaded${nextCursor ? " · more on server" : ""}`}
+          </p>
+          {nextCursor ? (
+            <Button variant="outline" size="sm" onClick={loadMore}>
+              Load more
+            </Button>
+          ) : null}
+        </div>
       </CardContent>
       <AdjustSheet row={adjustTarget} onClose={() => setAdjustTarget(null)} />
     </Card>

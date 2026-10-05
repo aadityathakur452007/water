@@ -156,6 +156,39 @@ export const adminRoleServer = createServerFn({ method: "GET" }).handler(
 );
 
 /**
+ * Audit CSV export (GET /v1/admin/audit/export with the viewer filters).
+ * Returns raw CSV text — never parsed as an envelope.
+ */
+export const adminExportCsvServer = createServerFn({ method: "GET" })
+  .validator((input: { query: string }) => input)
+  .handler(async ({ data }): Promise<string> => {
+    if (apiMode() === "mock") {
+      const { auditFixture } = await import("#/data/admin/fixtures");
+      const rows = auditFixture.data as Array<Record<string, unknown>>;
+      const keys = Object.keys(rows[0] ?? { id: "" });
+      const esc = (v: unknown) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+      };
+      return [keys.join(","), ...rows.map((r) => keys.map((k) => esc(r[k])).join(","))].join("\n");
+    }
+    const res = await workerFetch(`/v1/admin/audit/export${data.query}`, "GET");
+    if (res.status === 401) {
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+        const retry = await workerFetch(`/v1/admin/audit/export${data.query}`, "GET");
+        if (retry.ok) return retry.text().catch(() => "");
+      }
+      throw new AdminApiError(401, "UNAUTH", "Session expired — sign in again.");
+    }
+    if (!res.ok) {
+      throw new AdminApiError(res.status, "SERVER", `Export failed (${res.status}).`);
+    }
+    return res.text().catch(() => "");
+  });
+
+/**
  * GET /v1/admin/* (reads). On 401: one silent refresh + retry, then throws
  * AdminApiError(401) so the client guard bounces to sign-in.
  */

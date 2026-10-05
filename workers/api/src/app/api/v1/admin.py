@@ -163,7 +163,8 @@ async def orders_queue(state: str | None = Query(default=None),
             pass
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = (await conn.execute(
-        f"SELECT id, user_id, n, e, total, payment_status, state, window_start, created_at,"  # noqa: S608
+        f"SELECT id, user_id, n, e, water_bill, deposit_due, cap_charge, total, payment_status,"
+        f" state, window_start, created_at,"  # noqa: S608
         f" rowid AS _rowid FROM orders {where} ORDER BY rowid DESC LIMIT ?",
         (*args, limit + 1),
     )).fetchall()
@@ -648,6 +649,7 @@ async def reconciliation(date: str | None = Query(default=None),
         "SELECT r.id AS route_id, r.vendor_id, COALESCE(u.name, '') AS vendor_name,"
         " COUNT(s.id) AS stops,"
         " SUM(CASE WHEN s.status = 'done' THEN 1 ELSE 0 END) AS delivered,"
+        " SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) AS failed,"
         " COALESCE(SUM(s.fulls_exp), 0) AS jars_out,"
         " COALESCE(SUM(s.empties_exp), 0) AS empties_expected,"
         " COALESCE(SUM(p.cash), 0) AS cash, COALESCE(SUM(p.upi), 0) AS upi"
@@ -662,6 +664,7 @@ async def reconciliation(date: str | None = Query(default=None),
     )).fetchall()
     return {"date": day,
             "routes": [{**dict(r), "stops": int(r["stops"]), "delivered": int(r["delivered"] or 0),
+                        "failed": int(r["failed"] or 0),
                         "jars_out": int(r["jars_out"]), "empties_expected": int(r["empties_expected"]),
                         "cash": int(r["cash"]), "upi": int(r["upi"])} for r in rows],
             "jars_out": int(led["h"]), "deposit_liability": int(led["p"]) - int(led["r"]),
@@ -841,7 +844,10 @@ async def returns_queue(status: str | None = Query(default=None), conn=Depends(g
         args.append(status)
     rows = await conn.execute(
         f"SELECT * FROM returns {where} ORDER BY created_at DESC LIMIT 200", (*args,))  # noqa: S608
-    return {"data": [dict(r) for r in rows.fetchall()]}
+    counts = (await conn.execute(
+        "SELECT status, COUNT(*) c FROM returns GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows.fetchall()],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 class ReturnAssignIn(BaseModel):
@@ -1059,6 +1065,7 @@ async def audit_read(entity: str | None = Query(default=None),
                actor_id: str | None = Query(default=None, max_length=80),  # F-SA additive
                action: str | None = Query(default=None, max_length=80),  # F-SA additive
                limit: int = Query(default=50, ge=1, le=200),
+               cursor: str = Query(default=""),
                conn=Depends(get_db_conn), user=Admin):
     args: list[object] = []
     clauses = []
@@ -1071,14 +1078,20 @@ async def audit_read(entity: str | None = Query(default=None),
     if action:
         clauses.append("action = ?")
         args.append(action)
+    cur = _cursor(cursor)
+    if cur > 0:
+        clauses.append("rowid < ?")
+        args.append(cur)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     try:
         rows = (await conn.execute(
-            f"SELECT * FROM audit_log {where} ORDER BY rowid DESC LIMIT ?", (*args, limit)  # noqa: S608
+            f"SELECT *, rowid AS _rowid FROM audit_log {where} ORDER BY rowid DESC LIMIT ?", (*args, limit + 1)  # noqa: S608
         )).fetchall()
     except sqlite3.OperationalError:
         rows = []
-    return {"data": [dict(r) for r in rows]}
+    data = [dict(r) for r in rows[:limit]]
+    next_cursor = str(rows[limit]["_rowid"]) if len(rows) > limit else ""
+    return {"data": data, "next_cursor": next_cursor}
 
 
 @router.get("/admin/audit/export")

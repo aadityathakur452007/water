@@ -197,7 +197,10 @@ Surfaces (sidebar-items.ts = nav source of truth; 4 nav groups Monitor/Money/Peo
   Monitor: overview /dashboard, analytics (FR-33 KPI matrix, payment-mix, on-time, leaderboards), orders(+/$orderId, CSV export);
   Money: finance (FR-30/31 cards + day-close leak watch + dunning wa.me reminders + audited write-off), payments(+refunds), ledger (per-row POST …/ledger/{id}/adjust, deltas + mandatory reason);
   People: users(+$userId, block/unblock), vendors(+$vendorId, review-hold), trust(quality/strikes/complaints/returns);
-  Operate: dispatch (FR-26 funnel/pool/custody/route-board + routes-generate), operations(reco/custody/dues/routes-generate), audit, config.
+  Operate: dispatch (FR-26 funnel/pool/custody/route-board + routes-generate), audit (+CSV export), config.
+  Phase 3 Split B: operations/ merged away (fully redundant with finance + dispatch); recon/custody screens
+  read the live per-route + identity-joined shapes; trust badges use server counts; orders/users/ledger/audit
+  cursor-follow with loaded-row honesty; vendor quality picker replaces the manual-id crutch.
 Dunning enrichment: GET /v1/admin/dunning returns bare {customer_id, dues}; names/phones joined client-side from GET /v1/admin/ledger (users LEFT JOIN) for WhatsApp addressing.
 Money: integer paise on wire → lib/money.ts rupees() for display; server computes all money.
 ```
@@ -300,7 +303,6 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | `/admin/vendors` + `/[vendorId]` | `apps/admin_app/src/app/admin/vendors/**` | Vendor directory + custody/capacity/strikes/payouts/block/review-hold | Admin session |
 | `/admin/payments` | `apps/admin_app/src/app/admin/payments/page.tsx` | Payments + refunds tabs (status/method filters) | Admin session |
 | `/admin/ledger` | `apps/admin_app/src/app/admin/ledger/page.tsx` | Jar-ledger page with hold-limit flags | Admin session |
-| `/admin/operations` | `apps/admin_app/src/app/admin/operations/page.tsx` | Reconciliation + custody + dues + routes-generate | Admin session |
 | `/admin/trust` | `apps/admin_app/src/app/admin/trust/page.tsx` | Quality incidents + strikes + complaints with resolve actions | Admin session |
 | `/admin/audit` | `apps/admin_app/src/app/admin/audit/page.tsx` | Audit/server-log viewer (actor_id/action filters) | Admin session |
 | `/admin/config` | `apps/admin_app/src/app/admin/config/page.tsx` | Runtime config viewer/editor | Admin session |

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { Page, Reconciliation } from "@/lib/admin-types";
+import type { ReconResponse } from "@/lib/admin-types";
 import { num, rupees } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
 
@@ -26,8 +26,8 @@ export const Route = createFileRoute("/(main)/dashboard/finance/")({
 });
 
 function FinancePage() {
-  const { data: reco } = useAdminQuery<Page<Reconciliation>>("/v1/admin/reconciliation");
-  const rows = reco?.data ?? [];
+  const { data: reco } = useAdminQuery<ReconResponse>("/v1/admin/reconciliation");
+  const rows = reco?.routes ?? [];
   const invalidate = useInvalidateAdmin();
   const [day, setDay] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = React.useState(false);
@@ -75,6 +75,11 @@ function FinancePage() {
         {closed ? (
           <CardContent>
             <p className="text-sm tabular-nums">{`Jama cash ${rupees(Number(closed.collected_cash ?? 0))} · UPI ${rupees(Number(closed.collected_upi ?? 0))} · custody ${rupees(Number(closed.custody_in_hand ?? 0))} · dues ${rupees(Number(closed.dues_receivable ?? 0))}`}</p>
+            {closed.cash_mismatch === true || closed.upi_mismatch === true ? (
+              <p className="mt-1 text-amber-600 text-xs">
+                Declared vs posted money differs — see the route table cross-check before trusting this close.
+              </p>
+            ) : null}
           </CardContent>
         ) : null}
       </Card>
@@ -96,29 +101,29 @@ function FinancePage() {
                 <TableHead className="py-3">Delivered</TableHead>
                 <TableHead className="py-3">Cash</TableHead>
                 <TableHead className="py-3">UPI</TableHead>
-                <TableHead className="py-3">Jars out / back</TableHead>
+                <TableHead className="py-3">Jars out / empties (exp)</TableHead>
                 <TableHead className="py-3">Close</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length ? (
                 rows.map((r) => {
-                  const jarsOut = Number(r.jars_out ?? 0);
-                  const jarsBack = Number(r.empty_returned ?? 0);
-                  const leak = jarsOut - jarsBack;
-                  const cash = Number(r.cash_collected ?? 0);
+                  const leak = r.jars_out - r.empties_expected;
                   return (
-                    <TableRow key={`${String(r.route)}-${String(r.date)}`} className="border-border/60">
-                      <TableCell className="px-3 py-3 font-medium text-sm">{String(r.route ?? "—")}</TableCell>
-                      <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.stopped ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.delivered ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-3 text-sm tabular-nums">{rupees(cash)}</TableCell>
-                      <TableCell className="px-3 py-3 text-sm tabular-nums">
-                        {rupees(Number(r.upi_collected ?? 0))}
+                    <TableRow key={r.route_id} className="border-border/60">
+                      <TableCell className="px-3 py-3 font-medium text-sm">
+                        {r.route_id}
+                        <span className="block font-normal text-muted-foreground text-xs">
+                          {r.vendor_name || r.vendor_id}
+                        </span>
                       </TableCell>
-                      <TableCell className="px-3 py-3 text-sm tabular-nums">{`${num(jarsOut)} / ${num(jarsBack)}`}</TableCell>
+                      <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.stops)}</TableCell>
+                      <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.delivered)}</TableCell>
+                      <TableCell className="px-3 py-3 text-sm tabular-nums">{rupees(r.cash)}</TableCell>
+                      <TableCell className="px-3 py-3 text-sm tabular-nums">{rupees(r.upi)}</TableCell>
+                      <TableCell className="px-3 py-3 text-sm tabular-nums">{`${num(r.jars_out)} / ${num(r.empties_expected)}`}</TableCell>
                       <TableCell className="px-3 py-3 text-sm">
-                        <CloseCell leak={leak} cash={cash} />
+                        <CloseCell leak={leak} cash={r.cash} />
                       </TableCell>
                     </TableRow>
                   );

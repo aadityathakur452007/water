@@ -3,12 +3,16 @@ import * as React from "react";
 import { Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
-import type { AuditRow, Page } from "@/lib/admin-types";
+import { toast } from "@/components/ui/toast";
+import { errorMessage } from "@/hooks/use-admin-api";
+import { useCursorPages } from "@/hooks/use-cursor-pages";
+import type { AuditRow } from "@/lib/admin-types";
 import { dateTime } from "@/lib/money";
+import { adminExportCsvServer } from "@/server/admin-api";
 
 export function Audit() {
   const [actor, setActor] = React.useState("");
@@ -19,8 +23,24 @@ export function Audit() {
   if (action.trim()) params.set("action", action.trim());
   const qs = params.toString();
 
-  const { data, isError, error } = useAdminQuery<Page<AuditRow>>(`/v1/admin/audit${qs ? `?${qs}` : ""}`);
-  const rows = data?.data ?? [];
+  const { rows, nextCursor, loadMore, isError, error } = useCursorPages<AuditRow>(
+    `/v1/admin/audit${qs ? `?${qs}` : ""}`,
+  );
+
+  async function exportCsv() {
+    try {
+      const text = await adminExportCsvServer({ data: { query: qs ? `?${qs}` : "" } });
+      const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "shodasha-audit.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.add({ title: "Export failed", description: errorMessage(err), type: "error" });
+    }
+  }
 
   return (
     <Card>
@@ -52,6 +72,9 @@ export function Audit() {
               onChange={(e) => setAction(e.target.value)}
             />
           </InputGroup>
+          <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
+            Export CSV ({rows.length} loaded)
+          </Button>
         </div>
         {isError ? (
           <p className="px-4 text-destructive text-sm">{errorMessage(error)}</p>
@@ -96,6 +119,16 @@ export function Audit() {
             </TableBody>
           </Table>
         )}
+        <div className="flex items-center justify-between px-4">
+          <p className="text-muted-foreground text-xs">
+            {`${rows.length} loaded${nextCursor ? " · more on server" : ""}`}
+          </p>
+          {nextCursor ? (
+            <Button variant="outline" size="sm" onClick={loadMore}>
+              Load more
+            </Button>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

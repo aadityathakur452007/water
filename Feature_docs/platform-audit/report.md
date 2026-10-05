@@ -138,7 +138,7 @@ authorization (suspend gates, role gates, httpOnly, logout, guards)
 | Suspended writes | bypass | 403 + zero rows on 10 write routes, reads stay 200 | Split 1: dep swaps + test_phase01_authz (5) | FIXED |
 | PoD OTP | computable | random per-stop (015) + 5-fail lockout + wrong→404 no-oracle | Split 2: vendor_service/dispatch + test_phase01_split2 (6) | FIXED |
 | Vendor resolve | unilateral | agree→vendor_confirmed + note≥10; only admin resolves | Split 2: verify_complaint + admin release test | FIXED |
-| Reconciliation live | empty | per-route rows + custody identity join live; screens still map old shapes | Split A: recon/custody rework + tests (UI remap owed in Split B) | PARTIAL |
+| Reconciliation live | empty | per-route rows + custody identity join live AND rendered; trust counts server-side; no mock-only boards; cursor-follow on 4 screens | Split A backend + Split B UI remap (admin build verify owed) | FIXED* |
 | Vendor session | ~30m death | refresh pinned to vendor-web device (BFF + guard) | Split 1 W1b (build verify owed by owner) | FIXED* |
 | Tests | 241 + 99 + 40 green | 256 pytest (+5 authz +10 split2) + 99 + 40 green | pytest 256 green | BASELINED+ |
 

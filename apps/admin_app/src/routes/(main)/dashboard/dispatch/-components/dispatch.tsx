@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { CustodyRow, OrderRow, Page, Reconciliation } from "@/lib/admin-types";
+import type { CustodyRow, OrderRow, Page, ReconResponse } from "@/lib/admin-types";
 import { num, rupees } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
 
@@ -37,7 +37,7 @@ const FUNNEL: Array<{ state: string; label: string }> = [
 export function Dispatch() {
   const navigate = useNavigate();
   const { data: orders } = useAdminQuery<Page<OrderRow>>("/v1/admin/orders");
-  const { data: reco } = useAdminQuery<Page<Reconciliation>>("/v1/admin/reconciliation");
+  const { data: reco } = useAdminQuery<ReconResponse>("/v1/admin/reconciliation");
   const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
   const [generating, setGenerating] = React.useState(false);
   const invalidate = useInvalidateAdmin();
@@ -169,7 +169,7 @@ export function Dispatch() {
               <div key={c.vendor_id} className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-sm">{c.name ?? c.vendor_id}</p>
-                  <p className="text-muted-foreground text-xs">{`on duty ${num(c.on_duty)}`}</p>
+                  <p className="text-muted-foreground text-xs">{c.on_duty ? "On duty" : "Off duty"}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge
@@ -230,18 +230,23 @@ export function Dispatch() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(reco?.data ?? []).length ? (
-                (reco?.data ?? []).map((r) => (
-                  <TableRow key={`${String(r.route)}-${String(r.date)}`} className="border-border/60">
-                    <TableCell className="px-3 py-3 font-medium text-sm">{String(r.route ?? "—")}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.stopped ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.delivered ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.failed ?? 0))}</TableCell>
+              {(reco?.routes ?? []).length ? (
+                (reco?.routes ?? []).map((r) => (
+                  <TableRow key={r.route_id} className="border-border/60">
+                    <TableCell className="px-3 py-3 font-medium text-sm">
+                      {r.route_id}
+                      <span className="block font-normal text-muted-foreground text-xs">
+                        {r.vendor_name || r.vendor_id}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.stops)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.delivered)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.failed)}</TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
-                      {`${rupees(Number(r.cash_collected ?? 0))} + ${rupees(Number(r.upi_collected ?? 0))}`}
+                      {`${rupees(r.cash)} + ${rupees(r.upi)}`}
                     </TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
-                      {`${num(Number(r.jars_out ?? 0))} / ${num(Number(r.empty_returned ?? 0))}`}
+                      {`${num(r.jars_out)} / ${num(r.empties_expected)}`}
                     </TableCell>
                   </TableRow>
                 ))

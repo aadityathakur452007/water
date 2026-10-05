@@ -1,5 +1,4 @@
 import {
-  BadgeIndianRupee,
   Banknote,
   ChartBarBig,
   ClipboardList,
@@ -60,7 +59,8 @@ export interface NavGroup {
  * Shodasha admin nav — grouped by the admin's mental model (roadmap round 2):
  * Monitor = what's happening · Money = what's owed · People = who serves ·
  * Operate = how it runs. Trust badge count is wired live in nav-main via
- * GET /v1/admin/metrics (quality_open).
+ * GET /v1/admin/metrics (quality_open) — the sidebar badge only. Full charts
+ * and KPIs come from GET /v1/admin/metrics/overview (14-day series + money).
  */
 export const sidebarItems: NavGroup[] = [
   {
@@ -147,12 +147,6 @@ export const sidebarItems: NavGroup[] = [
         url: "/dashboard/dispatch",
         icon: Route,
         badge: "new",
-      },
-      {
-        id: "operations",
-        title: "Operations",
-        url: "/dashboard/operations",
-        icon: BadgeIndianRupee,
       },
       {
         id: "audit",

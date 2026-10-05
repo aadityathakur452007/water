@@ -11,7 +11,7 @@ import {
   ordersFixture,
   paymentsFixture,
   qualityFixture,
-  reconciliationFixture,
+  reconciliationResponseFixture,
   refundsFixture,
   strikesFixture,
   usersRows,
@@ -23,6 +23,7 @@ import {
   vendorPlacedFixture,
   vendorPreviewFixture,
   vendorProfileFixture,
+  vendorQualityFixture,
   vendorSlotsFixture,
   vendorStopFixture,
   vendorsFixture,
@@ -52,6 +53,7 @@ export function resolveFixture(
   if (path.startsWith("/v1/vendor/earnings")) return vendorEarningsFixture;
   if (path.startsWith("/v1/vendor/customers")) return { customers: vendorCustomersFixture };
   if (path.startsWith("/v1/vendor/complaints")) return { data: vendorComplaintsFixture };
+  if (path.startsWith("/v1/vendor/quality")) return { data: vendorQualityFixture };
   if (path.startsWith("/v1/vendor/payouts")) return vendorPayoutsFixture;
   if (path.startsWith("/v1/vendor/profile")) return vendorProfileFixture;
   if (path.startsWith("/v1/vendor/slots")) return vendorSlotsFixture;
@@ -74,7 +76,19 @@ export function resolveFixture(
   }
   if (path.startsWith("/v1/admin/vendors")) return vendorsFixture;
   if (path.startsWith("/v1/admin/users")) return { data: usersRows };
-  if (path.startsWith("/v1/admin/payments")) return paymentsFixture;
+  if (path.startsWith("/v1/admin/payments")) {
+    // Mirror the live server-driven search (ref/order/phone), not page filters.
+    const query = new URLSearchParams(path.split("?")[1] ?? "").get("query")?.toLowerCase() ?? "";
+    if (!query) return paymentsFixture;
+    const data = paymentsFixture.data.filter(
+      (r) =>
+        r.id.toLowerCase().includes(query) ||
+        r.order_id.toLowerCase().includes(query) ||
+        (r.user_name ?? "").toLowerCase().includes(query) ||
+        (r.user_phone ?? "").includes(query),
+    );
+    return { data };
+  }
   if (path.startsWith("/v1/admin/refunds")) return refundsFixture;
   if (path.startsWith("/v1/admin/ledger")) return ledgerFixture;
   if (path.startsWith("/v1/admin/audit")) return auditFixture;
@@ -83,7 +97,7 @@ export function resolveFixture(
   if (path.startsWith("/v1/admin/complaints")) return complaintsFixture;
   if (path.startsWith("/v1/admin/custody")) return { data: custodyFixture };
   if (path.startsWith("/v1/admin/dunning")) return { data: dunningFixture };
-  if (path.startsWith("/v1/admin/reconciliation")) return { data: reconciliationFixture };
+  if (path.startsWith("/v1/admin/reconciliation")) return reconciliationResponseFixture;
   if (path.startsWith("/v1/admin/config")) return { data: configFixture };
   return {};
 }

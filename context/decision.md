@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-085 | 2026-10-05 | Phase 3 Split B UI notes: ops deleted as fully redundant; invented user fields removed; ledger badge matches HOLD_BLOCK_LIMIT; cursor hook shared by 4 screens | Accepted | apps/admin_app recon/custody/trust/payments/users/ledger/audit/orders/config + vendor_app stops/route, branch 029-remediation |
 | ADR-084 | 2026-10-05 | Phase 3 Split A notes: 016 additive cols + PRAGMA tolerance; tracking composes detail; leads throttle-free like other public reads; IST via date(+330min) | Accepted | workers/api catalog/orders/vendor/admin/admin_read_repo/016/tests, branch 029-remediation |
 | ADR-083 | 2026-10-05 | Phase 2 Split B notes: dues intent with dues:-marker rows (no migration); cancel refunds paid_sum; maker-checker; day-close from payments; cod-confirm WIRED best-effort; fixtures gain 005 | Accepted | workers/api payments/order/subs/admin, user_app checkout, vendor_app cash button, branch 029-remediation |
 | ADR-082 | 2026-10-05 | Phase 2 Split A notes: vendor pull = single-touch accept→assign with fail-cheap gates; pod replay gated on pod-presence (triple sets done); duty-off repools in-flow | Accepted | workers/api dispatch/vendor/admin/vendor_service, vendor_app outbox/pod, branch 029-remediation |
@@ -139,6 +140,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-085: Phase 3 Split B UI mapping notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Split B UI (admin screens/fixtures + Flutter parsers) on branch `029-remediation`. Owner pre-decided: operations merge, tracking build, instructions PATCH.
+- **Options considered**: (1) Operations merge vs keep (chosen DELETE — recon board, custody, dues, and generate all exist with parity-or-better in Finance/Dispatch; nothing unique to move). (2) Ledger badge threshold (chosen `>3` matching `HOLD_BLOCK_LIMIT`, not config-driven — one constant, one meaning; config-driven caps are a later feature). (3) Cursor pagination per screen vs shared hook (chosen shared `useCursorPages` — identical accumulate/append/honesty semantics on orders/users/ledger/audit). (4) Preview dual-shape adapters (deleted — exact server envelopes; fail fast on drift).
+- **Decision**: Finance/Dispatch/operations-removed/trust/payments remapped to live shapes; fixtures mirror live; users invented fields removed; config invalidate + unit labels; bill breakup; GMV caption; status legend on Orders/Payments; dues-cap + money labels; audit CSV export; vendor quality picker; Flutter stop fields + failed states + detail rows + parity tests. Verify: vendor 49 green + analyze clean (admin build owed by owner).
+- **Why**: Every screen reads a real endpoint in its real shape; no mock-only boards, no dual shapes, no first-page illusions.
+- **Consequences**: Admin `npm run build` + routeTree regen owed (operations route deleted); user-app tracking edit UI for instructions deferred (API path tested).
+- **Affects**: apps/admin_app (screens/fixtures/types/hooks/server/nav), vendor_app stops/route/sync, branch 029-remediation
 
 ### ADR-084: Phase 3 Split A implementation notes
 - **Date**: 2026-10-05

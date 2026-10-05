@@ -152,6 +152,15 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     final dues = (s['dues'] as num?)?.toInt();
     final holdBlocked = (s['hold_blocked'] as bool?) ?? false;
     final returnId = (s['return_id'] ?? '') as String;
+    final windowStart = (s['window_start'] ?? '') as String;
+    final instructions = (s['instructions'] ?? '') as String;
+    final items = (s['items'] is List)
+        ? (s['items'] as List)
+            .whereType<Map<String, dynamic>>()
+            .map((e) => '${e['qty'] ?? 0} ${e['sku'] ?? ''}'.trim())
+            .where((e) => e.isNotEmpty && e != '0')
+            .join(' • ')
+        : '';
     if (c.notice != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context)
@@ -193,6 +202,15 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                 ),
                 if (address.isNotEmpty)
                   Text(address,
+                      maxLines: 3, overflow: TextOverflow.ellipsis),
+                if (windowStart.isNotEmpty)
+                  Text('Window: $windowStart',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (items.isNotEmpty)
+                  Text(items,
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                if (instructions.isNotEmpty)
+                  Text('Note: $instructions',
                       maxLines: 3, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 8),
                 if (phone.isNotEmpty)

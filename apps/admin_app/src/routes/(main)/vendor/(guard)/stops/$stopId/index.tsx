@@ -25,12 +25,15 @@ function StopDetail() {
   }
   if (!data?.id) return <VendorLoading />;
 
+  const phone = data.customer_phone ?? "";
+  const items = (data.items ?? []).map((e) => `${e.qty} ${e.sku}`).join(" • ");
+
   return (
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-            {`Stop ${num(data.seq)}`}
+            {`Stop ${num(data.seq)} — ${data.customer_name ?? data.customer_id ?? data.order_id ?? data.id}`}
             <Badge variant="outline">{data.status}</Badge>
             {data.hold_blocked ? (
               <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-600">
@@ -42,6 +45,23 @@ function StopDetail() {
             {[data.address_label, data.address_text].filter(Boolean).join(" · ") ||
               (data.customer_id ?? data.order_id ?? data.id)}
           </CardDescription>
+          {phone ? (
+            <div className="flex gap-2 pt-1">
+              <a className="text-sm underline" href={`tel:${phone}`}>
+                Call customer
+              </a>
+              <a
+                className="text-sm underline"
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  [data.address_text, data.address_label].filter(Boolean).join(", "),
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Navigate
+              </a>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-4">
@@ -59,6 +79,24 @@ function StopDetail() {
               <p className="text-muted-foreground text-xs">Order</p>
               <p className="font-medium text-sm">{data.order_state ?? "—"}</p>
             </div>
+            {data.window_start ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Window</p>
+                <p className="font-medium text-sm">{data.window_start}</p>
+              </div>
+            ) : null}
+            {items ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Items</p>
+                <p className="font-medium text-sm">{items}</p>
+              </div>
+            ) : null}
+            {data.instructions ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Note</p>
+                <p className="font-medium text-sm">{data.instructions}</p>
+              </div>
+            ) : null}
           </div>
           {data.hold_blocked ? (
             <p className="mt-2 text-amber-600 text-xs">{data.hold_reason ?? "Hold limit — delivery blocked."}</p>

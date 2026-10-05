@@ -16,6 +16,7 @@ class RouteStop {
     required this.seq,
     required this.customerName,
     this.customerId = '',
+    this.customerPhone = '',
     required this.address,
     required this.fullsExpected,
     required this.emptiesExpected,
@@ -28,6 +29,12 @@ class RouteStop {
     this.totalPaise = 0,
     this.paymentStatus = 'unpaid',
     this.returnId = '',
+    this.orderId = '',
+    this.orderState = '',
+    this.depositDuePaise = 0,
+    this.windowStart = '',
+    this.items = const [],
+    this.instructions = '',
   });
 
   final String id;
@@ -37,6 +44,9 @@ class RouteStop {
   /// 016: server stop customer id (today_route selects s.customer_id).
   /// Falls back to the display name for the users-count fold.
   final String customerId;
+
+  /// §3.2: door contact (assigned-vendor need-to-know) for call action.
+  final String customerPhone;
   final String address;
   final int fullsExpected;
   final int emptiesExpected;
@@ -54,8 +64,24 @@ class RouteStop {
   /// F8: set on empty-jar pickup stops (stops.return_id); else ''.
   final String returnId;
 
+  /// §3.2: order linkage + state + deposit truth (were dropped in fromJson).
+  final String orderId;
+  final String orderState;
+  final int depositDuePaise;
+
+  /// §3.2: promised window + SKU snapshot + delivery note.
+  final String windowStart;
+  final List<Map<String, dynamic>> items;
+  final String instructions;
+
   bool get isDone => status == 'done';
+  bool get isFailed => status == 'failed';
   bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+
+  static List<Map<String, dynamic>> itemsOf(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw.whereType<Map<String, dynamic>>().toList();
+  }
 
   static RouteStop fromJson(Map<String, dynamic> j) => RouteStop(
         id: (j['id'] ?? '') as String,
@@ -63,6 +89,7 @@ class RouteStop {
         customerName:
             (j['customer_name'] ?? j['customer_id'] ?? 'Customer') as String,
         customerId: (j['customer_id'] ?? '') as String,
+        customerPhone: (j['customer_phone'] ?? '') as String,
         address: (j['address_text'] ?? j['address'] ?? j['formatted'] ?? '') as String,
         fullsExpected: (j['fulls_exp'] as num?)?.toInt() ?? 0,
         emptiesExpected: (j['empties_exp'] as num?)?.toInt() ?? 0,
@@ -75,6 +102,12 @@ class RouteStop {
         totalPaise: (j['total'] as num?)?.toInt() ?? 0,
         paymentStatus: (j['payment_status'] ?? 'unpaid') as String,
         returnId: (j['return_id'] ?? '') as String,
+        orderId: (j['order_id'] ?? '') as String,
+        orderState: (j['order_state'] ?? '') as String,
+        depositDuePaise: (j['deposit_due'] as num?)?.toInt() ?? 0,
+        windowStart: (j['window_start'] ?? '') as String,
+        items: itemsOf(j['items']),
+        instructions: (j['instructions'] ?? '') as String,
       );
 }
 

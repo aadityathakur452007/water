@@ -322,7 +322,7 @@ class _RouteScreenState extends State<RouteScreen> {
         ),
       );
     }
-    final pending = c.stops.where((s) => !s.isDone).toList()
+    final pending = c.stops.where((s) => !s.isDone && !s.isFailed).toList()
       ..sort((a, b) => a.seq.compareTo(b.seq));
     if (pending.isNotEmpty) {
       final first = pending.first;
@@ -410,8 +410,9 @@ class _RouteScreenState extends State<RouteScreen> {
   }
 
   Widget _stopCard(RouteStop s, {bool greyed = false}) {
+    final failed = s.isFailed;
     return Opacity(
-      opacity: greyed ? 0.55 : 1.0,
+      opacity: greyed || failed ? 0.55 : 1.0,
       // Bordered fact-row shape (reference CustomCard rhythm): seq avatar
       // lead, name + facts, status/nav trailing. Hairline border, no shadow.
       child: Container(
@@ -465,6 +466,13 @@ class _RouteScreenState extends State<RouteScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: ShodashaTheme.danger),
                 ),
+              if (failed)
+                const Text(
+                  'Failed — admin dobara assign karega',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: ShodashaTheme.danger),
+                ),
             ],
           ),
           trailing: Row(
@@ -473,6 +481,9 @@ class _RouteScreenState extends State<RouteScreen> {
               if (s.isDone)
                 const Icon(Icons.check_circle,
                     color: ShodashaTheme.success),
+              if (failed)
+                const Icon(Icons.error_outline,
+                    color: ShodashaTheme.danger),
               if (s.address.isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.navigation_outlined,

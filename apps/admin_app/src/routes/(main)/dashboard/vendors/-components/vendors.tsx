@@ -15,7 +15,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { UserRow as ApiUserRow, Page, VendorDetail } from "@/lib/admin-types";
+import type { CustodyRow, UserRow as ApiUserRow, Page, VendorDetail } from "@/lib/admin-types";
 import { dataTableFeatures } from "@/lib/data-table-features";
 import { num, phoneMasked } from "@/lib/money";
 import { getInitials } from "@/lib/utils";
@@ -182,8 +182,7 @@ export function Vendors() {
   }
 
   // Custody data enriches rows when the worker serves it (optional join).
-  const { data: custody } =
-    useAdminQuery<Page<{ vendor_id: string; on_duty: number; in_hand: number }>>("/v1/admin/custody");
+  const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
 
   return (
     <Card>
@@ -235,7 +234,7 @@ export function Vendors() {
                     onClick={() => navigate({ to: "/dashboard/vendors/$vendorId", params: { vendorId: v.id } })}
                   >
                     <TableCell className="px-3 py-3">{columns[0].cell({ row: { original: v } })}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(c?.on_duty ?? 0)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm">{c?.on_duty ? "On duty" : "Off"}</TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">{num(c?.in_hand ?? 0)}</TableCell>
                     <TableCell className="px-3 py-3">
                       <Badge variant="outline">{v.kyc}</Badge>

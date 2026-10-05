@@ -14,7 +14,9 @@ export function Leaderboards() {
   const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
   const { data: users } = useAdminQuery<Page<ApiUserRow>>("/v1/admin/users");
 
-  const vendors = [...(custody?.data ?? [])].sort((a, b) => b.on_duty - a.on_duty).slice(0, 5);
+  const vendors = [...(custody?.data ?? [])]
+    .sort((a, b) => Number(b.on_duty) - Number(a.on_duty) || b.in_hand - a.in_hand)
+    .slice(0, 5);
   const customers = (users?.data ?? []).filter((u) => u.role === "user").slice(0, 5);
 
   return (
@@ -41,7 +43,7 @@ export function Leaderboards() {
                 vendors.map((v) => (
                   <TableRow key={v.vendor_id} className="border-border/60">
                     <TableCell className="px-3 py-3 font-medium text-sm">{v.name ?? v.vendor_id}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(v.on_duty)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm">{v.on_duty ? "On duty" : "Off"}</TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
                       {num(v.in_hand)}
                       {v.in_hand > 30 ? (

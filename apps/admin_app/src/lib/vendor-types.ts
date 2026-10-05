@@ -7,6 +7,8 @@ export type VendorStop = {
   route_id: string;
   order_id: string | null;
   customer_id: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
   seq: number;
   fulls_exp: number;
   empties_exp: number;
@@ -16,7 +18,11 @@ export type VendorStop = {
   payment_mode: string | null;
   payment_status: string | null;
   total: number;
+  deposit_due: number;
   order_state: string | null;
+  window_start: string | null;
+  items: Array<{ sku: string; qty: number }>;
+  instructions: string | null;
   address_label: string | null;
   address_text: string | null;
   hold_blocked?: boolean;
@@ -76,6 +82,15 @@ export type VendorComplaint = {
   created_at: string;
 };
 
+export type VendorQualityIncident = {
+  id: string;
+  order_id: string;
+  reason_code: string;
+  status: string;
+  vendor_agree: number | null;
+  created_at: string;
+};
+
 export type VendorPayouts = {
   payouts: Array<{
     id: string;
@@ -101,15 +116,16 @@ export type VendorProfile = {
 
 export type VendorSlots = { user_id: string; slots: Record<string, boolean> };
 
-/** Admin "view as vendor" — composes VendorService reads (backend parallel slice). */
+/** Admin "view as vendor" — exact server shapes (no dual-shape tolerance:
+ * fail fast on drift). `route` is the whole today_route read; customers and
+ * complaints ride their service envelopes. */
 export type VendorPreview = {
   vendor: UserRow;
   profile: VendorDetail["profile"];
-  /** Whole today_route read ({route, stops, loading, skip}) under the `route` key. */
   route: TodayRoute;
   earnings: Earnings;
-  customers: VendorCustomer[] | { customers: VendorCustomer[] };
-  complaints: VendorComplaint[] | { data: VendorComplaint[] };
+  customers: { date: string; customers: VendorCustomer[] };
+  complaints: { data: VendorComplaint[] };
 };
 
 export type AccessCodeRow = {

@@ -4,13 +4,15 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 
 import { Download, Search } from "lucide-react";
 
+import { StatusLegend } from "@/components/status-legend";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
-import type { OrderRow, Page } from "@/lib/admin-types";
+import { errorMessage } from "@/hooks/use-admin-api";
+import { useCursorPages } from "@/hooks/use-cursor-pages";
+import type { OrderRow } from "@/lib/admin-types";
 import { dateTime, rupees } from "@/lib/money";
 
 import { STATE_BADGE } from "./orders-columns";
@@ -54,10 +56,11 @@ export function Orders() {
   if (query.trim()) params.set("query", query.trim());
   const qs = params.toString();
 
-  const { data, isError, error, isFetching } = useAdminQuery<Page<OrderRow>>(`/v1/admin/orders${qs ? `?${qs}` : ""}`);
-  const rows = data?.data ?? [];
-  const [showAll, setShowAll] = React.useState(false);
-  const visible = showAll ? rows : rows.slice(0, 20);
+  // Cursor-follow: page 1 loads, Load more appends. Row counts below are
+  // loaded rows, never server totals.
+  const { rows, nextCursor, isError, error, isFetching, loadMore } = useCursorPages<OrderRow>(
+    `/v1/admin/orders${qs ? `?${qs}` : ""}`,
+  );
 
   return (
     <Card>
@@ -109,7 +112,7 @@ export function Orders() {
             </InputGroup>
             <Button variant="outline" size="sm" disabled={rows.length === 0} onClick={() => exportOrdersCsv(rows)}>
               <Download className="size-3.5" />
-              CSV ({rows.length})
+              CSV ({rows.length} loaded)
             </Button>
           </div>
         </div>
@@ -131,7 +134,7 @@ export function Orders() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visible.map((r) => (
+              {rows.map((r) => (
                 <TableRow
                   key={r.id}
                   className="cursor-pointer border-border/60 hover:bg-white/2.5"
@@ -155,7 +158,7 @@ export function Orders() {
                   <TableCell className="px-3 py-3 text-muted-foreground text-sm">{dateTime(r.created_at)}</TableCell>
                 </TableRow>
               ))}
-              {visible.length === 0 && !isFetching ? (
+              {rows.length === 0 && !isFetching ? (
                 <TableRow>
                   <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                     No orders match the filters.
@@ -166,15 +169,17 @@ export function Orders() {
           </Table>
         )}
 
-        {rows.length > 20 ? (
-          <div className="px-4">
-            {data?.next_cursor ? (
-              <Button variant="outline" size="sm" onClick={() => setShowAll(true)}>
-                Show all ({rows.length})
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="flex items-center justify-between px-4">
+          <p className="text-muted-foreground text-xs">
+            {`${rows.length} loaded${nextCursor ? " · more on server" : ""}`}
+          </p>
+          {nextCursor ? (
+            <Button variant="outline" size="sm" onClick={loadMore}>
+              Load more
+            </Button>
+          ) : null}
+        </div>
+        <StatusLegend />
       </CardContent>
     </Card>
   );
