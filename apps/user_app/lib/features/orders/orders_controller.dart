@@ -8,10 +8,9 @@
 // Feature_docs/synthesis/user-flows.md flows 3 (tracking, 30-min window,
 // no live dot) + 5 (UPI/COD guards + reconcile + dues carry-forward).
 //
-// Wiring notes (F1 owns pubspec.yaml):
-// - url_launcher is NOT in pubspec.yaml, so tel:/wa.me are TODO stubs that
-//   return false and let screens show a SnackBar fallback. F1 plugs the real
-//   launcher without touching callers.
+// Wiring notes: tel:/wa.me launch via url_launcher with a SnackBar
+// fallback when no handler exists (Phase 4 §4.5: support Open tries
+// launchUrl first, clipboard copy is the fallback, never the primary).
 // - Money is integer paise everywhere; [formatRupees] formats only for
 //   display (2dp only when needed).
 

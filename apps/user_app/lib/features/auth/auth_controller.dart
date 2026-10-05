@@ -355,6 +355,22 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
+  /// Local-only wipe (no server call): the global 401/403 hook
+  /// (revoked/suspended/expired — must not call authed endpoints again,
+  /// that would loop). Mirrors the vendor controller (Phase 4 §4.3).
+  Future<void> forceLogout() async {
+    await _store.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('selected_address_id');
+    } catch (_) {
+      // Prefs wipe is best-effort — secure session already cleared.
+    }
+    _reset();
+    _status = AuthStatus.idle;
+    _notify();
+  }
+
   /// Cold-start restore for [AuthGate]: valid session → authenticated.
   Future<void> restoreSession() async {
     final access = await _store.readAccessToken();

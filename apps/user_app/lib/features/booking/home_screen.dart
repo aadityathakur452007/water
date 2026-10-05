@@ -9,7 +9,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/api_client.dart' show kSupportPhone;
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
@@ -133,6 +134,9 @@ class _HomeScreenState extends State<HomeScreen> {
               'assets/logo.png',
               width: 32,
               height: 32,
+              // 32px display size: decode at display resolution only
+              // (Phase 4 §4.6; full WebP re-export is an owner asset step).
+              cacheWidth: 32,
               errorBuilder: (_, _, _) => const Icon(
                 Icons.water_drop,
                 color: ShodashaTheme.blue,
@@ -603,8 +607,28 @@ Future<bool?> showBulkConfirmDialog(
   );
 }
 
-/// N > 10 tanker sheet: vendor call CTA only — never creates an order.
-Future<void> showTankerSheet(BuildContext context) {
+/// N > 10 tanker sheet: vendor call CTA + dismiss — never creates an order.
+/// Phase 4 §4.5: the Call button dials the real support number (single
+/// [kSupportPhone] constant); [openUrl] is the widget-test seam.
+Future<void> showTankerSheet(
+  BuildContext context, {
+  Future<bool> Function(Uri url, {LaunchMode mode})? openUrl,
+}) {
+  Future<void> callVendor(BuildContext ctx) async {
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final open = openUrl ?? launchUrl;
+    bool ok = false;
+    try {
+      ok = await open(Uri(scheme: 'tel', path: '+$digits'));
+    } catch (_) {
+      ok = false;
+    }
+    if (ok || !ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(content: Text('Call nahi laga — $kSupportPhone par call karein')),
+    );
+  }
+
   return showModalBottomSheet<void>(
     context: context,
     shape: const RoundedRectangleBorder(
@@ -630,6 +654,14 @@ Future<void> showTankerSheet(BuildContext context) {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
+                onPressed: () => callVendor(ctx),
+                child: const Text('Vendor ko call karein'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
                 child: const Text('Ho gaya'),
               ),

@@ -5,6 +5,8 @@
 // login; register gates only booking commit + profile data (AuthGate routes
 // the shell; ProfileScreen shows the login CTA when un-authed).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
@@ -54,34 +56,52 @@ class _ShodashaAppState extends State<ShodashaApp> {
   late final SubscriptionController _subs;
   late final ProfileController _profile;
 
+  late final String _deviceId;
+
+  bool _ready = false;
+
   @override
   void initState() {
     super.initState();
-    // Bearer tracks the session without rebuilding controllers after login
-    // (vendor mirror): the closure reads _auth lazily — the first authed
-    // call happens long after initState, so the late field is assigned.
-    // Without this, every authed call goes out bearer-less and the server
-    // 401s (addresses list/save can never work).
+    _boot();
+  }
+
+  /// Phase 4 §4.3–§4.4 (mirrors the vendor `_boot`): stable per-install
+  /// device id (fraud graph, SEC-F01) instead of `'pending-device'`; Bearer
+  /// tracks the session without rebuilding controllers after login (the
+  /// closures read `_auth` lazily — the first authed call happens long
+  /// after boot, so the late field is assigned); 401/403 wipes locally
+  /// back to login via [AuthController.forceLogout] (never loops: the hook
+  /// never calls the server); catalog reads live `GET /catalog` with the
+  /// hardcoded fallback kept for offline honesty.
+  Future<void> _boot() async {
+    _deviceId = await loadOrCreateDeviceId();
     _api = ApiClient(
-      deviceId: 'pending-device',
+      deviceId: _deviceId,
       accessTokenGetter: () => _auth.session?.accessToken,
+      onUnauthorized: () => _auth.forceLogout(),
     );
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),
       store: SecureSessionStore(),
-      deviceId: 'pending-device',
+      deviceId: _deviceId,
     );
-    _booking = BookingController(catalog: _HardcodedCatalog());
+    _booking = BookingController(
+      catalog: CachingCatalogApi(HttpCatalogApi(_api)),
+    );
     _orders = OrdersController(repo: ApiBackedOrdersRepository(_api));
     _addresses = AddressController(api: _api);
     _selectedStore = SelectedAddressStore();
     // Persistence behind the live selection: restore once, then the
     // controller writes through on every select (011_port).
-    _selectedStore.load().then((_) {
+    unawaited(_selectedStore.load().then((_) {
       _addresses.bindSelection(_selectedStore);
-    });
+    }));
     _subs = SubscriptionController(api: _api);
     _profile = ProfileController(api: _api);
+    // Live rates on home init (best-effort; hardcoded fallback stays).
+    unawaited(_booking.refreshRates());
+    if (mounted) setState(() => _ready = true);
   }
 
   @override
@@ -98,6 +118,13 @@ class _ShodashaAppState extends State<ShodashaApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_ready) {
+      return MaterialApp(
+        theme: buildShodashaTheme(),
+        home: const Scaffold(
+            body: Center(child: CircularProgressIndicator())),
+      );
+    }
     return MaterialApp(
       title: 'Shodasha',
       debugShowCheckedModeBanner: false,
@@ -227,10 +254,4 @@ class _LoginGatePageState extends State<_LoginGatePage> {
       body: NameNumberScreen(controller: widget.auth),
     );
   }
-}
-
-/// Offline fallback rates (contract §4.2 catalog values).
-class _HardcodedCatalog implements CatalogApi {
-  @override
-  Future<CatalogRates> fetchRates() async => const CatalogRates();
 }

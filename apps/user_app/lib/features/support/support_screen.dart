@@ -9,8 +9,11 @@
 // Checklist (Contacting Support): entry here + from error pages, hours,
 // expected response time. GET /complaints → open → progress → resolved.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -175,10 +178,14 @@ class SupportController extends ChangeNotifier {
 
 /// Support tab-page.
 class SupportScreen extends StatefulWidget {
-  const SupportScreen({super.key, this.controller, this.orderContext});
+  const SupportScreen({super.key, this.controller, this.orderContext, this.openUrl});
 
   final SupportController? controller;
   final String? orderContext; // prefilled wa.me text when opened from orders
+
+  /// Opens [url] externally. Injectable for widget tests (defaults to
+  /// url_launcher's external-application launch).
+  final Future<bool> Function(Uri url, {LaunchMode mode})? openUrl;
 
   @override
   State<SupportScreen> createState() => _SupportScreenState();
@@ -198,9 +205,32 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Future<void> _openWhatsApp() async {
-    // TODO(F1): url_launcher wa.me/<support>?text=<ctx>. Copy-guard keeps
-    // the flow alive without the dep being wired.
-    await Clipboard.setData(ClipboardData(text: kSupportPhone));
+    // Phase 4 §4.5: launch primary (orders_controller pattern), clipboard
+    // copy stays as the fallback — never the primary. Digits derive from
+    // the single [kSupportPhone] constant (no second source of truth).
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final text = widget.orderContext ??
+        'Namaste! Mujhe paani ke order me madad chahiye.';
+    final uri = Uri.parse(
+      'https://wa.me/$digits?text=${Uri.encodeComponent(text)}',
+    );
+    final open = widget.openUrl ?? launchUrl;
+    bool ok = false;
+    try {
+      ok = await open(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
+    if (ok || !mounted) return;
+    // Copy runs unawaited: a slow/denied clipboard must never delay the
+    // fallback message (and never strand it — the snackbar is the signal,
+    // the copy is best-effort).
+    unawaited(
+      Clipboard.setData(ClipboardData(text: kSupportPhone)).then<void>(
+        (_) {},
+        onError: (_) {},
+      ),
+    );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(supportStringsHi['waFail']!)),

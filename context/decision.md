@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-086 | 2026-10-05 | Phase 4 Flutter notes: purge proven-dead deps (keep razorpay/animate/calendar); copy-vendor client parity; live catalog zero-backend; launch-primary help; gradle keystore-wired + R8 | Accepted | apps/user_app api_client/main/booking/support/home/pubspec/manifest/gradle/tests + apps/vendor_app pubspec/manifest/gradle, branch 029-remediation |
 | ADR-085 | 2026-10-05 | Phase 3 Split B UI notes: ops deleted as fully redundant; invented user fields removed; ledger badge matches HOLD_BLOCK_LIMIT; cursor hook shared by 4 screens | Accepted | apps/admin_app recon/custody/trust/payments/users/ledger/audit/orders/config + vendor_app stops/route, branch 029-remediation |
 | ADR-084 | 2026-10-05 | Phase 3 Split A notes: 016 additive cols + PRAGMA tolerance; tracking composes detail; leads throttle-free like other public reads; IST via date(+330min) | Accepted | workers/api catalog/orders/vendor/admin/admin_read_repo/016/tests, branch 029-remediation |
 | ADR-083 | 2026-10-05 | Phase 2 Split B notes: dues intent with dues:-marker rows (no migration); cancel refunds paid_sum; maker-checker; day-close from payments; cod-confirm WIRED best-effort; fixtures gain 005 | Accepted | workers/api payments/order/subs/admin, user_app checkout, vendor_app cash button, branch 029-remediation |
@@ -140,6 +141,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-086: Phase 4 Flutter lightness + reliability notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Phase 4 spec (`Feature_docs/platform-audit/specs/phase-04-flutter.md`) on branch `029-remediation`. Owner answered all 5 design-gate questions = approval granted. Answers locked: (1) purge all proven-dead incl. cupertino; (2) Razorpay KEPT; (3) POST_NOTIFICATIONS removed both; (4) logo code-only (owner re-exports WebP); (5) wire gradle signing+R8 now, owner provisions keystore + smoke.
+- **Options considered**: (1) Dep purge — delete only spec's 7+1 vs verify-each (chosen verify-each via zero-import grep + `pub deps`: flutter_animate/table_calendar/razorpay all imported so they stay; `intl` direct line removed but stays transitively via table_calendar; country_flags confirmed transitive via shadcn). (2) Shared client abstraction vs copy (chosen COPY vendor send/single-flight/retry/401-hook + https assert verbatim — two small clients beats one clever one; per design-patterns minimum-code mandate). (3) Catalog rate_version backend field (rejected — server RATE_VERSION is a code constant + STALE_QUOTE re-quote already in checkout; wiring GET /catalog closes the admin-rate gap with zero backend change). (4) Clipboard await vs unawaited (chosen unawaited — `Clipboard.setData` can hang unresolved, stranding the fallback snackbar; snackbar is the signal, copy is best-effort).
+- **Decision**: Purge + pub get (country_flags exits verified); manifests permission removed; gradle key.properties-wired release + minify/shrink (keystore gitignored per template); logo cacheWidth:32; user ApiClient parity + forceLogout + _boot device-id (mirrors vendor) + HttpCatalogApi in CachingCatalogApi (hardcoded fallback kept); support launchUrl-primary + tanker tel: Call (digits derived from single kSupportPhone, placeholders deleted); sub-screen path test-only (already wired); 14 new tests. Verify: user 113 + vendor 49 green, both analyzes clean, backend 285 untouched.
+- **Why**: Smallest diffs closing each finding with evidence (grep + pub deps before delete); no new packages; no backend writes; no secrets in code (keystore names only).
+- **Consequences**: Owner owes keystore + key.properties + signed smoke + release re-measure (≤21 MB target) + WebP re-export + device walks. Owed admin `npm run build` (Phase 3) still stands.
+- **Affects**: apps/user_app api_client/main/booking_controller/support_screen/home_screen/orders_controller/pubspec/manifest/gradle/tests, apps/vendor_app pubspec/manifest/gradle, branch 029-remediation
 
 ### ADR-085: Phase 3 Split B UI mapping notes
 - **Date**: 2026-10-05

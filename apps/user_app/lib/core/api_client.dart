@@ -54,7 +54,20 @@ class ApiClient {
     this.accessToken,
     this.accessTokenGetter,
     this.deviceId = 'unknown-device',
-  }) : _http = client ?? http.Client();
+    this.onUnauthorized,
+  }) : _http = client ?? http.Client() {
+    // Fail fast in debug on cleartext prod builds: the release pipeline
+    // always passes an https SHODASHA_API_BASE. Localhost stays allowed.
+    // (Phase 4 §4.6: copied from the vendor client — two small clients
+    // beats one clever shared one.)
+    assert(
+      baseUrl.startsWith('https://') ||
+          baseUrl.contains('localhost') ||
+          baseUrl.contains('127.0.0.1') ||
+          baseUrl.contains('10.0.2.2'),
+      'ApiClient baseUrl must be https (or loopback for dev): $baseUrl',
+    );
+  }
 
   final http.Client _http;
   final String baseUrl;
@@ -68,6 +81,16 @@ class ApiClient {
 
   /// X-Device-Id (fraud graph, SEC-F01).
   final String deviceId;
+
+  /// Fired once per 401/403 response (suspended / revoked / expired).
+  /// The app clears the session and returns to login (never loops: the
+  /// hook must not itself call an authed endpoint).
+  final Future<void> Function()? onUnauthorized;
+
+  /// In-flight GET dedupe (single-flight): two callers, one socket.
+  /// Cleanup uses then/onError (never whenComplete): whenComplete mints a
+  /// derived future that rethrows unlistened and trips test-zone guards.
+  final Map<String, Future<dynamic>> _inflight = {};
 
   String? get _token => accessTokenGetter?.call() ?? accessToken;
 
@@ -95,7 +118,113 @@ class ApiClient {
   }
 
   /// Single request path: send → decode → typed error. JSON body in/out.
+  ///
+  /// Resilience (Phase 4 §4.3: copied from the vendor client — minimum
+  /// requests, no retry storms):
+  /// - GETs are single-flighted (concurrent duplicates join one socket).
+  /// - Retried (max 3, backoff 500ms·2ⁿ + jitter, honors Retry-After): only
+  ///   NETWORK/timeout, 408, 429, 5xx — and POSTs only when an
+  ///   [idempotencyKey] is present or [retryPost] is set (caller guarantees
+  ///   the operation is replay-safe: same key + same body). Never retries
+  ///   400/401/403/404/409.
+  /// - 401/403 fires [onUnauthorized] once (session revoked/suspended).
   Future<dynamic> send(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool authed = true,
+    String? idempotencyKey,
+    bool retryPost = false,
+    Duration timeout = const Duration(seconds: 12),
+  }) {
+    if (method == 'GET') {
+      final key = 'GET ${_uri(path, query)}';
+      final flying = _inflight[key];
+      if (flying != null) return flying;
+      final fut = _sendWithRetry(
+        method, path,
+        body: body,
+        query: query,
+        authed: authed,
+        idempotencyKey: idempotencyKey,
+        retryPost: retryPost,
+        timeout: timeout,
+      );
+      _inflight[key] = fut;
+      unawaited(fut.then<void>(
+        (_) {
+          _inflight.remove(key);
+        },
+        onError: (_) {
+          _inflight.remove(key);
+        },
+      ));
+      return fut;
+    }
+    return _sendWithRetry(
+      method, path,
+      body: body,
+      query: query,
+      authed: authed,
+      idempotencyKey: idempotencyKey,
+      retryPost: retryPost,
+      timeout: timeout,
+    );
+  }
+
+  bool _retryable(Object e) {
+    if (e is! ApiException) return false;
+    if (e.code == 'NETWORK') return true;
+    return e.statusCode == 408 || e.statusCode == 429 || e.statusCode >= 500;
+  }
+
+  Future<dynamic> _sendWithRetry(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool authed = true,
+    String? idempotencyKey,
+    bool retryPost = false,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    // POST without an idempotency key (or explicit replay-safety) must never
+    // auto-retry: a timeout may mean the server already applied it.
+    final retryableMethod = method == 'GET' ||
+        method == 'DELETE' ||
+        idempotencyKey != null ||
+        retryPost;
+    var attempt = 0;
+    while (true) {
+      attempt += 1;
+      try {
+        return await _sendOnce(
+          method, path,
+          body: body,
+          query: query,
+          authed: authed,
+          idempotencyKey: idempotencyKey,
+          timeout: timeout,
+        );
+      } on ApiException catch (e) {
+        if (e.statusCode == 401 || e.statusCode == 403) {
+          await onUnauthorized?.call();
+        }
+        final canRetry = retryableMethod && attempt < 3 && _retryable(e);
+        if (!canRetry) rethrow;
+        var waitMs = 500 * (1 << (attempt - 1));
+        final serverWait = (e.retryAfterSeconds ?? 0) * 1000;
+        if (serverWait > waitMs) waitMs = serverWait;
+        if (waitMs > 10000) waitMs = 10000;
+        // Full jitter: spread retries so fleets don't thunder.
+        final jitter = DateTime.now().microsecond % (waitMs + 1);
+        await Future<void>.delayed(Duration(milliseconds: jitter));
+      }
+    }
+  }
+
+  Future<dynamic> _sendOnce(
     String method,
     String path, {
     Object? body,
