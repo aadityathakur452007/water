@@ -44,6 +44,27 @@ Map<String, dynamic> buildTripleBody({
 
 String newIdempotencyKey() => const Uuid().v4();
 
+/// Builds the PoD body the server expects (same shape live and offline —
+/// the sync worker replays it through POST /vendor/sync).
+Map<String, dynamic> buildPodBody({
+  required String deliveryOtp,
+  required int emptiesCount,
+  required int cashPaise,
+  bool sealOk = true,
+  double? lat,
+  double? lng,
+}) {
+  final body = <String, dynamic>{
+    'delivery_otp': deliveryOtp,
+    'empties_count': emptiesCount,
+    'cash': cashPaise,
+    'seal_ok': sealOk,
+  };
+  if (lat != null) body['lat'] = lat;
+  if (lng != null) body['lng'] = lng;
+  return body;
+}
+
 class StopsController extends ChangeNotifier {
   StopsController({required ApiClient api}) : _api = api;
 
@@ -137,14 +158,14 @@ class StopsController extends ChangeNotifier {
     _notice = null;
     notifyListeners();
     try {
-      final pod = <String, dynamic>{
-        'delivery_otp': deliveryOtp,
-        'empties_count': emptiesCount,
-        'cash': cashPaise,
-        'seal_ok': sealOk,
-      };
-      if (lat != null) pod['lat'] = lat;
-      if (lng != null) pod['lng'] = lng;
+      final pod = buildPodBody(
+        deliveryOtp: deliveryOtp,
+        emptiesCount: emptiesCount,
+        cashPaise: cashPaise,
+        sealOk: sealOk,
+        lat: lat,
+        lng: lng,
+      );
       final raw = await _api.postPod(
         stopId: stopId,
         pod: pod,

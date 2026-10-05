@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-082 | 2026-10-05 | Phase 2 Split A notes: vendor pull = single-touch accept→assign with fail-cheap gates; pod replay gated on pod-presence (triple sets done); duty-off repools in-flow | Accepted | workers/api dispatch/vendor/admin/vendor_service, vendor_app outbox/pod, branch 029-remediation |
 | ADR-081 | 2026-10-05 | Phase 1 Split 2 implementation notes: fake-refusal at FakeUpiProvider doors (reads preserved), plaintext per-stop OTP + legacy tolerance, quality agree→confirmed carried | Accepted | workers/api upi/vendor/dispatch/order_repo/015 migration/tests, branch 029-remediation |
 | ADR-080 | 2026-10-05 | Phase 1 execution plan: W1a backend first then W1b; two splits (Split 1 = §1.1–§1.4+§1.8, Split 2 = §1.5–§1.7); webhook fail-closed now; OTP migration 015 additive + legacy-tolerant | Accepted | workers/api authz/webhook/OTP/adjudication, apps/admin_app cookies/guards, branch 029-remediation |
 | ADR-079 | 2026-10-05 | 029 remediation Phase 0 safety: baselines re-recorded + P0-0 one-line import fix, admin build green | Accepted | apps/admin_app vendor stop route, branch 029-remediation |
@@ -136,6 +137,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-082: Phase 2 Split A implementation notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Split A (§2.1 dispatch + §2.6 duty + §2.7 offline) on branch `029-remediation`. Three calls diverged from the naive reading while preserving intent.
+- **Options considered**: (1) Vendor pull as bare assign vs single-touch accept→assign (chosen single-touch — the pool holds *placed* orders and assign requires *packed*; zone/capacity pre-checked BEFORE the first transition so a refused pull writes nothing, assign re-checks at commit; replay returns the existing stop). (2) Pod replay on any done stop vs gated on pod-presence (gated — triple already sets done, so an unclosed tripled stop must fall through to the normal close; only a stored pod block replays). (3) cod-confirm wire-vs-delete (deferred to Split B §2.5 with the delegated fit analysis, not decided here).
+- **Decision**: `dispatch_service.vendor_accept_order` + 4 admin endpoints (accept/reject/pack/route-dispatch) + `duty(off)`→`auto_repool` in-flow with `vendor.duty_off` audit + pod done-check-first replay + `sync_batch` pod items + vendor outbox `enqueuePod`/`buildPodBody` + PodSheet wiring. Verify: 263 pytest + vendor 45/flutter-analyze clean.
+- **Why**: Composes existing primitives (transition/assign/auto_repool/outbox) with zero new tables/packages; torn-write hazards closed by fail-cheap ordering + replay checks.
+- **Consequences**: Admin UI for accept/pack/dispatch owed (Phase 6 area; endpoints live now); duty-off return shape gains `repooled` (additive).
+- **Affects**: workers/api dispatch/vendor/admin/vendor_service, vendor_app stops/sync, tests, branch 029-remediation
 
 ### ADR-081: Phase 1 Split 2 implementation notes (deviations + rationale)
 - **Date**: 2026-10-05

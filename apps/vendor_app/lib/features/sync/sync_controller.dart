@@ -1,6 +1,8 @@
-// Offline outbox: queued triples persist in SharedPreferences and replay
-// through POST /vendor/sync with per-stop idempotency keys. Server-wins on
-// ledger; stale entries surface individually, never fail the batch.
+// Offline outbox: queued triples (+ PoD closes) persist in SharedPreferences
+// and replay through POST /vendor/sync with per-stop idempotency keys.
+// Server-wins on ledger; stale entries surface individually, never fail the
+// batch. PoD items ride the same queue with the live body shape; the server
+// treats a same-OTP retry of a completed close as the stored outcome.
 
 // ignore_for_file: prefer_initializing_formals
 
@@ -20,6 +22,7 @@ class QueuedTriple {
     required this.idempotencyKey,
     required this.queuedAtIso,
     this.cashAmountPaise = 0,
+    this.pod = const {},
   });
 
   final String stopId;
@@ -31,12 +34,16 @@ class QueuedTriple {
   /// triple applies in sync_batch (server dedupes on stop+amount).
   final int cashAmountPaise;
 
+  /// §2.7: offline PoD close in the live body shape (empty for triples).
+  final Map<String, dynamic> pod;
+
   Map<String, dynamic> toJson() => {
         'stop_id': stopId,
         'triple': triple,
         'idempotency_key': idempotencyKey,
         'queued_at': queuedAtIso,
         'cash_amount': cashAmountPaise,
+        'pod': pod,
       };
 
   static QueuedTriple fromJson(Map<String, dynamic> j) => QueuedTriple(
@@ -45,12 +52,15 @@ class QueuedTriple {
         idempotencyKey: (j['idempotency_key'] ?? '') as String,
         queuedAtIso: (j['queued_at'] ?? '') as String,
         cashAmountPaise: (j['cash_amount'] as num?)?.toInt() ?? 0,
+        pod: Map<String, dynamic>.from((j['pod'] ?? {}) as Map),
       );
 
   Map<String, dynamic> toSyncItem() => {
         'stop_id': stopId,
         'idempotency_key': idempotencyKey,
         ...triple,
+        if (pod.isNotEmpty) 'pod': true,
+        ...pod,
         if (cashAmountPaise > 0) 'cash_amount': cashAmountPaise,
       };
 }
@@ -127,6 +137,28 @@ class SyncController extends ChangeNotifier {
         idempotencyKey: idempotencyKey ?? newIdempotencyKey(),
         queuedAtIso: DateTime.now().toIso8601String(),
         cashAmountPaise: cashAmountPaise,
+      ),
+    ];
+    await _persist();
+    notifyListeners();
+  }
+
+  /// §2.7: offline PoD close in the live body shape (+ optional cash ride,
+  /// posted after the close applies — same contract as triples).
+  Future<void> enqueuePod({
+    required String stopId,
+    required Map<String, dynamic> pod,
+    int cashAmountPaise = 0,
+  }) async {
+    _queue = [
+      ..._queue,
+      QueuedTriple(
+        stopId: stopId,
+        triple: const {},
+        idempotencyKey: newIdempotencyKey(),
+        queuedAtIso: DateTime.now().toIso8601String(),
+        cashAmountPaise: cashAmountPaise,
+        pod: pod,
       ),
     ];
     await _persist();

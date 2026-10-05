@@ -19,8 +19,8 @@ Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 
 VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
  └─ AuthGate (restore → login / shell)
  └─ VendorShell (duty gate → 5 tabs: Route·Sync·Earnings·Support·Profile)
-     ├─ DutyController.setDuty → POST /vendor/duty
-     ├─ RouteController.load → GET /vendor/routes/today (stops sorted by seq)
+     ├─ DutyController.setDuty → POST /vendor/duty (duty-off repools pending stops to failed + audit, same flow)
+     ├─ RouteController.load → GET /vendor/routes/today (stops sorted by seq) + Pull → POST /vendor/placed/{id}/accept
      ├─ StopsController.commitTriple → POST triple + Idempotency-Key + version
      │    └─ 409 STALE_STOP → pull-fresh; NETWORK → SyncController.enqueue
      ├─ StopsController.completePod → POST pod (OTP + GPS soft-flag)
@@ -335,8 +335,11 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | POST | `/v1/auth/otp/start|verify` | `app/api/v1/auth.py` → `services/auth_service.py` → `adapters/firebase.py` + `user_repo`/`session_repo` | Firebase OTP → D1 session (30m + rotating 7d, family kill on reuse); suspend → restricted session |
 | POST | `/v1/orders` | `app/api/v1/orders.py` → `services/order_service.py` → `order_repo`/`ledger_repo` | Idempotent create (scoped key), quote re-check, OVER_LIMIT/HOLD_BLOCKED, placed + deposit event, one txn |
 | POST | `/v1/payments/upi-intent` + `/webhooks/upi` | `payments.py` → `payment_service` → `payment_repo` + `adapters/upi.py` | Fake/real provider; HMAC + replay-cache; payee lock; dues reconcile |
-| POST | `/v1/vendor/stops/{id}/triple|pod` | `vendor.py` → `vendor_service.py` | Atomic triple (version fence), PoD OTP + GPS soft-flag, offline sync |
+| POST | `/v1/vendor/stops/{id}/triple|pod` | `vendor.py` → `vendor_service.py` | Atomic triple (version fence), PoD OTP + GPS soft-flag, offline sync (pod items ride sync with done-check-first replay) |
 | GET | `/v1/vendor/placed` | `vendor.py` → `VendorService.placed_pool(vendor_id, limit)` | Zone-scoped placed pool (016: vendor's zones only via zones/vendor_zones pincode match; unzoned admin-only) |
+| POST | `/v1/vendor/placed/{order_id}/accept` | `vendor.py` → `dispatch_service.vendor_accept_order` | Pull made real: placed→accepted→picked→packed→assigned + route/stop + OTP mint; zone/capacity pre-checked (fail-cheap); replay returns existing stop |
+| POST | `/v1/admin/orders/{id}/accept|reject|pack` | `admin.py` → `OrderRepo.transition` + `_audit` | Dispatcher pipeline: accept (placed→accepted), reject (→rejected terminal), pack (accepted→picked→packed one action) |
+| POST | `/v1/admin/routes/{id}/dispatch` | `admin.py` → per-stop `transition` to dispatched + per-stop audit | All pending assigned stops dispatched; non-assigned honestly skipped |
 | POST | `/v1/vendor/stops/{id}/cash` | `vendor.py` → `VendorService.cash_post` → `PaymentRepo.mark_paid_cash` | Doorstep cash → payment row + paid_cash/partial_dues + dues reconcile + in_hand (017; deterministic stop+amount dedupe, 409=already-jama) |
 | POST | `/v1/returns/{id}/pickup` | `returns.py` (role=vendor, owned-stop join) | Empty-jar pickup: held−, caps×Rs3→dues, stop done, return picked (017) |
 | POST | `/v1/admin/returns/{id}/assign` | `admin.py` → `route_for_vendor` | Pickup stop queued on vendor's route (017; dup → 409) |

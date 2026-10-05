@@ -306,6 +306,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                       builder: (_) => PodSheet(
                         controller: c,
                         stopId: widget.stopId,
+                        outbox: widget.outbox,
                         collectPaise: totalPaise,
                         paymentMode: paymentMode,
                       ),

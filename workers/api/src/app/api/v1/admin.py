@@ -74,6 +74,10 @@ class CancelOverrideIn(BaseModel):
     reason: str = Field(default="admin override", max_length=500)
 
 
+class RejectIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class VendorCreateIn(BaseModel):
     phone: str = Field(min_length=10, max_length=16)
     name: str = Field(min_length=1, max_length=80)
@@ -172,11 +176,66 @@ async def orders_queue(state: str | None = Query(default=None),
 async def admin_assign(order_id: str, payload: AssignIn, conn=Depends(get_db_conn), user=Admin):
     return await assign_order(conn, order_id, payload.vendor_id, {"id": _uid(user), "role": "admin"})
 
-
 @router.post("/admin/orders/{order_id}/reassign")
-async def admin_reassign(order_id: str, payload: ReassignIn, conn=Depends(get_db_conn), user=Admin):
+async def admin_reassign(order_id: str, payload: ReassignIn,
+                  conn=Depends(get_db_conn), user=Admin):
     return await reassign_order(conn, order_id, payload.vendor_id,
                           {"id": _uid(user), "role": "admin"}, payload.reason)
+
+
+@router.post("/admin/orders/{order_id}/accept")
+async def admin_accept(order_id: str, conn=Depends(get_db_conn), user=Admin):
+    out = await OrderRepo(conn).transition(
+        order_id, "accepted", {"id": _uid(user), "role": "admin"}, "dispatcher accept")
+    with WRITE_LOCK:
+        await _audit(conn, user, "order.accept", "orders", order_id, "", "accepted")
+        conn.commit()
+    return out
+
+
+@router.post("/admin/orders/{order_id}/reject")
+async def admin_reject(order_id: str, payload: RejectIn,
+                conn=Depends(get_db_conn), user=Admin):
+    out = await OrderRepo(conn).transition(
+        order_id, "rejected", {"id": _uid(user), "role": "admin"}, payload.reason)
+    with WRITE_LOCK:
+        await _audit(conn, user, "order.reject", "orders", order_id, "", payload.reason)
+        conn.commit()
+    return out
+
+
+@router.post("/admin/orders/{order_id}/pack")
+async def admin_pack(order_id: str, conn=Depends(get_db_conn), user=Admin):
+    actor = {"id": _uid(user), "role": "admin"}
+    await OrderRepo(conn).transition(order_id, "picked", actor, "dispatcher single-touch pack")
+    out = await OrderRepo(conn).transition(order_id, "packed", actor, "dispatcher single-touch pack")
+    with WRITE_LOCK:
+        await _audit(conn, user, "order.pack", "orders", order_id, "", "packed")
+        conn.commit()
+    return out
+
+
+@router.post("/admin/routes/{route_id}/dispatch")
+async def admin_dispatch_route(route_id: str, conn=Depends(get_db_conn), user=Admin):
+    actor = {"id": _uid(user), "role": "admin"}
+    stops = (await conn.execute(
+        "SELECT s.id, s.order_id FROM stops s WHERE s.route_id = ? AND s.status = 'pending'"
+        " AND s.order_id IS NOT NULL",
+        (route_id,),
+    )).fetchall()
+    dispatched, skipped = [], []
+    for s in stops:
+        order = (await conn.execute(
+            "SELECT state FROM orders WHERE id = ?", (s["order_id"],))).fetchone()
+        if order is None or str(order["state"]) != "assigned":
+            skipped.append({"stop_id": s["id"], "state": str(order["state"]) if order else "missing"})
+            continue
+        await OrderRepo(conn).transition(s["order_id"], "dispatched", actor, f"route {route_id} dispatched")
+        with WRITE_LOCK:
+            await _audit(conn, user, "admin.dispatch", "stops", s["id"], "", "dispatched")
+            conn.commit()
+        dispatched.append(s["id"])
+    return {"route_id": route_id, "dispatched": dispatched, "skipped": skipped}
 
 
 @router.post("/admin/orders/{order_id}/cancel-override")

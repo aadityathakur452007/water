@@ -335,6 +335,59 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             "stop_id": stop_id, "version": 1}
 
 
+async def vendor_accept_order(conn: Conn, order_id: str, vendor_id: str) -> dict:
+    """Vendor Pull made real: self-assign one zone-scoped placed order.
+
+    Single-touch for the field (placed→accepted→picked→packed→assigned in one
+    call, one audit event row each) ending in the shared assign_order path
+    (zone+capacity re-checked, route+stop created, PoD code minted). Replay:
+    an existing pending stop on this vendor's route returns as-is. The
+    zone/capacity gates inside assign_order are the pool enforcement — an
+    out-of-zone or over-capacity pull fails like any assign.
+    """
+    from app.repositories.order_repo import OrderRepo  # noqa: PLC0415 (lazy, cycle-safe)
+
+    actor = {"id": vendor_id, "role": "vendor"}
+    repo = OrderRepo(conn)
+    existing = (await conn.execute(
+        "SELECT s.id, s.route_id, s.version FROM stops s JOIN routes r ON r.id = s.route_id"
+        " WHERE s.order_id = ? AND r.vendor_id = ? AND s.status = 'pending'"
+        " ORDER BY s.version DESC LIMIT 1",
+        (order_id, vendor_id),
+    )).fetchone()
+    if existing is not None:
+        return {"order_id": order_id, "vendor_id": vendor_id, "route_id": existing["route_id"],
+                "stop_id": existing["id"], "version": int(existing["version"]), "replay": True}
+    order = (await conn.execute("SELECT id, state FROM orders WHERE id = ?", (order_id,))).fetchone()
+    if order is None:
+        from app.core.errors import NotFoundError  # noqa: PLC0415 (lazy, import-light)
+
+        raise NotFoundError(message="Order not found.", details={"id": order_id})
+    if str(order["state"]) != "placed":
+        from app.core.errors import ConflictError  # noqa: PLC0415 (lazy, import-light)
+
+        raise ConflictError(message="Only placed orders can be pulled (now %s)." % order["state"],
+                            details={"id": order_id, "state": order["state"]})
+    full = (await conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))).fetchone()
+    # Fail cheap: zone + capacity are verified BEFORE the first transition so
+    # a refused pull writes nothing (assign_order re-checks both at commit).
+    await _check_zone(conn, dict(full), vendor_id)
+    await _check_capacity(conn, vendor_id, int(full["n"]), _today())
+    await repo.transition(order_id, "accepted", actor, "vendor pull from placed pool")
+    await repo.transition(order_id, "picked", actor, "vendor single-touch pack")
+    await repo.transition(order_id, "packed", actor, "vendor single-touch pack")
+    out = await assign_order(conn, order_id, vendor_id, actor)
+    with WRITE_LOCK:
+        try:
+            await write_audit(conn, actor=vendor_id, action="vendor.accept",
+                              entity="orders", entity_id=order_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return out
+
+
 async def reassign_order(conn: Conn, order_id: str, new_vendor_id: str,
                    actor: object, reason: str = "") -> dict:
     """Reassign at frozen price: fence the old stop, bump version on the new one."""

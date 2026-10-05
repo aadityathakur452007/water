@@ -97,6 +97,20 @@ async def _has_pod_cols(conn: Conn) -> bool:
     return "pod_otp" in names and "pod_attempts" in names
 
 
+async def _stop_pod_code(conn: Conn, stop_id: str) -> str | None:
+    """Stored PoD code for one stop, or None (pre-015 / NULL / missing)."""
+    if not await _has_pod_cols(conn):
+        return None
+    try:
+        row = (await conn.execute(
+            "SELECT pod_otp FROM stops WHERE id = ?", (stop_id,))).fetchone()
+    except Exception:
+        return None
+    if row is None or not row["pod_otp"]:
+        return None
+    return str(row["pod_otp"])
+
+
 def _haversine_m(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
     r = 6371000.0
     p1, p2 = math.radians(a_lat), math.radians(b_lat)
@@ -144,7 +158,25 @@ class VendorService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return {"vendor_id": vendor_id, "duty_on": bool(on), "since": since}
+        repooled = 0
+        if not on:
+            # Duty-off keeps the promise on the confirm copy ("baki stops ruk
+            # jayenge"): pending stops return to the zone pool in the same
+            # flow, audited with the count. Separate txn — auto_repool owns
+            # its lock (WRITE_LOCK is not reentrant).
+            from app.services.dispatch_service import auto_repool, write_audit  # noqa: PLC0415 (lazy, lock-safe)
+
+            repooled = int((await auto_repool(self._conn, vendor_id,
+                                              {"id": vendor_id, "role": "vendor"}))["repooled"])
+            with WRITE_LOCK:
+                try:
+                    await write_audit(self._conn, actor=vendor_id, action="vendor.duty_off",
+                                      entity="vendors", entity_id=vendor_id)
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
+        return {"vendor_id": vendor_id, "duty_on": bool(on), "since": since, "repooled": repooled}
 
     async def is_on_duty(self, vendor_id: str) -> bool:
         from app.services.dispatch_service import ensure_profile
@@ -365,12 +397,27 @@ class VendorService:
     async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
         """OTP-gated PoD. Wrong OTP reads as not-found (no oracle for stop
         existence); 5 wrong codes lock the stop (429 POD_LOCKED, support
-        re-issues). GPS drift → flagged, never blocked."""
+        re-issues). Replays of a completed close return the current outcome
+        with no write and no attempt burn (offline-outbox safety). GPS drift
+        → flagged, never blocked."""
         from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
 
         stop = await self._owned_stop(vendor_id, stop_id)
         route = (await self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],))).fetchone()
         day = route["date"] if route else _today()
+        try:
+            closed = bool((json.loads(stop["triple"]) if stop["triple"] else {}).get("pod"))
+        except (ValueError, TypeError):
+            closed = False
+        if stop["order_id"] and stop["status"] == "done" and closed:
+            # Completed-close replay (offline outbox flush after success):
+            # same code → current outcome, no write, no attempt burn.
+            # A tripled-but-unclosed stop falls through to the normal close.
+            stored = await _stop_pod_code(self._conn, stop_id)
+            expected = stored or pod_otp(stop["order_id"], day)
+            if hmac.compare_digest(str(payload.get("delivery_otp", "")), expected):
+                return {**self._stop_out(stop), "replay": True}
+            raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         if stop["order_id"]:
             provided = str(payload.get("delivery_otp", ""))
             if await _has_pod_cols(self._conn):
@@ -444,7 +491,12 @@ class VendorService:
         for it in items:
             sid = it.get("stop_id", "")
             try:
-                out = await self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
+                if it.get("pod") is True:
+                    # Offline PoD close: same gate as live (OTP + lockout);
+                    # replays of a completed close return the stored outcome.
+                    out = await self.pod_complete(vendor_id, sid, it)
+                else:
+                    out = await self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
                 # F2: queued cash rides the triple; post after jars applied.
                 # Already-paid 409 = money truth already recorded → absorbed.
                 cash = int(it.get("cash_amount", 0) or 0)

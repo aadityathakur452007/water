@@ -110,6 +110,16 @@ async def placed_orders(limit: int = 20, conn=Depends(get_db_conn), user=Depends
     return await _svc(conn).placed_pool(_uid(user), limit)
 
 
+# Phase 2: the Pull button made real — self-assign one zone-scoped placed
+# order (placed→accepted→picked→packed→assigned, route+stop created, PoD
+# code minted). Zone/capacity gates inside are the pool enforcement.
+@router.post("/vendor/placed/{order_id}/accept")
+async def accept_placed_order(order_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    from app.services.dispatch_service import vendor_accept_order  # noqa: PLC0415 (lazy, cycle-safe)
+
+    return await vendor_accept_order(conn, order_id, _uid(user))
+
+
 @router.get("/vendor/stops/{stop_id}")
 async def get_stop(stop_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).get_stop(_uid(user), stop_id)

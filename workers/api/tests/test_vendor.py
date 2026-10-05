@@ -99,7 +99,7 @@ def _triple(**over) -> dict:
 async def test_duty_on_off_persisted():
     c = _conn()
     on = await _svc(c).duty("v1", True)
-    assert on == {"vendor_id": "v1", "duty_on": True, "since": on["since"]}
+    assert on == {"vendor_id": "v1", "duty_on": True, "since": on["since"], "repooled": 0}
     # Fresh service instance reads the same truth (no in-memory store).
     assert await VendorService(AsyncSqliteConn(c)).is_on_duty("v1") is True
     assert c.execute("SELECT on_duty, duty_on FROM vendor_profile WHERE user_id = 'v1'").fetchone()["on_duty"] == 1
