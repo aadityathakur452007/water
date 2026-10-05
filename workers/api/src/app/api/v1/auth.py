@@ -42,6 +42,24 @@ class DemoLoginIn(BaseModel):
     device: DeviceIn
 
 
+class VendorLoginIn(BaseModel):
+    phone: str = Field(min_length=10, max_length=16)
+    code: str = Field(min_length=4, max_length=32)
+    device: DeviceIn
+
+
+class AdminLoginIn(BaseModel):
+    phone: str = Field(min_length=10, max_length=16)
+    code: str = Field(min_length=4, max_length=32)
+    device: DeviceIn
+
+
+class UserRegisterIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    phone: str = Field(min_length=10, max_length=16)
+    device: DeviceIn
+
+
 class RefreshIn(BaseModel):
     refresh_token: str = Field(min_length=1)
     device: DeviceIn
@@ -86,6 +104,49 @@ async def demo_login(payload: DemoLoginIn, svc: AuthService = Depends(_service))
         payload.demo_code,
         payload.device.id,
         payload.device.model_dump(),
+    )
+
+
+@router.post("/auth/vendor/login")
+async def vendor_login(payload: VendorLoginIn, svc: AuthService = Depends(_service)):
+    """Vendor access-code login: admin-issued code + vendor role → normal session.
+    Generalized (028): ONE access_codes table; legacy 027 rows honored as
+    read-only fallback so 027-seeded DBs keep working. Generic 401, no oracle."""
+    return await svc.code_login(
+        payload.phone,
+        payload.code,
+        payload.device.id,
+        payload.device.model_dump(),
+        expected_role="vendor",
+    )
+
+
+@router.post("/auth/admin/login")
+async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service)):
+    """Admin access-code login: admin-issued code + admin role → normal session.
+    Same generic 401 shape as the vendor door (no role oracle)."""
+    return await svc.code_login(
+        payload.phone,
+        payload.code,
+        payload.device.id,
+        payload.device.model_dump(),
+        expected_role="admin",
+    )
+
+
+@router.post("/auth/user/register")
+async def user_register(
+    payload: UserRegisterIn, request: Request, svc: AuthService = Depends(_service)
+):
+    """User name+number onboarding: upsert role=user (unverified) + session.
+    Staff numbers → 422 ROLE_RESERVED. Rate-limited per phone+IP."""
+    ip = request.client.host if request.client else "unknown"
+    return await svc.user_register(
+        payload.name,
+        payload.phone,
+        payload.device.id,
+        payload.device.model_dump(),
+        ip=ip,
     )
 
 

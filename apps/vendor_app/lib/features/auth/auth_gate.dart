@@ -1,11 +1,10 @@
-// AuthGate: splash → restoreSession → vendor shell / login.
+// AuthGate: splash → restoreSession → vendor shell / access-code login.
 
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import 'auth_controller.dart';
-import 'otp_screen.dart';
-import 'phone_screen.dart';
+import 'vendor_code_screen.dart';
 
 class AuthGate extends StatefulWidget {
   const AuthGate({
@@ -66,10 +65,6 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
     if (widget.controller.isAuthenticated) return widget.home;
-    if (widget.controller.status == AuthStatus.codeSent ||
-        widget.controller.status == AuthStatus.verifying) {
-      return OtpScreen(controller: widget.controller);
-    }
-    return PhoneScreen(controller: widget.controller);
+    return VendorCodeScreen(controller: widget.controller);
   }
 }

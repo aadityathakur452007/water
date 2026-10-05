@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { Ban, CirclePause, CirclePlay, Undo2 } from "lucide-react";
 
@@ -49,6 +49,7 @@ function blockLabel(busy: boolean, blocked: boolean): string {
 
 export function VendorDetail() {
   const { vendorId } = useParams({ strict: false }) as { vendorId: string };
+  const navigate = useNavigate();
   const invalidate = useInvalidateAdmin();
   const { data, isError, error } = useAdminQuery<ApiVendorDetail>(`/v1/admin/vendors/${vendorId}/detail`);
   const { data: zones } = useAdminQuery<Page<ZoneRow>>("/v1/admin/zones");
@@ -180,6 +181,22 @@ export function VendorDetail() {
           </CardAction>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate({ to: "/dashboard/vendors/$vendorId/preview", params: { vendorId } })}
+            >
+              View as vendor
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate({ to: "/dashboard/vendors/$vendorId/access", params: { vendorId } })}
+            >
+              Access codes
+            </Button>
+          </div>
           <div className="grid gap-4 sm:grid-cols-4">
             <div>
               <p className="text-muted-foreground text-xs">Stops done</p>

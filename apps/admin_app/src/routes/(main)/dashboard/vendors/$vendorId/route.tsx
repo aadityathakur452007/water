@@ -1,11 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
-import { VendorDetail } from "./-components/vendor-detail";
-
+/** Vendor layout — renders the detail (index) or the preview/access children. */
 export const Route = createFileRoute("/(main)/dashboard/vendors/$vendorId")({
-  component: Page,
+  component: () => <Outlet />,
 });
-
-function Page() {
-  return <VendorDetail />;
-}

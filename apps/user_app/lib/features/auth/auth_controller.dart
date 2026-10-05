@@ -1,24 +1,19 @@
-// F2 — Auth state for the Shodasha user app (branch 004-user-app-build).
+// F2 — Auth state for the Shodasha user app (028: name+number register).
 //
-// Backend contract: Feature_docs/backend/api-contract.md §4.1
-// (otp/start → 202, otp/verify → session, refresh rotation, logout) and
-// Feature_docs/synthesis/user-flows.md flow 1 (prices visible WITHOUT login;
-// OTP only at booking commit OR profile).
+// Backend contract: POST /v1/auth/user/register {name, phone, device:{id}}
+// → 200 {access_token, refresh_token, role:"user", user_id, verified:false}
+// / 400 (bad name/phone/device) / 422 ROLE_RESERVED (staff number) / 429.
+// Doorstep-verified: `verified` flips on first PoD in a later slice; until
+// then display + future gating only.
 //
-// Wiring notes (F1 owns pubspec.yaml + google-services.json):
-// - firebase_auth / flutter_secure_storage are NOT in pubspec.yaml yet, so a
-//   hard import would break `flutter analyze`. [PhoneVerifier], [AuthApi] and
-//   [SessionStore] are the seams — F1 plugs the real Firebase + Secure Storage
-//   implementations in without touching callers.
-// - Firebase is invoked ONLY inside user actions (send / resend / confirm),
-//   never at import or build time, so missing google-services.json cannot
-//   break compilation.
+// Guest-browse rule (user-flows flow 1): prices are NEVER walled behind
+// login. The gate routes a valid session straight to home; without a
+// session it shows the name+number screen, and its guest action drops into
+// home as a guest. Register is enforced only at booking commit OR profile.
 
 // ignore_for_file: prefer_initializing_formals
-// (Public ctor param names are required — tests + F1 wiring construct this
+// (Public ctor param names are required — tests + wiring construct this
 // from other libraries, where private initializing formals are unusable.)
-
-import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,39 +26,32 @@ const Map<String, String> authStringsHi = {
   'appName': 'Shodasha',
   'appTagline': 'Shodasha Mineral Water • RO+UV, lab-tested',
   'trustLine': 'RO+UV • Lab report • Refill Rs 28 / Jar Rs 30',
-  'loginTitle': 'Mobile number se login karein',
-  'loginSubtitle': 'OTP se verify hoga • naya account apne-aap ban jayega',
+  'registerTitle': 'Naam aur mobile number likhein',
+  'registerSubtitle': 'Naya account apne-aap ban jayega • OTP nahi chahiye',
+  'nameLabel': 'Naam',
+  'nameHint': 'Aapka naam',
+  'nameError': 'Sahi naam likhein (1–100 akshar)',
   'phoneLabel': 'Mobile number',
   'phoneHint': '93021 90067',
   'phoneHelper': '10 ank, 6–9 se shuru ho',
   'phoneError': 'Sahi 10-digit mobile number likhein (6–9 se shuru)',
-  'sendOtp': 'OTP bhejein',
-  'sending': 'OTP bheja ja raha hai…',
-  'guestBrowse': 'Bina login ke daam dekhein',
-  'guestNote': 'Daam dekhne ke liye login zaroori nahi',
-  'otpTitle': 'OTP daalein',
-  'otpSentTo': '6-digit OTP bheja gaya:',
-  'verify': 'Verify karein',
-  'verifying': 'Verify ho raha hai…',
-  'resend': 'OTP dobara bhejein',
-  'tooManyAttempts': '5 baar galat OTP — naya OTP mangwayein',
-  'codeExpired': 'OTP expired ho gaya — naya OTP bhejein',
-  'invalidCode': 'Galat OTP — dobara try karein',
-  'smsError': 'OTP SMS nahi bheja ja saka — thodi der me retry karein',
+  'registerGo': 'Shuru karein',
+  'registering': 'Account ban raha hai…',
+  'staffNumber':
+      'Ye number staff account se juda hai — support se sampark karein',
+  'rateLimited': 'Bahut koshish ho gayi — thodi der ruk kar try karein',
   'serverError': 'Server me dikkat — thodi der me retry karein',
   'networkError': 'Network me dikkat — dobara try karein',
   'newDevice': 'Naya device detect hua — purana session surakshit hai',
-  'editNumber': 'Number badlein',
-  'demoLogin': 'Demo try karein (bina OTP)',
+  'notUser': 'Ye account customer app ke liye nahi hai',
+  'guestBrowse': 'Bina login ke daam dekhein',
+  'guestNote': 'Daam dekhne ke liye login zaroori nahi',
+  'demoLogin': 'Demo try karein (bina register)',
   'demoTitle': 'Demo login',
   'demoHint': 'Seeded demo account — QA ke liye, bina OTP',
   'demoCustomer': 'Demo customer bharein',
   'demoGo': 'Demo se login karein',
 };
-
-/// Dynamic Hindi copy (kept as functions so screens share one phrasing).
-String resendInHi(int seconds) => 'Naya OTP $seconds second me milega';
-String attemptsHi(int left) => '$left prayas bache (kul 5)';
 
 /// Strips spaces/dashes/+91/0 variants → 10-digit subscriber number.
 ///
@@ -84,11 +72,17 @@ String? normalizeIndianPhone(String raw) {
 /// True when [raw] normalizes to a valid Indian mobile number.
 bool isValidIndianPhone(String raw) => normalizeIndianPhone(raw) != null;
 
+/// True when [raw] is a usable customer name (backend: 1–100 chars trimmed).
+bool isValidUserName(String raw) {
+  final name = raw.trim();
+  return name.isNotEmpty && name.length <= 100;
+}
+
 /// `9876543210` → `+91 ••••• 43210` (never show full digits on screen).
 String maskPhone(String digits10) =>
     '+91 ••••• ${digits10.substring(digits10.length - 5)}';
 
-/// Session minted by POST /auth/otp/verify (contract §4.1).
+/// Session minted by POST /auth/user/register (028).
 @immutable
 class AuthSession {
   const AuthSession({
@@ -97,6 +91,7 @@ class AuthSession {
     required this.expiresAt,
     required this.role,
     this.newDeviceAlert = false,
+    this.verified = false,
   });
 
   final String accessToken;
@@ -105,11 +100,14 @@ class AuthSession {
   final String role;
   final bool newDeviceAlert;
 
+  /// Doorstep-verification flag (server: always false until first PoD).
+  final bool verified;
+
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }
 
-/// Persistence seam for the session (F1: implement with flutter_secure_storage
-/// via `lib/core/session_store.dart`; until then [InMemorySessionStore]).
+/// Persistence seam for the session (implemented with flutter_secure_storage
+/// via `lib/core/session_store.dart`; [InMemorySessionStore] for tests).
 abstract class SessionStore {
   Future<void> saveSession({
     required String accessToken,
@@ -124,7 +122,7 @@ abstract class SessionStore {
   Future<void> clear();
 }
 
-/// Non-persistent fallback (tests + pre-F1 wiring). Never ship as the real store.
+/// Non-persistent fallback (tests). Never ship as the real store.
 class InMemorySessionStore implements SessionStore {
   String? _access;
   String? _refresh;
@@ -165,24 +163,16 @@ class InMemorySessionStore implements SessionStore {
   }
 }
 
-/// Backend seam: Workers API auth surface (contract §4.1).
-/// TODO(F1): implement over the real base URL with dart:io (no new pub deps).
+/// Backend seam: Workers API user-auth surface (028).
 abstract class AuthApi {
-  /// POST /auth/otp/start — 202 + `{sent_to_masked, resend_after_s, channel}`.
-  /// Returns the channel: `firebase` (Firebase SMS, client-side) or `sms`
-  /// (server-generated code over the SMS gateway).
-  Future<String> startOtp(String e164);
-  /// POST /auth/otp/verify `{firebase_id_token, device}` → session.
-  Future<AuthSession> verifyOtp({
-    required String idToken,
-    required String deviceId,
-  });
-  /// POST /auth/otp/verify `{phone, otp_code, device}` → session (server-code path).
-  Future<AuthSession> verifyServerCode({
+  /// POST /auth/user/register `{name, phone, device:{id}}` → session
+  /// (200; 400 validation; 422 ROLE_RESERVED staff number; 429 rate-limit).
+  Future<AuthSession> register({
+    required String name,
     required String phone,
-    required String code,
     required String deviceId,
   });
+
   /// POST /auth/demo `{phone, demo_code, device}` → session (QA demo door;
   /// server enforces the config flag + demo_codes row, closed in prod).
   Future<AuthSession> demoLogin({
@@ -190,180 +180,81 @@ abstract class AuthApi {
     required String code,
     required String deviceId,
   });
+
   /// POST /auth/logout.
   Future<void> logout(String accessToken);
 }
 
-/// Firebase phone seam (mirrors FirebaseAuth.verifyPhoneNumber callbacks).
-/// TODO(F1): implement with firebase_auth once the dep + google-services.json
-/// land. Called ONLY from user actions below — never at build/import time.
-abstract class PhoneVerifier {
-  /// Sends the SMS via Firebase, returns verificationId.
-  Future<String> requestCode(String e164);
-  /// Confirms [smsCode] against [verificationId], returns Firebase idToken.
-  Future<String> confirmCode({
-    required String verificationId,
-    required String smsCode,
-  });
-}
-
-/// Auth lifecycle: idle → sending → codeSent → verifying → authenticated.
-/// Covers States.md form/action/auth states (incl. expired + logged-out).
-enum AuthStatus { idle, sending, codeSent, verifying, authenticated, error }
+/// Auth lifecycle: idle → verifying → authenticated (no OTP states).
+/// Covers States.md form/action/auth states.
+enum AuthStatus { idle, verifying, authenticated, error }
 
 class AuthController extends ChangeNotifier {
   AuthController({
     required AuthApi api,
-    required PhoneVerifier verifier,
     required SessionStore store,
     this.deviceId = 'pending-device-id',
-    this.resendCooldown = 60,
-    this.maxAttempts = 5,
   })  : _api = api,
-        _verifier = verifier,
         _store = store;
 
   final AuthApi _api;
-  final PhoneVerifier _verifier;
   final SessionStore _store;
 
   /// X-Device-Id (fraud graph, SEC-F01). TODO(F1): real device id provider.
   final String deviceId;
 
-  /// Resend cooldown seconds (contract: resend_after_s; default 60).
-  final int resendCooldown;
-
-  /// Wrong-code attempts before a forced resend (contract: verify 5/code).
-  final int maxAttempts;
-
   AuthStatus _status = AuthStatus.idle;
   String? _errorMessage;
   int _errorSeq = 0;
-  String? _verificationId;
-  String _digits10 = '';
-  int _attempts = 0;
-  bool _mustResend = false;
-  bool _codeExpired = false;
   bool _newDeviceAlert = false;
-  int _resendInSeconds = 0;
   AuthSession? _session;
-  Timer? _timer;
   bool _disposed = false;
 
   AuthStatus get status => _status;
   String? get errorMessage => _errorMessage;
 
-  /// Bumps on every new error so screens can react (e.g. clear OTP boxes).
+  /// Bumps on every new error so screens can react to fresh failures.
   int get errorSeq => _errorSeq;
-  String get digits10 => _digits10;
-  int get attempts => _attempts;
-  int get attemptsLeft => (maxAttempts - _attempts).clamp(0, maxAttempts);
-  bool get mustResend => _mustResend;
-  bool get codeExpired => _codeExpired;
   bool get newDeviceAlert => _newDeviceAlert;
-  int get resendInSeconds => _resendInSeconds;
-  bool get canResend => _resendInSeconds <= 0;
 
-  /// OTP channel from the last sendOtp: `firebase` or `sms` (server codes).
-  String _channel = 'firebase';
-  String get channel => _channel;
   AuthSession? get session => _session;
   bool get isAuthenticated =>
       _status == AuthStatus.authenticated &&
       _session != null &&
       !_session!.isExpired;
 
-  /// Consume the new-device flag after F3's home/profile has shown it.
+  /// Consume the new-device flag after home/profile has shown it.
   void consumeNewDeviceAlert() {
     _newDeviceAlert = false;
     _notify();
   }
 
-  /// First send from [PhoneScreen] (raw user input, normalized here).
-  Future<void> sendOtp(String rawPhone) async {
+  /// Name+number register from [NameNumberScreen] (raw user input,
+  /// normalized here). Returns true on success.
+  Future<bool> registerNameNumber(String rawName, String rawPhone) async {
+    final name = rawName.trim();
+    if (!isValidUserName(rawName)) {
+      _fail(authStringsHi['nameError']!, AuthStatus.idle);
+      return false;
+    }
     final digits = normalizeIndianPhone(rawPhone);
     if (digits == null) {
       _fail(authStringsHi['phoneError']!, AuthStatus.idle);
-      return;
-    }
-    _digits10 = digits;
-    _attempts = 0;
-    _mustResend = false;
-    _codeExpired = false;
-    _errorMessage = null;
-    _status = AuthStatus.sending;
-    _notify();
-    try {
-      final e164 = '+91$digits';
-      _channel = await _api.startOtp(e164); // 202; server rate-limits (SEC-A02)
-      if (_channel != 'sms') {
-        _verificationId = await _verifier.requestCode(e164); // Firebase SMS
-      }
-      _status = AuthStatus.codeSent;
-      _startCooldown();
-    } on ApiException catch (e) {
-      // Server answered with an error status: offline/5xx vs real 4xx matter.
-      _fail(
-        e.isNetwork
-            ? authStringsHi['networkError']!
-            : '${authStringsHi['serverError']!} (${e.statusCode})',
-        AuthStatus.error,
-      );
-    } catch (_) {
-      // Firebase SMS itself failed (billing/quota/SafetyNet) — not the network.
-      _fail(authStringsHi['smsError']!, AuthStatus.error);
-    }
-    _notify();
-  }
-
-  /// Resend after cooldown / max-attempts / expiry. No-op while cooling down.
-  Future<void> resend() async {
-    if (!canResend || _digits10.isEmpty) return;
-    await sendOtp(_digits10);
-  }
-
-  /// Marks the code expired (wrong-code path from Firebase / timeout).
-  /// UI shows the expired-code path + resend CTA (ui-checklist: Verifying).
-  void expireCode() {
-    _codeExpired = true;
-    _fail(authStringsHi['codeExpired']!, AuthStatus.codeSent);
-  }
-
-  /// Confirms the 6-digit [smsCode] → Firebase idToken → our otp/verify.
-  Future<void> confirm(String smsCode) async {
-    if (_mustResend) {
-      _fail(authStringsHi['tooManyAttempts']!, AuthStatus.codeSent);
-      return;
-    }
-    if (_codeExpired) {
-      _fail(authStringsHi['codeExpired']!, AuthStatus.codeSent);
-      return;
-    }
-    final verificationId = _verificationId;
-    if ((_channel != 'sms' && verificationId == null) || smsCode.length != 6) {
-      _fail(authStringsHi['invalidCode']!, AuthStatus.codeSent);
-      return;
+      return false;
     }
     _status = AuthStatus.verifying;
     _errorMessage = null;
     _notify();
     try {
-      final AuthSession session;
-      if (_channel == 'sms') {
-        session = await _api.verifyServerCode(
-          phone: '+91$_digits10',
-          code: smsCode,
-          deviceId: deviceId,
-        );
-      } else {
-        final idToken = await _verifier.confirmCode(
-          verificationId: verificationId!,
-          smsCode: smsCode,
-        );
-        session = await _api.verifyOtp(
-          idToken: idToken,
-          deviceId: deviceId,
-        );
+      final session = await _api.register(
+        name: name,
+        phone: '+91$digits',
+        deviceId: deviceId,
+      );
+      if (session.role != 'user') {
+        await _store.clear();
+        _fail(authStringsHi['notUser']!, AuthStatus.error);
+        return false;
       }
       await _store.saveSession(
         accessToken: session.accessToken,
@@ -374,22 +265,31 @@ class AuthController extends ChangeNotifier {
       _session = session;
       _newDeviceAlert = session.newDeviceAlert;
       _status = AuthStatus.authenticated;
+      _notify();
+      return true;
     } on ApiException catch (e) {
       if (e.isNetwork) {
         _fail(authStringsHi['networkError']!, AuthStatus.error);
+      } else if (e.statusCode == 422) {
+        _fail(authStringsHi['staffNumber']!, AuthStatus.error);
+      } else if (e.statusCode == 429) {
+        _fail(authStringsHi['rateLimited']!, AuthStatus.error);
+      } else if (e.statusCode == 400 && e.message.isNotEmpty) {
+        _fail(e.message, AuthStatus.error);
       } else {
-        _failAuthAttempt();
+        _fail(authStringsHi['serverError']!, AuthStatus.error);
       }
+      return false;
     } catch (_) {
-      _failAuthAttempt();
+      _fail(authStringsHi['serverError']!, AuthStatus.error);
+      return false;
     }
-    _notify();
   }
 
   /// Demo login (no OTP): seeded phone + demo code → session. Same
-  /// persistence as the OTP path; rejects non-user roles so a vendor demo
-  /// code can never drive the customer app. Fails loudly when the server
-  /// door is closed (prod default).
+  /// persistence as the register path; rejects non-user roles so a vendor
+  /// demo code can never drive the customer app. Fails loudly when the
+  /// server door is closed (prod default).
   Future<bool> demoLogin(String phone, String code) async {
     _status = AuthStatus.verifying;
     _errorMessage = null;
@@ -402,7 +302,7 @@ class AuthController extends ChangeNotifier {
       );
       if (session.role != 'user') {
         await _store.clear();
-        _fail('Ye demo account customer app ke liye nahi hai', AuthStatus.error);
+        _fail(authStringsHi['notUser']!, AuthStatus.error);
         _notify();
         return false;
       }
@@ -419,9 +319,7 @@ class AuthController extends ChangeNotifier {
       return true;
     } on ApiException catch (e) {
       _fail(
-        e.isNetwork
-            ? authStringsHi['networkError']!
-            : e.message,
+        e.isNetwork ? authStringsHi['networkError']! : e.message,
         AuthStatus.error,
       );
       _notify();
@@ -433,20 +331,8 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Wrong-code accounting shared by the Firebase and server-code paths.
-  void _failAuthAttempt() {
-    _attempts += 1;
-    if (_attempts >= maxAttempts) {
-      _mustResend = true;
-      _verificationId = null; // old code is dead — force resend
-      _fail(authStringsHi['tooManyAttempts']!, AuthStatus.codeSent);
-    } else {
-      _fail(authStringsHi['invalidCode']!, AuthStatus.codeSent);
-    }
-  }
-
   /// Logout: revoke server-side (best-effort) + wipe local session (contract).
-  /// 015: also clears user-scoped prefs (selected address) so the next
+  /// Also clears user-scoped prefs (selected address) so the next
   /// login never inherits the previous user's delivery address.
   Future<void> logout() async {
     final token = _session?.accessToken;
@@ -459,8 +345,7 @@ class AuthController extends ChangeNotifier {
     }
     await _store.clear();
     try {
-      final prefs =
-          await SharedPreferences.getInstance();
+      final prefs = await SharedPreferences.getInstance();
       await prefs.remove('selected_address_id');
     } catch (_) {
       // Prefs wipe is best-effort — secure session already cleared.
@@ -497,34 +382,10 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
-  /// Clears a surfaced error (e.g. user edits the phone field again).
+  /// Clears a surfaced error (e.g. user edits a field again).
   void clearError() {
     _errorMessage = null;
     _notify();
-  }
-
-  @visibleForTesting
-  void debugExpireCooldown() {
-    _timer?.cancel();
-    _resendInSeconds = 0;
-    _notify();
-  }
-
-  void _startCooldown() {
-    _timer?.cancel();
-    _resendInSeconds = resendCooldown;
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_disposed) {
-        t.cancel();
-        return;
-      }
-      _resendInSeconds -= 1;
-      if (_resendInSeconds <= 0) {
-        _resendInSeconds = 0;
-        t.cancel();
-      }
-      _notify();
-    });
   }
 
   void _fail(String message, AuthStatus status) {
@@ -535,17 +396,9 @@ class AuthController extends ChangeNotifier {
   }
 
   void _reset() {
-    _timer?.cancel();
-    _verificationId = null;
-    _channel = 'firebase';
-    _digits10 = '';
-    _attempts = 0;
-    _mustResend = false;
-    _codeExpired = false;
-    _newDeviceAlert = false;
-    _resendInSeconds = 0;
     _session = null;
     _errorMessage = null;
+    _newDeviceAlert = false;
   }
 
   void _notify() {
@@ -555,7 +408,6 @@ class AuthController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _timer?.cancel();
     super.dispose();
   }
 }

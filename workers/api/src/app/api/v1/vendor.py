@@ -193,3 +193,9 @@ async def vendor_check_quality(incident_id: str, payload: QualityCheckIn,
                          conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).vendor_check_quality(
         _uid(user), incident_id, payload.agree, payload.check, payload.note)
+
+
+# 027 RBAC: read-only own payouts + custody (approve stays admin-only).
+@router.get("/vendor/payouts")
+async def vendor_payouts(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).payouts_for_vendor(_uid(user))

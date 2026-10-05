@@ -1,24 +1,17 @@
-// F2 — Phone entry screen (ForUI phone field, adapted phone-not-email).
+// F2 (028) — Name+number entry screen: naam + mobile → registerNameNumber.
 //
-// ForUI pattern reused (see example_code/login.ts): labelled field + hint,
-// inline validator, primary button gated on form validity. ForUI is NOT in
-// pubspec.yaml (F1 owns it), so the pattern is mirrored with Material — same
-// structure, same tokens, zero new deps.
-//
-// ui-checklist applied: Login Page (logo/title/phone-id; no password or
-// third-party in v1 — phone OTP only per contract §4.1) + Input Field
-// (label/placeholder/numeric/hint) + Showing Input Error (validate on
-// focus-loss, never while typing; error icon + text; default state returns
-// on re-attempt).
+// No OTP, no SMS round-trip. Guest browse keeps prices visible WITHOUT
+// login (user-flows flow 1); demo sheet stays as the server-gated QA
+// fallback. All CTAs ≥48dp. Inputs stay un-animated (keyboard-jank guard).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../core/api_client.dart' show kSupportPhone;
 import '../../core/theme.dart';
 import 'auth_controller.dart';
 import 'demo_sheet.dart';
-import 'otp_screen.dart';
 
 /// F2 auth tokens — aliases of [ShodashaTheme] (Wave 1 honesty: the
 /// feature-local blues #0369A1 drifted from the locked #0284C7; a single
@@ -33,34 +26,35 @@ class AuthTokens {
   static const double minTarget = ShodashaTheme.minTarget;
 }
 
-/// Phone entry. [onGuestBrowse] keeps prices visible WITHOUT login
-/// (user-flows flow 1); [onCodeSent] overrides the default push of [OtpScreen].
-class PhoneScreen extends StatefulWidget {
-  const PhoneScreen({
+/// Name+number entry. [onGuestBrowse] keeps prices visible WITHOUT login
+/// (user-flows flow 1).
+class NameNumberScreen extends StatefulWidget {
+  const NameNumberScreen({
     super.key,
     required this.controller,
     this.onGuestBrowse,
-    this.onCodeSent,
   });
 
   final AuthController controller;
   final VoidCallback? onGuestBrowse;
-  final VoidCallback? onCodeSent;
 
   @override
-  State<PhoneScreen> createState() => _PhoneScreenState();
+  State<NameNumberScreen> createState() => _NameNumberScreenState();
 }
 
-class _PhoneScreenState extends State<PhoneScreen> {
-  final _field = TextEditingController();
-  final _focus = FocusNode();
-  bool _touched = false; // error shows only after focus-loss or submit
+class _NameNumberScreenState extends State<NameNumberScreen> {
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _nameFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+  bool _touched = false; // errors show only after submit or focus-loss
 
   @override
   void initState() {
     super.initState();
-    _field.addListener(_onChanged);
-    _focus.addListener(_onFocusChanged);
+    _name.addListener(_onChanged);
+    _phone.addListener(_onChanged);
+    _phoneFocus.addListener(_onFocusChanged);
   }
 
   void _onChanged() {
@@ -69,16 +63,21 @@ class _PhoneScreenState extends State<PhoneScreen> {
   }
 
   void _onFocusChanged() {
-    if (!_focus.hasFocus && _field.text.isNotEmpty && !_touched) {
+    if (!_phoneFocus.hasFocus && _phone.text.isNotEmpty && !_touched) {
       setState(() => _touched = true); // ui-checklist: signal after loss of focus
-    } else if (_focus.hasFocus && _touched) {
+    } else if (_phoneFocus.hasFocus && _touched) {
       setState(() => _touched = false); // default state returns on re-attempt
     }
   }
 
-  bool get _valid => isValidIndianPhone(_field.text);
-  String? get _error =>
-      (_touched && !_valid) ? authStringsHi['phoneError'] : null;
+  bool get _validName => isValidUserName(_name.text);
+  bool get _validPhone => isValidIndianPhone(_phone.text);
+  bool get _valid => _validName && _validPhone;
+
+  String? get _nameError =>
+      (_touched && !_validName) ? authStringsHi['nameError'] : null;
+  String? get _phoneError =>
+      (_touched && !_validPhone) ? authStringsHi['phoneError'] : null;
 
   /// Staggered hero entrance (fade + gentle rise/fall, ≤300ms, easeOut —
   /// the welcome-rhythm recipe). Static render on reduced motion. Inputs
@@ -100,25 +99,15 @@ class _PhoneScreenState extends State<PhoneScreen> {
     setState(() => _touched = true);
     if (!_valid) return;
     FocusScope.of(context).unfocus();
-    await widget.controller.sendOtp(_field.text);
-    if (!mounted) return;
-    if (widget.controller.status == AuthStatus.codeSent) {
-      if (widget.onCodeSent != null) {
-        widget.onCodeSent!();
-      } else {
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => OtpScreen(controller: widget.controller),
-          ),
-        );
-      }
-    }
+    await widget.controller.registerNameNumber(_name.text, _phone.text);
   }
 
   @override
   void dispose() {
-    _field.dispose();
-    _focus.dispose();
+    _name.dispose();
+    _phone.dispose();
+    _nameFocus.dispose();
+    _phoneFocus.dispose();
     super.dispose();
   }
 
@@ -204,12 +193,12 @@ class _PhoneScreenState extends State<PhoneScreen> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Step 1 / 2 — Mobile number',
+                'Naam + Mobile number',
                 style: TextStyle(fontSize: 12, color: AuthTokens.muted),
               ),
               const SizedBox(height: 6),
               Text(
-                authStringsHi['loginTitle']!,
+                authStringsHi['registerTitle']!,
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
@@ -218,21 +207,52 @@ class _PhoneScreenState extends State<PhoneScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                authStringsHi['loginSubtitle']!,
+                authStringsHi['registerSubtitle']!,
                 style: const TextStyle(fontSize: 14, color: AuthTokens.muted),
               ),
               const SizedBox(height: 24),
               TextField(
-                controller: _field,
-                focusNode: _focus,
-                keyboardType: TextInputType.phone,
+                controller: _name,
+                focusNode: _nameFocus,
+                keyboardType: TextInputType.name,
+                textCapitalization: TextCapitalization.words,
+                maxLength: 100,
                 // WHY: 16px stops iOS auto-zoom (mobile-native §4); harmless on Android.
                 style: const TextStyle(fontSize: 16, color: AuthTokens.text),
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText: authStringsHi['nameLabel'],
+                  hintText: authStringsHi['nameHint'],
+                  counterText: '',
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 14,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AuthTokens.radius),
+                    borderSide: const BorderSide(color: AuthTokens.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AuthTokens.radius),
+                    borderSide: const BorderSide(color: AuthTokens.blue),
+                  ),
+                  errorText: _nameError,
+                  errorStyle: TextStyle(color: errorColor, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _phone,
+                focusNode: _phoneFocus,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(fontSize: 16, color: AuthTokens.text),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
+                ],
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
-                  labelText: 'Mobile number',
+                  labelText: authStringsHi['phoneLabel'],
                   hintText: authStringsHi['phoneHint'],
                   helperText: authStringsHi['phoneHelper'],
                   helperStyle: const TextStyle(color: AuthTokens.muted),
@@ -253,33 +273,16 @@ class _PhoneScreenState extends State<PhoneScreen> {
                     borderRadius: BorderRadius.circular(AuthTokens.radius),
                     borderSide: const BorderSide(color: AuthTokens.blue),
                   ),
-                  errorText: _error,
+                  errorText: _phoneError,
                   errorStyle: TextStyle(color: errorColor, fontSize: 13),
                 ),
               ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  // WHY: icon + text, never color alone (ui-checklist + a11y).
-                  child: Row(
-                    children: [
-                      Icon(Icons.error_outline, size: 16, color: errorColor),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _error!,
-                          style: TextStyle(color: errorColor, fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               const SizedBox(height: 24),
               ListenableBuilder(
                 listenable: widget.controller,
                 builder: (context, _) {
-                  final sending =
-                      widget.controller.status == AuthStatus.sending;
+                  final registering =
+                      widget.controller.status == AuthStatus.verifying;
                   final apiError = widget.controller.errorMessage;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -288,53 +291,54 @@ class _PhoneScreenState extends State<PhoneScreen> {
                         SizedBox(
                           height: AuthTokens.minTarget,
                           child: ElevatedButton(
-                          // WHY: disabled until valid (no dead taps, no spam OTP).
-                          onPressed: (!_valid || sending) ? null : _submit,
-                          style: ElevatedButton.styleFrom(
-                            // Locked spec: primary = black #111 (blue is for
-                            // links/active/water cues only).
-                            backgroundColor: AuthTokens.text,
-                            foregroundColor: AuthTokens.bg,
-                            disabledBackgroundColor: AuthTokens.text
-                                .withValues(alpha: 0.3),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AuthTokens.radius,
+                            // WHY: disabled until valid (no dead taps, no spam register).
+                            onPressed:
+                                (!_valid || registering) ? null : _submit,
+                            style: ElevatedButton.styleFrom(
+                              // Locked spec: primary = black #111 (blue is for
+                              // links/active/water cues only).
+                              backgroundColor: AuthTokens.text,
+                              foregroundColor: AuthTokens.bg,
+                              disabledBackgroundColor: AuthTokens.text
+                                  .withValues(alpha: 0.3),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AuthTokens.radius,
+                                ),
                               ),
                             ),
-                          ),
-                          child: sending
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AuthTokens.bg,
-                                  ),
-                                )
-                              : Text(authStringsHi['sendOtp']!),
+                            child: registering
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AuthTokens.bg,
+                                    ),
+                                  )
+                                : Text(authStringsHi['registerGo']!),
                           ),
                         ),
                         begin: 0.2,
                         delayMs: 120,
                       ),
-                      if (sending)
+                      if (registering)
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: LinearProgressIndicator(),
                         ),
-                      if (sending)
+                      if (registering)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
                           child: Text(
-                            authStringsHi['sending']!,
+                            authStringsHi['registering']!,
                             style: const TextStyle(
                               fontSize: 13,
                               color: AuthTokens.muted,
                             ),
                           ),
                         ),
-                      if (apiError != null && _touched)
+                      if (apiError != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
                           child: Row(
@@ -350,6 +354,29 @@ class _PhoneScreenState extends State<PhoneScreen> {
                                   apiError,
                                   style: TextStyle(
                                     color: errorColor,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (widget.controller.newDeviceAlert)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.info_outline,
+                                size: 16,
+                                color: AuthTokens.blue,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  authStringsHi['newDevice']!,
+                                  style: const TextStyle(
+                                    color: AuthTokens.blue,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -392,6 +419,16 @@ class _PhoneScreenState extends State<PhoneScreen> {
               Center(
                 child: Text(
                   authStringsHi['guestNote']!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AuthTokens.muted,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  'Madad chahiye? $kSupportPhone',
                   style: const TextStyle(
                     fontSize: 12,
                     color: AuthTokens.muted,

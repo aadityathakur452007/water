@@ -1,5 +1,6 @@
 /** Mock-mode resolver: maps admin API paths to fixtures (same shapes as live). */
 import {
+  accessCodesFixture,
   auditFixture,
   complaintsFixture,
   configFixture,
@@ -14,8 +15,18 @@ import {
   refundsFixture,
   strikesFixture,
   usersRows,
+  vendorComplaintsFixture,
+  vendorCustomersFixture,
   vendorDetailFixture,
+  vendorEarningsFixture,
+  vendorPayoutsFixture,
+  vendorPlacedFixture,
+  vendorPreviewFixture,
+  vendorProfileFixture,
+  vendorSlotsFixture,
+  vendorStopFixture,
   vendorsFixture,
+  vendorTodayFixture,
 } from "./fixtures";
 
 export function resolveFixture(
@@ -27,8 +38,23 @@ export function resolveFixture(
     // Writes succeed in mock mode (optionally echoing affected ids).
     if (path.includes("/suspend") || path.includes("/unsuspend")) return { ok: true, revoked_sessions: 2 };
     if (path.includes("/generate")) return { ok: true, routes: 2 };
+    // Admin-issued vendor code — plaintext surfaces exactly once, like live.
+    if (path.includes("/access-codes") && !path.includes("/revoke")) {
+      return { id: "vac_9", code: "MOCK-CODE-ONCE", masked_hint: "••••-ONCE", expires_at: null };
+    }
     return { ok: true };
   }
+
+  // Vendor subtree (same shapes as live; login is a mutation fn — no fixture).
+  if (path.startsWith("/v1/vendor/routes/today")) return vendorTodayFixture;
+  if (path.startsWith("/v1/vendor/placed")) return { data: vendorPlacedFixture };
+  if (path.startsWith("/v1/vendor/stops/")) return vendorStopFixture;
+  if (path.startsWith("/v1/vendor/earnings")) return vendorEarningsFixture;
+  if (path.startsWith("/v1/vendor/customers")) return { customers: vendorCustomersFixture };
+  if (path.startsWith("/v1/vendor/complaints")) return { data: vendorComplaintsFixture };
+  if (path.startsWith("/v1/vendor/payouts")) return vendorPayoutsFixture;
+  if (path.startsWith("/v1/vendor/profile")) return vendorProfileFixture;
+  if (path.startsWith("/v1/vendor/slots")) return vendorSlotsFixture;
 
   if (path.startsWith("/v1/admin/metrics/overview")) return metricsFixture;
   if (path.startsWith("/v1/admin/metrics")) return { quality_open: metricsFixture.quality_open };
@@ -40,7 +66,12 @@ export function resolveFixture(
     const user = usersRows.find((u) => u.id === id) ?? usersRows[2];
     return { ...vendorDetailFixture, vendor: user };
   }
-  if (path.startsWith("/v1/admin/vendors/")) return vendorDetailFixture;
+  if (path.startsWith("/v1/admin/vendors/")) {
+    // Specific children before the generic detail fallthrough.
+    if (path.includes("/preview")) return vendorPreviewFixture;
+    if (path.includes("/access-codes")) return { data: accessCodesFixture };
+    return vendorDetailFixture;
+  }
   if (path.startsWith("/v1/admin/vendors")) return vendorsFixture;
   if (path.startsWith("/v1/admin/users")) return { data: usersRows };
   if (path.startsWith("/v1/admin/payments")) return paymentsFixture;

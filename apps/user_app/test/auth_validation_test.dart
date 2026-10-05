@@ -1,41 +1,45 @@
-// F2 — Auth validation unit tests (normalize / regex / edge cases +
-// controller attempt-cooldown-logout behavior). Run: flutter test test/auth_validation_test.dart
+// User name+number register validation (028): normalize / mask / name rules
+// + controller register/demo/logout behavior. Run:
+// flutter test test/auth_validation_test.dart
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shodasha_app/core/api_client.dart';
 import 'package:shodasha_app/features/auth/auth_controller.dart';
 
 class _FakeApi implements AuthApi {
-  AuthSession? sessionToReturn;
-  bool failStart = false;
-  String channelToReturn = 'firebase';
-  Map<String, String>? serverCodeArgs;
+  _FakeApi({this.role = 'user', this.throwStatus, this.throwMessage = 'err'});
+
+  final String role;
+  final int? throwStatus;
+  final String throwMessage;
+  int registerCalls = 0;
+  Map<String, String>? lastRegisterArgs;
+
+  AuthSession _session() => AuthSession(
+        accessToken: 'a',
+        refreshToken: 'r',
+        expiresAt: DateTime.now().add(const Duration(days: 30)),
+        role: role,
+        verified: false,
+      );
 
   @override
-  Future<String> startOtp(String e164) async {
-    if (failStart) throw Exception('offline');
-    return channelToReturn;
-  }
-
-  @override
-  Future<AuthSession> verifyOtp({
-    required String idToken,
-    required String deviceId,
-  }) async {
-    final s = sessionToReturn;
-    if (s == null) throw Exception('no session');
-    return s;
-  }
-
-  @override
-  Future<AuthSession> verifyServerCode({
+  Future<AuthSession> register({
+    required String name,
     required String phone,
-    required String code,
     required String deviceId,
   }) async {
-    serverCodeArgs = {'phone': phone, 'code': code, 'deviceId': deviceId};
-    final s = sessionToReturn;
-    if (s == null) throw Exception('no session');
-    return s;
+    registerCalls += 1;
+    lastRegisterArgs = {'name': name, 'phone': phone, 'deviceId': deviceId};
+    final status = throwStatus;
+    if (status != null) {
+      throw ApiException(
+        code: 'ERR',
+        message: throwMessage,
+        statusCode: status,
+      );
+    }
+    return _session();
   }
 
   @override
@@ -47,58 +51,15 @@ class _FakeApi implements AuthApi {
     required String code,
     required String deviceId,
   }) async {
-    final s = sessionToReturn;
-    if (s == null) throw Exception('no session');
-    return s;
+    return _session();
   }
 }
 
-class _FakeVerifier implements PhoneVerifier {
-  static const goodCode = '123456';
-
-  @override
-  Future<String> requestCode(String e164) async => 'vid-$e164';
-
-  @override
-  Future<String> confirmCode({
-    required String verificationId,
-    required String smsCode,
-  }) async {
-    if (smsCode == goodCode) return 'id-token';
-    throw Exception('invalid code');
-  }
-}
-
-/// Counts Firebase requestCode calls (proves the sms channel skips Firebase).
-class _CountingVerifier implements PhoneVerifier {
-  _CountingVerifier(this.onRequest);
-  final void Function() onRequest;
-  final _FakeVerifier _inner = _FakeVerifier();
-
-  @override
-  Future<String> requestCode(String e164) {
-    onRequest();
-    return _inner.requestCode(e164);
-  }
-
-  @override
-  Future<String> confirmCode({
-    required String verificationId,
-    required String smsCode,
-  }) =>
-      _inner.confirmCode(verificationId: verificationId, smsCode: smsCode);
-}
-
-AuthController _controller({
-  _FakeApi? api,
-  int cooldown = 60,
-}) {
+AuthController _controller({_FakeApi? api}) {
   return AuthController(
     api: api ?? _FakeApi(),
-    verifier: _FakeVerifier(),
     store: InMemorySessionStore(),
     deviceId: 'test-device',
-    resendCooldown: cooldown,
   );
 }
 
@@ -142,132 +103,105 @@ void main() {
     });
   });
 
+  group('isValidUserName', () {
+    test('accepts 1–100 trimmed chars', () {
+      expect(isValidUserName('Naya User'), isTrue);
+      expect(isValidUserName('  A  '), isTrue);
+      expect(isValidUserName('a' * 100), isTrue);
+    });
+
+    test('rejects blank and >100 chars', () {
+      expect(isValidUserName(''), isFalse);
+      expect(isValidUserName('   '), isFalse);
+      expect(isValidUserName('a' * 101), isFalse);
+    });
+  });
+
   group('maskPhone', () {
     test('hides all but last 5', () {
       expect(maskPhone('9876543210'), '+91 ••••• 43210');
     });
   });
 
-  group('AuthController', () {
-    test('sendOtp → codeSent + 60s cooldown', () async {
-      final c = _controller(cooldown: 60);
-      await c.sendOtp('98765 43210');
-      expect(c.status, AuthStatus.codeSent);
-      expect(c.digits10, '9876543210');
-      expect(c.resendInSeconds, 60);
-      expect(c.canResend, isFalse);
-      c.dispose();
-    });
-
-    test('sendOtp with bad number fails without cooldown', () async {
-      final c = _controller();
-      await c.sendOtp('12345');
-      expect(c.status, AuthStatus.idle);
-      expect(c.errorMessage, authStringsHi['phoneError']);
-      c.dispose();
-    });
-
-    test('5 wrong codes → mustResend (forced resend)', () async {
-      final c = _controller();
-      await c.sendOtp('9876543210');
-      for (var i = 0; i < 5; i++) {
-        await c.confirm('000000');
-      }
-      expect(c.attempts, 5);
-      expect(c.mustResend, isTrue);
-      expect(c.errorMessage, authStringsHi['tooManyAttempts']);
-      // Further confirms are blocked until resend:
-      await c.confirm('123456');
-      expect(c.mustResend, isTrue);
-      c.dispose();
-    });
-
-    test('resend resets attempts after cooldown', () async {
-      final c = _controller(cooldown: 60);
-      await c.sendOtp('9876543210');
-      await c.confirm('000000');
-      expect(c.attempts, 1);
-      c.debugExpireCooldown();
-      expect(c.canResend, isTrue);
-      await c.resend();
-      expect(c.attempts, 0);
-      expect(c.mustResend, isFalse);
-      expect(c.status, AuthStatus.codeSent);
-      c.dispose();
-    });
-
-    test('sms channel skips Firebase and posts the typed code', () async {
-      final api = _FakeApi()
-        ..channelToReturn = 'sms'
-        ..sessionToReturn = AuthSession(
-          accessToken: 'a',
-          refreshToken: 'r',
-          expiresAt: DateTime.now().add(const Duration(minutes: 30)),
-          role: 'user',
-        );
-      var firebaseCalls = 0;
-      final verifier = _CountingVerifier(() => firebaseCalls++);
-      final c = AuthController(
-        api: api,
-        verifier: verifier,
-        store: InMemorySessionStore(),
-        deviceId: 'test-device',
-      );
-      await c.sendOtp('9876543210');
-      expect(c.status, AuthStatus.codeSent);
-      expect(firebaseCalls, 0); // no Firebase request on the sms channel
-      await c.confirm('654321');
+  group('AuthController.registerNameNumber', () {
+    test('valid name+number → authenticated + session persisted', () async {
+      final api = _FakeApi();
+      final c = _controller(api: api);
+      expect(await c.registerNameNumber('Naya User', '98765 43210'), isTrue);
       expect(c.status, AuthStatus.authenticated);
-      expect(api.serverCodeArgs, {
+      expect(c.isAuthenticated, isTrue);
+      expect(c.session?.role, 'user');
+      expect(c.session?.verified, isFalse);
+      expect(api.lastRegisterArgs, {
+        'name': 'Naya User',
         'phone': '+919876543210',
-        'code': '654321',
         'deviceId': 'test-device',
       });
       c.dispose();
     });
 
-    test('good code → authenticated + session persisted', () async {
-      final api = _FakeApi()
-        ..sessionToReturn = AuthSession(
-          accessToken: 'a',
-          refreshToken: 'r',
-          expiresAt: DateTime.now().add(const Duration(minutes: 30)),
-          role: 'user',
-        );
+    test('bad phone fails without calling api', () async {
+      final api = _FakeApi();
       final c = _controller(api: api);
-      await c.sendOtp('9876543210');
-      await c.confirm('123456');
-      expect(c.status, AuthStatus.authenticated);
-      expect(c.isAuthenticated, isTrue);
+      expect(await c.registerNameNumber('Naya User', '12345'), isFalse);
+      expect(api.registerCalls, 0);
+      expect(c.errorMessage, authStringsHi['phoneError']);
+      expect(c.status, AuthStatus.idle);
       c.dispose();
     });
 
-    test('expired code path surfaces expired message', () async {
-      final c = _controller();
-      await c.sendOtp('9876543210');
-      c.expireCode();
-      expect(c.codeExpired, isTrue);
-      await c.confirm('123456');
-      expect(c.errorMessage, authStringsHi['codeExpired']);
+    test('blank name fails without calling api', () async {
+      final api = _FakeApi();
+      final c = _controller(api: api);
+      expect(await c.registerNameNumber('   ', '9876543210'), isFalse);
+      expect(api.registerCalls, 0);
+      expect(c.errorMessage, authStringsHi['nameError']);
+      expect(c.status, AuthStatus.idle);
+      c.dispose();
+    });
+
+    test('non-user role is rejected + wiped', () async {
+      final c = _controller(api: _FakeApi(role: 'vendor'));
+      expect(await c.registerNameNumber('Naya User', '9876543210'), isFalse);
+      expect(c.isAuthenticated, isFalse);
+      expect(c.errorMessage, authStringsHi['notUser']);
+      c.dispose();
+    });
+
+    test('422 maps to staff-number copy', () async {
+      final c = _controller(
+        api: _FakeApi(throwStatus: 422, throwMessage: 'ROLE_RESERVED'),
+      );
+      expect(await c.registerNameNumber('Intruder', '9876543210'), isFalse);
+      expect(c.isAuthenticated, isFalse);
+      expect(c.errorMessage, authStringsHi['staffNumber']);
+      c.dispose();
+    });
+
+    test('429 maps to rate-limit copy', () async {
+      final c = _controller(api: _FakeApi(throwStatus: 429));
+      expect(await c.registerNameNumber('Naya User', '9876543210'), isFalse);
+      expect(c.errorMessage, authStringsHi['rateLimited']);
+      c.dispose();
+    });
+
+    test('400 surfaces the server message', () async {
+      final c = _controller(
+        api: _FakeApi(throwStatus: 400, throwMessage: 'Bad phone'),
+      );
+      expect(await c.registerNameNumber('Naya User', '9876543210'), isFalse);
+      expect(c.errorMessage, 'Bad phone');
       c.dispose();
     });
 
     test('logout clears session and store', () async {
-      final api = _FakeApi()
-        ..sessionToReturn = AuthSession(
-          accessToken: 'a',
-          refreshToken: 'r',
-          expiresAt: DateTime.now().add(const Duration(minutes: 30)),
-          role: 'user',
-        );
       final store = InMemorySessionStore();
       final c = AuthController(
-        api: api,
-        verifier: _FakeVerifier(),
+        api: _FakeApi(),
         store: store,
+        deviceId: 'test-device',
       );
-      await c.sendOtp('9876543210');
-      await c.confirm('123456');
+      await c.registerNameNumber('Naya User', '9876543210');
       expect(c.isAuthenticated, isTrue);
       await c.logout();
       expect(c.isAuthenticated, isFalse);
@@ -287,7 +221,6 @@ void main() {
       );
       final c = AuthController(
         api: _FakeApi(),
-        verifier: _FakeVerifier(),
         store: store,
       );
       await c.restoreSession();
@@ -302,7 +235,6 @@ void main() {
       );
       final c2 = AuthController(
         api: _FakeApi(),
-        verifier: _FakeVerifier(),
         store: store,
       );
       await c2.restoreSession();

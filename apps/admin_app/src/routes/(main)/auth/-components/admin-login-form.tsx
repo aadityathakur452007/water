@@ -7,96 +7,31 @@ import { ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { toast } from "@/components/ui/toast";
-import { loginDemoServer, loginStartServer, loginVerifyServer } from "@/server/admin-session";
+import { loginCodeServer } from "@/server/admin-session";
 
 /**
- * Admin phone-OTP login — same two-step flow as the old admin's login page
- * (worker /v1/auth/otp/start|verify with role=admin gate; dev shortcut sends
- * the worker's dev|<phone>| token when Firebase env is absent). All visuals
- * are template primitives: Field/Input/InputOTP/Button inside the template's
- * auth layout. The access token never touches browser code (HttpOnly cookies
- * are set by the server function).
+ * Admin phone + access-code login — accounts are owner-created, so there is
+ * no OTP step and no signup link. Error copy stays generic (no oracle for
+ * valid phones vs codes); 429 names the wait. Mirrors VendorLoginForm.
  */
-
-declare global {
-  interface Window {
-    firebase?: {
-      initializeApp: (cfg: Record<string, string>) => unknown;
-      auth: () => {
-        signInWithPhoneNumber: (
-          phone: string,
-          verifier: unknown,
-        ) => Promise<{ confirm: (code: string) => Promise<{ user?: { getIdToken: () => Promise<string> } | null }> }>;
-        RecaptchaVerifier: new (el: string | HTMLElement, opts: Record<string, unknown>) => unknown;
-      };
-    };
-  }
-}
-
-type FirebaseAuthNamespace = () => {
-  signInWithPhoneNumber: (
-    phone: string,
-    verifier: unknown,
-  ) => Promise<{ confirm: (code: string) => Promise<{ user?: { getIdToken: () => Promise<string> } | null }> }>;
-  RecaptchaVerifier: new (el: string | HTMLElement, opts: Record<string, unknown>) => unknown;
-};
-
-const FIREBASE_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY as string | undefined;
-const DEV_ADMIN_PHONE = (import.meta.env.VITE_ADMIN_PHONE as string | undefined) ?? "";
-
-let sharedVerifier: { clear?: () => void } | null = null;
-
 export function AdminLoginForm() {
   const navigate = useNavigate();
   const { next } = useSearch({ strict: false }) as { next?: string };
-  const [step, setStep] = React.useState<"phone" | "otp">("phone");
-  const [phone, setPhone] = React.useState(DEV_ADMIN_PHONE || "+91 ");
+  const [phone, setPhone] = React.useState("+91 ");
   const [code, setCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [info, setInfo] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
-  // Temporary access-code mode (doorstep unblock while phone OTP is down).
-  const [accessMode, setAccessMode] = React.useState(false);
-  const [accessCode, setAccessCode] = React.useState("");
-
-  async function signInDemo() {
-    const normalized = normalizePhone(phone);
-    if (!normalized) {
-      setError("Enter a valid Indian mobile number.");
-      return;
-    }
-    if (accessCode.trim().length < 4) {
-      setError("Enter the access code.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await loginDemoServer({ data: { phone: normalized, code: accessCode.trim() } });
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      toast.add({ title: "Signed in", description: "Welcome back." });
-      await navigate({ href: next?.startsWith("/") ? next : "/dashboard", replace: true });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-in failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function copyError() {
     if (!error) return;
-    // Pasteable triage bundle: visible error + when + firebase-configured?
+    // Pasteable triage bundle: visible error + when + auth mode.
     // Never includes secrets — keys stay out of the bundle by construction.
     const bundle = [
       `admin-login error @ ${new Date().toISOString()}`,
       error,
-      `otp-configured: ${FIREBASE_API_KEY ? "yes" : "no"}`,
+      "auth: access-code",
       `page: ${typeof window !== "undefined" ? window.location.href : ""}`,
     ].join("\n");
     try {
@@ -108,202 +43,74 @@ export function AdminLoginForm() {
     }
   }
 
-  async function signIn(idToken: string) {
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      setError("Enter a valid Indian mobile number.");
+      return;
+    }
+    if (code.trim().length < 4) {
+      setError("Enter the access code issued by the owner.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const result = await loginVerifyServer({ data: { id_token: idToken } });
+      const result = await loginCodeServer({ data: { phone: normalized, code: code.trim() } });
       if (!result.ok) {
-        setError(result.message);
+        if (result.status === 429) {
+          setError("Too many attempts — wait a bit and try again.");
+        } else if (result.status === 409) {
+          setError("Too many devices on this number — contact the owner.");
+        } else if (result.status === 0) {
+          setError(result.message);
+        } else {
+          setError("Invalid phone or code.");
+        }
         return;
       }
       toast.add({ title: "Signed in", description: "Welcome back." });
       await navigate({ href: next?.startsWith("/") ? next : "/dashboard", replace: true });
     } catch (e) {
-      // Server throws only when the worker is unreachable (fetch failed);
-      // worker rejections arrive as {ok:false} above. Show the real cause.
       setError(e instanceof Error ? e.message : "Sign-in failed. Is the API running?");
     } finally {
       setBusy(false);
     }
   }
 
-  async function startOtp() {
-    const normalized = normalizePhone(phone);
-    if (!normalized) {
-      setError("Enter a valid Indian mobile number.");
-      return;
-    }
-    if (!FIREBASE_API_KEY) {
-      if (import.meta.env.PROD) {
-        // Production builds without phone-OTP config must say so loudly:
-        // the dev shortcut below only works against a DEV_AUTH=1 worker and
-        // always fails in prod with "verification failed".
-        setError("Phone sign-in is not configured on this deployment (missing Firebase web keys).");
-        return;
-      }
-      // Dev fallback (worker DEV_AUTH=1): one click signs the env admin in.
-      await signIn(`dev|${normalized}|local`);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const data = await loginStartServer({ data: { phone: normalized } });
-      setInfo(data.sent_to_masked ? `Code sent to ${data.sent_to_masked}` : "Code sent");
-      setPhone(normalized);
-      setStep("otp");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send the code.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verifyOtp() {
-    if (code.trim().length !== 6) {
-      setError("Enter the 6-digit code.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      let idToken = code.trim();
-      if (!FIREBASE_API_KEY) {
-        if (import.meta.env.PROD) {
-          throw new Error("Phone sign-in is not configured on this deployment (missing Firebase web keys).");
-        }
-        const normalized = normalizePhone(phone);
-        if (!normalized) throw new Error("Enter a valid Indian mobile number.");
-        idToken = `dev|${normalized}|local`;
-      } else if (typeof window !== "undefined" && window.firebase) {
-        if (!document.getElementById("recaptcha-container")) {
-          const el = document.createElement("div");
-          el.id = "recaptcha-container";
-          document.body.appendChild(el);
-        }
-        const app = window.firebase.initializeApp({
-          apiKey: FIREBASE_API_KEY,
-          authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined) ?? "",
-          projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined) ?? "",
-        });
-        void app;
-        const authNs = window.firebase.auth as unknown as FirebaseAuthNamespace;
-        const auth = authNs();
-        if (!sharedVerifier) {
-          const authInstance = authNs();
-          sharedVerifier = new authInstance.RecaptchaVerifier("recaptcha-container", { size: "invisible" }) as {
-            clear?: () => void;
-          };
-        }
-        const verifier = sharedVerifier;
-        const normalized = normalizePhone(phone);
-        if (!normalized) throw new Error("Enter a valid Indian mobile number.");
-        const confirmation = await auth.signInWithPhoneNumber(normalized, verifier);
-        const userCred = await confirmation.confirm(code.trim());
-        const token = await userCred.user?.getIdToken();
-        if (!token) throw new Error("Sign-in failed.");
-        idToken = token;
-      }
-      await signIn(idToken);
-    } catch (e) {
-      try {
-        sharedVerifier?.clear?.();
-      } catch {
-        /* already cleared */
-      }
-      sharedVerifier = null;
-      setError(e instanceof Error ? e.message : "Sign-in failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const submitLabel = () => {
-    if (accessMode) return "Sign in with code";
-    if (!FIREBASE_API_KEY) return "Sign in";
-    return step === "phone" ? "Send code" : "Sign in";
-  };
-
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (accessMode) void signInDemo();
-    else if (step === "phone") void startOtp();
-    else void verifyOtp();
-  }
-
   return (
     <form
       noValidate
-      onSubmit={onSubmit}
+      onSubmit={(e) => void onSubmit(e)}
       className="flex flex-col gap-4"
     >
       <FieldGroup className="gap-4">
-        {accessMode ? (
-          <>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="admin-phone">Phone number</FieldLabel>
-              <Input
-                id="admin-phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="+91 93021 90067"
-                className="tabular-nums"
-              />
-              <FieldDescription>Your admin number, then the one-time access code.</FieldDescription>
-            </Field>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="admin-access-code">Access code</FieldLabel>
-              <Input
-                id="admin-access-code"
-                value={accessCode}
-                onChange={(e) => setAccessCode(e.target.value)}
-                autoComplete="one-time-code"
-                placeholder="Issued by the owner"
-                className="tabular-nums"
-              />
-              <FieldDescription>Temporary entry while phone OTP is down. Revoke it after use.</FieldDescription>
-            </Field>
-          </>
-        ) : step === "phone" ? (
-          <Field className="gap-1.5">
-            <FieldLabel htmlFor="admin-phone">Phone number</FieldLabel>
-            <Input
-              id="admin-phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="+91 93021 90067"
-              className="tabular-nums"
-            />
-            <FieldDescription>Sign in with the admin phone number.</FieldDescription>
-          </Field>
-        ) : (
-          <Field className="gap-1.5">
-            <FieldLabel htmlFor="admin-otp">6-digit code</FieldLabel>
-            <InputOTP
-              id="admin-otp"
-              value={code}
-              onChange={(value: string) => setCode(value.replace(/\D/g, "").slice(0, 6))}
-              maxLength={6}
-            >
-              <InputOTPGroup>
-                <InputOTPSlot index={0} />
-                <InputOTPSeparator />
-                <InputOTPSlot index={1} />
-                <InputOTPSlot index={2} />
-                <InputOTPSeparator />
-                <InputOTPSlot index={3} />
-                <InputOTPSlot index={4} />
-                <InputOTPSlot index={5} />
-              </InputOTPGroup>
-            </InputOTP>
-            {info ? <FieldDescription>{info}</FieldDescription> : null}
-          </Field>
-        )}
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor="admin-phone">Phone number</FieldLabel>
+          <Input
+            id="admin-phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="+91 93021 90067"
+            className="tabular-nums"
+          />
+          <FieldDescription>Your admin number, then the one-time access code.</FieldDescription>
+        </Field>
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor="admin-access-code">Access code</FieldLabel>
+          <Input
+            id="admin-access-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            autoComplete="one-time-code"
+            placeholder="Issued by the owner"
+            className="tabular-nums"
+          />
+          <FieldDescription>Lost it? Ask the owner for a new code.</FieldDescription>
+        </Field>
         {error ? (
           <div role="alert" className="flex items-start justify-between gap-2 rounded-md bg-destructive/10 px-3 py-2">
             <p className="font-medium text-destructive text-xs">{error}</p>
@@ -318,42 +125,15 @@ export function AdminLoginForm() {
           </div>
         ) : null}
       </FieldGroup>
-      {step === "otp" ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="self-start"
-          onClick={() => {
-            setStep("phone");
-            setCode("");
-          }}
-        >
-          Use a different number
-        </Button>
-      ) : null}
       <Button className="w-full" type="submit" disabled={busy}>
         {busy ? <Loader2 className="animate-spin" aria-hidden /> : null}
-        {submitLabel()}
+        {busy ? "Checking…" : "Sign in"}
         <ArrowRight aria-hidden />
       </Button>
-      <button
-        type="button"
-        onClick={() => {
-          setAccessMode((v) => !v);
-          setError(null);
-          setCode("");
-          setAccessCode("");
-        }}
-        className="self-center text-muted-foreground text-xs underline"
-      >
-        {accessMode ? "Back to phone OTP" : "Use access code instead"}
-      </button>
       <p className="flex items-center justify-center gap-1.5 text-muted-foreground text-xs">
         <ShieldCheck className="size-3.5" aria-hidden />
         Sessions are HttpOnly · role enforced on every request
       </p>
-      <div id="recaptcha-container" className="hidden" />
     </form>
   );
 }

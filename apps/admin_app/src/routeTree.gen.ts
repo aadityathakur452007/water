@@ -23,6 +23,7 @@ import { Route as mainDashboardPaymentsRouteRouteImport } from './routes/(main)/
 import { Route as mainDashboardTrustRouteRouteImport } from './routes/(main)/dashboard/trust/route'
 import { Route as mainDashboardUsersRouteRouteImport } from './routes/(main)/dashboard/users/route'
 import { Route as mainDashboardVendorsRouteRouteImport } from './routes/(main)/dashboard/vendors/route'
+import { Route as mainVendorguardRouteRouteImport } from './routes/(main)/vendor/(guard)/route'
 import { Route as mainAuthV1LoginRouteRouteImport } from './routes/(main)/auth/v1/login/route'
 import { Route as mainDashboardAnalyticsIndexRouteImport } from './routes/(main)/dashboard/analytics/index'
 import { Route as mainDashboardDispatchIndexRouteImport } from './routes/(main)/dashboard/dispatch/index'
@@ -33,6 +34,18 @@ import { Route as mainDashboardUsersIndexRouteImport } from './routes/(main)/das
 import { Route as mainDashboardUsersUserIdRouteRouteImport } from './routes/(main)/dashboard/users/$userId/route'
 import { Route as mainDashboardVendorsIndexRouteImport } from './routes/(main)/dashboard/vendors/index'
 import { Route as mainDashboardVendorsVendorIdRouteRouteImport } from './routes/(main)/dashboard/vendors/$vendorId/route'
+import { Route as mainVendorguardIndexRouteImport } from './routes/(main)/vendor/(guard)/index'
+import { Route as mainVendorLoginIndexRouteImport } from './routes/(main)/vendor/login/index'
+import { Route as mainDashboardVendorsVendorIdIndexRouteImport } from './routes/(main)/dashboard/vendors/$vendorId/index'
+import { Route as mainVendorguardCollectionsIndexRouteImport } from './routes/(main)/vendor/(guard)/collections/index'
+import { Route as mainVendorguardDepositsIndexRouteImport } from './routes/(main)/vendor/(guard)/deposits/index'
+import { Route as mainVendorguardPayoutsIndexRouteImport } from './routes/(main)/vendor/(guard)/payouts/index'
+import { Route as mainVendorguardProfileIndexRouteImport } from './routes/(main)/vendor/(guard)/profile/index'
+import { Route as mainVendorguardRouteIndexRouteImport } from './routes/(main)/vendor/(guard)/route/index'
+import { Route as mainVendorguardSupportIndexRouteImport } from './routes/(main)/vendor/(guard)/support/index'
+import { Route as mainDashboardVendorsVendorIdAccessIndexRouteImport } from './routes/(main)/dashboard/vendors/$vendorId/access/index'
+import { Route as mainDashboardVendorsVendorIdPreviewIndexRouteImport } from './routes/(main)/dashboard/vendors/$vendorId/preview/index'
+import { Route as mainVendorguardStopsStopIdIndexRouteImport } from './routes/(main)/vendor/(guard)/stops/$stopId/index'
 
 const externalIndexRoute = externalIndexRouteImport.update({
   id: '/(external)/',
@@ -111,6 +124,11 @@ const mainDashboardVendorsRouteRoute =
     path: '/vendors',
     getParentRoute: () => mainDashboardRouteRoute,
   } as any)
+const mainVendorguardRouteRoute = mainVendorguardRouteRouteImport.update({
+  id: '/(main)/vendor/(guard)',
+  path: '/vendor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const mainAuthV1LoginRouteRoute = mainAuthV1LoginRouteRouteImport.update({
   id: '/(main)/auth/v1/login',
   path: '/auth/v1/login',
@@ -169,6 +187,76 @@ const mainDashboardVendorsVendorIdRouteRoute =
     path: '/$vendorId',
     getParentRoute: () => mainDashboardVendorsRouteRoute,
   } as any)
+const mainVendorguardIndexRoute = mainVendorguardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => mainVendorguardRouteRoute,
+} as any)
+const mainVendorLoginIndexRoute = mainVendorLoginIndexRouteImport.update({
+  id: '/(main)/vendor/login/',
+  path: '/vendor/login/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const mainDashboardVendorsVendorIdIndexRoute =
+  mainDashboardVendorsVendorIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => mainDashboardVendorsVendorIdRouteRoute,
+  } as any)
+const mainVendorguardCollectionsIndexRoute =
+  mainVendorguardCollectionsIndexRouteImport.update({
+    id: '/collections/',
+    path: '/collections/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
+const mainVendorguardDepositsIndexRoute =
+  mainVendorguardDepositsIndexRouteImport.update({
+    id: '/deposits/',
+    path: '/deposits/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
+const mainVendorguardPayoutsIndexRoute =
+  mainVendorguardPayoutsIndexRouteImport.update({
+    id: '/payouts/',
+    path: '/payouts/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
+const mainVendorguardProfileIndexRoute =
+  mainVendorguardProfileIndexRouteImport.update({
+    id: '/profile/',
+    path: '/profile/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
+const mainVendorguardRouteIndexRoute =
+  mainVendorguardRouteIndexRouteImport.update({
+    id: '/route/',
+    path: '/route/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
+const mainVendorguardSupportIndexRoute =
+  mainVendorguardSupportIndexRouteImport.update({
+    id: '/support/',
+    path: '/support/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
+const mainDashboardVendorsVendorIdAccessIndexRoute =
+  mainDashboardVendorsVendorIdAccessIndexRouteImport.update({
+    id: '/access/',
+    path: '/access/',
+    getParentRoute: () => mainDashboardVendorsVendorIdRouteRoute,
+  } as any)
+const mainDashboardVendorsVendorIdPreviewIndexRoute =
+  mainDashboardVendorsVendorIdPreviewIndexRouteImport.update({
+    id: '/preview/',
+    path: '/preview/',
+    getParentRoute: () => mainDashboardVendorsVendorIdRouteRoute,
+  } as any)
+const mainVendorguardStopsStopIdIndexRoute =
+  mainVendorguardStopsStopIdIndexRouteImport.update({
+    id: '/stops/$stopId/',
+    path: '/stops/$stopId/',
+    getParentRoute: () => mainVendorguardRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/dashboard': typeof mainDashboardRouteRouteWithChildren
@@ -183,18 +271,31 @@ export interface FileRoutesByFullPath {
   '/dashboard/trust': typeof mainDashboardTrustRouteRoute
   '/dashboard/users': typeof mainDashboardUsersRouteRouteWithChildren
   '/dashboard/vendors': typeof mainDashboardVendorsRouteRouteWithChildren
+  '/vendor': typeof mainVendorguardRouteRouteWithChildren
   '/dashboard/$': typeof mainDashboardSplatRoute
   '/dashboard/': typeof mainDashboardIndexRoute
   '/auth/v1/login': typeof mainAuthV1LoginRouteRoute
   '/dashboard/orders/$orderId': typeof mainDashboardOrdersOrderIdRouteRoute
   '/dashboard/users/$userId': typeof mainDashboardUsersUserIdRouteRoute
-  '/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdRouteRoute
+  '/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdRouteRouteWithChildren
   '/dashboard/analytics/': typeof mainDashboardAnalyticsIndexRoute
   '/dashboard/dispatch/': typeof mainDashboardDispatchIndexRoute
   '/dashboard/finance/': typeof mainDashboardFinanceIndexRoute
   '/dashboard/orders/': typeof mainDashboardOrdersIndexRoute
   '/dashboard/users/': typeof mainDashboardUsersIndexRoute
   '/dashboard/vendors/': typeof mainDashboardVendorsIndexRoute
+  '/vendor/': typeof mainVendorguardIndexRoute
+  '/vendor/login/': typeof mainVendorLoginIndexRoute
+  '/dashboard/vendors/$vendorId/': typeof mainDashboardVendorsVendorIdIndexRoute
+  '/vendor/collections/': typeof mainVendorguardCollectionsIndexRoute
+  '/vendor/deposits/': typeof mainVendorguardDepositsIndexRoute
+  '/vendor/payouts/': typeof mainVendorguardPayoutsIndexRoute
+  '/vendor/profile/': typeof mainVendorguardProfileIndexRoute
+  '/vendor/route/': typeof mainVendorguardRouteIndexRoute
+  '/vendor/support/': typeof mainVendorguardSupportIndexRoute
+  '/dashboard/vendors/$vendorId/access/': typeof mainDashboardVendorsVendorIdAccessIndexRoute
+  '/dashboard/vendors/$vendorId/preview/': typeof mainDashboardVendorsVendorIdPreviewIndexRoute
+  '/vendor/stops/$stopId/': typeof mainVendorguardStopsStopIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof externalIndexRoute
@@ -210,13 +311,24 @@ export interface FileRoutesByTo {
   '/auth/v1/login': typeof mainAuthV1LoginRouteRoute
   '/dashboard/orders/$orderId': typeof mainDashboardOrdersOrderIdRouteRoute
   '/dashboard/users/$userId': typeof mainDashboardUsersUserIdRouteRoute
-  '/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdRouteRoute
   '/dashboard/analytics': typeof mainDashboardAnalyticsIndexRoute
   '/dashboard/dispatch': typeof mainDashboardDispatchIndexRoute
   '/dashboard/finance': typeof mainDashboardFinanceIndexRoute
   '/dashboard/orders': typeof mainDashboardOrdersIndexRoute
   '/dashboard/users': typeof mainDashboardUsersIndexRoute
   '/dashboard/vendors': typeof mainDashboardVendorsIndexRoute
+  '/vendor': typeof mainVendorguardIndexRoute
+  '/vendor/login': typeof mainVendorLoginIndexRoute
+  '/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdIndexRoute
+  '/vendor/collections': typeof mainVendorguardCollectionsIndexRoute
+  '/vendor/deposits': typeof mainVendorguardDepositsIndexRoute
+  '/vendor/payouts': typeof mainVendorguardPayoutsIndexRoute
+  '/vendor/profile': typeof mainVendorguardProfileIndexRoute
+  '/vendor/route': typeof mainVendorguardRouteIndexRoute
+  '/vendor/support': typeof mainVendorguardSupportIndexRoute
+  '/dashboard/vendors/$vendorId/access': typeof mainDashboardVendorsVendorIdAccessIndexRoute
+  '/dashboard/vendors/$vendorId/preview': typeof mainDashboardVendorsVendorIdPreviewIndexRoute
+  '/vendor/stops/$stopId': typeof mainVendorguardStopsStopIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -232,18 +344,31 @@ export interface FileRoutesById {
   '/(main)/dashboard/trust': typeof mainDashboardTrustRouteRoute
   '/(main)/dashboard/users': typeof mainDashboardUsersRouteRouteWithChildren
   '/(main)/dashboard/vendors': typeof mainDashboardVendorsRouteRouteWithChildren
+  '/(main)/vendor/(guard)': typeof mainVendorguardRouteRouteWithChildren
   '/(main)/dashboard/$': typeof mainDashboardSplatRoute
   '/(main)/dashboard/': typeof mainDashboardIndexRoute
   '/(main)/auth/v1/login': typeof mainAuthV1LoginRouteRoute
   '/(main)/dashboard/orders/$orderId': typeof mainDashboardOrdersOrderIdRouteRoute
   '/(main)/dashboard/users/$userId': typeof mainDashboardUsersUserIdRouteRoute
-  '/(main)/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdRouteRoute
+  '/(main)/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdRouteRouteWithChildren
   '/(main)/dashboard/analytics/': typeof mainDashboardAnalyticsIndexRoute
   '/(main)/dashboard/dispatch/': typeof mainDashboardDispatchIndexRoute
   '/(main)/dashboard/finance/': typeof mainDashboardFinanceIndexRoute
   '/(main)/dashboard/orders/': typeof mainDashboardOrdersIndexRoute
   '/(main)/dashboard/users/': typeof mainDashboardUsersIndexRoute
   '/(main)/dashboard/vendors/': typeof mainDashboardVendorsIndexRoute
+  '/(main)/vendor/(guard)/': typeof mainVendorguardIndexRoute
+  '/(main)/vendor/login/': typeof mainVendorLoginIndexRoute
+  '/(main)/dashboard/vendors/$vendorId/': typeof mainDashboardVendorsVendorIdIndexRoute
+  '/(main)/vendor/(guard)/collections/': typeof mainVendorguardCollectionsIndexRoute
+  '/(main)/vendor/(guard)/deposits/': typeof mainVendorguardDepositsIndexRoute
+  '/(main)/vendor/(guard)/payouts/': typeof mainVendorguardPayoutsIndexRoute
+  '/(main)/vendor/(guard)/profile/': typeof mainVendorguardProfileIndexRoute
+  '/(main)/vendor/(guard)/route/': typeof mainVendorguardRouteIndexRoute
+  '/(main)/vendor/(guard)/support/': typeof mainVendorguardSupportIndexRoute
+  '/(main)/dashboard/vendors/$vendorId/access/': typeof mainDashboardVendorsVendorIdAccessIndexRoute
+  '/(main)/dashboard/vendors/$vendorId/preview/': typeof mainDashboardVendorsVendorIdPreviewIndexRoute
+  '/(main)/vendor/(guard)/stops/$stopId/': typeof mainVendorguardStopsStopIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -260,6 +385,7 @@ export interface FileRouteTypes {
     | '/dashboard/trust'
     | '/dashboard/users'
     | '/dashboard/vendors'
+    | '/vendor'
     | '/dashboard/$'
     | '/dashboard/'
     | '/auth/v1/login'
@@ -272,6 +398,18 @@ export interface FileRouteTypes {
     | '/dashboard/orders/'
     | '/dashboard/users/'
     | '/dashboard/vendors/'
+    | '/vendor/'
+    | '/vendor/login/'
+    | '/dashboard/vendors/$vendorId/'
+    | '/vendor/collections/'
+    | '/vendor/deposits/'
+    | '/vendor/payouts/'
+    | '/vendor/profile/'
+    | '/vendor/route/'
+    | '/vendor/support/'
+    | '/dashboard/vendors/$vendorId/access/'
+    | '/dashboard/vendors/$vendorId/preview/'
+    | '/vendor/stops/$stopId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -287,13 +425,24 @@ export interface FileRouteTypes {
     | '/auth/v1/login'
     | '/dashboard/orders/$orderId'
     | '/dashboard/users/$userId'
-    | '/dashboard/vendors/$vendorId'
     | '/dashboard/analytics'
     | '/dashboard/dispatch'
     | '/dashboard/finance'
     | '/dashboard/orders'
     | '/dashboard/users'
     | '/dashboard/vendors'
+    | '/vendor'
+    | '/vendor/login'
+    | '/dashboard/vendors/$vendorId'
+    | '/vendor/collections'
+    | '/vendor/deposits'
+    | '/vendor/payouts'
+    | '/vendor/profile'
+    | '/vendor/route'
+    | '/vendor/support'
+    | '/dashboard/vendors/$vendorId/access'
+    | '/dashboard/vendors/$vendorId/preview'
+    | '/vendor/stops/$stopId'
   id:
     | '__root__'
     | '/(main)/dashboard'
@@ -308,6 +457,7 @@ export interface FileRouteTypes {
     | '/(main)/dashboard/trust'
     | '/(main)/dashboard/users'
     | '/(main)/dashboard/vendors'
+    | '/(main)/vendor/(guard)'
     | '/(main)/dashboard/$'
     | '/(main)/dashboard/'
     | '/(main)/auth/v1/login'
@@ -320,12 +470,26 @@ export interface FileRouteTypes {
     | '/(main)/dashboard/orders/'
     | '/(main)/dashboard/users/'
     | '/(main)/dashboard/vendors/'
+    | '/(main)/vendor/(guard)/'
+    | '/(main)/vendor/login/'
+    | '/(main)/dashboard/vendors/$vendorId/'
+    | '/(main)/vendor/(guard)/collections/'
+    | '/(main)/vendor/(guard)/deposits/'
+    | '/(main)/vendor/(guard)/payouts/'
+    | '/(main)/vendor/(guard)/profile/'
+    | '/(main)/vendor/(guard)/route/'
+    | '/(main)/vendor/(guard)/support/'
+    | '/(main)/dashboard/vendors/$vendorId/access/'
+    | '/(main)/dashboard/vendors/$vendorId/preview/'
+    | '/(main)/vendor/(guard)/stops/$stopId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   mainDashboardRouteRoute: typeof mainDashboardRouteRouteWithChildren
   externalIndexRoute: typeof externalIndexRoute
+  mainVendorguardRouteRoute: typeof mainVendorguardRouteRouteWithChildren
   mainAuthV1LoginRouteRoute: typeof mainAuthV1LoginRouteRoute
+  mainVendorLoginIndexRoute: typeof mainVendorLoginIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -428,6 +592,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof mainDashboardVendorsRouteRouteImport
       parentRoute: typeof mainDashboardRouteRoute
     }
+    '/(main)/vendor/(guard)': {
+      id: '/(main)/vendor/(guard)'
+      path: '/vendor'
+      fullPath: '/vendor'
+      preLoaderRoute: typeof mainVendorguardRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/(main)/auth/v1/login': {
       id: '/(main)/auth/v1/login'
       path: '/auth/v1/login'
@@ -498,6 +669,90 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof mainDashboardVendorsVendorIdRouteRouteImport
       parentRoute: typeof mainDashboardVendorsRouteRoute
     }
+    '/(main)/vendor/(guard)/': {
+      id: '/(main)/vendor/(guard)/'
+      path: '/'
+      fullPath: '/vendor/'
+      preLoaderRoute: typeof mainVendorguardIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/vendor/login/': {
+      id: '/(main)/vendor/login/'
+      path: '/vendor/login'
+      fullPath: '/vendor/login/'
+      preLoaderRoute: typeof mainVendorLoginIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(main)/dashboard/vendors/$vendorId/': {
+      id: '/(main)/dashboard/vendors/$vendorId/'
+      path: '/'
+      fullPath: '/dashboard/vendors/$vendorId/'
+      preLoaderRoute: typeof mainDashboardVendorsVendorIdIndexRouteImport
+      parentRoute: typeof mainDashboardVendorsVendorIdRouteRoute
+    }
+    '/(main)/vendor/(guard)/collections/': {
+      id: '/(main)/vendor/(guard)/collections/'
+      path: '/collections'
+      fullPath: '/vendor/collections/'
+      preLoaderRoute: typeof mainVendorguardCollectionsIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/vendor/(guard)/deposits/': {
+      id: '/(main)/vendor/(guard)/deposits/'
+      path: '/deposits'
+      fullPath: '/vendor/deposits/'
+      preLoaderRoute: typeof mainVendorguardDepositsIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/vendor/(guard)/payouts/': {
+      id: '/(main)/vendor/(guard)/payouts/'
+      path: '/payouts'
+      fullPath: '/vendor/payouts/'
+      preLoaderRoute: typeof mainVendorguardPayoutsIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/vendor/(guard)/profile/': {
+      id: '/(main)/vendor/(guard)/profile/'
+      path: '/profile'
+      fullPath: '/vendor/profile/'
+      preLoaderRoute: typeof mainVendorguardProfileIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/vendor/(guard)/route/': {
+      id: '/(main)/vendor/(guard)/route/'
+      path: '/route'
+      fullPath: '/vendor/route/'
+      preLoaderRoute: typeof mainVendorguardRouteIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/vendor/(guard)/support/': {
+      id: '/(main)/vendor/(guard)/support/'
+      path: '/support'
+      fullPath: '/vendor/support/'
+      preLoaderRoute: typeof mainVendorguardSupportIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
+    '/(main)/dashboard/vendors/$vendorId/access/': {
+      id: '/(main)/dashboard/vendors/$vendorId/access/'
+      path: '/access'
+      fullPath: '/dashboard/vendors/$vendorId/access/'
+      preLoaderRoute: typeof mainDashboardVendorsVendorIdAccessIndexRouteImport
+      parentRoute: typeof mainDashboardVendorsVendorIdRouteRoute
+    }
+    '/(main)/dashboard/vendors/$vendorId/preview/': {
+      id: '/(main)/dashboard/vendors/$vendorId/preview/'
+      path: '/preview'
+      fullPath: '/dashboard/vendors/$vendorId/preview/'
+      preLoaderRoute: typeof mainDashboardVendorsVendorIdPreviewIndexRouteImport
+      parentRoute: typeof mainDashboardVendorsVendorIdRouteRoute
+    }
+    '/(main)/vendor/(guard)/stops/$stopId/': {
+      id: '/(main)/vendor/(guard)/stops/$stopId/'
+      path: '/stops/$stopId'
+      fullPath: '/vendor/stops/$stopId/'
+      preLoaderRoute: typeof mainVendorguardStopsStopIdIndexRouteImport
+      parentRoute: typeof mainVendorguardRouteRoute
+    }
   }
 }
 
@@ -533,15 +788,36 @@ const mainDashboardUsersRouteRouteWithChildren =
     mainDashboardUsersRouteRouteChildren,
   )
 
+interface mainDashboardVendorsVendorIdRouteRouteChildren {
+  mainDashboardVendorsVendorIdIndexRoute: typeof mainDashboardVendorsVendorIdIndexRoute
+  mainDashboardVendorsVendorIdAccessIndexRoute: typeof mainDashboardVendorsVendorIdAccessIndexRoute
+  mainDashboardVendorsVendorIdPreviewIndexRoute: typeof mainDashboardVendorsVendorIdPreviewIndexRoute
+}
+
+const mainDashboardVendorsVendorIdRouteRouteChildren: mainDashboardVendorsVendorIdRouteRouteChildren =
+  {
+    mainDashboardVendorsVendorIdIndexRoute:
+      mainDashboardVendorsVendorIdIndexRoute,
+    mainDashboardVendorsVendorIdAccessIndexRoute:
+      mainDashboardVendorsVendorIdAccessIndexRoute,
+    mainDashboardVendorsVendorIdPreviewIndexRoute:
+      mainDashboardVendorsVendorIdPreviewIndexRoute,
+  }
+
+const mainDashboardVendorsVendorIdRouteRouteWithChildren =
+  mainDashboardVendorsVendorIdRouteRoute._addFileChildren(
+    mainDashboardVendorsVendorIdRouteRouteChildren,
+  )
+
 interface mainDashboardVendorsRouteRouteChildren {
-  mainDashboardVendorsVendorIdRouteRoute: typeof mainDashboardVendorsVendorIdRouteRoute
+  mainDashboardVendorsVendorIdRouteRoute: typeof mainDashboardVendorsVendorIdRouteRouteWithChildren
   mainDashboardVendorsIndexRoute: typeof mainDashboardVendorsIndexRoute
 }
 
 const mainDashboardVendorsRouteRouteChildren: mainDashboardVendorsRouteRouteChildren =
   {
     mainDashboardVendorsVendorIdRouteRoute:
-      mainDashboardVendorsVendorIdRouteRoute,
+      mainDashboardVendorsVendorIdRouteRouteWithChildren,
     mainDashboardVendorsIndexRoute: mainDashboardVendorsIndexRoute,
   }
 
@@ -589,10 +865,37 @@ const mainDashboardRouteRouteChildren: mainDashboardRouteRouteChildren = {
 const mainDashboardRouteRouteWithChildren =
   mainDashboardRouteRoute._addFileChildren(mainDashboardRouteRouteChildren)
 
+interface mainVendorguardRouteRouteChildren {
+  mainVendorguardIndexRoute: typeof mainVendorguardIndexRoute
+  mainVendorguardCollectionsIndexRoute: typeof mainVendorguardCollectionsIndexRoute
+  mainVendorguardDepositsIndexRoute: typeof mainVendorguardDepositsIndexRoute
+  mainVendorguardPayoutsIndexRoute: typeof mainVendorguardPayoutsIndexRoute
+  mainVendorguardProfileIndexRoute: typeof mainVendorguardProfileIndexRoute
+  mainVendorguardRouteIndexRoute: typeof mainVendorguardRouteIndexRoute
+  mainVendorguardSupportIndexRoute: typeof mainVendorguardSupportIndexRoute
+  mainVendorguardStopsStopIdIndexRoute: typeof mainVendorguardStopsStopIdIndexRoute
+}
+
+const mainVendorguardRouteRouteChildren: mainVendorguardRouteRouteChildren = {
+  mainVendorguardIndexRoute: mainVendorguardIndexRoute,
+  mainVendorguardCollectionsIndexRoute: mainVendorguardCollectionsIndexRoute,
+  mainVendorguardDepositsIndexRoute: mainVendorguardDepositsIndexRoute,
+  mainVendorguardPayoutsIndexRoute: mainVendorguardPayoutsIndexRoute,
+  mainVendorguardProfileIndexRoute: mainVendorguardProfileIndexRoute,
+  mainVendorguardRouteIndexRoute: mainVendorguardRouteIndexRoute,
+  mainVendorguardSupportIndexRoute: mainVendorguardSupportIndexRoute,
+  mainVendorguardStopsStopIdIndexRoute: mainVendorguardStopsStopIdIndexRoute,
+}
+
+const mainVendorguardRouteRouteWithChildren =
+  mainVendorguardRouteRoute._addFileChildren(mainVendorguardRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   mainDashboardRouteRoute: mainDashboardRouteRouteWithChildren,
   externalIndexRoute: externalIndexRoute,
+  mainVendorguardRouteRoute: mainVendorguardRouteRouteWithChildren,
   mainAuthV1LoginRouteRoute: mainAuthV1LoginRouteRoute,
+  mainVendorLoginIndexRoute: mainVendorLoginIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

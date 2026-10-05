@@ -37,6 +37,10 @@ OTP_START_IP_LIMIT = (20, 3600)  # 20/IP/hr
 OTP_VERIFY_DEVICE_LIMIT = (10, 3600)  # 10/device/hr (practical key for "5/code")
 REFRESH_USER_LIMIT = (30, 3600)  # 30/user/hr
 
+# 028 access-code auth (spec §1-§3, §5): generalized codes table.
+ACCESS_CODE_DEVICE_LIMIT = (10, 3600)  # 10/device/hr (mirrors DEMO pattern)
+ABSOLUTE_SESSION_DAYS = 30  # spec B3: day 30 forces re-login, no sliding extension
+
 # Server-generated OTP codes (Fast2SMS slice, ssdlc: short, few attempts).
 OTP_CODE_LEN = 6
 OTP_TTL_MIN = 5
@@ -46,6 +50,11 @@ OTP_MAX_ATTEMPTS = 5
 class DeviceCapError(AppError):
     code = "DEVICE_CAP"
     status_code = 409
+
+
+class RoleReservedError(AppError):
+    code = "ROLE_RESERVED"
+    status_code = 422
 
 
 PHONE_RE = re.compile(r"[6-9]\d{9}")
@@ -271,8 +280,189 @@ class AuthService:
             raise UnauthError("No account for this phone. Seed it first.", {})
         return await self._issue_session(user, device_id, device)
 
+    VENDOR_LOGIN_DEVICE_LIMIT = (10, 3600)  # same shape as demo abuse cap
+
+    async def vendor_login(
+        self, phone: str | None, code: str | None, device_id: str, device: dict | None = None
+    ) -> dict:
+        """Vendor access-code login (027 RBAC): admin-issued code + vendor role.
+
+        Fail-closed on the ``vendor_access_enabled`` flag (mirrors demo_login).
+        No oracle: unknown phone / wrong code / expired / revoked / non-vendor
+        all raise the same generic 401. Reuses ``_issue_session`` (30m/7d,
+        family, device-cap → 409). The plaintext code is never logged.
+        """
+        from app.repositories.config_repo import ConfigRepo  # noqa: PLC0415 (lazy seam)
+        from app.repositories.vendor_access_repo import VendorAccessRepo  # noqa: PLC0415
+
+        if not (device_id or "").strip():
+            raise ValidationError("Device id required.", {"device": "id"})
+        try:
+            flag = await ConfigRepo(self._conn).get("vendor_access_enabled", "0")
+        except Exception:  # pre-migration DB — fail closed, not 500
+            flag = None
+        if (flag or "0").strip() != "1":
+            raise UnauthError("Vendor login is off.", {})
+        _LIMITER.check(f"vendor-login:device:{device_id}", *self.VENDOR_LOGIN_DEVICE_LIMIT)
+        phone_n = normalize_phone(phone or "")
+        user = await self._users.find_by_phone(phone_n)
+        want = hash_token((code or "").strip())
+        matched_id: str | None = None
+        if user is not None and user.get("role") == "vendor":
+            for row in await VendorAccessRepo(self._conn).find_valid(user["id"]):
+                if hmac.compare_digest(str(row["code_hash"]), want):
+                    matched_id = str(row["id"])
+                    break
+        if user is None or user.get("role") != "vendor" or matched_id is None:
+            raise UnauthError("Invalid credentials.", {})
+        out = await self._issue_session(user, device_id, device)
+        await VendorAccessRepo(self._conn).touch_last_used(matched_id)
+        try:  # audit must never break the login
+            from app.services.dispatch_service import write_audit  # noqa: PLC0415
+
+            with WRITE_LOCK:
+                await write_audit(
+                    self._conn, actor=user["id"], action="vendor.access.use",
+                    entity="vendor_access_codes", entity_id=matched_id,
+                )
+                self._conn.commit()
+        except Exception:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            log.warning("vendor.access.use audit failed")
+        return out
+
+    # -- access-code login (028 generalized: ONE table for vendor+admin) ------
+    # Fail-closed on `access_code_login_enabled == 1` (014 seed defaults 0).
+    # Transition compat: vendor doors also honor the legacy
+    # `vendor_access_enabled` flag + `vendor_access_codes` table when present
+    # (027-seeded DBs); admin doors require the new flag/table only.
+
+    async def code_login(
+        self, phone: str | None, code: str | None, device_id: str,
+        device: dict | None = None, expected_role: str = "vendor",
+    ) -> dict:
+        """Phone + admin-issued code → session with absolute 30-day cap.
+
+        No oracle: unknown phone / wrong code / expired / revoked / wrong
+        role / flag-off all raise the same generic 401. The plaintext code
+        is never logged (only a phone prefix on rate-limit paths).
+        """
+        from app.repositories.access_code_repo import AccessCodeRepo  # noqa: PLC0415
+        from app.repositories.config_repo import ConfigRepo  # noqa: PLC0415
+
+        if not (device_id or "").strip():
+            raise ValidationError("Device id required.", {"device": "id"})
+        if expected_role not in ("vendor", "admin"):
+            raise ValidationError("Unknown role.", {"role": expected_role})
+        try:
+            flag = await ConfigRepo(self._conn).get("access_code_login_enabled", "0")
+        except Exception:  # pre-014 DB — fail closed, not 500
+            flag = None
+        new_flag_on = (flag or "0").strip() == "1"
+        legacy_flag_on = False
+        if not new_flag_on and expected_role == "vendor":
+            try:
+                legacy = await ConfigRepo(self._conn).get("vendor_access_enabled", "0")
+            except Exception:  # noqa: BLE001 — no config table at all
+                legacy = None
+            legacy_flag_on = (legacy or "0").strip() == "1"
+        if not (new_flag_on or legacy_flag_on):
+            raise UnauthError("Invalid credentials.", {})
+        _LIMITER.check(f"access-code-login:device:{device_id}", *ACCESS_CODE_DEVICE_LIMIT)
+        phone_n = normalize_phone(phone or "")
+        user = await self._users.find_by_phone(phone_n)
+        want = hash_token((code or "").strip())
+        matched_id: str | None = None
+        if user is not None and user.get("role") == expected_role:
+            try:
+                candidates = await AccessCodeRepo(self._conn).find_valid(user["id"])
+            except Exception:  # noqa: BLE001 — pre-014 DB without the table
+                candidates = []
+            for row in candidates:
+                if str(row.get("expected_role") or "vendor") != expected_role:
+                    continue
+                if hmac.compare_digest(str(row["code_hash"]), want):
+                    matched_id = str(row["id"])
+                    break
+            if matched_id is None and expected_role == "vendor":
+                # Legacy 027 table fallback (read-only; new issues go to access_codes).
+                try:
+                    from app.repositories.vendor_access_repo import (  # noqa: PLC0415
+                        VendorAccessRepo,
+                    )
+
+                    for row in await VendorAccessRepo(self._conn).find_valid(user["id"]):
+                        if hmac.compare_digest(str(row["code_hash"]), want):
+                            matched_id = str(row["id"])
+                            break
+                except Exception:  # noqa: BLE001 — legacy table absent, nothing to fall back to
+                    pass
+                else:
+                    if matched_id is not None:
+                        out = await self._issue_session(user, device_id, device)
+                        try:
+                            await VendorAccessRepo(self._conn).touch_last_used(matched_id)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        await _audit_access_use(self._conn, user["id"], matched_id, legacy=True)
+                        return out
+        if user is None or user.get("role") != expected_role or matched_id is None:
+            raise UnauthError("Invalid credentials.", {})
+        out = await self._issue_session(user, device_id, device)
+        try:
+            await AccessCodeRepo(self._conn).touch_last_used(matched_id)
+        except Exception:  # noqa: BLE001 — touch must never break login
+            pass
+        await _audit_access_use(self._conn, user["id"], matched_id, legacy=False)
+        return out
+
+    # -- user name+number onboarding (028 F-register, doorstep-verified) --------
+
+    async def user_register(
+        self, name: str | None, phone: str | None, device_id: str,
+        device: dict | None = None, ip: str = "unknown",
+    ) -> dict:
+        """Name + number → role=user (kyc_status=unverified) + capped session.
+
+        Rate limits mirror OTP_START (5/phone/hr, 20/IP/hr). Staff numbers
+        (vendor/admin) → 422 ROLE_RESERVED. Existing user with a blank name
+        gets the name filled once — a set name is never overwritten.
+        Returns the session plus ``verified: False`` (flag flips on first
+        POD in a later slice; until then display + future gating only).
+        """
+        import uuid as _uuid  # noqa: PLC0415 (local: avoid top-level churn)
+
+        clean_name = (name or "").strip()
+        if not clean_name or len(clean_name) > 100:
+            raise ValidationError("Enter your name (1–100 characters).", {"name": name})
+        if not (device_id or "").strip():
+            raise ValidationError("Device id required.", {"device": "id"})
+        phone_n = normalize_phone(phone or "")
+        _LIMITER.check(f"register:phone:{phone_n}", *OTP_START_PHONE_LIMIT)
+        _LIMITER.check(f"register:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
+        existing = await self._users.find_by_phone(phone_n)
+        if existing is not None and existing.get("role") != "user":
+            raise RoleReservedError(
+                "This number belongs to a staff account. Contact support.",
+                {"phone": mask_phone(phone_n)},
+            )
+        if existing is not None:
+            user = await self._users.set_name_if_blank(existing["id"], clean_name)
+            assert user is not None
+        else:
+            user = await self._users.create_register_user(
+                user_id=_uuid.uuid4().hex, phone=phone_n, name=clean_name)
+        out = await self._issue_session(user, device_id, device)
+        out["verified"] = False
+        return out
+
     async def _issue_session(self, user: dict, device_id: str, device: dict | None = None) -> dict:
-        """Session minting shared by the Firebase path and the DEV_AUTH path."""
+        """Session minting shared by every login path (Firebase, DEV_AUTH,
+        demo, vendor/access-code, user-register). Always stamps the absolute
+        30-day cap (spec B3) — rotation preserves it, refresh() enforces it."""
         since = (_now() - _dt.timedelta(days=DEVICE_WINDOW_DAYS)).isoformat()
         bound = await self._sessions.device_user_ids(device_id, since)
         if user["id"] not in bound and len(bound) >= DEVICE_CAP:
@@ -282,6 +472,7 @@ class AuthService:
             )
         new_device = not await self._sessions.known_device(user["id"], device_id)
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        now = _now()
         row = await self._sessions.create(
             user_id=user["id"],
             role=user["role"],
@@ -289,9 +480,10 @@ class AuthService:
             access_hash=hash_token(access),
             refresh_hash=hash_token(refresh),
             family_id=uuid.uuid4().hex,
-            expires_at=(_now() + _dt.timedelta(minutes=ACCESS_TTL_MIN)).isoformat(),
-            refresh_expires_at=(_now() + _dt.timedelta(days=REFRESH_TTL_DAYS)).isoformat(),
-            created_at=_now().isoformat(),
+            expires_at=(now + _dt.timedelta(minutes=ACCESS_TTL_MIN)).isoformat(),
+            refresh_expires_at=(now + _dt.timedelta(days=REFRESH_TTL_DAYS)).isoformat(),
+            session_expires_at=(now + _dt.timedelta(days=ABSOLUTE_SESSION_DAYS)).isoformat(),
+            created_at=now.isoformat(),
         )
         out = {
             "access_token": access,
@@ -322,6 +514,17 @@ class AuthService:
         if row["revoked_at"] is not None or _expired(row["refresh_expires_at"]):
             raise UnauthError("Session expired. Please log in again.", {})
         if device_id != row["device_fp"]:
+            raise UnauthError("Session expired. Please log in again.", {})
+        # 028 absolute 30-day cap (spec B3/F-refresh): day 30 forces re-login.
+        # Plain 401 SESSION_EXPIRED — the family is left intact (no burn), but
+        # reuse of a rotated token still burns (handled above). Pre-014 rows
+        # without a cap backfill as min(refresh_expires_at, created+30d).
+        cap = row.get("session_expires_at")
+        if not cap:
+            cap = _backfill_cap(row.get("created_at"), row["refresh_expires_at"])
+            if cap is not None:
+                await self._sessions.set_session_cap(row["id"], cap)
+        if cap is not None and _expired(cap):
             raise UnauthError("Session expired. Please log in again.", {})
         _LIMITER.check(f"refresh:user:{row['user_id']}", *REFRESH_USER_LIMIT)
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
@@ -383,11 +586,52 @@ class AuthService:
 def _expired(iso_ts: str) -> bool:
     try:
         dt = _dt.datetime.fromisoformat(iso_ts)
-    except ValueError:
+    except (ValueError, TypeError):
         return True
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_dt.timezone.utc)
     return dt <= _now()
+
+
+def _backfill_cap(created_at: str | None, refresh_expires_at: str) -> str | None:
+    """Pre-014 rows: cap = min(refresh_expires_at, created_at + 30d)."""
+    try:
+        refresh_dt = _dt.datetime.fromisoformat(refresh_expires_at)
+        if refresh_dt.tzinfo is None:
+            refresh_dt = refresh_dt.replace(tzinfo=_dt.timezone.utc)
+    except (ValueError, TypeError):
+        return None
+    if not created_at:
+        return refresh_dt.isoformat()
+    try:
+        created_dt = _dt.datetime.fromisoformat(created_at)
+        if created_dt.tzinfo is None:
+            created_dt = created_dt.replace(tzinfo=_dt.timezone.utc)
+    except (ValueError, TypeError):
+        return refresh_dt.isoformat()
+    cap = min(refresh_dt, created_dt + _dt.timedelta(days=ABSOLUTE_SESSION_DAYS))
+    return cap.isoformat()
+
+
+async def _audit_access_use(conn, user_id: str, code_id: str, legacy: bool) -> None:
+    """Best-effort access.use audit — never breaks the login."""
+    try:  # audit must never break the login
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415
+
+        entity = "vendor_access_codes" if legacy else "access_codes"
+        action = "vendor.access.use" if legacy else "access.use"
+        with WRITE_LOCK:
+            await write_audit(
+                conn, actor=user_id, action=action,
+                entity=entity, entity_id=code_id,
+            )
+            conn.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        log.warning("access.use audit failed")
 
 
 def _public_user(user: dict) -> dict:

@@ -1,8 +1,8 @@
 // Shodasha Vendor app — composition root: theme + ApiClient + auth seams +
 // feature controllers + AuthGate → VendorShell. Vendors must log in (no
 // guest browse). Base URL via --dart-define=SHODASHA_API_BASE.
+// Login is access-code-only (028): phone + admin-issued code, no OTP SDK.
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
@@ -20,15 +20,8 @@ import 'features/stops/stops_controller.dart';
 import 'features/support/support_controller.dart';
 import 'features/sync/sync_controller.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // Fail-soft until the vendor google-services.json lands (user manual step):
-  // login screen still renders; OTP send surfaces the SMS error path.
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('[vendor] Firebase init deferred: $e');
-  }
   runApp(const VendorApp());
 }
 
@@ -65,7 +58,6 @@ class _VendorAppState extends State<VendorApp> {
     _api = ApiClient(deviceId: _deviceId);
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),
-      verifier: FirebasePhoneVerifier(),
       store: SecureSessionStore(),
       deviceId: _deviceId,
     );

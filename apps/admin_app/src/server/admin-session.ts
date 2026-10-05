@@ -4,10 +4,9 @@ import { getCookie, setCookie } from "@tanstack/react-start/server";
 import { callWorkerPublic } from "./admin-api";
 
 /**
- * Admin session against the Python Workers API (BFF — mirrors
- * apps/admin_app's /api/auth/otp routes 1:1: same endpoint calls, same
- * HttpOnly cookie names/flags, same admin-role gate). The access token
- * never reaches browser code.
+ * Admin session against the Python Workers API (BFF — same HttpOnly cookie
+ * names/flags, same admin-role gate). Login is phone + access code via
+ * POST /v1/auth/admin/login. The access token never reaches browser code.
  */
 
 export const SESSION_COOKIE = "sh_session";
@@ -31,133 +30,58 @@ export function apiUrl(): string {
   return url;
 }
 
-const COOKIE_FLAGS = {
+export const COOKIE_FLAGS = {
   path: "/",
   sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",
 };
 
-export type LoginStartResult = { sent_to_masked?: string; resend_after_s?: number };
-
 export type LoginVerifyResult =
   | { ok: true; role: string }
   | { ok: false; status: number; code: string; message: string };
 
-export const loginStartServer = createServerFn({ method: "POST" })
-  .validator((input: { phone: string }) => input)
-  .handler(async ({ data }): Promise<LoginStartResult> => {
-    let res: Response;
-    try {
-      res = await callWorkerPublic("/v1/auth/otp/start", { phone: data.phone });
-    } catch (e) {
-      // Worker unreachable from the admin isolate (DNS/edge/timeout) —
-      // previously invisible: no log line and the form showed a bare string.
-      console.error(`[admin-auth] otp/start fetch failed: ${e instanceof Error ? e.message : e}`);
-      throw new Error("API worker unreachable. Check API_URL and worker status.");
-    }
-    const body = (await res.json().catch(() => ({}))) as {
-      sent_to_masked?: string;
-      resend_after_s?: number;
-      error?: { code: string; message: string };
-    };
-    if (!res.ok) {
-      const code = body.error?.code ?? "SERVER";
-      // No phone number in logs — path + status + worker code triages it.
-      // The worker's own message (e.g. rate-limit) is passed through so the
-      // UI can show — and copy — the real reason.
-      console.error(`[admin-auth] otp/start failed: POST /v1/auth/otp/start → ${res.status} ${code}`);
-      throw new Error(body.error?.message ?? `Could not send the code (${res.status} ${code}).`);
-    }
-    return { sent_to_masked: body.sent_to_masked, resend_after_s: body.resend_after_s };
-  });
-
-export const loginVerifyServer = createServerFn({ method: "POST" })
-  .validator((input: { id_token: string }) => input)
+/**
+ * Admin phone + access-code login (028). Calls the worker's generalized
+ * access-code door (014 `access_codes` table, `access_code_login_enabled`
+ * flag — backend owns the final flag name), asserts role=admin, and sets
+ * the same HttpOnly cookies as before. Generic 401, no oracle.
+ */
+export const loginCodeServer = createServerFn({ method: "POST" })
+  .validator((input: { phone: string; code: string }) => input)
   .handler(async ({ data }): Promise<LoginVerifyResult> => {
     let res: Response;
     try {
-      res = await callWorkerPublic("/v1/auth/otp/verify", {
-        firebase_id_token: data.id_token,
+      res = await callWorkerPublic("/v1/auth/admin/login", {
+        phone: data.phone,
+        code: data.code,
         device: { id: "admin-web" },
       });
     } catch (e) {
-      console.error(`[admin-auth] otp/verify fetch failed: ${e instanceof Error ? e.message : e}`);
+      console.error(`[admin-auth] admin/login fetch failed: ${e instanceof Error ? e.message : e}`);
       return { ok: false, status: 0, code: "NETWORK", message: "API worker unreachable. Check API_URL and worker status." };
     }
     const body = (await res.json().catch(() => ({}))) as {
       access_token?: string;
       refresh_token?: string;
       role?: string;
-      error?: { code: string; message: string };
+      error?: { code?: string; message?: string };
     };
     if (!res.ok) {
       const code = body.error?.code ?? "UNAUTH";
       // Never log tokens — status + worker code is the triage signal.
-      // A non-envelope error (wrong API_URL path, proxy HTML) lands here
-      // with the HTTP status appended instead of a bare "failed".
-      console.error(`[admin-auth] otp/verify failed: POST /v1/auth/otp/verify → ${res.status} ${code}`);
+      console.error(`[admin-auth] admin/login failed: POST /v1/auth/admin/login → ${res.status} ${code}`);
       return {
         ok: false,
         status: res.status,
         code,
-        message: body.error?.message ?? `Verification failed (${res.status} ${code}). Check API_URL in Cloudflare.`,
+        // Generic copy — the worker must not oracle valid phones vs codes.
+        message: body.error?.message ?? "Invalid phone or code.",
       };
     }
     if (body.role !== "admin") {
       return { ok: false, status: 403, code: "FORBIDDEN", message: "This number is not an admin." };
     }
     // Same cookie names/flags as the old admin's login route.
-    setCookie(SESSION_COOKIE, body.access_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 30 });
-    setCookie(REFRESH_COOKIE, body.refresh_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 60 * 24 * 7 });
-    return { ok: true, role: body.role };
-  });
-
-/**
- * Temporary access-code login (doorstep unblock while phone OTP is down).
- * Calls the worker's config-gated demo door (demo_codes hash + flag), mints
- * a normal role-checked session, and sets the same cookies. Revoke by
- * deleting the demo_codes row or flipping the flag — see runbook in chat.
- */
-export const loginDemoServer = createServerFn({ method: "POST" })
-  .validator((input: { phone: string; code: string }) => input)
-  .handler(async ({ data }): Promise<LoginVerifyResult> => {
-    let res: Response;
-    try {
-      res = await callWorkerPublic("/v1/auth/demo", {
-        phone: data.phone,
-        demo_code: data.code,
-        device: { id: "admin-web" },
-      });
-    } catch (e) {
-      console.error(`[admin-auth] demo fetch failed: ${e instanceof Error ? e.message : e}`);
-      return { ok: false, status: 0, code: "NETWORK", message: "API worker unreachable. Check API_URL and worker status." };
-    }
-    const rawText = await res.text().catch(() => "");
-    let body: {
-      access_token?: string;
-      refresh_token?: string;
-      role?: string;
-      error?: { code: string; message: string };
-    } = {};
-    try {
-      body = JSON.parse(rawText) as typeof body;
-    } catch {
-      // Non-JSON error page (edge HTML, proxy text) — snippet it for the tail.
-      console.error(`[admin-auth] demo non-JSON error body: ${rawText.slice(0, 200)}`);
-    }
-    if (!res.ok) {
-      const code = body.error?.code ?? "UNAUTH";
-      console.error(`[admin-auth] demo failed: POST /v1/auth/demo → ${res.status} ${code}`);
-      return {
-        ok: false,
-        status: res.status,
-        code,
-        message: body.error?.message ?? `Access code not accepted (${res.status}).`,
-      };
-    }
-    if (body.role !== "admin") {
-      return { ok: false, status: 403, code: "FORBIDDEN", message: "This number is not an admin." };
-    }
     setCookie(SESSION_COOKIE, body.access_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 30 });
     setCookie(REFRESH_COOKIE, body.refresh_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 60 * 24 * 7 });
     return { ok: true, role: body.role };
