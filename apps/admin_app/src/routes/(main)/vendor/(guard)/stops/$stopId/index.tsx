@@ -27,6 +27,10 @@ function StopDetail() {
   if (!data?.id) return <VendorLoading />;
 
   const phone = data.customer_phone ?? "";
+  // Phase 5 S5.5: call/navigate only for real 10-digit numbers — short or
+  // placeholder strings never render a dead link.
+  const phoneDigits = phone.replace(/\D/g, "").slice(-10);
+  const callable = /^[6-9]\d{9}$/.test(phoneDigits);
   const items = (data.items ?? []).map((e) => `${e.qty} ${e.sku}`).join(" • ");
 
   return (
@@ -47,7 +51,7 @@ function StopDetail() {
             {[data.address_label, data.address_text].filter(Boolean).join(" · ") ||
               (data.customer_id ?? data.order_id ?? data.id)}
           </CardDescription>
-          {phone ? (
+          {callable ? (
             <div className="flex gap-2 pt-1">
               <a className="text-sm underline" href={`tel:${phone}`}>
                 Call customer

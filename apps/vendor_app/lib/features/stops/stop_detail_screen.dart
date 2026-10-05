@@ -54,6 +54,15 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     await launchUrl(uri);
   }
 
+  /// Phase 5 S5.5: call button only for real 10-digit numbers — short or
+  /// placeholder strings never render a dead link.
+  bool _hasCallablePhone(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    final local =
+        digits.length > 10 ? digits.substring(digits.length - 10) : digits;
+    return RegExp(r'^[6-9]\d{9}$').hasMatch(local);
+  }
+
   /// F2 cash post; offline queues triple+cash into the outbox (sync replays
   /// the triple as a no-op then posts cash — server dedupes both). Posts the
   /// live remainder (partial orders) so the server OVERPAY guard never trips.
@@ -243,7 +252,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: ShodashaTheme.muted)),
                 const SizedBox(height: 8),
-                if (phone.isNotEmpty)
+                if (_hasCallablePhone(phone))
                   TextButton.icon(
                     onPressed: () => _call(phone),
                     icon: const Icon(Icons.call),
