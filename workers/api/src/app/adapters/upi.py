@@ -82,9 +82,15 @@ class UpiProvider:
 
 
 class FakeUpiProvider(UpiProvider):
-    """Test double: APPROVE* refs approve, DECLINE* refs decline (by prefix)."""
+    """Test double: APPROVE* refs approve, DECLINE* refs decline (by prefix).
+
+    Local/dev only: both money doors refuse to operate when APP_ENV=prod
+    (fail-closed — an unsigned callback must never mint paid_upi). Reads
+    (dues/invoice) never touch the provider, so they keep working.
+    """
 
     def create_intent(self, order: dict) -> dict:
+        _refuse_fake_in_prod()
         ref = f"FAKE-APPROVE-{str(order.get('id', 'o'))[:8]}-{uuid.uuid4().hex[:4]}"
         amt = f"{int(order.get('total', 0)) / 100:.2f}"
         return {
@@ -94,6 +100,7 @@ class FakeUpiProvider(UpiProvider):
         }
 
     def verify_webhook(self, raw_body: bytes, signature: str | None = None) -> dict:
+        _refuse_fake_in_prod()
         try:
             body = json.loads(raw_body.decode() or "{}")
         except (ValueError, UnicodeDecodeError) as e:
@@ -169,6 +176,19 @@ class RealUpiProvider(UpiProvider):
             "payee": str(body.get("payee", "")),
             "status": str(body.get("status", "approved")),
         }
+
+
+def _refuse_fake_in_prod() -> None:
+    """Default-deny for the fake money doors (§1.5).
+
+    Placed on FakeUpiProvider.create_intent/verify_webhook rather than the
+    get_provider factory on purpose: payments._service() resolves a provider
+    for every payments route including reads (dues/invoice/cod-confirm never
+    touch it), and prod reads must keep working. The two forgery-relevant
+    doors fail closed with UPSTREAM_FAIL (502) until real secrets land.
+    """
+    if str(_setting("APP_ENV", "dev")).lower() == "prod":
+        raise UpstreamError("Fake UPI provider is disabled in production.", {"retryable": False})
 
 
 def get_provider() -> UpiProvider:

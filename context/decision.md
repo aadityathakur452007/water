@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-081 | 2026-10-05 | Phase 1 Split 2 implementation notes: fake-refusal at FakeUpiProvider doors (reads preserved), plaintext per-stop OTP + legacy tolerance, quality agree→confirmed carried | Accepted | workers/api upi/vendor/dispatch/order_repo/015 migration/tests, branch 029-remediation |
 | ADR-080 | 2026-10-05 | Phase 1 execution plan: W1a backend first then W1b; two splits (Split 1 = §1.1–§1.4+§1.8, Split 2 = §1.5–§1.7); webhook fail-closed now; OTP migration 015 additive + legacy-tolerant | Accepted | workers/api authz/webhook/OTP/adjudication, apps/admin_app cookies/guards, branch 029-remediation |
 | ADR-079 | 2026-10-05 | 029 remediation Phase 0 safety: baselines re-recorded + P0-0 one-line import fix, admin build green | Accepted | apps/admin_app vendor stop route, branch 029-remediation |
 | ADR-078 | 2026-10-05 | Principal platform audit (6 tracks) + master report with P0×10, baselines, dependency graph, 10-phase plan; no fixes before approval | Accepted | Feature_docs/platform-audit/report.md, branch 028-access-code-auth |
@@ -135,6 +136,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-081: Phase 1 Split 2 implementation notes (deviations + rationale)
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Split 2 spec (§1.5–§1.7) implementation on branch `029-remediation`. Three judgment calls diverged from the letter of the spec while preserving its intent. (ADR-080 lives in the index + progress-tracker: W1a-first, two-split plan with owner answers.)
+- **Options considered**: (1) Fake-refusal in `get_provider` factory (spec-literal) vs on `FakeUpiProvider.create_intent/verify_webhook` (chosen — `_service()` resolves a provider for read routes too, so factory refusal would 502 dues/invoice/cod reads in prod; method-level refusal closes exactly the two forgery doors and preserves reads). (2) Hashed vs plaintext per-stop OTP (chosen plaintext — the code is disclosed to the order owner by design via tracking, so hashing would break the display leg; short-lived single-order scope, never logged; documented in 015 header). (3) Quality `agree→confirmed` symmetric downgrade (deferred — spec Fix/Tests cover complaints only; quality-confirm is a door attestation, not a dispute closure; carried as a later-phase question, not silently closed).
+- **Decision**: Method-level `_refuse_fake_in_prod` + secret docs in `.env.example`/wrangler; 015 migration (apply-once ALTERs, PRAGMA-tolerant code, NULL legacy fallback); complaints agree→vendor_confirmed + note≥10 with admin-only resolve; 10 new tests in `tests/test_phase01_split2.py`. Verify: 256 pytest green.
+- **Why**: Smallest changes satisfying the spec's security goals with zero availability regressions (reads work) and zero D1 prod writes (migration ships unapplied).
+- **Consequences**: `PodOtpError` deleted (no callers); two existing wrong-OTP assertions moved 401→404; quality unilateral-confirm remains open — flagged, not fixed.
+- **Affects**: workers/api upi/vendor_service/dispatch_service/order_repo/015/tests, branch 029-remediation
 
 ### ADR-079: 029 remediation Phase 0 safety (baselines + P0-0 build unblock)
 - **Date**: 2026-10-05

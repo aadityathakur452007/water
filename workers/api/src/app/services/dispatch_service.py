@@ -58,6 +58,19 @@ def _role(actor: object) -> str:
     return str(getattr(actor, "role", None) or "admin")
 
 
+async def _mint_stop_pod_otp(conn: Conn) -> str | None:
+    """Random PoD code for a new order stop, or None on pre-015 DBs.
+
+    The 015 columns are read-gated (tolerates DBs where the migration is not
+    applied yet); legacy rows verify against the deterministic fallback.
+    """
+    from app.services.vendor_service import _has_pod_cols, mint_pod_otp  # noqa: PLC0415 (lazy, cycle-safe)
+
+    if not await _has_pod_cols(conn):
+        return None
+    return mint_pod_otp()
+
+
 def _actor_id(actor: object) -> str:
     if isinstance(actor, dict):
         return str(actor.get("id") or "system")
@@ -294,12 +307,21 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
                 "SELECT COUNT(*) c FROM stops WHERE route_id = ?", (route_id,)
             )).fetchone()["c"]
             stop_id = uuid.uuid4().hex
-            await conn.execute(
-                "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending')",
-                (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                 int(order["n"]), int(order["e"])),
-            )
+            pod_code = await _mint_stop_pod_otp(conn)
+            if pod_code is None:
+                await conn.execute(
+                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+                    " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending')",
+                    (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                     int(order["n"]), int(order["e"])),
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+                    " empties_exp, version, status, pod_otp) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?)",
+                    (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                     int(order["n"]), int(order["e"]), pod_code),
+                )
             await conn.execute("UPDATE orders SET state = 'assigned' WHERE id = ?", (order_id,))
             await _event(conn, order_id, "packed", "assigned", actor, f"assigned to {vendor_id}")
             conn.commit()
@@ -344,12 +366,21 @@ async def reassign_order(conn: Conn, order_id: str, new_vendor_id: str,
             )).fetchone()["c"]
             new_id = uuid.uuid4().hex
             new_version = int(old["version"]) + 1
-            await conn.execute(
-                "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
-                (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                 int(order["n"]), int(order["e"]), new_version),
-            )
+            pod_code = await _mint_stop_pod_otp(conn)  # fresh code: the failed stop dies with its own
+            if pod_code is None:
+                await conn.execute(
+                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+                    " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+                    (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                     int(order["n"]), int(order["e"]), new_version),
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+                    " empties_exp, version, status, pod_otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+                    (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                     int(order["n"]), int(order["e"]), new_version, pod_code),
+                )
             await _event(conn, order_id, "assigned", "assigned", actor,
                    reason or f"reassigned to {new_vendor_id}")
             conn.commit()

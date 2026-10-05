@@ -129,18 +129,18 @@ authorization (suspend gates, role gates, httpOnly, logout, guards)
 
 | Area | Before | After | Evidence | Status |
 |---|---|---|---|---|
-| Admin build | FAILED (vendor-states import) | | | OPEN |
+| Admin build | FAILED (vendor-states import) | GREEN (vite 3675 modules 1.55s + SSR + nitro, 0 unresolved) | Phase 0 build output, commit 97c6971 | FIXED |
 | APK user/vendor | 26.05 / 18.13 MB arm64 | | | OPEN |
 | Order placed→delivered | strands at placed | | | OPEN |
-| UPI real money | impossible | | | OPEN |
-| Webhook forgery | self-fraud possible | | | OPEN |
+| UPI real money | impossible | fail-closed in prod (fake refused 502); real needs owner secrets | Split 2: upi.py `_refuse_fake_in_prod` + test_phase01_split2 (2) | PARTIAL (code done, secrets owed) |
+| Webhook forgery | self-fraud possible | unsigned/dev-fake callbacks fail closed, zero ledger writes | Split 2: FakeUpiProvider guards + test no-write | FIXED |
 | D1 atomicity | torn writes possible | | | OPEN |
-| Suspended writes | bypass | | | OPEN |
-| PoD OTP | computable | | | OPEN |
-| Vendor resolve | unilateral | | | OPEN |
+| Suspended writes | bypass | 403 + zero rows on 10 write routes, reads stay 200 | Split 1: dep swaps + test_phase01_authz (5) | FIXED |
+| PoD OTP | computable | random per-stop (015) + 5-fail lockout + wrong→404 no-oracle | Split 2: vendor_service/dispatch + test_phase01_split2 (6) | FIXED |
+| Vendor resolve | unilateral | agree→vendor_confirmed + note≥10; only admin resolves | Split 2: verify_complaint + admin release test | FIXED |
 | Reconciliation live | empty | | | OPEN |
-| Vendor session | ~30m death | | | OPEN |
-| Tests | 241 + 99 + 40 green | | | BASELINED |
+| Vendor session | ~30m death | refresh pinned to vendor-web device (BFF + guard) | Split 1 W1b (build verify owed by owner) | FIXED* |
+| Tests | 241 + 99 + 40 green | 256 pytest (+5 authz +10 split2) + 99 + 40 green | pytest 256 green | BASELINED+ |
 
 ## 14. UNVERIFIED list (needs device/prod to close)
 

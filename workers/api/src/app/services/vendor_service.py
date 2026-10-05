@@ -7,8 +7,12 @@ earnings with flagged-hold note, complaint verify, quality door-check.
 Scope deviations (documented, ponytail-minimal):
 - Duty persists on vendor_profile.on_duty (F5, via ensure_profile column
   convergence — 007 vs 011 shape conflict resolved in code, no migration).
-- PoD OTP is ``pod_otp(order_id, route_date)`` — a server-known deterministic
-  code (v1 simplification). TODO: per-order random OTP stored at dispatch.
+- PoD OTP is a random 6-digit code minted per order stop at dispatch
+  (``stops.pod_otp``, 015) with a DB-backed attempt counter (lockout after 5
+  fails). Pre-015 rows (pod_otp NULL) fall back to the legacy deterministic
+  ``pod_otp(order_id, route_date)`` during the migration window. Wrong codes
+  read as not-found (no oracle); the code is disclosed to the order owner
+  only, never logged.
 - Quality door-checks write the quality_incidents table (F4, single truth).
 - Cash posts to money truth via POST .../cash → mark_paid_cash (F2);
   in_hand custody bumps with duty convergence (F5).
@@ -21,6 +25,7 @@ import hashlib
 import hmac
 import json
 import math
+import secrets
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
@@ -41,9 +46,9 @@ class StaleStopError(AppError):
     status_code = 409
 
 
-class PodOtpError(AppError):
-    code = "UNAUTH"
-    status_code = 401
+class PodLockedError(AppError):
+    code = "POD_LOCKED"
+    status_code = 429
 
 
 class PayloadMismatchError(AppError):
@@ -64,12 +69,32 @@ def _today() -> str:
 
 
 def pod_otp(order_id: str, route_date: str) -> str:
-    """v1-simplification PoD code: deterministic, server-known.
+    """Legacy deterministic PoD code — fallback for pre-015 stops only.
 
-    TODO: per-order random OTP generated at dispatch and stored on the stop.
+    New stops carry a random code minted at dispatch (``mint_pod_otp``);
+    this stays as the migration-window fallback for rows with pod_otp NULL.
     """
+
     digest = hashlib.sha256(f"{order_id}:{route_date}".encode()).hexdigest()
     return f"{int(digest, 16) % 1000000:06d}"
+
+
+POD_MAX_ATTEMPTS = 5  # wrong codes per stop before the stop locks (DB-backed)
+
+
+def mint_pod_otp() -> str:
+    """Random 6-digit PoD code, minted once per order stop at dispatch."""
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+async def _has_pod_cols(conn: Conn) -> bool:
+    """Whether this DB has the 015 columns (tolerates pre-migration DBs)."""
+    try:
+        rows = (await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()
+    except Exception:
+        return False
+    names = {r["name"] for r in rows}
+    return "pod_otp" in names and "pod_attempts" in names
 
 
 def _haversine_m(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -338,16 +363,40 @@ class VendorService:
         return result
 
     async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
-        """OTP-gated PoD. Wrong OTP → 401. GPS drift → flagged, never blocked."""
+        """OTP-gated PoD. Wrong OTP reads as not-found (no oracle for stop
+        existence); 5 wrong codes lock the stop (429 POD_LOCKED, support
+        re-issues). GPS drift → flagged, never blocked."""
         from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
 
         stop = await self._owned_stop(vendor_id, stop_id)
         route = (await self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],))).fetchone()
         day = route["date"] if route else _today()
         if stop["order_id"]:
-            expected = pod_otp(stop["order_id"], day)
-            if not hmac.compare_digest(str(payload.get("delivery_otp", "")), expected):
-                raise PodOtpError(message="Invalid delivery code.", details={"stop_id": stop_id})
+            provided = str(payload.get("delivery_otp", ""))
+            if await _has_pod_cols(self._conn):
+                row = (await self._conn.execute(
+                    "SELECT pod_otp, pod_attempts FROM stops WHERE id = ?", (stop_id,))).fetchone()
+                attempts = int(row["pod_attempts"] or 0) if row is not None else 0
+                if attempts >= POD_MAX_ATTEMPTS:
+                    raise PodLockedError(
+                        message="Too many wrong codes — ask support to re-issue the delivery code.",
+                        details={"stop_id": stop_id})
+                expected = str(row["pod_otp"]) if row is not None and row["pod_otp"] else None
+                expected = expected or pod_otp(stop["order_id"], day)  # NULL = legacy in-flight row
+                if not hmac.compare_digest(provided, expected):
+                    with WRITE_LOCK:
+                        try:
+                            await self._conn.execute(
+                                "UPDATE stops SET pod_attempts = pod_attempts + 1 WHERE id = ?",
+                                (stop_id,),
+                            )
+                            self._conn.commit()
+                        except Exception:
+                            self._conn.rollback()
+                            raise
+                    raise NotFoundError(message="Stop not found.", details={"id": stop_id})
+            elif not hmac.compare_digest(provided, pod_otp(stop["order_id"], day)):
+                raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         gps: dict = {}
         if payload.get("lat") is not None and payload.get("lng") is not None:
             pin = await self._stop_pin(stop)
@@ -583,6 +632,10 @@ class VendorService:
     # -- complaint + quality verification (§14.3) ---------------------------------------
 
     async def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:
+        """Vendor countersigns a complaint it may be party to — but never
+        closes it: agree → ``vendor_confirmed`` (mandatory ≥10-char note) and
+        only an admin release writes ``resolved``; disagree → ``under_review``.
+        """
         from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
 
         with WRITE_LOCK:
@@ -595,13 +648,20 @@ class VendorService:
             )).fetchone()
             if row is None:
                 raise NotFoundError(message="Complaint not found.", details={"id": complaint_id})
-            # agree → auto redelivery/refund path; disagree → frozen, 48h admin triage.
-            status = "resolved" if agree else "under_review"
+            # Ownership first (no oracle), then the countersign rule: agree
+            # needs a real explanation — the vendor never writes `resolved`.
+            if agree and len(note.strip()) < 10:
+                raise ValidationError(
+                    message="Vendor note must explain the confirmation (at least 10 characters).",
+                    details={"id": complaint_id})
+            # agree → vendor_confirmed (admin releases to resolved);
+            # disagree → frozen, 48h admin triage.
+            status = "vendor_confirmed" if agree else "under_review"
             try:
                 await self._conn.execute(
                     "UPDATE complaints SET vendor_agree = ?, vendor_note = ?, status = ?,"
                     " resolved_at = ? WHERE id = ?",
-                    (1 if agree else 0, note[:500], status, _now() if agree else None, complaint_id),
+                    (1 if agree else 0, note[:500], status, None, complaint_id),
                 )
                 await write_audit(self._conn, actor=vendor_id, action="vendor.complaint_verify",
                                   entity="complaints", entity_id=complaint_id)

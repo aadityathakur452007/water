@@ -165,6 +165,34 @@ class OrderRepo:
         ).fetchone()
         return str(row["d"]) if row is not None else None
 
+    async def stop_pod_otp(self, order_id: str) -> str | None:
+        """Stored PoD code on the order's latest pending stop, if any.
+
+        None on pre-015 DBs, NULL rows, or no active stop — the caller falls
+        back to the legacy deterministic code. Read-only.
+        """
+        try:
+            cols = {r["name"] for r in (
+                await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
+            ).fetchall()}
+        except Exception:
+            return None
+        if "pod_otp" not in cols:
+            return None
+        try:
+            row = (
+                await self._conn.execute(
+                    "SELECT pod_otp FROM stops WHERE order_id = ? AND status = 'pending'"
+                    " ORDER BY version DESC LIMIT 1",
+                    (order_id,),
+                )
+            ).fetchone()
+        except Exception:
+            return None
+        if row is None or not row["pod_otp"]:
+            return None
+        return str(row["pod_otp"])
+
     # -- writes (each = exactly one transaction) --------------------------
 
     async def insert(self, order: dict, deposit_event: dict | None = None) -> dict:

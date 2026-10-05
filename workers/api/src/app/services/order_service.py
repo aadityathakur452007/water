@@ -219,7 +219,9 @@ class OrderService:
             if day is not None:
                 from app.services.vendor_service import pod_otp
 
-                delivery_otp = pod_otp(order_id, day)
+                # Stored random code when the stop has one (015); legacy
+                # deterministic code for pre-migration rows. Owner-only leg.
+                delivery_otp = await self.orders.stop_pod_otp(order_id) or pod_otp(order_id, day)
         return {
             **order,
             "delivery_otp": delivery_otp,

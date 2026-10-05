@@ -24,9 +24,15 @@ VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
      ├─ StopsController.commitTriple → POST triple + Idempotency-Key + version
      │    └─ 409 STALE_STOP → pull-fresh; NETWORK → SyncController.enqueue
      ├─ StopsController.completePod → POST pod (OTP + GPS soft-flag)
+     │    └─ Phase 1: OTP = stop's stored random code (015, minted at dispatch;
+     │         NULL rows accept the legacy deterministic code); wrong code reads
+     │         as not-found (no oracle), 5 fails lock 429; user tracking shows
+     │         the same stored code (order detail delivery_otp).
      ├─ SyncController.syncNow → POST /vendor/sync batch (applied/replayed/rejected per-stop)
      ├─ EarningsController.load → GET /vendor/earnings (flagged_hold display-only)
      └─ SupportController.verifyComplaint/vendorCheckQuality
+          └─ Phase 1: vendor agree → vendor_confirmed (+≥10-char note), never
+               resolved — only the admin release writes resolved.
 Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via rupees() paise→Rs.
 - 017 sync (branch 017-flow-sync, ADR-065): `GET /orders/{id}` gains `delivery_otp` (owner + assigned/dispatched; user tracking code row) → PoD closable; `POST /vendor/stops/{id}/cash` (owned-stop, deterministic stop+amount dedupe, 409=already-jama) → `mark_paid_cash` + `in_hand` bump + sync `cash_amount` ride → user badge flips on poll; one-tap cash button (COD unpaid) + outbox now actually wired to TripleSheet; `hold_blocked` computed on route+stop (ledger>3, lights dead UI); duty persisted on vendor_profile (ensure convergence); quality on table; admin payouts gen/approve, custody confirm, reco close, zones list + UI (capacity PATCH via BFF, zone attach/detach, refunds actions, payouts, day-close, custody); user dues pay-link + reschedule key; returns assign (vendor+date→route)/pickup (owned-stop, held−/caps→dues)/refund (picked-only, settings deposit rate) + vendor pickup card + admin buttons.
 - Resilience: GET single-flight + replay-safe retry (3, backoff+jitter, Retry-After) + 60s sync flush; 401/403 → forceLogout → login; logout clears outbox.
