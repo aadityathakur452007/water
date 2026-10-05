@@ -8,7 +8,8 @@ Every query is parameterized (ssdlc); cursor paging uses ``rowid`` (stable in
 SQLite/D1, single-writer semantics keep it monotonic for reads).
 
 Async (Phase-B T2): methods await the shared facade (D1 in prod, sqlite
-locally) — call shapes are otherwise unchanged.
+locally) — call shapes are otherwise unchanged. Business days are IST
+(`date(x, '+330 minutes')`), never UTC.
 """
 
 from __future__ import annotations
@@ -18,6 +19,15 @@ import sqlite3
 from app.db_d1 import AsyncSqliteConn, D1Conn
 
 Conn = D1Conn | AsyncSqliteConn
+
+IST_OFFSET_MINUTES = 330  # business days are IST (UTC+5:30), not UTC
+
+
+def ist_today() -> str:
+    """Current business date in IST (YYYY-MM-DD)."""
+    import datetime as _dt
+
+    return (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(minutes=IST_OFFSET_MINUTES)).date().isoformat()
 
 
 def _page(rows: list[sqlite3.Row], limit: int) -> tuple[list[dict], str]:
@@ -40,7 +50,7 @@ class AdminReadRepo:
     async def daily_series(self, since_day: str) -> list[dict]:
         rows = (
             await self._conn.execute(
-                "SELECT substr(created_at, 1, 10) AS day,"
+                "SELECT date(created_at, '+330 minutes') AS day,"
                 " COUNT(*) AS orders,"
                 " COALESCE(SUM(total), 0) AS gmv_paise,"
                 " SUM(CASE WHEN state = 'delivered' THEN 1 ELSE 0 END) AS delivered,"
@@ -48,7 +58,7 @@ class AdminReadRepo:
                 " SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,"
                 " SUM(CASE WHEN payment_mode = 'upi' THEN 1 ELSE 0 END) AS upi_orders,"
                 " SUM(CASE WHEN payment_mode = 'cod' THEN 1 ELSE 0 END) AS cod_orders"
-                " FROM orders WHERE substr(created_at, 1, 10) >= ?"
+                " FROM orders WHERE date(created_at, '+330 minutes') >= ?"
                 " GROUP BY day ORDER BY day",
                 (since_day,),
             )
@@ -59,12 +69,12 @@ class AdminReadRepo:
         """Delivered orders vs on-time (delivered event <= window_end) per day."""
         rows = (
             await self._conn.execute(
-                "SELECT substr(o.created_at, 1, 10) AS day,"
+                "SELECT date(o.created_at, '+330 minutes') AS day,"
                 " COUNT(*) AS delivered,"
                 " SUM(CASE WHEN e.created_at <= CASE WHEN o.window_end > ''"
                 "     THEN o.window_end ELSE o.window_start END THEN 1 ELSE 0 END) AS on_time"
                 " FROM order_events e JOIN orders o ON o.id = e.order_id"
-                " WHERE e.to_state = 'delivered' AND substr(o.created_at, 1, 10) >= ?"
+                " WHERE e.to_state = 'delivered' AND date(o.created_at, '+330 minutes') >= ?"
                 " GROUP BY day ORDER BY day",
                 (since_day,),
             )
@@ -259,7 +269,7 @@ class AdminReadRepo:
     # -- money surfaces ----------------------------------------------------------
 
     async def payments_page(
-        self, *, status: str, method: str, limit: int, cursor: int
+        self, *, status: str, method: str, query: str, limit: int, cursor: int
     ) -> tuple[list[dict], str]:
         where, args = [], []
         if status:
@@ -268,6 +278,12 @@ class AdminReadRepo:
         if method:
             where.append("p.method = ?")
             args.append(method)
+        if query:
+            # Server-driven search (the UI must send this, never filter a page).
+            like = f"%{query}%"
+            where.append("(p.provider_ref LIKE ? OR p.order_id LIKE ?"
+                         " OR u.phone LIKE ? OR u.name LIKE ?)")
+            args.extend([like, like, like, like])
         if cursor > 0:
             where.append("p.rowid < ?")
             args.append(cursor)

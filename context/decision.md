@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-084 | 2026-10-05 | Phase 3 Split A notes: 016 additive cols + PRAGMA tolerance; tracking composes detail; leads throttle-free like other public reads; IST via date(+330min) | Accepted | workers/api catalog/orders/vendor/admin/admin_read_repo/016/tests, branch 029-remediation |
 | ADR-083 | 2026-10-05 | Phase 2 Split B notes: dues intent with dues:-marker rows (no migration); cancel refunds paid_sum; maker-checker; day-close from payments; cod-confirm WIRED best-effort; fixtures gain 005 | Accepted | workers/api payments/order/subs/admin, user_app checkout, vendor_app cash button, branch 029-remediation |
 | ADR-082 | 2026-10-05 | Phase 2 Split A notes: vendor pull = single-touch accept→assign with fail-cheap gates; pod replay gated on pod-presence (triple sets done); duty-off repools in-flow | Accepted | workers/api dispatch/vendor/admin/vendor_service, vendor_app outbox/pod, branch 029-remediation |
 | ADR-081 | 2026-10-05 | Phase 1 Split 2 implementation notes: fake-refusal at FakeUpiProvider doors (reads preserved), plaintext per-stop OTP + legacy tolerance, quality agree→confirmed carried | Accepted | workers/api upi/vendor/dispatch/order_repo/015 migration/tests, branch 029-remediation |
@@ -138,6 +139,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-084: Phase 3 Split A implementation notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Split A backend (§3.1 reads, §3.2 fields, §3.3 endpoints, §3.4 search/counts, §3.5 IST) on branch `029-remediation`.
+- **Options considered**: (1) Snapshot-vs-join for stop SKUs (chosen both — `items_json` minted at dispatch per spec, `orders.items` fallback so pre-016/NULL rows still render; dynamic allowlisted INSERT cols). (2) Tracking as separate queries vs composed from `detail()` (chosen compose — one source of truth, subset projection). (3) Leads throttle (skipped — consistent with all other public catalog reads; rows are human-triaged, noted as follow-up). (4) IST via SQL `date(x,'+330 minutes')` (chosen — single expression in grouping + `ist_today()` for defaults; vendor route dates untouched, admin scope only).
+- **Decision**: 016 migration (ships unapplied, PRAGMA-tolerant code) + 6 new endpoints (tracking, instructions PATCH, vendor quality, leads, audit export, payments query) + recon per-route rows + custody join + trust counts + IST series. Verify: 285 pytest green (13 new).
+- **Why**: Backend owns truth; every shape additive except recon (aggregate keys preserved for the old UI until Split B remaps it).
+- **Consequences**: Admin screens still render old shapes (Split B); `failed` stops already ride route payloads (Flutter section owed in Split B).
+- **Affects**: workers/api catalog/orders/vendor/admin/admin_read_repo/order_repo/016/tests, branch 029-remediation
 
 ### ADR-083: Phase 2 Split B implementation notes
 - **Date**: 2026-10-05

@@ -342,6 +342,13 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | POST | `/v1/admin/orders/{id}/accept|reject|pack` | `admin.py` → `OrderRepo.transition` + `_audit` | Dispatcher pipeline: accept (placed→accepted), reject (→rejected terminal), pack (accepted→picked→packed one action) |
 | POST | `/v1/admin/routes/{id}/dispatch` | `admin.py` → per-stop `transition` to dispatched + per-stop audit | All pending assigned stops dispatched; non-assigned honestly skipped |
 | POST | `/v1/payments/dues-intent` | `payments.py` → `PaymentService.dues_intent` → `PaymentRepo.create_dues_intent` | Full-dues UPI intent (no order row; scoped idem key); signed webhook settles via dues branch (ledger dues cleared, no order flip) |
+| GET | `/orders/{id}/tracking` | `orders.py` → `OrderService.tracking` (subset of detail: no bill/ledger) | Owner-scoped status resource: state + tracker + rider + window + code + events |
+| PATCH | `/orders/{id}/instructions` | `orders.py` → `OrderService.set_instructions` → `OrderRepo.update_instructions` | Owner delivery note ≤500, pre-dispatch states only, event logged |
+| GET | `/v1/vendor/quality` | `vendor.py` → `VendorService.vendor_quality` | Incidents on vendor's route orders (replaces manual-id crutch) |
+| POST | `/leads` | `catalog.py` (public: phone + pincode validated) | Unserved-pincode lead capture into `leads` (human-triaged) |
+| GET | `/v1/admin/audit/export` | `admin.py` (same filters as viewer) | Filtered audit as CSV (header follows live table shape) |
+| GET | `/v1/admin/reconciliation?date=` | `admin.py` → per-route rows + footer | Route/vendor/stops/delivered/cash/upi/jars/empties per route; ledger footer kept |
+| GET | `/v1/admin/custody` | `admin.py` → users ⋈ profile | All vendors with name/phone/on_duty/in_hand + zero flag (no more invisibility) |
 | POST | `/v1/admin/reconciliation/close` | `admin.py` → payments aggregates + triple cross-check | Day-close reads `payments` (paid/partial by method); triple sums kept as non-blocking mismatch flags |
 | POST | `/v1/vendor/stops/{id}/cash` | `vendor.py` → `VendorService.cash_post` → `PaymentRepo.mark_paid_cash` | Doorstep cash → payment row + paid_cash/partial_dues + dues reconcile + in_hand (017; deterministic stop+amount dedupe, 409=already-jama) |
 | POST | `/v1/returns/{id}/pickup` | `returns.py` (role=vendor, owned-stop join) | Empty-jar pickup: held−, caps×Rs3→dues, stop done, return picked (017) |

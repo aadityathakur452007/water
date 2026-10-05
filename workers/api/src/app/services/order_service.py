@@ -327,6 +327,44 @@ class OrderService:
             await self._idem_put(user_id, scoped, order_id, phash, out)
         return out
 
+    async def set_instructions(self, user_id: str, order_id: str, note: str) -> dict:
+        """Owner delivery note: pre-dispatch states only, ≤500 chars."""
+        order = await self.orders.find_owned(order_id, user_id)
+        if order is None:
+            raise NotFoundError(message="Order not found.", details={"id": order_id})
+        if order["state"] not in RESCHEDULABLE:
+            raise ConflictError(
+                message="Instructions can only change before dispatch.",
+                details={"from": order["state"], "to": order["state"]},
+            )
+        text = str(note or "").strip()
+        if len(text) > 500:
+            raise ValidationError(message="Instructions must be at most 500 characters.", details={})
+        try:
+            cols = {r["name"] for r in (await self.orders._conn.execute(
+                "SELECT name FROM pragma_table_info('orders')")).fetchall()}
+        except Exception:
+            cols = set()
+        if "instructions" not in cols:
+            raise ValidationError(message="Instructions need migration 016 applied.", details={})
+        return await self.orders.update_instructions(
+            order_id, text, {"id": user_id, "role": "user"})
+
+    async def tracking(self, user_id: str, order_id: str) -> dict:
+        """Status-only tracking resource (no bill/ledger): state + tracker +
+        rider + window + delivery code + event timeline, owner-scoped."""
+        d = await self.detail(user_id, order_id)
+        return {
+            "order_id": d["id"],
+            "state": d["state"],
+            "tracker": d["tracker"],
+            "rider": d["rider"],
+            "window_start": d.get("window_start"),
+            "window_end": d.get("window_end"),
+            "delivery_otp": d["delivery_otp"],
+            "events": d["events"],
+        }
+
     # -- internals --------------------------------------------------------
 
     @staticmethod

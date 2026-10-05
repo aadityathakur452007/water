@@ -192,6 +192,11 @@ async def vendor_complaints(conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).vendor_complaints(_uid(user))
 
 
+@router.get("/vendor/quality")
+async def vendor_quality(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).vendor_quality(_uid(user))
+
+
 @router.post("/complaints/{complaint_id}/verify")
 async def verify_complaint(complaint_id: str, payload: VerifyIn,
                      conn=Depends(get_db_conn), user=Depends(_vendor)):

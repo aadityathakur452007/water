@@ -97,6 +97,32 @@ async def _has_pod_cols(conn: Conn) -> bool:
     return "pod_otp" in names and "pod_attempts" in names
 
 
+async def _stop_field_cols(conn: Conn) -> dict[str, bool]:
+    """016 presence flags (tolerates pre-migration DBs)."""
+    out = {"items_json": False, "instructions": False}
+    try:
+        out["items_json"] = "items_json" in {
+            r["name"] for r in (
+                await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
+        out["instructions"] = "instructions" in {
+            r["name"] for r in (
+                await conn.execute("SELECT name FROM pragma_table_info('orders')")).fetchall()}
+    except Exception:
+        pass
+    return out
+
+
+def _parse_items(raw: object) -> list:
+    """Order/stop SKU snapshot as a list (NULL/garbage → [])."""
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
+
+
 async def _stop_pod_code(conn: Conn, stop_id: str) -> str | None:
     """Stored PoD code for one stop, or None (pre-015 / NULL / missing)."""
     if not await _has_pod_cols(conn):
@@ -194,13 +220,20 @@ class VendorService:
         )).fetchone()
         if route is None:
             return {"route": None, "stops": [], "loading": {"take_fulls": 0, "expect_empties": 0}, "skip": []}
+        extra = await _stop_field_cols(self._conn)
+        ij = ", s.items_json" if extra["items_json"] else ""
+        ins = ", o.instructions" if extra["instructions"] else ""
         rows = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
             " o.payment_mode, o.payment_status, o.total, o.deposit_due, o.state AS order_state,"
-            " a.label AS address_label, a.formatted AS address_text, a.pincode"
+            " o.window_start, o.items AS order_items,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode,"
+            " u.name AS customer_name, u.phone AS customer_phone"
+            f"{ij}{ins}"
             " FROM stops s LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN addresses a ON a.id = o.address_id"
+            " LEFT JOIN users u ON u.id = s.customer_id"
             " WHERE s.route_id = ? ORDER BY s.seq",
             (route["id"],),
         )).fetchall()
@@ -681,6 +714,19 @@ class VendorService:
         )).fetchall()
         return {"data": [dict(r) for r in rows]}
 
+    async def vendor_quality(self, vendor_id: str) -> dict:
+        """Quality incidents on this vendor's route orders (replaces the
+        manual-id crutch): owned by the same stop join as complaints."""
+        rows = (await self._conn.execute(
+            "SELECT q.id, q.order_id, q.reason_code, q.status,"
+            " q.vendor_agree, q.created_at FROM quality_incidents q"
+            " JOIN stops s ON s.order_id = q.order_id"
+            " JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?"
+            " ORDER BY q.created_at DESC, q.id DESC LIMIT 100",
+            (vendor_id,),
+        )).fetchall()
+        return {"data": [dict(r) for r in rows]}
+
     # -- complaint + quality verification (§14.3) ---------------------------------------
 
     async def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:
@@ -764,14 +810,21 @@ class VendorService:
     # -- internals ----------------------------------------------------------------------
 
     async def _owned_stop(self, vendor_id: str, stop_id: str) -> dict:
+        extra = await _stop_field_cols(self._conn)
+        ij = ", s.items_json" if extra["items_json"] else ""
+        ins = ", o.instructions" if extra["instructions"] else ""
         row = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
             " o.payment_mode, o.payment_status, o.total, o.deposit_due, o.state AS order_state,"
-            " a.label AS address_label, a.formatted AS address_text, a.pincode"
+            " o.window_start, o.items AS order_items,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode,"
+            " u.name AS customer_name, u.phone AS customer_phone"
+            f"{ij}{ins}"
             " FROM stops s JOIN routes r ON r.id = s.route_id"
             " LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN addresses a ON a.id = o.address_id"
+            " LEFT JOIN users u ON u.id = s.customer_id"
             " WHERE s.id = ? AND r.vendor_id = ?",
             (stop_id, vendor_id),
         )).fetchone()
@@ -805,7 +858,14 @@ class VendorService:
             triple = json.loads(stop["triple"]) if stop.get("triple") else None
         except (ValueError, TypeError):
             triple = None
-        return {**stop, "triple": triple}
+        out = {**stop, "triple": triple}
+        # §3.2: SKU snapshot (dispatch promise) with the frozen order items as
+        # fallback; contact + instructions, honest empties on every shape.
+        out["items"] = _parse_items(out.pop("items_json", None)) or _parse_items(out.pop("order_items", None))
+        out["customer_name"] = stop.get("customer_name") or ""
+        out["customer_phone"] = stop.get("customer_phone") or ""
+        out["instructions"] = stop.get("instructions") or ""
+        return out
 
     async def _idem_get(self, vendor_id: str, scoped: str) -> dict | None:
         row = (await self._conn.execute(

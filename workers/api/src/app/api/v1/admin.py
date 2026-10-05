@@ -24,7 +24,7 @@ from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-e
 from app.api.deps import get_db_conn
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
-from app.repositories.admin_read_repo import AdminReadRepo
+from app.repositories.admin_read_repo import AdminReadRepo, ist_today
 from app.repositories.access_code_repo import AccessCodeRepo
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
@@ -634,7 +634,9 @@ async def invoice_whatsapp(invoice_id: str, conn=Depends(get_db_conn), user=Admi
 
 
 @router.get("/admin/reconciliation")
-async def reconciliation(conn=Depends(get_db_conn), user=Admin):
+async def reconciliation(date: str | None = Query(default=None),
+                   conn=Depends(get_db_conn), user=Admin):
+    day = (date or "").strip() or ist_today()
     led = (await conn.execute(
         "SELECT COALESCE(SUM(held),0) h, COALESCE(SUM(deposit_paid),0) p,"
         " COALESCE(SUM(deposit_refunded),0) r, COALESCE(SUM(dues),0) d FROM ledger"
@@ -642,7 +644,27 @@ async def reconciliation(conn=Depends(get_db_conn), user=Admin):
     states = (await conn.execute(
         "SELECT state, COUNT(*) c, COALESCE(SUM(total),0) t FROM orders GROUP BY state"
     )).fetchall()
-    return {"jars_out": int(led["h"]), "deposit_liability": int(led["p"]) - int(led["r"]),
+    rows = (await conn.execute(
+        "SELECT r.id AS route_id, r.vendor_id, COALESCE(u.name, '') AS vendor_name,"
+        " COUNT(s.id) AS stops,"
+        " SUM(CASE WHEN s.status = 'done' THEN 1 ELSE 0 END) AS delivered,"
+        " COALESCE(SUM(s.fulls_exp), 0) AS jars_out,"
+        " COALESCE(SUM(s.empties_exp), 0) AS empties_expected,"
+        " COALESCE(SUM(p.cash), 0) AS cash, COALESCE(SUM(p.upi), 0) AS upi"
+        " FROM routes r LEFT JOIN stops s ON s.route_id = r.id"
+        " LEFT JOIN (SELECT order_id,"
+        " SUM(CASE WHEN method = 'cod' AND status IN ('paid','partial') THEN amount ELSE 0 END) AS cash,"
+        " SUM(CASE WHEN method = 'upi' AND status IN ('paid','partial') THEN amount ELSE 0 END) AS upi"
+        " FROM payments GROUP BY order_id) p ON p.order_id = s.order_id"
+        " LEFT JOIN users u ON u.id = r.vendor_id"
+        " WHERE r.date = ? GROUP BY r.id ORDER BY r.id",
+        (day,),
+    )).fetchall()
+    return {"date": day,
+            "routes": [{**dict(r), "stops": int(r["stops"]), "delivered": int(r["delivered"] or 0),
+                        "jars_out": int(r["jars_out"]), "empties_expected": int(r["empties_expected"]),
+                        "cash": int(r["cash"]), "upi": int(r["upi"])} for r in rows],
+            "jars_out": int(led["h"]), "deposit_liability": int(led["p"]) - int(led["r"]),
             "dues_receivable": int(led["d"]),
             "orders_by_state": [{**dict(r)} for r in states]}
 
@@ -650,9 +672,13 @@ async def reconciliation(conn=Depends(get_db_conn), user=Admin):
 @router.get("/admin/custody")
 async def custody(conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute(
-        "SELECT user_id AS vendor_id, in_hand FROM vendor_profile WHERE in_hand != 0"
+        "SELECT u.id AS vendor_id, COALESCE(u.name, '') AS name, COALESCE(u.phone, '') AS phone,"
+        " COALESCE(p.on_duty, 0) AS on_duty, COALESCE(p.in_hand, 0) AS in_hand"
+        " FROM users u LEFT JOIN vendor_profile p ON p.user_id = u.id"
+        " WHERE u.role = 'vendor' ORDER BY u.id"
     )).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    return {"data": [{**dict(r), "on_duty": bool(r["on_duty"]),
+                      "zero": int(r["in_hand"]) == 0} for r in rows]}
 
 
 @router.get("/admin/dunning")
@@ -767,7 +793,7 @@ async def reconciliation_close(payload: RecoCloseIn, conn=Depends(get_db_conn), 
     """Day-close marker: money truth comes from `payments` rows (paid/partial
     by method for the day); the triple JSON sums stay as a non-blocking
     cross-check (declared vs posted diverge on offline timing)."""
-    day = payload.date.strip() or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    day = payload.date.strip() or ist_today()
     led = (await conn.execute(
         "SELECT COALESCE(SUM(held),0) h, COALESCE(SUM(deposit_paid),0) p,"
         " COALESCE(SUM(deposit_refunded),0) r, COALESCE(SUM(dues),0) d FROM ledger"
@@ -897,7 +923,10 @@ async def return_refund(return_id: str, payload: ReturnRefundIn,
 @router.get("/admin/complaints")
 async def complaints_queue(conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute("SELECT * FROM complaints ORDER BY created_at DESC LIMIT 200")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    counts = (await conn.execute(
+        "SELECT status, COUNT(*) c FROM complaints GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 @router.post("/admin/complaints/{complaint_id}/resolve")
@@ -926,7 +955,10 @@ async def quality_queue(status: str | None = Query(default=None), conn=Depends(g
     rows = await conn.execute(
         f"SELECT * FROM quality_incidents {where} ORDER BY created_at DESC LIMIT 200",  # noqa: S608
         (*args,))
-    return {"data": [dict(r) for r in rows.fetchall()]}
+    counts = (await conn.execute(
+        "SELECT status, COUNT(*) c FROM quality_incidents GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows.fetchall()],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 @router.post("/admin/quality/{incident_id}/confirm")
@@ -971,7 +1003,11 @@ async def quality_reject(incident_id: str, payload: QualityDecisionIn,
 @router.get("/admin/strikes")
 async def strikes_list(conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute("SELECT * FROM strikes ORDER BY created_at DESC LIMIT 200")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    counts = (await conn.execute(
+        "SELECT CASE WHEN cleared_at IS NULL THEN 'open' ELSE 'cleared' END AS status,"
+        " COUNT(*) c FROM strikes GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 @router.post("/admin/strikes/{strike_id}/clear")
@@ -1045,6 +1081,46 @@ async def audit_read(entity: str | None = Query(default=None),
     return {"data": [dict(r) for r in rows]}
 
 
+@router.get("/admin/audit/export")
+async def audit_export(entity: str | None = Query(default=None),
+                 actor_id: str | None = Query(default=None, max_length=80),
+                 action: str | None = Query(default=None, max_length=80),
+                 limit: int = Query(default=200, ge=1, le=1000),
+                 conn=Depends(get_db_conn), user=Admin):
+    """Filtered audit as CSV (same filters as the viewer; header follows the
+    live table shape, whichever migration owns it)."""
+    import csv
+    import io
+
+    from fastapi.responses import PlainTextResponse
+
+    args: list[object] = []
+    clauses = []
+    if entity:
+        clauses.append("entity = ?")
+        args.append(entity)
+    if actor_id:
+        clauses.append("actor_id = ?")
+        args.append(actor_id)
+    if action:
+        clauses.append("action = ?")
+        args.append(action)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    try:
+        rows = (await conn.execute(
+            f"SELECT * FROM audit_log {where} ORDER BY rowid DESC LIMIT ?", (*args, limit)  # noqa: S608
+        )).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    data = [dict(r) for r in rows]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(list(data[0].keys()) if data else ["empty"])
+    for r in data:
+        writer.writerow([r.get(k, "") for k in (list(data[0].keys()) if data else [])])
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv")
+
+
 @router.get("/admin/metrics")
 async def metrics(conn=Depends(get_db_conn), user=Admin):
     orders = {r["state"]: int(r["c"])
@@ -1079,8 +1155,8 @@ def _cursor(value: str) -> int:
 async def metrics_overview(days: int = Query(default=14, ge=1, le=90),
                      conn=Depends(get_db_conn), user=Admin):
     repo = AdminReadRepo(conn)
-    since = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)).isoformat()[:10]
-    today = _dt.datetime.now(_dt.timezone.utc).isoformat()[:10]
+    today = ist_today()
+    since = (_dt.datetime.fromisoformat(today) - _dt.timedelta(days=days)).date().isoformat()
     daily = await repo.daily_series(since)
     on_time = {r["day"]: r for r in await repo.on_time_series(since)}
     series = []
@@ -1192,11 +1268,13 @@ async def admin_unsuspend_user(user_id: str, conn=Depends(get_db_conn), user=Adm
 @router.get("/admin/payments")
 async def admin_payments(status: str | None = Query(default=None),
                    method: str | None = Query(default=None, pattern=r"^(upi|cod)$"),
+                   query: str | None = Query(default=None, max_length=80),
                    limit: int = Query(default=50, ge=1, le=200),
                    cursor: str = Query(default=""),
                    conn=Depends(get_db_conn), user=Admin):
     data, next_cursor = await AdminReadRepo(conn).payments_page(
-        status=status or "", method=method or "", limit=limit, cursor=_cursor(cursor))
+        status=status or "", method=method or "", query=query or "",
+        limit=limit, cursor=_cursor(cursor))
     return {"data": data, "next_cursor": next_cursor}
 
 

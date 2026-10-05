@@ -7,6 +7,7 @@ Bare paths — mounted under ``/v1`` by the app factory/integrator. Reads stay o
 Actor id/role always come from the session, never the body (H1).
 """
 from fastapi import APIRouter, Depends, Header, Query, Request
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_db_conn, get_settings
 from app.repositories.ledger_repo import LedgerRepo
@@ -97,6 +98,21 @@ async def list_orders(
 @router.get("/orders/{order_id}", response_model=OrderDetailOut)
 async def get_order(order_id: str, conn=Depends(get_db_conn), user=Depends(get_current_user)):
     return await _service(conn).detail(_uid(user), order_id)
+
+
+@router.get("/orders/{order_id}/tracking")
+async def get_tracking(order_id: str, conn=Depends(get_db_conn), user=Depends(get_current_user)):
+    return await _service(conn).tracking(_uid(user), order_id)
+
+
+class InstructionsIn(BaseModel):
+    instructions: str = Field(default="", max_length=500)
+
+
+@router.patch("/orders/{order_id}/instructions")
+async def set_instructions(order_id: str, payload: InstructionsIn,
+                     conn=Depends(get_db_conn), user=Depends(require_active_user)):
+    return await _service(conn).set_instructions(_uid(user), order_id, payload.instructions)
 
 
 @router.post("/orders/{order_id}/cancel", response_model=CancelOut)

@@ -57,7 +57,6 @@ def _role(actor: object) -> str:
         return str(actor.get("role") or "admin")
     return str(getattr(actor, "role", None) or "admin")
 
-
 async def _mint_stop_pod_otp(conn: Conn) -> str | None:
     """Random PoD code for a new order stop, or None on pre-015 DBs.
 
@@ -69,6 +68,16 @@ async def _mint_stop_pod_otp(conn: Conn) -> str | None:
     if not await _has_pod_cols(conn):
         return None
     return mint_pod_otp()
+
+
+async def _has_items_json_col(conn: Conn) -> bool:
+    """Whether this DB has the 016 stops.items_json column (else NULL/fallback)."""
+    try:
+        names = {r["name"] for r in (
+            await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
+    except Exception:
+        return False
+    return "items_json" in names
 
 
 def _actor_id(actor: object) -> str:
@@ -308,20 +317,20 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             )).fetchone()["c"]
             stop_id = uuid.uuid4().hex
             pod_code = await _mint_stop_pod_otp(conn)
-            if pod_code is None:
-                await conn.execute(
-                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                    " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending')",
-                    (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                     int(order["n"]), int(order["e"])),
-                )
-            else:
-                await conn.execute(
-                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                    " empties_exp, version, status, pod_otp) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?)",
-                    (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                     int(order["n"]), int(order["e"]), pod_code),
-                )
+            cols = "id, route_id, order_id, customer_id, seq, fulls_exp, empties_exp, version"
+            vals: tuple = (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                           int(order["n"]), int(order["e"]), 1)
+            if await _has_items_json_col(conn):  # 016 snapshot: SKUs as promised
+                cols += ", items_json"
+                vals = (*vals, str(order.get("items") or "[]"))
+            if pod_code is not None:
+                cols += ", pod_otp"
+                vals = (*vals, pod_code)
+            placeholders = ", ".join(["?"] * len(vals))
+            await conn.execute(
+                f"INSERT INTO stops({cols}, status) VALUES ({placeholders}, 'pending')",  # noqa: S608
+                vals,
+            )
             await conn.execute("UPDATE orders SET state = 'assigned' WHERE id = ?", (order_id,))
             await _event(conn, order_id, "packed", "assigned", actor, f"assigned to {vendor_id}")
             conn.commit()
@@ -420,20 +429,21 @@ async def reassign_order(conn: Conn, order_id: str, new_vendor_id: str,
             new_id = uuid.uuid4().hex
             new_version = int(old["version"]) + 1
             pod_code = await _mint_stop_pod_otp(conn)  # fresh code: the failed stop dies with its own
-            if pod_code is None:
-                await conn.execute(
-                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                    " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
-                    (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                     int(order["n"]), int(order["e"]), new_version),
-                )
-            else:
-                await conn.execute(
-                    "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                    " empties_exp, version, status, pod_otp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
-                    (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                     int(order["n"]), int(order["e"]), new_version, pod_code),
-                )
+            snapshot = str(order.get("items") or "[]")
+            cols = "id, route_id, order_id, customer_id, seq, fulls_exp, empties_exp, version"
+            vals = (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                    int(order["n"]), int(order["e"]), new_version)
+            if await _has_items_json_col(conn):
+                cols += ", items_json"
+                vals = (*vals, snapshot)
+            if pod_code is not None:
+                cols += ", pod_otp"
+                vals = (*vals, pod_code)
+            placeholders = ", ".join(["?"] * len(vals))
+            await conn.execute(
+                f"INSERT INTO stops({cols}, status) VALUES ({placeholders}, 'pending')",  # noqa: S608
+                vals,
+            )
             await _event(conn, order_id, "assigned", "assigned", actor,
                    reason or f"reassigned to {new_vendor_id}")
             conn.commit()

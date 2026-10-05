@@ -299,6 +299,28 @@ class OrderRepo:
             await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
         ).fetchone())
 
+    async def update_instructions(self, order_id: str, instructions: str, actor: object) -> dict:
+        """Owner delivery note (≤500 chars); state untouched, event logged."""
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "UPDATE orders SET instructions = ? WHERE id = ?",
+                    (instructions, order_id),
+                )
+                cur = (
+                    await self._conn.execute("SELECT state FROM orders WHERE id = ?", (order_id,))
+                ).fetchone()
+                await self._event(order_id, cur["state"], cur["state"], _actor_id(actor), _role(actor),
+                            "instructions updated")
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        # instructions stays out of _ORDER_COLS (pre-016 tolerance) — merged here.
+        return {**_row((
+            await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
+        ).fetchone()), "instructions": instructions}
+
     async def cancel_settle(self, order_id: str, actor: object) -> dict:
         """§10 settlement in ONE transaction: state check + void + compensating
         ledger rows + refund row iff money moved. Already-cancelled -> 409 with
