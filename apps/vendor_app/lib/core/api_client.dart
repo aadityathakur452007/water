@@ -329,6 +329,11 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
+  /// GET /invoices/{orderId} → {amount_due, ...}. The cash button posts the
+  /// live remainder (server 422s anything above it as OVERPAY).
+  Future<Map<String, dynamic>> invoiceApi(String orderId) async =>
+      (await send('GET', '/invoices/$orderId')) as Map<String, dynamic>;
+
   /// F8: empty-jar pickup for a return (vendor's own route only).
   Future<Map<String, dynamic>> pickupReturn({
     required String returnId,

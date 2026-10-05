@@ -764,7 +764,9 @@ class RecoCloseIn(BaseModel):
 
 @router.post("/admin/reconciliation/close")
 async def reconciliation_close(payload: RecoCloseIn, conn=Depends(get_db_conn), user=Admin):
-    """Day-close marker: snapshot books + collected + custody into audit_log."""
+    """Day-close marker: money truth comes from `payments` rows (paid/partial
+    by method for the day); the triple JSON sums stay as a non-blocking
+    cross-check (declared vs posted diverge on offline timing)."""
     day = payload.date.strip() or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
     led = (await conn.execute(
         "SELECT COALESCE(SUM(held),0) h, COALESCE(SUM(deposit_paid),0) p,"
@@ -782,11 +784,19 @@ async def reconciliation_close(payload: RecoCloseIn, conn=Depends(get_db_conn), 
             j = {}
         cash += int(j.get("cash", 0))
         upi += int(j.get("upi", 0))
+    prows = (await conn.execute(
+        "SELECT method, COALESCE(SUM(amount),0) s FROM payments"
+        " WHERE status IN ('paid','partial') AND date(created_at) = ? GROUP BY method",
+        (day,))).fetchall()
+    by_method = {str(r["method"]): int(r["s"]) for r in prows}
+    payments_cash, payments_upi = by_method.get("cod", 0), by_method.get("upi", 0)
     snapshot = {"date": day, "route": payload.route,
                 "jars_out": int(led["h"]),
                 "deposit_liability": int(led["p"]) - int(led["r"]),
                 "dues_receivable": int(led["d"]),
                 "collected_cash": cash, "collected_upi": upi,
+                "payments_cash": payments_cash, "payments_upi": payments_upi,
+                "cash_mismatch": payments_cash != cash, "upi_mismatch": payments_upi != upi,
                 "custody_in_hand": int(hand)}
     with WRITE_LOCK:
         await _audit(conn, user, "reco.close", "reconciliation", f"{day}:{payload.route}", "", snapshot)

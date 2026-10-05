@@ -7,7 +7,7 @@ preserved, never a dead end).
 DTOs live here next to their only consumer (same pattern as auth.py).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_active_user, require_role
@@ -51,8 +51,10 @@ def _uid(user: dict) -> str:
 
 @router.post("/subscriptions", status_code=201)
 async def create_subscription(payload: SubCreateIn, user=Depends(_user),
-                        conn=Depends(get_db_conn)):
-    return await SubscriptionService(conn).create(_uid(user), payload.model_dump(mode="json"))
+                        conn=Depends(get_db_conn),
+                        idem: str | None = Header(default=None, alias="Idempotency-Key")):
+    return await SubscriptionService(conn).create(
+        _uid(user), payload.model_dump(mode="json"), (idem or "").strip())
 
 
 @router.get("/subscriptions")

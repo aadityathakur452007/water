@@ -63,6 +63,12 @@ async def cod_confirm(order_id: str, conn=Depends(get_db_conn), user=Depends(_us
     return await _service(conn).cod_confirm(_uid(user), order_id)
 
 
+@router.post("/payments/dues-intent", status_code=201)
+async def dues_intent(conn=Depends(get_db_conn), user=Depends(_user),
+                idem: str | None = Header(default=None, alias="Idempotency-Key")):
+    return await _service(conn).dues_intent(_uid(user), _require_idem(idem))
+
+
 @router.get("/billing/dues")
 async def billing_dues(conn=Depends(get_db_conn), user=Depends(get_current_user)):
     return await _service(conn).get_dues(_uid(user))

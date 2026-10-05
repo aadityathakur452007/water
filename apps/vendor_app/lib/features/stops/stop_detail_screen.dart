@@ -55,10 +55,14 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
   }
 
   /// F2 cash post; offline queues triple+cash into the outbox (sync replays
-  /// the triple as a no-op then posts cash — server dedupes both).
+  /// the triple as a no-op then posts cash — server dedupes both). Posts the
+  /// live remainder (partial orders) so the server OVERPAY guard never trips.
   Future<void> _postCash(StopsController c, int amountPaise) async {
+    final orderId = (c.stop?['order_id'] ?? '') as String;
+    final due = orderId.isNotEmpty ? await c.amountDue(orderId) : null;
+    final amount = (due != null && due > 0) ? due : amountPaise;
     final ok = await c.postCash(
-        stopId: widget.stopId, amountPaise: amountPaise);
+        stopId: widget.stopId, amountPaise: amount);
     if (!ok && c.lastWasNetwork && widget.outbox != null) {
       final triple = c.stop?['triple'];
       if (triple is Map<String, dynamic>) {

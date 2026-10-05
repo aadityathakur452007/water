@@ -14,6 +14,8 @@ Tunables (contract §8 open until survey): SKIP_CUTOFF_HOUR, RESUME_LEAD_HOURS.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
+import json
 import sqlite3
 import uuid
 
@@ -113,7 +115,7 @@ class SubscriptionService:
 
     # -- create / list ----------------------------------------------------
 
-    async def create(self, user_id: str, payload: dict) -> dict:
+    async def create(self, user_id: str, payload: dict, idempotency_key: str = "") -> dict:
         qty = int(payload.get("qty", 0))
         if qty < 1:
             raise SubValidationError(message="Quantity must be >= 1.", details={})
@@ -124,6 +126,25 @@ class SubscriptionService:
             raise SubNotFoundError(message="Address not found.", details={"id": address_id})
         schedule = str(payload.get("schedule_type") or "daily")
         recurrence = str(payload.get("recurrence") or "")
+        key = (idempotency_key or "").strip()
+        scoped = f"POST /v1/subscriptions:{key}" if key else ""
+        idem_phash = hashlib.sha256(json.dumps(
+            {"a": address_id, "q": qty, "s": schedule, "r": recurrence},
+            sort_keys=True).encode()).hexdigest() if key else ""
+        if key:
+            # Double-tap guard: same sheet-open key replays the minted row.
+            row = (await self._conn.execute(
+                "SELECT payload_hash, result FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                (user_id, scoped),
+            )).fetchone()
+            if row is not None:
+                if row["payload_hash"] != idem_phash:
+                    from app.repositories.payment_repo import PayloadMismatchError  # noqa: PLC0415 (lazy, light)
+
+                    raise PayloadMismatchError(
+                        message="Idempotency-Key was already used with a different payload.",
+                        details={"user_id": user_id})
+                return json.loads(row["result"])
         next_run = _parse_day(payload.get("next_run")) or self._default_next_run()
         sub = {
             "id": uuid.uuid4().hex,
@@ -152,7 +173,21 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return await self.get_owned(user_id, sub["id"]) or sub
+        out = await self.get_owned(user_id, sub["id"]) or sub
+        if key:
+            with WRITE_LOCK:
+                try:
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO idempotency_keys(user_id, scoped_key, order_id,"
+                        " payload_hash, result, created_at) VALUES (?,?,?,?,?,?)",
+                        (user_id, scoped, sub["id"], idem_phash,
+                         json.dumps(out), _dt.datetime.now(_dt.timezone.utc).isoformat()),
+                    )
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
+        return out
 
     async def list(self, user_id: str) -> list[dict]:
         rows = (await self._conn.execute(

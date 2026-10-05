@@ -116,5 +116,7 @@ async def reschedule_order(
     payload: RescheduleIn,
     conn=Depends(get_db_conn),
     user=Depends(require_active_user),
+    idem: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    return await _service(conn).reschedule(_uid(user), order_id, payload.window_start)
+    return await _service(conn).reschedule(
+        _uid(user), order_id, payload.window_start, (idem or "").strip())

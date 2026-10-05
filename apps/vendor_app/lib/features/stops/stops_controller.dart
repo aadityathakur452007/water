@@ -226,6 +226,18 @@ class StopsController extends ChangeNotifier {
     }
   }
 
+  /// Live remainder for the one-tap cash button: the server 422s anything
+  /// above it as OVERPAY, so the button posts this (falls back to the card
+  /// total when unreadable — the server still guards).
+  Future<int?> amountDue(String orderId) async {
+    try {
+      final inv = await _api.invoiceApi(orderId);
+      return (inv['amount_due'] as num?)?.toInt();
+    } on ApiException {
+      return null;
+    }
+  }
+
   /// F2: one-tap cash post → money truth (payment row + dues reconcile).
   /// Returns true when cash is truth (posted now, or 409 already-paid —
   /// same outcome, stop reloaded so the badge flips). Network failure
@@ -233,8 +245,7 @@ class StopsController extends ChangeNotifier {
   Future<bool> postCash({
     required String stopId,
     required int amountPaise,
-  }) async {
-    _submitting = true;
+  }) async {    _submitting = true;
     _notice = null;
     _networkFail = false;
     notifyListeners();

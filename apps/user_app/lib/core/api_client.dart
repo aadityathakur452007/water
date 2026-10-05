@@ -364,9 +364,16 @@ class ApiClient {
         'stars': stars,
       })) as Map<String, dynamic>;
 
+  /// POST /orders/{id}/cod-confirm → posts COD dues now (idempotent) so dues
+  /// stay visible before doorstep cash; without it dues only appear via the
+  /// vendor cash carry. Best-effort at checkout — the carry covers failures.
+  Future<Map<String, dynamic>> codConfirmApi(String id) async =>
+      (await send('POST', '/orders/$id/cod-confirm')) as Map<String, dynamic>;
+
   // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
   /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
-  /// recurrence} → server-minted subscription.
+  /// recurrence} + Idempotency-Key (double-tap → single row) →
+  /// server-minted subscription.
   Future<Map<String, dynamic>> createSubscription({
     required String addressId,
     required int qty,
@@ -374,15 +381,18 @@ class ApiClient {
     required String window,
     required String scheduleType,
     String recurrence = '',
+    String? idempotencyKey,
   }) async =>
-      (await send('POST', '/subscriptions', body: {
-        'address_id': addressId,
-        'qty': qty,
-        'sku_mix': skuMix,
-        'window': window,
-        'schedule_type': scheduleType,
-        'recurrence': recurrence,
-      })) as Map<String, dynamic>;
+      (await send('POST', '/subscriptions',
+          body: {
+            'address_id': addressId,
+            'qty': qty,
+            'sku_mix': skuMix,
+            'window': window,
+            'schedule_type': scheduleType,
+            'recurrence': recurrence,
+          },
+          idempotencyKey: idempotencyKey)) as Map<String, dynamic>;
 
   // ── UPI intent (§4.4 — Razorpay order for the in-app gateway) ─────────────
   /// POST /payments/upi-intent {order_id} + Idempotency-Key →

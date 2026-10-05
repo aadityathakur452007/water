@@ -299,7 +299,8 @@ class OrderService:
 
     # -- reschedule (pre-dispatch only) ------------------------------------
 
-    async def reschedule(self, user_id: str, order_id: str, window_start: str) -> dict:
+    async def reschedule(self, user_id: str, order_id: str, window_start: str,
+                     idempotency_key: str = "") -> dict:
         order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
@@ -308,9 +309,23 @@ class OrderService:
                 message="Reschedule is allowed only before dispatch. Call support to cancel instead.",
                 details={"from": order["state"], "to": order["state"]},
             )
-        return await self.orders.update_window(
-            order_id, window_start, self._window_end(window_start), {"id": user_id, "role": "user"}
-        )
+        key = (idempotency_key or "").strip()
+        scoped = f"POST /v1/orders/{order_id}/reschedule:{key}" if key else ""
+        phash = hashlib.sha256(str(window_start).encode()).hexdigest() if key else ""
+        if key:
+            # Retry-safe window moves: same key+window replays the stored row.
+            existing = await self._idem_get(user_id, scoped)
+            if existing is not None:
+                if existing.get("payload_hash") != phash:
+                    raise PayloadMismatchError(
+                        message="Idempotency-Key was already used with a different payload.",
+                        details={"order_id": order_id})
+                return json.loads(existing["result"])
+        out = await self.orders.update_window(
+            order_id, window_start, self._window_end(window_start), {"id": user_id, "role": "user"})
+        if key:
+            await self._idem_put(user_id, scoped, order_id, phash, out)
+        return out
 
     # -- internals --------------------------------------------------------
 

@@ -1,11 +1,12 @@
 // 005-home-ux — Checkout orchestration (no widgets).
 //
-// One-time → POST /quotes → POST /orders (+Idempotency-Key). UPI orders
-// then take POST /payments/upi-intent → provider_ref (Razorpay order id
-// for real refs; FAKE-* refs open the upi:// link instead — never feed a
-// fake ref into the Razorpay gateway). Recurring → POST /subscriptions.
+// One-time → POST /quotes → POST /orders (+Idempotency-Key). COD orders then
+// take one best-effort POST cod-confirm (dues visible now; the vendor cash
+// carry covers any failure). UPI orders then take POST /payments/upi-intent
+// → provider_ref (Razorpay order id for real refs; FAKE-* refs open the
+// upi:// link instead — never feed a fake ref into the Razorpay gateway).
+// Recurring → POST /subscriptions (+Idempotency-Key, double-tap safe).
 // STALE_QUOTE (409) retries the quote→order pair exactly once.
-// COD confirm stays server-side (vendor sync flips it — contract §4.4).
 
 import '../../core/api_client.dart';
 import 'booking_controller.dart';
@@ -66,6 +67,7 @@ Future<CheckoutResult> placeCheckout({
       window: windowLabel,
       scheduleType: scheduleTypeOf(controller.deliveryType),
       recurrence: recurrence,
+      idempotencyKey: key,
     );
     final data = (sub['subscription'] as Map<String, dynamic>?) ?? sub;
     return CheckoutResult(
@@ -123,6 +125,14 @@ Future<CheckoutResult> placeCheckout({
   if (controller.paymentMode == PaymentMode.upi && orderId.isNotEmpty) {
     final intent = await api.upiIntent(orderId: orderId, idempotencyKey: key);
     providerRef = (intent['provider_ref'] ?? '') as String;
+  }
+  if (controller.paymentMode != PaymentMode.upi && orderId.isNotEmpty) {
+    // Dues visible immediately; failures are covered by the doorstep carry.
+    try {
+      await api.codConfirmApi(orderId);
+    } on ApiException {
+      // carry covers it — checkout still succeeded.
+    }
   }
   return CheckoutResult(
     orderId: orderId,

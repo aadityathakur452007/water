@@ -335,11 +335,14 @@ class OrderRepo:
                     )
                 refund = None
                 if order["payment_status"] in PAID_STATUSES:  # money moved -> refund row
+                    paid = (await self._conn.execute(
+                        "SELECT COALESCE(SUM(amount),0) s FROM payments WHERE order_id=?"
+                        " AND status IN ('paid','partial')", (order_id,))).fetchone()["s"]
                     refund = {
                         "id": uuid.uuid4().hex,
                         "order_id": order_id,
                         "payment_id": order_id,  # payments slice migrates this to payments.id
-                        "amount": int(order["total"]),
+                        "amount": int(paid),  # actually collected, never the full bill
                         "method": order["payment_mode"],
                         "status": "pending",
                         "created_at": _now(),

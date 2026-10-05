@@ -132,7 +132,7 @@ authorization (suspend gates, role gates, httpOnly, logout, guards)
 | Admin build | FAILED (vendor-states import) | GREEN (vite 3675 modules 1.55s + SSR + nitro, 0 unresolved) | Phase 0 build output, commit 97c6971 | FIXED |
 | APK user/vendor | 26.05 / 18.13 MB arm64 | | | OPEN |
 | Order placed→delivered | strands at placed | | | OPEN |
-| UPI real money | impossible | fail-closed in prod (fake refused 502); real needs owner secrets | Split 2: upi.py `_refuse_fake_in_prod` + test_phase01_split2 (2) | PARTIAL (code done, secrets owed) |
+| UPI real money | impossible | fail-closed in prod (fake refused 502); dues-pay settles end-to-end; real needs owner secrets | Split 2 + Phase 2B: upi.py guards + dues-intent → webhook → cleared (test_phase02_splitb) | PARTIAL (code done, secrets owed) |
 | Webhook forgery | self-fraud possible | unsigned/dev-fake callbacks fail closed, zero ledger writes | Split 2: FakeUpiProvider guards + test no-write | FIXED |
 | D1 atomicity | torn writes possible | | | OPEN |
 | Suspended writes | bypass | 403 + zero rows on 10 write routes, reads stay 200 | Split 1: dep swaps + test_phase01_authz (5) | FIXED |

@@ -166,10 +166,10 @@ async def test_double_claim_refund_one_winner():
     with pytest.raises(RefundClaimError) as e:
         await s.claim_refund("admin-2", rid)
     assert e.value.code == "REFUND_CLAIM_CONFLICT" and e.value.status_code == 409
-    done = await s.complete_refund("admin-1", rid, "done")
+    done = await s.complete_refund("admin-2", rid, "done")
     assert done["status"] == "done"
     with pytest.raises(AppError):  # closed refunds never reopen
-        await s.complete_refund("admin-1", rid, "done")
+        await s.complete_refund("admin-2", rid, "done")
 
 
 # -- COD confirm → dues until cash posted ------------------------------------
@@ -288,4 +288,6 @@ async def test_router_webhook_no_auth_and_admin_claim():
     admin = _client(c, user="admin-1", role="admin")
     assert admin.post(f"/v1/refunds/{rid}/claim").status_code == 200
     assert admin.post(f"/v1/refunds/{rid}/claim").status_code == 409  # second claimant loses
-    assert admin.post(f"/v1/refunds/{rid}/done").status_code == 200
+    assert admin.post(f"/v1/refunds/{rid}/done").status_code == 409  # maker-checker: claimer cannot close
+    admin2 = _client(c, user="admin-2", role="admin")
+    assert admin2.post(f"/v1/refunds/{rid}/done").status_code == 200

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-083 | 2026-10-05 | Phase 2 Split B notes: dues intent with dues:-marker rows (no migration); cancel refunds paid_sum; maker-checker; day-close from payments; cod-confirm WIRED best-effort; fixtures gain 005 | Accepted | workers/api payments/order/subs/admin, user_app checkout, vendor_app cash button, branch 029-remediation |
 | ADR-082 | 2026-10-05 | Phase 2 Split A notes: vendor pull = single-touch accept→assign with fail-cheap gates; pod replay gated on pod-presence (triple sets done); duty-off repools in-flow | Accepted | workers/api dispatch/vendor/admin/vendor_service, vendor_app outbox/pod, branch 029-remediation |
 | ADR-081 | 2026-10-05 | Phase 1 Split 2 implementation notes: fake-refusal at FakeUpiProvider doors (reads preserved), plaintext per-stop OTP + legacy tolerance, quality agree→confirmed carried | Accepted | workers/api upi/vendor/dispatch/order_repo/015 migration/tests, branch 029-remediation |
 | ADR-080 | 2026-10-05 | Phase 1 execution plan: W1a backend first then W1b; two splits (Split 1 = §1.1–§1.4+§1.8, Split 2 = §1.5–§1.7); webhook fail-closed now; OTP migration 015 additive + legacy-tolerant | Accepted | workers/api authz/webhook/OTP/adjudication, apps/admin_app cookies/guards, branch 029-remediation |
@@ -137,6 +138,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-083: Phase 2 Split B implementation notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Split B (§2.2 dues intent + §2.3 refunds/maker-checker + §2.4 day-close + §2.5 cod/idempotency) on branch `029-remediation`. Owner delegated the cod-confirm wire-vs-delete call: fit analysis below.
+- **Options considered**: (1) Dues intent storage — new table/nullable migration (rejected: SQLite cannot ALTER COLUMN, rebuild = heavy) vs `dues:{user}` marker in `order_id` (chosen — NOT NULL satisfied, no FK enforcement in this schema, webhook branches before the order lookup; zero-migration). (2) cod-confirm wire vs delete (chosen WIRE best-effort — the endpoint posts COD dues without which dues/pay-link/dunning stay blind until doorstep; checkout failure must never fail an already-created order, so the call is best-effort with the vendor-cash carry as backstop). (3) Missing `payments` table in old fixtures (test-only fix: fixtures gain 005 — prod code stays exact, no tolerance cruft). (4) One-tap cash on partial orders (client reads invoice remainder first; server still 422-guards races).
+- **Decision**: dues-intent endpoint + dues webhook branch; OVERPAY guard; paid_sum refunds; maker-checker + claim/complete audits; day-close payments aggregates + mismatch flags; reschedule/sub idempotency; checkout COD wire + sub key. Verify: 272 pytest + user 99/vendor 45 green, both analyzes clean.
+- **Why**: Every money write exact (no silent absorb), attributed (audits), reconcilable (payments-sourced close); zero new tables/packages; zero D1 writes.
+- **Consequences**: Two pre-existing tests updated to the new truth (refund row needs real payment rows; same-admin close now 409); offline triple-cash overshoot surfaces as sync-rejected (honest, was silently absorbed).
+- **Affects**: workers/api payments/order/subs/admin + tests, user_app checkout/api_client, vendor_app cash button, branch 029-remediation
 
 ### ADR-082: Phase 2 Split A implementation notes
 - **Date**: 2026-10-05
