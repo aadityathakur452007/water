@@ -18,6 +18,8 @@ export type VendorStop = {
   payment_mode: string | null;
   payment_status: string | null;
   total: number;
+  /** Phase 5 §5.2: paid-to-date (server `paid_sum`; absent → 0). */
+  paid_sum?: number;
   deposit_due: number;
   order_state: string | null;
   window_start: string | null;
@@ -143,3 +145,88 @@ export type AccessCodeIssue = {
   masked_hint: string;
   expires_at: string | null;
 };
+
+/**
+ * Phase 5 S5.2/S5.5: honest money + pipeline labels. Copied from the
+ * vendor_app RouteStop predicates (one definition per surface, no shared
+ * package). Unknown statuses map to "" (callers hide or em-dash).
+ */
+export function vendorIsPaid(status: string | null): boolean {
+  return status === "paid_upi" || status === "paid_cash";
+}
+
+export function vendorIsPartial(status: string | null): boolean {
+  return status === "partial_dues";
+}
+
+export function vendorIsLinkSent(status: string | null): boolean {
+  return status === "link_sent";
+}
+
+export function vendorRemaining(stop: {
+  payment_status: string | null;
+  total: number;
+  paid_sum?: number;
+}): number {
+  if (vendorIsPaid(stop.payment_status) || vendorIsLinkSent(stop.payment_status)) return 0;
+  const due = stop.total > 0 ? stop.total : 0;
+  if (!vendorIsPartial(stop.payment_status)) return due;
+  return Math.max(0, due - (stop.paid_sum ?? 0));
+}
+
+export function vendorPaymentLabel(status: string | null): string {
+  switch (status) {
+    case "paid_upi":
+      return "UPI Paid";
+    case "paid_cash":
+      return "Cash Paid";
+    case "partial_dues":
+      return "Baaki";
+    case "link_sent":
+      return "UPI link bheja";
+    case "unpaid":
+      return "Unpaid";
+    default:
+      return "";
+  }
+}
+
+export function vendorOrderStateLabel(state: string | null): string {
+  switch (state) {
+    case "placed":
+      return "Order aaya — assign ka intezaar";
+    case "accepted":
+      return "Accept ho gaya — pack ho raha";
+    case "picked":
+      return "Uthaya gaya — pack ho raha";
+    case "packed":
+      return "Pack ho gaya — route me jud raha";
+    case "assigned":
+      return "Route me assign";
+    case "dispatched":
+      return "Raste me — delivery karein";
+    case "delivered":
+      return "Deliver ho gaya";
+    case "cancelled":
+      return "Order cancel ho gaya";
+    case "rejected":
+      return "Order reject ho gaya";
+    default:
+      return "";
+  }
+}
+
+export function vendorStopStatusLabel(status: string): string {
+  switch (status) {
+    case "done":
+      return "Ho gaya";
+    case "pending":
+      return "Baaki";
+    case "failed":
+      return "Failed";
+    case "skipped":
+      return "Skip";
+    default:
+      return "";
+  }
+}

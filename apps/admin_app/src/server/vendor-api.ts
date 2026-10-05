@@ -119,15 +119,20 @@ export const vendorGetServer = createServerFn({ method: "GET" })
 
 /**
  * Closed write allowlist — the only vendor mutations that exist server-side
- * (triple/pod/cash per owned stop, offline sync, duty, complaint verify,
- * quality vendor-check, profile PATCH, slots PUT). Everything else → 400.
- * No /v1/admin/* or /v1/refunds/* path can ever pass this gate.
+ * (triple/pod/cash per owned stop, placed accept, offline sync, duty,
+ * complaint verify, quality vendor-check, profile PATCH, slots PUT).
+ * Everything else → 400. No /v1/admin/* or /v1/refunds/* path can ever
+ * pass this gate.
  */
 function vendorWriteAllowed(path: string): boolean {
   if (
     path.startsWith("/v1/vendor/stops/") &&
     (path.endsWith("/triple") || path.endsWith("/pod") || path.endsWith("/cash"))
   ) {
+    return true;
+  }
+  // Phase 5 S5.5: single-touch self-accept of a zone-scoped placed order.
+  if (path.startsWith("/v1/vendor/placed/") && path.endsWith("/accept")) {
     return true;
   }
   if (path === "/v1/vendor/sync" || path === "/v1/vendor/duty") return true;

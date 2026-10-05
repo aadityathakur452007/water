@@ -241,6 +241,7 @@ class VendorService:
         # F3: hold-block surfacing (same >3 rule as order create).
         # Lights the vendor's existing hold UI; bounded reads (route ≤ caps).
         from app.services.order_service import HOLD_BLOCK_LIMIT
+        from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
 
         for s in stops:
             held = 0
@@ -249,6 +250,13 @@ class VendorService:
             s["hold_blocked"] = held > HOLD_BLOCK_LIMIT
             if s["hold_blocked"]:
                 s["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+            # Phase 5 §5.2: paid-to-date per stop (return/pickup stops have no
+            # order → 0). UI renders Collect total−paid_sum; never the full
+            # total on partial/link_sent rows.
+            paid = 0
+            if s.get("order_id"):
+                paid = int(await PaymentRepo(self._conn).paid_sum_for_order(s["order_id"]))
+            s["paid_sum"] = paid
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
             "route": dict(route),
@@ -602,15 +610,31 @@ class VendorService:
     # -- profile + slots (011_port: server vendor profile, Slice 1) --------------
 
     async def profile_get(self, vendor_id: str) -> dict:
+        # Phase 5 §5.3: duty truth rides the profile read. Fully shape-
+        # tolerant like _stop_field_cols — any applied migration subset
+        # (pre-007 no table, 007-only duty shape, 011 port shape) reads
+        # without writes (unlike ensure_profile, a read stays a read).
+        blank = {"user_id": vendor_id, "name": "", "phone": "",
+                 "address": "", "hours": "", "updated_at": None,
+                 "on_duty": False}
+        cols = {r["name"] for r in (await self._conn.execute(
+            "SELECT name FROM pragma_table_info('vendor_profile')")).fetchall()}
+        if "user_id" not in cols:
+            return dict(blank)
+        want = ("user_id", "name", "phone", "address", "hours",
+                "updated_at", "on_duty")
+        sel = ", ".join(k for k in want if k in cols)
         row = (await self._conn.execute(
-            "SELECT user_id, name, phone, address, hours, updated_at"
-            " FROM vendor_profile WHERE user_id = ?",
+            f"SELECT {sel} FROM vendor_profile WHERE user_id = ?",  # noqa: S608 (allowlisted cols)
             (vendor_id,),
         )).fetchone()
         if row is None:
-            return {"user_id": vendor_id, "name": "", "phone": "",
-                    "address": "", "hours": "", "updated_at": None}
-        return dict(row)
+            return dict(blank)
+        out = dict(blank)
+        out.update({k: v for k, v in dict(row).items() if v is not None})
+        # Phase 5 §5.3: duty truth for the vendor switch (NULL → off).
+        out["on_duty"] = bool(out.get("on_duty"))
+        return out
 
     async def profile_save(self, vendor_id: str, patch: dict) -> dict:
         allow = ("name", "phone", "address", "hours")
@@ -840,6 +864,13 @@ class VendorService:
         stop["hold_blocked"] = held > HOLD_BLOCK_LIMIT
         if stop["hold_blocked"]:
             stop["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+        # Phase 5 §5.2: same paid-to-date rule as the route list (single stop).
+        from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
+
+        paid = 0
+        if stop.get("order_id"):
+            paid = int(await PaymentRepo(self._conn).paid_sum_for_order(stop["order_id"]))
+        stop["paid_sum"] = paid
         return stop
 
     async def _stop_pin(self, stop: dict) -> tuple[float, float] | None:

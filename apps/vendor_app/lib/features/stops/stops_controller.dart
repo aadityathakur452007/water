@@ -44,6 +44,21 @@ Map<String, dynamic> buildTripleBody({
 
 String newIdempotencyKey() => const Uuid().v4();
 
+/// Phase 5 §5.5: order-pipeline state → Hindi what-it-means label. Unknown
+/// states map to '' (callers hide the row — raw `order_state` never shows).
+String orderStateLabelHi(String state) => switch (state) {
+      'placed' => 'Order aaya — assign ka intezaar',
+      'accepted' => 'Accept ho gaya — pack ho raha',
+      'picked' => 'Uthaya gaya — pack ho raha',
+      'packed' => 'Pack ho gaya — route me jud raha',
+      'assigned' => 'Aapke route me assign',
+      'dispatched' => 'Raste me — delivery karein',
+      'delivered' => 'Deliver ho gaya',
+      'cancelled' => 'Order cancel ho gaya',
+      'rejected' => 'Order reject ho gaya',
+      _ => '',
+    };
+
 /// Builds the PoD body the server expects (same shape live and offline —
 /// the sync worker replays it through POST /vendor/sync).
 Map<String, dynamic> buildPodBody({

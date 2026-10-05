@@ -204,4 +204,16 @@ class SyncController extends ChangeNotifier {
     _result = null;
     notifyListeners();
   }
+
+  /// Phase 5 §5.5: discard a stuck reject (e.g. STALE_STOP after a fresh
+  /// route pull already superseded it). Drops that stop's queue entries +
+  /// reject rows; everything else stays. The server already holds truth —
+  /// discarding a local replay never deletes server state.
+  Future<void> discardRejected(String stopId) async {
+    _queue = _queue.where((q) => q.stopId != stopId).toList();
+    _rejected =
+        _rejected.where((r) => r['stop_id'] != stopId).toList();
+    await _persist();
+    notifyListeners();
+  }
 }

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-087 | 2026-10-05 | Phase 5 vendor ops notes: additive paid_sum/on_duty; silent-refresh-once + cap banner; duty via profile; 60s on-duty discovery; per-order accept; copied 5-status predicates + gating + Hindi labels; web parity owner-verified | Accepted | workers/api vendor_service/tests, vendor_app auth/api/client/duty/route/shell/stops/sync/main/tests, admin_app vendor subtree/server/fixtures, branch 029-remediation |
 | ADR-086 | 2026-10-05 | Phase 4 Flutter notes: purge proven-dead deps (keep razorpay/animate/calendar); copy-vendor client parity; live catalog zero-backend; launch-primary help; gradle keystore-wired + R8 | Accepted | apps/user_app api_client/main/booking/support/home/pubspec/manifest/gradle/tests + apps/vendor_app pubspec/manifest/gradle, branch 029-remediation |
 | ADR-085 | 2026-10-05 | Phase 3 Split B UI notes: ops deleted as fully redundant; invented user fields removed; ledger badge matches HOLD_BLOCK_LIMIT; cursor hook shared by 4 screens | Accepted | apps/admin_app recon/custody/trust/payments/users/ledger/audit/orders/config + vendor_app stops/route, branch 029-remediation |
 | ADR-084 | 2026-10-05 | Phase 3 Split A notes: 016 additive cols + PRAGMA tolerance; tracking composes detail; leads throttle-free like other public reads; IST via date(+330min) | Accepted | workers/api catalog/orders/vendor/admin/admin_read_repo/016/tests, branch 029-remediation |
@@ -141,6 +142,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-087: Phase 5 vendor operations notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Phase 5 spec (`Feature_docs/platform-audit/specs/phase-05-vendor-ops.md`) on branch `029-remediation`. Owner answered all 4 design-gate questions = approval granted (backend additive both; per-order accept list; 60s both surfaces; owner verifies web).
+- **Options considered**: (1) paid_sum client-invoice-per-stop vs backend (chosen backend — same per-stop await pattern as hold_blocked; chatty N-calls rejected). (2) Duty source: new endpoint vs profile_get (chosen profile — 1 additive key, PRAGMA/shape-tolerant read-without-write unlike ensure_profile). (3) Cap banner without server cap (chosen client login-time+30d, unknown → no banner — never guess). (4) Shared predicates package vs copy (chosen copy per surface — matches Phase 4 client precedent). (5) Clipboard await vs unawaited carried from Phase 4 (unawaited — never strands the fallback).
+- **Decision**: Backend paid_sum (route + single stop) + profile on_duty + 4 tests; app tryRefresh-on-401-once (403 never; refresh opts out — no loop) + expireSession honest copy + cap banner + queue kept; duty truth + repooled line; 60s Timer on-duty/foreground only; accept sheet per order; 5-status predicates + remaining + gating + Hindi labels + sync discard + 18 new Dart tests; web predicates/labels/accept/refetchInterval/allowlist/mock/fixtures (owner runs check/build). Verify: backend 289 + vendor 67 + user 113 green, both analyzes clean.
+- **Why**: Every §5.1–§5.5 item proven against current code first (spec evidence was pre-Phase-2/3/4 stale: failed section + call guard already done, accept endpoint existed but unwired); smallest additive diffs, zero breaking changes, no new packages.
+- **Consequences**: Owner owes admin check/build + Phase 4 carry items + device walks. Push stays a documented gap (no provider in scope).
+- **Affects**: workers/api vendor_service/tests, vendor_app auth/api/client/duty/route/shell/stops/sync/main/tests, admin_app vendor subtree/server/fixtures, branch 029-remediation
 
 ### ADR-086: Phase 4 Flutter lightness + reliability notes
 - **Date**: 2026-10-05

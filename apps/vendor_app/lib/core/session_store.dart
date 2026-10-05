@@ -16,6 +16,7 @@ class SecureSessionStore implements SessionStore {
   static const _kRefresh = 'shodasha.refresh';
   static const _kExpiry = 'shodasha.expiry';
   static const _kRole = 'shodasha.role';
+  static const _kStarted = 'shodasha.session_started';
 
   @override
   Future<void> saveSession({
@@ -43,11 +44,19 @@ class SecureSessionStore implements SessionStore {
   Future<String?> readRole() => _storage.read(key: _kRole);
 
   @override
+  Future<void> saveStartedAtIso(String iso) =>
+      _storage.write(key: _kStarted, value: iso);
+
+  @override
+  Future<String?> readStartedAtIso() => _storage.read(key: _kStarted);
+
+  @override
   Future<void> clear() async {
     await _storage.delete(key: _kAccess);
     await _storage.delete(key: _kRefresh);
     await _storage.delete(key: _kExpiry);
     await _storage.delete(key: _kRole);
+    await _storage.delete(key: _kStarted);
   }
 }
 

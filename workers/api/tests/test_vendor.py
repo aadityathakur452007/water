@@ -528,3 +528,47 @@ def test_router_triple_pod_me_validation():
     ok = client.post("/v1/vendor/stops/s1/pod",
                      json={"delivery_otp": pod_otp("o1", DAY), "seal_ok": True}, headers=h)
     assert ok.status_code == 200 and ok.json()["triple"]["pod"]["seal_ok"] is True
+
+
+# -- Phase 5 S5.2/S5.3: paid_sum per stop + duty truth on profile --------------
+
+
+async def test_today_route_carries_paid_sum():
+    c = _conn()
+    await _svc(c).cash_post("v1", "s1", 1000)  # o1 partial: 1000 of 20600
+    out = await _svc(c).today_route("v1", DAY)
+    s1 = next(s for s in out["stops"] if s["id"] == "s1")
+    assert s1["paid_sum"] == 1000
+    s2 = next(s for s in out["stops"] if s["id"] == "s2")
+    assert s2["paid_sum"] == 0  # no payments yet
+    s4 = next(s for s in out["stops"] if s["id"] == "s4")
+    assert s4["paid_sum"] == 0  # return stop, no order
+
+
+async def test_get_stop_carries_paid_sum():
+    c = _conn()
+    await _svc(c).cash_post("v1", "s1", 20600)  # o1 full
+    stop = await _svc(c).get_stop("v1", "s1")
+    assert stop["paid_sum"] == 20600
+
+
+async def test_profile_get_carries_on_duty():
+    c = _conn()
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is False  # blank
+    await _svc(c).duty("v1", True)
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is True
+    await _svc(c).duty("v1", False)
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is False
+
+
+async def test_profile_get_tolerates_pre007_shape():
+    """Pre-007 DBs (no on_duty column) read duty as off, never 500."""
+    c = get_connection(":memory:")
+    c.executescript(M002)
+    c.execute(
+        "CREATE TABLE vendor_profile(user_id TEXT PRIMARY KEY, name TEXT,"
+        " phone TEXT, address TEXT, hours TEXT, updated_at TEXT)")
+    c.execute("INSERT INTO users(id, phone, role, created_at) VALUES ('v1', '+911111111111', 'vendor', ?)",
+              (_dt.datetime.now(_dt.timezone.utc).isoformat(),))
+    c.commit()
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is False

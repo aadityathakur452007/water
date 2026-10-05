@@ -111,12 +111,15 @@ export function StopActions({ stop, onDone }: { stop: VendorStop; onDone: () => 
   const [otp, setOtp] = React.useState("");
   const [podEmpties, setPodEmpties] = React.useState(0);
 
-  // Same paid predicate as vendor_app stop_detail: COD-unpaid only.
-  const codUnpaid =
-    stop.payment_mode !== "upi" &&
-    stop.payment_status !== "paid_upi" &&
-    stop.payment_status !== "paid_cash" &&
-    (stop.total ?? 0) > 0;
+  // Phase 5 S5.2: same paid predicate as vendor_app stop_detail — partial
+  // collects the remainder (never the full total again); a sent UPI link
+  // asks for verification, never cash.
+  const paidSum = stop.paid_sum ?? 0;
+  const isPaid = stop.payment_status === "paid_upi" || stop.payment_status === "paid_cash";
+  const isPartial = stop.payment_status === "partial_dues";
+  const isLinkSent = stop.payment_status === "link_sent";
+  const remaining = !isPaid && !isLinkSent ? Math.max(0, (stop.total ?? 0) - (isPartial ? paidSum : 0)) : 0;
+  const codUnpaid = stop.payment_mode !== "upi" && remaining > 0;
 
   async function submitTriple() {
     if (!idemKey) return;
@@ -226,7 +229,7 @@ export function StopActions({ stop, onDone }: { stop: VendorStop; onDone: () => 
 
       {codUnpaid ? (
         <div className="flex flex-col gap-1.5 rounded-lg border p-3">
-          <Label htmlFor="sa-cash-amount">{`Cash lo — baaki ${rupees(stop.total)} (COD unpaid)`}</Label>
+          <Label htmlFor="sa-cash-amount">{`Cash lo — baaki ${rupees(remaining)}${isPartial ? " (partial)" : ""}`}</Label>
           <div className="flex items-center gap-2">
             <Input
               id="sa-cash-amount"
@@ -246,7 +249,11 @@ export function StopActions({ stop, onDone }: { stop: VendorStop; onDone: () => 
         </div>
       ) : (
         <p className="text-muted-foreground text-xs">
-          {stop.payment_mode === "cod" ? "COD already paid hai." : "UPI/prepaid stop — cash lene ki zaroorat nahi."}
+          {isLinkSent
+            ? "UPI link bheja — cash na lein, payment verify karein."
+            : stop.payment_mode === "cod"
+              ? "COD already paid hai."
+              : "UPI/prepaid stop — cash lene ki zaroorat nahi."}
         </p>
       )}
 

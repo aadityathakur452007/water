@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
 import type { VendorStop } from "@/lib/vendor-types";
+import { vendorOrderStateLabel, vendorPaymentLabel, vendorStopStatusLabel } from "@/lib/vendor-types";
 import { num } from "@/lib/money";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
@@ -34,7 +35,8 @@ function StopDetail() {
         <CardHeader className="pb-2">
           <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
             {`Stop ${num(data.seq)} — ${data.customer_name ?? data.customer_id ?? data.order_id ?? data.id}`}
-            <Badge variant="outline">{data.status}</Badge>
+            {/* Phase 5 S5.5: mapped Hindi labels — raw wire text never shows. */}
+            <Badge variant="outline">{vendorStopStatusLabel(data.status) || data.status}</Badge>
             {data.hold_blocked ? (
               <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-600">
                 Hold
@@ -73,11 +75,11 @@ function StopDetail() {
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Payment</p>
-              <p className="font-medium text-sm">{`${data.payment_mode ?? "—"} · ${data.payment_status ?? "—"}`}</p>
+              <p className="font-medium text-sm">{`${data.payment_mode ?? "—"} · ${vendorPaymentLabel(data.payment_status) || "—"}`}</p>
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Order</p>
-              <p className="font-medium text-sm">{data.order_state ?? "—"}</p>
+              <p className="font-medium text-sm">{vendorOrderStateLabel(data.order_state) || "—"}</p>
             </div>
             {data.window_start ? (
               <div>

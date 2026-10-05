@@ -125,6 +125,17 @@ class _DutyScreenState extends State<DutyScreen> {
                   Text('Since: ${c.since}',
                       style:
                           const TextStyle(color: ShodashaTheme.muted)),
+                // Phase 5 §5.3: repool honesty after duty-off.
+                if (!c.onDuty && c.lastRepooled > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '${c.lastRepooled} stops wapas pool mein — dispatch dobara assign karega',
+                      style: const TextStyle(
+                          color: ShodashaTheme.muted,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 Text(
                     'Stops: ${c.stopsToday}/${c.maxStops} • Jars: ${c.jarsAllocated}/${c.maxJars}'),

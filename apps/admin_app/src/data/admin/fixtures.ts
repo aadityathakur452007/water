@@ -499,6 +499,7 @@ const vendorStop = (seq: number, status: string, order: string, customer: string
   payment_mode: seq % 2 ? "cod" : "upi",
   payment_status: status === "done" ? "paid_cash" : "unpaid",
   total: 8400,
+  paid_sum: status === "done" ? 8400 : 0,
   deposit_due: 0,
   order_state: status === "done" ? "delivered" : "dispatched",
   window_start: `${day(0)}T08:00:00Z`,

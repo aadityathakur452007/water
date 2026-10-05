@@ -134,6 +134,14 @@ class _SyncScreenState extends State<SyncScreen> {
                   maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('${r['code'] ?? ''} — ${r['message'] ?? ''}',
                   maxLines: 2, overflow: TextOverflow.ellipsis),
+              // Phase 5 §5.5: stuck rejects (STALE_STOP) get a discard
+              // path — the server already holds truth, the local replay
+              // is what gets dropped.
+              trailing: TextButton(
+                onPressed: () =>
+                    c.discardRejected((r['stop_id'] ?? '') as String),
+                child: const Text('Hatayein'),
+              ),
             ),
           ),
       ],

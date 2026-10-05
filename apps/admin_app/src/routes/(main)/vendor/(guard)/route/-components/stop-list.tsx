@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
 import type { TodayRoute, VendorStop } from "@/lib/vendor-types";
+import { vendorOrderStateLabel } from "@/lib/vendor-types";
 import { num } from "@/lib/money";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
@@ -50,7 +51,7 @@ function StopRows({ stops }: { stops: VendorStop[] }) {
               <div className="flex flex-col">
                 <span className="font-medium text-sm">{s.address_label ?? s.customer_id ?? s.id}</span>
                 <span className="max-w-56 truncate text-muted-foreground text-xs">
-                  {s.address_text ?? s.order_state ?? ""}
+                  {s.address_text ?? vendorOrderStateLabel(s.order_state)}
                 </span>
               </div>
             </TableCell>
@@ -67,7 +68,10 @@ function StopRows({ stops }: { stops: VendorStop[] }) {
 
 /** Assigned stops — one CTA per state; skipped stops sit in their own section. */
 export function StopList() {
-  const { data, isError, error, refetch } = useVendorQuery<TodayRoute>("/v1/vendor/routes/today");
+  // Phase 5 S5.4: same 60s discovery poll as the vendor_app (on-duty screen).
+  const { data, isError, error, refetch } = useVendorQuery<TodayRoute>("/v1/vendor/routes/today", {
+    refetchInterval: 60_000,
+  });
 
   if (isError) return <VendorError error={error} onRetry={() => void refetch()} />;
   if (!data) return <VendorLoading />;

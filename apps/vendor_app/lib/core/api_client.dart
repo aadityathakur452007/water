@@ -43,6 +43,7 @@ class ApiClient {
     this.accessTokenGetter,
     this.deviceId = 'unknown-device',
     this.onUnauthorized,
+    this.tryRefresh,
   })  : _http = client ?? http.Client() {
     // Fail fast in debug on cleartext prod builds: the release pipeline
     // always passes an https SHODASHA_API_BASE. Localhost stays allowed.
@@ -65,6 +66,11 @@ class ApiClient {
   /// The app clears the session and returns to login (never loops: the
   /// hook must not itself call an authed endpoint).
   final Future<void> Function()? onUnauthorized;
+
+  /// Phase 5 §5.1: silent renew — tried once on the first 401 of a call
+  /// (never on 403/suspended). True → the failed request retries once
+  /// with the rotated Bearer; false/null → [onUnauthorized] fires.
+  final Future<bool> Function()? tryRefresh;
 
   /// In-flight GET dedupe (single-flight): two callers, one socket.
   /// Cleanup uses then/onError (never whenComplete): whenComplete mints a
@@ -106,6 +112,10 @@ class ApiClient {
   ///   the operation is replay-safe: same key + same body, or per-item keys
   ///   as in sync batches). Never retries 400/401/403/404/409.
   /// - 401/403 fires [onUnauthorized] once (session revoked/suspended).
+  ///   Phase 5 §5.1: a first-401 runs [tryRefresh] once and retries the
+  ///   request with the rotated token (silent renew, no mid-shift bounce);
+  ///   [attemptRefresh]=false opts out (the refresh call itself — that
+  ///   would recurse).
   Future<dynamic> send(
     String method,
     String path, {
@@ -114,6 +124,7 @@ class ApiClient {
     bool authed = true,
     String? idempotencyKey,
     bool retryPost = false,
+    bool attemptRefresh = true,
     Duration timeout = const Duration(seconds: 12),
   }) {
     if (method == 'GET') {
@@ -127,6 +138,7 @@ class ApiClient {
         authed: authed,
         idempotencyKey: idempotencyKey,
         retryPost: retryPost,
+        attemptRefresh: attemptRefresh,
         timeout: timeout,
       );
       _inflight[key] = fut;
@@ -147,6 +159,7 @@ class ApiClient {
       authed: authed,
       idempotencyKey: idempotencyKey,
       retryPost: retryPost,
+      attemptRefresh: attemptRefresh,
       timeout: timeout,
     );
   }
@@ -165,6 +178,7 @@ class ApiClient {
     bool authed = true,
     String? idempotencyKey,
     bool retryPost = false,
+    bool attemptRefresh = true,
     Duration timeout = const Duration(seconds: 12),
   }) async {
     // POST without an idempotency key (or explicit replay-safety) must never
@@ -175,6 +189,7 @@ class ApiClient {
         idempotencyKey != null ||
         retryPost;
     var attempt = 0;
+    var refreshed = false;
     while (true) {
       attempt += 1;
       try {
@@ -188,6 +203,15 @@ class ApiClient {
         );
       } on ApiException catch (e) {
         if (e.statusCode == 401 || e.statusCode == 403) {
+          // Silent renew first (401 only, once per call): the rotated
+          // Bearer may save the shift. 403/suspended never refreshes.
+          if (e.statusCode == 401 &&
+              attemptRefresh &&
+              !refreshed &&
+              await tryRefresh?.call() == true) {
+            refreshed = true;
+            continue;
+          }
           await onUnauthorized?.call();
         }
         final canRetry = retryableMethod && attempt < 3 && _retryable(e);
@@ -293,6 +317,15 @@ class ApiClient {
         query: {'limit': '$limit'});
     if (raw is List<dynamic>) return raw;
     return ((raw as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+  /// Phase 5 §5.5: self-accept one zone-scoped placed order (single-touch
+  /// placed→assigned + route/stop; replay returns the existing stop).
+  /// No idempotency key: a timeout surfaces retry copy instead of risking
+  /// a blind auto-retry (server replay is idempotent, the UX is explicit).
+  Future<Map<String, dynamic>> acceptPlaced(String orderId) async {
+    final raw = await send('POST', '/vendor/placed/$orderId/accept');
+    return (raw as Map<String, dynamic>);
   }
 
   Future<Map<String, dynamic>> getStop(String id) async {

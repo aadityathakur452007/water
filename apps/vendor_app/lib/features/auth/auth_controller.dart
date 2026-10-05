@@ -62,6 +62,11 @@ abstract class SessionStore {
   Future<String?> readExpiryIso();
   Future<String?> readRole();
   Future<void> clear();
+
+  /// Phase 5 §5.1: login instant for the 30-day cap banner. Defaults keep
+  /// older fakes compiling; real stores persist it.
+  Future<void> saveStartedAtIso(String iso) async {}
+  Future<String?> readStartedAtIso() async => null;
 }
 
 class InMemorySessionStore implements SessionStore {
@@ -69,6 +74,7 @@ class InMemorySessionStore implements SessionStore {
   String? _refresh;
   String? _expiryIso;
   String? _role;
+  String? _startedAtIso;
 
   @override
   Future<void> saveSession({
@@ -96,11 +102,20 @@ class InMemorySessionStore implements SessionStore {
   Future<String?> readRole() async => _role;
 
   @override
+  Future<void> saveStartedAtIso(String iso) async {
+    _startedAtIso = iso;
+  }
+
+  @override
+  Future<String?> readStartedAtIso() async => _startedAtIso;
+
+  @override
   Future<void> clear() async {
     _access = null;
     _refresh = null;
     _expiryIso = null;
     _role = null;
+    _startedAtIso = null;
   }
 }
 
@@ -113,6 +128,12 @@ abstract class AuthApi {
     required String deviceId,
   });
   Future<void> logout(String accessToken);
+  /// Phase 5 §5.1: POST /auth/refresh `{refresh_token, device:{id}}` →
+  /// rotated pair (200; generic 401 on revoked/capped sessions).
+  Future<AuthSession> refreshSession({
+    required String refreshToken,
+    required String deviceId,
+  });
   /// POST /auth/demo `{phone, demo_code, device}` → session (QA demo door;
   /// server enforces the config flag + demo_codes row, closed in prod).
   Future<AuthSession> demoLogin({
@@ -148,6 +169,20 @@ class AuthController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   int get errorSeq => _errorSeq;
   bool get newDeviceAlert => _newDeviceAlert;
+
+  /// Phase 5 §5.1: login instant (UTC) for the 30-day cap banner. Null on
+  /// pre-Phase-5 sessions (no banner — never guess).
+  DateTime? _startedAt;
+  DateTime? get sessionStartedAt => _startedAt;
+
+  /// True when the absolute 30-day cap lands within 24h (banner, not a
+  /// block — the shift continues; the cap logout still needs a re-login).
+  bool get capExpiresSoon {
+    final started = _startedAt;
+    if (started == null) return false;
+    final left = started.add(const Duration(days: 30)).difference(DateTime.now());
+    return !left.isNegative && left < const Duration(hours: 24);
+  }
 
   AuthSession? get session => _session;
   bool get isAuthenticated =>
@@ -195,6 +230,7 @@ class AuthController extends ChangeNotifier {
         expiresAtIso: session.expiresAt.toIso8601String(),
         role: session.role,
       );
+      await _stampStarted();
       _session = session;
       _newDeviceAlert = session.newDeviceAlert;
       _status = AuthStatus.authenticated;
@@ -244,6 +280,7 @@ class AuthController extends ChangeNotifier {
         expiresAtIso: session.expiresAt.toIso8601String(),
         role: session.role,
       );
+      await _stampStarted();
       _session = session;
       _newDeviceAlert = session.newDeviceAlert;
       _status = AuthStatus.authenticated;
@@ -285,10 +322,65 @@ class AuthController extends ChangeNotifier {
   Future<void> forceLogout() async {
     await _store.clear();
     _session = null;
+    _startedAt = null;
     _newDeviceAlert = false;
     _errorMessage = null;
     _status = AuthStatus.idle;
     _notify();
+  }
+
+  /// End-of-session with an honest line on the login screen (cap expiry,
+  /// revoked, suspended — the 401/403 hook path). forceLogout stays silent
+  /// for the manual path. Outbox untouched: unsynced stops survive.
+  Future<void> expireSession() async {
+    await forceLogout();
+    _errorMessage = vendorStringsHi['sessionExpired']!;
+    _notify();
+  }
+
+  /// Phase 5 §5.1: silent renew with the stored refresh token. Returns true
+  /// when the rotated pair is saved (caller retries the failed request
+  /// once); false on any failure — status untouched, the caller force-
+  /// logouts with the honest cap copy. Never throws.
+  Future<bool> refreshSession() async {
+    final refresh = await _store.readRefreshToken();
+    if (refresh == null || refresh.isEmpty) return false;
+    try {
+      final session = await _api.refreshSession(
+        refreshToken: refresh,
+        deviceId: deviceId,
+      );
+      final role = _session?.role ?? 'vendor';
+      await _store.saveSession(
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAtIso: session.expiresAt.toIso8601String(),
+        role: role,
+      );
+      _session = AuthSession(
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAt: session.expiresAt,
+        role: role,
+        newDeviceAlert: _newDeviceAlert,
+      );
+      _status = AuthStatus.authenticated;
+      _notify();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Login instant for the 30-day cap banner (rotation preserves the
+  /// original cap, so this stamps once per login, never per refresh).
+  Future<void> _stampStarted() async {
+    _startedAt = DateTime.now().toUtc();
+    try {
+      await _store.saveStartedAtIso(_startedAt!.toIso8601String());
+    } catch (_) {
+      // Memory truth stands; the banner just skips this install.
+    }
   }
 
   Future<void> restoreSession() async {
@@ -296,6 +388,7 @@ class AuthController extends ChangeNotifier {
     final refresh = await _store.readRefreshToken();
     final expiryIso = await _store.readExpiryIso();
     final role = await _store.readRole();
+    _startedAt = DateTime.tryParse(await _store.readStartedAtIso() ?? '');
     if (access == null || refresh == null || expiryIso == null) {
       _status = AuthStatus.idle;
       _notify();
@@ -303,7 +396,8 @@ class AuthController extends ChangeNotifier {
     }
     final expiresAt = DateTime.tryParse(expiryIso);
     if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
-      await _store.clear();
+      await _store.clear(); // session expired → logged-out state (States.md)
+      _startedAt = null;
       _status = AuthStatus.idle;
     } else {
       _session = AuthSession(
@@ -316,6 +410,7 @@ class AuthController extends ChangeNotifier {
       if (_session!.role != 'vendor') {
         await _store.clear();
         _session = null;
+        _startedAt = null;
         _status = AuthStatus.idle;
       } else {
         _status = AuthStatus.authenticated;
