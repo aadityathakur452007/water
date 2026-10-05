@@ -1,12 +1,12 @@
-// 006-auth-flow — First-run sheet: location + notification permission,
-// then the address-first empty state ("Add your address").
+// 006-auth-flow — First-run sheet: location permission, then the
+// address-first empty state ("Add your address"). 028: notification step
+// dropped entirely (no push SDK in the user app).
 //
 // Shown once per install when the user owns zero addresses (guest or
 // authed). Denied permissions never dead-end: the map-pin path works
 // manually. Completion/skip persists in SharedPreferences.
 // ui-checklist: Contacting Support (why + what next), form-submit states.
 
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,7 +48,7 @@ Future<void> maybeOfferFirstRun(
   await markFirstRunDone();
 }
 
-enum _Step { locate, notify, address }
+enum _Step { locate, address }
 
 class _FirstRunSheet extends StatefulWidget {
   const _FirstRunSheet({required this.onAddAddress});
@@ -81,32 +81,9 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
     if (!mounted) return;
     setState(() {
       _busy = false;
-      _step = _Step.notify;
+      _step = _Step.address;
       if (!granted) {
         _note = 'Location off hai — address map par haath se pin lagayein';
-      }
-    });
-  }
-
-  Future<void> _askNotify() async {
-    setState(() {
-      _busy = true;
-      _note = null;
-    });
-    AuthorizationStatus status;
-    try {
-      final settings = await FirebaseMessaging.instance.requestPermission();
-      status = settings.authorizationStatus;
-    } catch (_) {
-      status = AuthorizationStatus.notDetermined;
-    }
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _step = _Step.address;
-      if (status != AuthorizationStatus.authorized &&
-          status != AuthorizationStatus.provisional) {
-        _note = 'Notification band hai — order updates app mein dikhenge';
       }
     });
   }
@@ -145,33 +122,6 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('Location chalu karein'),
-                ),
-              ),
-            ] else if (_step == _Step.notify) ...[
-              const Icon(Icons.notifications_outlined,
-                  size: 32, color: ShodashaTheme.blue),
-              const SizedBox(height: 8),
-              const Text(
-                'Order updates paayein',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Dispatch, arrival window aur delivery receipt ki khabar milegi.',
-                style: TextStyle(color: ShodashaTheme.muted, fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _busy ? null : _askNotify,
-                  child: _busy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Notification chalu karein'),
                 ),
               ),
             ] else ...[

@@ -1,11 +1,6 @@
-// Seam implementations — mirrors user_app auth_impls (contract §4.1).
-// FirebasePhoneVerifier is production; StubPhoneVerifier is test-only and
-// is never wired in main.dart.
-
-import 'dart:async';
-
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+// Auth seams — access-code-only (028, spec §4). No phone-OTP SDK anywhere:
+// vendor login is phone + admin-issued code → POST /v1/auth/vendor/login.
+// Demo door (server-gated) stays as the QA fallback.
 
 import '../features/auth/auth_controller.dart';
 import 'api_client.dart';
@@ -14,20 +9,6 @@ class ApiBackedAuthApi implements AuthApi {
   ApiBackedAuthApi(this._api);
 
   final ApiClient _api;
-
-  @override
-  Future<String> startOtp(String e164) async {
-    final raw = await _api.send(
-      'POST',
-      '/auth/otp/start',
-      body: {'phone': e164},
-      authed: false,
-    );
-    if (raw is Map<String, dynamic>) {
-      return (raw['channel'] ?? 'firebase') as String;
-    }
-    return 'firebase';
-  }
 
   AuthSession _toSession(Map<String, dynamic> raw) {
     final expiresAt = DateTime.tryParse((raw['expires_at'] ?? '') as String) ??
@@ -42,41 +23,17 @@ class ApiBackedAuthApi implements AuthApi {
   }
 
   @override
-  Future<AuthSession> verifyOtp({
-    required String idToken,
-    required String deviceId,
-  }) async {
-    final raw = await _api.send(
-      'POST',
-      '/auth/otp/verify',
-      body: {
-        'firebase_id_token': idToken,
-        'device': {'id': deviceId},
-      },
-      authed: false,
-    );
-    if (raw is! Map<String, dynamic>) {
-      throw ApiException(
-        code: 'UNKNOWN',
-        message: 'Malformed verify response',
-        statusCode: 0,
-      );
-    }
-    return _toSession(raw);
-  }
-
-  @override
-  Future<AuthSession> verifyServerCode({
+  Future<AuthSession> vendorCodeLogin({
     required String phone,
     required String code,
     required String deviceId,
   }) async {
     final raw = await _api.send(
       'POST',
-      '/auth/otp/verify',
+      '/auth/vendor/login',
       body: {
         'phone': phone,
-        'otp_code': code,
+        'code': code,
         'device': {'id': deviceId},
       },
       authed: false,
@@ -84,7 +41,7 @@ class ApiBackedAuthApi implements AuthApi {
     if (raw is! Map<String, dynamic>) {
       throw ApiException(
         code: 'UNKNOWN',
-        message: 'Malformed verify response',
+        message: 'Malformed login response',
         statusCode: 0,
       );
     }
@@ -120,74 +77,5 @@ class ApiBackedAuthApi implements AuthApi {
       );
     }
     return _toSession(raw);
-  }
-}
-
-class StubPhoneVerifier implements PhoneVerifier {
-  @override
-  Future<String> requestCode(String e164) async {
-    debugPrint('[StubPhoneVerifier] OTP requested for $e164 (dev: use 123456)');
-    return 'stub-vid';
-  }
-
-  @override
-  Future<String> confirmCode({
-    required String verificationId,
-    required String smsCode,
-  }) async {
-    if (smsCode == '123456') return 'stub-id-token';
-    throw Exception('invalid code (dev verifier expects 123456)');
-  }
-}
-
-class FirebasePhoneVerifier implements PhoneVerifier {
-  String? _autoToken;
-
-  @override
-  Future<String> requestCode(String e164) {
-    final done = Completer<String>();
-    FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: e164,
-      timeout: const Duration(seconds: 60),
-      verificationCompleted: (PhoneAuthCredential credential) async {
-        try {
-          final userCredential =
-              await FirebaseAuth.instance.signInWithCredential(credential);
-          _autoToken = await userCredential.user?.getIdToken();
-          if (!done.isCompleted) done.complete('_auto');
-        } catch (e) {
-          if (!done.isCompleted) done.completeError(e);
-        }
-      },
-      verificationFailed: (FirebaseAuthException e) {
-        if (!done.isCompleted) {
-          done.completeError(Exception(e.message ?? 'phone verification failed'));
-        }
-      },
-      codeSent: (String verificationId, int? resendToken) {
-        if (!done.isCompleted) done.complete(verificationId);
-      },
-      codeAutoRetrievalTimeout: (String verificationId) {
-        if (!done.isCompleted) done.complete(verificationId);
-      },
-    );
-    return done.future;
-  }
-
-  @override
-  Future<String> confirmCode({
-    required String verificationId,
-    required String smsCode,
-  }) async {
-    if (verificationId == '_auto' && _autoToken != null) return _autoToken!;
-    final credential = PhoneAuthProvider.credential(
-      verificationId: verificationId,
-      smsCode: smsCode,
-    );
-    final userCredential =
-        await FirebaseAuth.instance.signInWithCredential(credential);
-    final token = await userCredential.user?.getIdToken();
-    if (token == null || token.isEmpty) throw Exception('sign-in failed');
-    return token;
   }
 }

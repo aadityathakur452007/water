@@ -109,6 +109,35 @@ class UserRepo:
             self._conn.commit()
             return await self.find_by_id(user_id)  # type: ignore[return-value]
 
+    async def create_register_user(self, *, user_id: str, phone: str, name: str) -> dict:
+        """Name+number onboarding (028): role=user, kyc_status=unverified."""
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "INSERT INTO users(id, phone, name, role, language,"
+                " kyc_status, suspended, created_at)"
+                " VALUES (?, ?, ?, 'user', 'hi', 'unverified', 0, ?)",
+                (user_id, phone, name, _now()),
+            )
+            self._conn.commit()
+            result = await self.find_by_id(user_id)
+            assert result is not None
+            return result
+
+    async def set_name_if_blank(self, user_id: str, name: str) -> dict | None:
+        """Update name iff currently blank (never overwrite a set name)."""
+        with WRITE_LOCK:
+            row = (
+                await self._conn.execute(
+                    "SELECT name FROM users WHERE id = ?", (user_id,)
+                )
+            ).fetchone()
+            if row is not None and not (row["name"] or "").strip():
+                await self._conn.execute(
+                    "UPDATE users SET name = ? WHERE id = ?", (name, user_id)
+                )
+                self._conn.commit()
+        return await self.find_by_id(user_id)
+
     async def update_profile(
         self, user_id: str, *, name: str | None = None, language: str | None = None
     ) -> dict | None:

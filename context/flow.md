@@ -183,8 +183,8 @@ Browser (TanStack Start SSR + client components)                    apps/admin_a
             └─ API_MODE=live → fetch(API_URL) Bearer sh_session (cookie read server-side)
                  ├─ 401 → refreshSessionServer (/v1/auth/refresh) → retry once → else redirect /auth/v1/login?next=
                  └─ Workers /v1/admin/* (require_role('admin')) → D1
-Login: /auth/v1/login → admin-login-form.tsx → loginStartServer/loginVerifyServer
-  └─ Workers /v1/auth/otp/start|verify (role=admin gate) → HttpOnly sh_session(30m)+sh_refresh(7d) set in server fn
+Login: /auth/v1/login → admin-login-form.tsx → loginCodeServer (028 ADR-076: phone+code → POST /v1/auth/admin/login; OTP/dev/demo doors deleted)
+  └─ Workers /v1/auth/admin/login (role=admin gate) → HttpOnly sh_session(30m)+sh_refresh(7d) set in server fn
 Guard: dashboard/route.tsx loader → hasSessionServer → redirect /auth/v1/login?next=…
 Surfaces (sidebar-items.ts = nav source of truth; 4 nav groups Monitor/Money/People/Operate):
   Monitor: overview /dashboard, analytics (FR-33 KPI matrix, payment-mix, on-time, leaderboards), orders(+/$orderId, CSV export);
@@ -194,6 +194,77 @@ Surfaces (sidebar-items.ts = nav source of truth; 4 nav groups Monitor/Money/Peo
 Dunning enrichment: GET /v1/admin/dunning returns bare {customer_id, dues}; names/phones joined client-side from GET /v1/admin/ledger (users LEFT JOIN) for WhatsApp addressing.
 Money: integer paise on wire → lib/money.ts rupees() for display; server computes all money.
 ```
+
+### Feature: 027 vendor RBAC admin-app frontend (2026-10-04, ADR-073, branch 027-vendor-rbac)
+```
+Browser (same TanStack Start app, separate /vendor/* subtree)        apps/admin_app
+  └─ useVendorQuery(path) (hooks/use-vendor-api.ts, key ["vendor", path], 15s stale, retry 1)
+       └─ vendorGetServer (GET, path must start /v1/vendor/ else 400) /
+           vendorPostServer (method POST|PATCH|PUT, closed write allowlist:
+             /v1/vendor/stops/*/triple|pod|cash, /v1/vendor/sync, /v1/vendor/duty,
+             /complaints/*/verify, /quality/*/vendor-check, /v1/vendor/profile, /v1/vendor/slots)
+           (server/vendor-api.ts) — cookie Bearer server-side, mock via mock-resolver,
+           401 → refreshSessionServer once → retry → else VendorApiError (401/403 → /vendor/login link)
+           Idempotency-Key forwarded on triple (crypto.randomUUID in client effect, fresh key per submit)
+Login: /vendor/login (public, outside guard) → vendor-login-form.tsx → loginVendorVerifyServer
+  └─ POST /v1/auth/vendor/login {phone, code, device:{id:"vendor-web"}} → role==="vendor" assert
+     → HttpOnly sh_session(30m)+sh_refresh(7d), same flags as admin (server/vendor-session.ts)
+Guard: vendor/(guard)/route.tsx loader → hasVendorSessionServer → refresh once → redirect /vendor/login
+  (pathless group so login never guards itself; vendor header nav, NOT the admin sidebar)
+Screens (each: index.tsx thin + -components/, skeleton + honest empty + error+retry, no delete affordance):
+  /vendor/ overview (today-strip fold + money jama/baaki/hold + ledger held/dues),
+  /vendor/route (stop list + SKIP + one CTA per state + placed-pool read-only refresh),
+  /vendor/stops/$stopId (triple steppers paise=Rs×100 + COD-unpaid cash + PoD OTP dialog),
+  /vendor/collections (dues>0 + wa.me Hindi reminders, no write-off),
+  /vendor/payouts (read-only table + in_hand, no approve), /vendor/deposits (held/dues rows only),
+  /vendor/support (complaint verify agree/disagree + quality vendor-check), /vendor/profile (PATCH+PUT slots+logout)
+Admin: /dashboard/vendors/$vendorId → Outlet layout (index holds VendorDetail + View-as-vendor/Access-codes links);
+  /preview (vendor-preview.tsx: preview endpoint + audit?actor_id=, adminGetServer ONLY, read-only);
+  /access (access-codes-table masked+revoke two-step + issue-code-dialog plaintext-once + never-again warning).
+Config screen unchanged (generic flag list) — vendor_access_enabled rides free; mock fixture row added.
+```
+
+### 028 admin access-code auth (2026-10-04, ADR-076, branch 028-access-code-auth)
+```
+AdminLoginForm (phone + access-code, copyError bundle with `auth: access-code`)
+  └─ loginCodeServer (server/admin-session.ts)
+       └─ POST /v1/auth/admin/login {phone:+91d, code, device:{id:"admin-web"}}
+            ├─ 200 role==admin → HttpOnly sh_session(30m)+sh_refresh(7d) → /dashboard
+            ├─ 401 → "Invalid phone or code." (generic, no oracle)
+            ├─ 429 → rate-limit line · 409 → device-limit line · fetch-fail → NETWORK line
+            └─ role!=admin → 403 FORBIDDEN (second gate; worker enforces per request)
+Guard unchanged: dashboard/route.tsx loader → hasSessionServer → refresh once → redirect /auth/v1/login?next=…
+Deleted: loginStartServer/loginVerifyServer/loginDemoServer, OTP/Firebase branches, orphan auth/-components/login-form.tsx.
+Docs: .env.example + wrangler.jsonc describe the access-code door (`access_code_login_enabled=1`, backend 014 owns final name).
+```
+- `normalizePhone` (admin-login-form.tsx) — same +91 last-10 [6-9] rule as vendor form.
+
+### 028 user name+number register (2026-10-04, ADR-077, branch 028-access-code-auth)
+```
+NameNumberScreen (naam + number, demo sheet + guest browse kept)
+  └─ AuthController.registerNameNumber → AuthApi.register
+       └─ POST /v1/auth/user/register {name, phone:+91d, device:{id}}
+            ├─ 200 role==user → SessionStore.save → shell (role!=user → wipe + notUser)
+            ├─ 422 → staff-number line (ROLE_RESERVED) · 429 → rate-limit line
+            ├─ 400 → server message passthrough · NETWORK/other → network/server lines
+            └─ verified:false carried in-memory (flips on first PoD, later slice)
+AuthGate: splash → restoreSession → shell / NameNumberScreen (no OTP branch)
+First-run: locate → address (notify step deleted); shell FCM register deleted (ApiClient.registerDevice kept unused)
+```
+- `normalizeIndianPhone` / `isValidIndianPhone` / `isValidUserName` / `maskPhone` (auth_controller.dart) ← `test/auth_validation_test.dart`; register/demo matrix ← `test/auth_validation_test.dart` + `test/demo_login_test.dart`; hero ← `test/wave1_ux_test.dart` (NameNumberScreen)
+
+### 028 vendor access-code auth (2026-10-04, ADR-074, branch 028-access-code-auth)
+```
+VendorCodeScreen (phone + access-code, demo sheet QA fallback)
+  └─ AuthController.codeLogin → AuthApi.vendorCodeLogin
+       └─ POST /v1/auth/vendor/login {phone:+91d, code, device:{id}}
+            ├─ 200 role==vendor → SessionStore.save → shell (role!=vendor → wipe + notVendor)
+            ├─ 401 → "Galat phone ya code" (generic, no oracle)
+            ├─ 429 → rate-limit line (10/device/hr) · 409 → device-limit line
+            └─ NETWORK/other → network/server lines
+AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent branch)
+```
+- `normalizeIndianPhone` / `isValidIndianPhone` / `isValidAccessCode` / `maskPhone` (auth_controller.dart) ← `test/auth_validation_test.dart`; code+demo matrix ← `test/demo_login_test.dart`
 
 ### Feature: [feature name]
 - `[Function A]` calls `[Function B]` to [why]
@@ -217,6 +288,10 @@ Money: integer paise on wire → lib/money.ts rupees() for display; server compu
 | `/admin/trust` | `apps/admin_app/src/app/admin/trust/page.tsx` | Quality incidents + strikes + complaints with resolve actions | Admin session |
 | `/admin/audit` | `apps/admin_app/src/app/admin/audit/page.tsx` | Audit/server-log viewer (actor_id/action filters) | Admin session |
 | `/admin/config` | `apps/admin_app/src/app/admin/config/page.tsx` | Runtime config viewer/editor | Admin session |
+| `/vendor/login` | `apps/admin_app/src/routes/(main)/vendor/login/**` | Vendor phone + access-code sign-in (public) | No |
+| `/vendor/` + `/route` + `/stops/$stopId` + `/collections` + `/payouts` + `/deposits` + `/support` + `/profile` | `apps/admin_app/src/routes/(main)/vendor/(guard)/**` | Vendor subtree (guard loader + header nav): overview, route, stop actions, dues, payouts, deposits, support, profile | Vendor session |
+| `/dashboard/vendors/$vendorId/preview` | `.../vendors/$vendorId/preview/**` | Read-only view-as-vendor + audit trail | Admin session |
+| `/dashboard/vendors/$vendorId/access` | `.../vendors/$vendorId/access/**` | Masked codes + issue-once + revoke | Admin session |
 | `GET /api/proxy` | `apps/admin_app/src/app/api/proxy/route.ts` | BFF read proxy → Workers `/v1/admin/*` (cookie forwarded, admin paths only) | Admin cookie |
 | `POST /api/admin-actions` | `apps/admin_app/src/app/api/admin-actions/route.ts` | BFF write proxy → Workers `/v1/admin/*` | Admin cookie |
 | `POST /api/auth/otp` | `apps/admin_app/src/app/api/auth/otp/route.ts` | OTP start\|verify (role=admin gate) → sets `sh_session` 30m + `sh_refresh` 7d | No |
@@ -228,6 +303,14 @@ Money: integer paise on wire → lib/money.ts rupees() for display; server compu
 
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
+| POST | `/v1/auth/vendor/login` | `auth.py:vendor_login` → `auth_service.code_login(expected_role='vendor')` → `AccessCodeRepo.find_valid` (+legacy 027 fallback) + `_issue_session` | Generalized vendor access-code login (028): flag + valid/unexpired/unrevoked code + role=vendor → 200 session; else generic 401; 10/device/hr; absolute 30d cap |
+| POST | `/v1/auth/admin/login` | `auth.py:admin_login` → `auth_service.code_login(expected_role='admin')` | Admin access-code login (028, NEW): same shape, role=admin assert, generic 401 |
+| POST | `/v1/auth/user/register` | `auth.py:user_register` → `auth_service.user_register` | Name+number onboarding (028, NEW): upsert role=user unverified + capped session + verified:false; staff → 422; 5/phone/hr + 20/IP/hr |
+| GET/POST | `/v1/admin/users/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `AccessCodeRepo` | Generalized codes (028, NEW): masked list / issue plaintext-once (1h–180d, default 90d) / timestamp-revoke; user role → 422, ghost → 404 |
+| POST | `/v1/auth/vendor/login` | `auth.py:vendor_login` → `auth_service.vendor_login` → `VendorAccessRepo.find_valid` + `_issue_session` | Vendor access-code login (027): flag + valid/unexpired/unrevoked code + role=vendor → 200 session; else generic 401; 10/device/hr |
+| GET | `/v1/vendor/payouts` | `vendor.py` → `VendorService.payouts_for_vendor` | Own payouts + in_hand (read-only; approve stays admin) |
+| GET/POST | `/v1/admin/vendors/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `VendorAccessRepo` | Masked list / issue (plaintext once, 201) / timestamp-revoke; non-vendor → 422, ghost → 404 |
+| GET | `/v1/admin/vendors/{id}/preview` | `admin.py` (Admin) → `AdminReadRepo.vendor_detail` + `VendorService.today_route/earnings/today_customers/vendor_complaints` | Read-only view-as-vendor, no writes |
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
 | GET | `/health` | `app/main.py` | Liveness probe |
 | GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings |
@@ -272,6 +355,57 @@ Money: integer paise on wire → lib/money.ts rupees() for display; server compu
 | GET | `/v1/admin/orders` | `admin.py` | +additive optional params `payment_status`, `query`, `cursor` — response shape unchanged |
 | GET | `/v1/admin/audit` | `admin.py` | +additive optional filters `actor_id`, `action` — shape unchanged |
 | auth | `app/api/auth_deps.py:_bearer` | — | Now accepts `sh_session` cookie as Bearer fallback (Bearer still first) for the admin web; mobile Bearer path unchanged |
+
+### 028 access-code auth backend (2026-10-04, ADR-075, branch 028-access-code-auth)
+```
+POST /v1/auth/vendor/login {phone, code, device} → code_login(expected_role='vendor')
+POST /v1/auth/admin/login {phone, code, device} → code_login(expected_role='admin')
+  └─ AuthService.code_login: flag access_code_login_enabled==1? (vendor also honors
+     legacy vendor_access_enabled + vendor_access_codes read-fallback) → rate-limit
+     10/device/hr → normalize → find_by_phone → role==expected? → AccessCodeRepo
+     .find_valid + hmac.compare_digest (generic 401, no oracle) → _issue_session
+     (30m/7d + absolute session_expires_at=now+30d) → touch_last_used
+     → best-effort write_audit access.use (never breaks login)
+POST /v1/auth/user/register {name, phone, device} (+IP from request.client.host)
+  └─ AuthService.user_register: rate-limit 5/phone/hr + 20/IP/hr → normalize →
+     find_by_phone? exists+user → set_name_if_blank (never overwrite) |
+     exists+staff → 422 ROLE_RESERVED | new → create role=user kyc=unverified
+     → _issue_session + verified:false
+POST /v1/auth/refresh → refresh(): burned?→burn family 401; revoked/refresh-exp/device
+  mismatch→401; absolute cap expired?→401 SESSION_EXPIRED (family intact, no burn);
+  NULL cap→backfill min(refresh_expires_at, created+30d) + persist; else rotate
+  (burn old, mint pair, keep original absolute cap — UPDATE never touches it)
+Admin codes (all require_role('admin') + _audit access.issue/revoke on access_codes):
+  ├─ GET /v1/admin/users/{id}/access-codes → AccessCodeRepo.list_masked (no hashes)
+  ├─ POST /v1/admin/users/{id}/access-codes {expires_at?} → secrets.token_urlsafe(12)
+  │    → sha256 store, expected_role:=target role (vendor|admin; user→422, ghost→404),
+  │    expiry now+1h..now+180d else 400, blank→90d → plaintext ONCE
+  └─ POST .../{code_id}/revoke → timestamp (never DELETE); ghost→404
+Legacy 027 doors kept read-only for transition: POST /v1/auth/vendor/login legacy
+  vendor_login + GET/POST /v1/admin/vendors/{id}/access-codes (VendorAccessRepo).
+```
+New table: access_codes(id, user_id→users, code_hash, masked_hint, expected_role
+default 'vendor', expires_at, revoked_at, last_used_at, created_by, created_at)
++ idx_access_codes_user + config access_code_login_enabled='0' (014) + sessions
+.session_expires_at absolute cap (014 ALTER apply-once; repo tolerates absence).
+
+### 027 vendor RBAC backend (2026-10-04, ADR-072, branch 027-vendor-rbac)
+```
+POST /v1/auth/vendor/login {phone, code, device}
+  └─ AuthService.vendor_login: flag==1? → rate-limit → normalize → find_by_phone
+       → role=='vendor'? → find_valid + hmac.compare_digest (generic 401, no oracle)
+       → _issue_session (30m/7d, family, device-cap 409) → touch_last_used
+       → best-effort write_audit vendor.access.use (never breaks login)
+GET /v1/vendor/payouts → VendorService.payouts_for_vendor (WHERE vendor_id=? + in_hand)
+Admin codes (all require_role('admin') + _audit vendor.access.issue/revoke)
+  ├─ GET .../access-codes → VendorAccessRepo.list_for_vendor (masked, no hashes)
+  ├─ POST .../access-codes → secrets.token_urlsafe(12) → sha256 store → plaintext ONCE
+  └─ POST .../access-codes/{id}/revoke → timestamp (never DELETE)
+GET /v1/admin/vendors/{id}/preview → vendor_detail + today_route/earnings/customers/complaints
+Vendor writes now audit inside their txns (caller holds WRITE_LOCK, dispatch pattern):
+  triple→vendor.triple, pod→vendor.pod, cash→vendor.cash (+in_hand txn),
+  verify→vendor.complaint_verify, quality→vendor.quality_check
+```
 
 ### Phase-B repo conversion (T2, 2026-10-01, ADR-044; completed ADR-047, 163 green)
 ```

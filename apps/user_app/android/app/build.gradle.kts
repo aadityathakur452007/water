@@ -1,7 +1,5 @@
 plugins {
     id("com.android.application")
-    // Must be applied after the Android plugin; reads app/google-services.json.
-    id("com.google.gms.google-services")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }

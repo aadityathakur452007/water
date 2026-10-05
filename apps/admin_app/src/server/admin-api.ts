@@ -58,7 +58,7 @@ const ADMIN_PREFIX = "/v1/admin";
  * leaves Cloudflare's network: no DNS, no edge, no 403. Returns null when
  * unavailable (local `vite dev`) so callers fall back to API_URL.
  */
-async function bindingFetch(path: string, init: RequestInit): Promise<Response | null> {
+export async function bindingFetch(path: string, init: RequestInit): Promise<Response | null> {
   try {
     // @vite-ignore keeps this runtime-only: the client bundle must not try
     // to resolve the workers runtime import (build failure otherwise). This

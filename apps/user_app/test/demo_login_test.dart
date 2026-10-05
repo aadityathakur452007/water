@@ -8,25 +8,17 @@ class _FakeAuthApi implements AuthApi {
 
   final String role;
 
-  @override
-  Future<String> startOtp(String e164) async => 'firebase';
-
   AuthSession _session() => AuthSession(
         accessToken: 'a',
         refreshToken: 'r',
-        expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+        expiresAt: DateTime.now().add(const Duration(days: 30)),
         role: role,
       );
 
   @override
-  Future<AuthSession> verifyOtp(
-          {required String idToken, required String deviceId}) async =>
-      _session();
-
-  @override
-  Future<AuthSession> verifyServerCode(
-          {required String phone,
-          required String code,
+  Future<AuthSession> register(
+          {required String name,
+          required String phone,
           required String deviceId}) async =>
       _session();
 
@@ -41,19 +33,8 @@ class _FakeAuthApi implements AuthApi {
   Future<void> logout(String accessToken) async {}
 }
 
-class _FakeVerifier implements PhoneVerifier {
-  @override
-  Future<String> requestCode(String e164) async => 'vid';
-
-  @override
-  Future<String> confirmCode(
-          {required String verificationId, required String smsCode}) async =>
-      'token';
-}
-
 AuthController _controller(String role) => AuthController(
       api: _FakeAuthApi(role: role),
-      verifier: _FakeVerifier(),
       store: InMemorySessionStore(),
     );
 

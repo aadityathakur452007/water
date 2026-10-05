@@ -1,11 +1,10 @@
-// Vendor auth state — mirrors user_app AuthController (same seams, same
-// cooldown/attempt/expiry logic). Differences: vendor Hindi strings,
-// role gate (role must be `vendor`, else rejected with notVendor), no guest.
+// Vendor auth state — access-code-only (028, spec §4). No OTP, no SMS round-trip,
+// no guest: phone + admin-issued code → vendorCodeLogin → role gate
+// (role must be `vendor`, else wiped with notVendor). Demo door stays as the
+// server-gated QA fallback.
 
 // ignore_for_file: prefer_initializing_formals
 // (Ctor param `api` must stay public-named for main.dart wiring.)
-
-import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
@@ -24,6 +23,10 @@ String? normalizeIndianPhone(String raw) {
 }
 
 bool isValidIndianPhone(String raw) => normalizeIndianPhone(raw) != null;
+
+/// Access codes are admin-issued (backend: 4–32 chars). Client checks the
+/// floor only; the server is the enforcer (generic 401, no oracle).
+bool isValidAccessCode(String raw) => raw.trim().length >= 4;
 
 String maskPhone(String digits10) =>
     '+91 ••••• ${digits10.substring(digits10.length - 5)}';
@@ -102,12 +105,9 @@ class InMemorySessionStore implements SessionStore {
 }
 
 abstract class AuthApi {
-  Future<String> startOtp(String e164);
-  Future<AuthSession> verifyOtp({
-    required String idToken,
-    required String deviceId,
-  });
-  Future<AuthSession> verifyServerCode({
+  /// POST /v1/auth/vendor/login `{phone, code, device:{id}}` → session
+  /// (200; generic 401; 409 device-cap; 429 rate-limit).
+  Future<AuthSession> vendorCodeLogin({
     required String phone,
     required String code,
     required String deviceId,
@@ -122,64 +122,33 @@ abstract class AuthApi {
   });
 }
 
-abstract class PhoneVerifier {
-  Future<String> requestCode(String e164);
-  Future<String> confirmCode({
-    required String verificationId,
-    required String smsCode,
-  });
-}
-
-enum AuthStatus { idle, sending, codeSent, verifying, authenticated, error }
+enum AuthStatus { idle, verifying, authenticated, error }
 
 class AuthController extends ChangeNotifier {
   AuthController({
     required AuthApi api,
-    required PhoneVerifier verifier,
     required SessionStore store,
     this.deviceId = 'pending-device-id',
-    this.resendCooldown = 60,
-    this.maxAttempts = 5,
   })  : _api = api,
-        _verifier = verifier,
         _store = store;
 
   final AuthApi _api;
-  final PhoneVerifier _verifier;
   final SessionStore _store;
 
   final String deviceId;
-  final int resendCooldown;
-  final int maxAttempts;
 
   AuthStatus _status = AuthStatus.idle;
   String? _errorMessage;
   int _errorSeq = 0;
-  String? _verificationId;
-  String _digits10 = '';
-  int _attempts = 0;
-  bool _mustResend = false;
-  bool _codeExpired = false;
   bool _newDeviceAlert = false;
-  int _resendInSeconds = 0;
   AuthSession? _session;
-  Timer? _timer;
   bool _disposed = false;
 
   AuthStatus get status => _status;
   String? get errorMessage => _errorMessage;
   int get errorSeq => _errorSeq;
-  String get digits10 => _digits10;
-  int get attempts => _attempts;
-  int get attemptsLeft => (maxAttempts - _attempts).clamp(0, maxAttempts);
-  bool get mustResend => _mustResend;
-  bool get codeExpired => _codeExpired;
   bool get newDeviceAlert => _newDeviceAlert;
-  int get resendInSeconds => _resendInSeconds;
-  bool get canResend => _resendInSeconds <= 0;
 
-  String _channel = 'firebase';
-  String get channel => _channel;
   AuthSession? get session => _session;
   bool get isAuthenticated =>
       _status == AuthStatus.authenticated &&
@@ -191,91 +160,34 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> sendOtp(String rawPhone) async {
+  /// Access-code login: validate locally, POST vendor/login, gate the role,
+  /// persist. Generic Hindi copy on 401 (no oracle); rate-limit + device-cap
+  /// get their own lines. Returns true on success.
+  Future<bool> codeLogin(String rawPhone, String rawCode) async {
     final digits = normalizeIndianPhone(rawPhone);
     if (digits == null) {
       _fail(vendorStringsHi['phoneError']!, AuthStatus.idle);
-      return;
+      return false;
     }
-    _digits10 = digits;
-    _attempts = 0;
-    _mustResend = false;
-    _codeExpired = false;
-    _errorMessage = null;
-    _status = AuthStatus.sending;
-    _notify();
-    try {
-      final e164 = '+91$digits';
-      _channel = await _api.startOtp(e164);
-      if (_channel != 'sms') {
-        _verificationId = await _verifier.requestCode(e164);
-      }
-      _status = AuthStatus.codeSent;
-      _startCooldown();
-    } on ApiException catch (e) {
-      _fail(
-        e.isNetwork
-            ? vendorStringsHi['networkError']!
-            : '${vendorStringsHi['serverError']!} (${e.statusCode})',
-        AuthStatus.error,
-      );
-    } catch (_) {
-      _fail(vendorStringsHi['smsError']!, AuthStatus.error);
-    }
-    _notify();
-  }
-
-  Future<void> resend() async {
-    if (!canResend || _digits10.isEmpty) return;
-    await sendOtp(_digits10);
-  }
-
-  void expireCode() {
-    _codeExpired = true;
-    _fail(vendorStringsHi['codeExpired']!, AuthStatus.codeSent);
-  }
-
-  Future<void> confirm(String smsCode) async {
-    if (_mustResend) {
-      _fail(vendorStringsHi['tooManyAttempts']!, AuthStatus.codeSent);
-      return;
-    }
-    if (_codeExpired) {
-      _fail(vendorStringsHi['codeExpired']!, AuthStatus.codeSent);
-      return;
-    }
-    final verificationId = _verificationId;
-    if ((_channel != 'sms' && verificationId == null) || smsCode.length != 6) {
-      _fail(vendorStringsHi['invalidCode']!, AuthStatus.codeSent);
-      return;
+    final code = rawCode.trim();
+    if (!isValidAccessCode(code)) {
+      _fail(vendorStringsHi['codeError']!, AuthStatus.idle);
+      return false;
     }
     _status = AuthStatus.verifying;
     _errorMessage = null;
     _notify();
     try {
-      final AuthSession session;
-      if (_channel == 'sms') {
-        session = await _api.verifyServerCode(
-          phone: '+91$_digits10',
-          code: smsCode,
-          deviceId: deviceId,
-        );
-      } else {
-        final idToken = await _verifier.confirmCode(
-          verificationId: verificationId!,
-          smsCode: smsCode,
-        );
-        session = await _api.verifyOtp(
-          idToken: idToken,
-          deviceId: deviceId,
-        );
-      }
+      final session = await _api.vendorCodeLogin(
+        phone: '+91$digits',
+        code: code,
+        deviceId: deviceId,
+      );
       // Vendor role gate: this app is vendors-only.
       if (session.role != 'vendor') {
         await _store.clear();
         _fail(vendorStringsHi['notVendor']!, AuthStatus.error);
-        _notify();
-        return;
+        return false;
       }
       await _store.saveSession(
         accessToken: session.accessToken,
@@ -286,20 +198,29 @@ class AuthController extends ChangeNotifier {
       _session = session;
       _newDeviceAlert = session.newDeviceAlert;
       _status = AuthStatus.authenticated;
+      _notify();
+      return true;
     } on ApiException catch (e) {
       if (e.isNetwork) {
         _fail(vendorStringsHi['networkError']!, AuthStatus.error);
+      } else if (e.statusCode == 401) {
+        _fail(vendorStringsHi['invalidCredentials']!, AuthStatus.error);
+      } else if (e.statusCode == 429) {
+        _fail(vendorStringsHi['rateLimited']!, AuthStatus.error);
+      } else if (e.statusCode == 409) {
+        _fail(vendorStringsHi['deviceLimit']!, AuthStatus.error);
       } else {
-        _failAuthAttempt();
+        _fail(vendorStringsHi['serverError']!, AuthStatus.error);
       }
+      return false;
     } catch (_) {
-      _failAuthAttempt();
+      _fail(vendorStringsHi['serverError']!, AuthStatus.error);
+      return false;
     }
-    _notify();
   }
 
   /// Demo login (no OTP): seeded phone + demo code → session. Same
-  /// persistence + vendor role gate as the OTP path. Fails with a Hindi
+  /// persistence + vendor role gate as the code path. Fails with a Hindi
   /// message when the server door is closed (prod default).
   Future<bool> demoLogin(String phone, String code) async {
     _status = AuthStatus.verifying;
@@ -342,17 +263,6 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  void _failAuthAttempt() {
-    _attempts += 1;
-    if (_attempts >= maxAttempts) {
-      _mustResend = true;
-      _verificationId = null;
-      _fail(vendorStringsHi['tooManyAttempts']!, AuthStatus.codeSent);
-    } else {
-      _fail(vendorStringsHi['invalidCode']!, AuthStatus.codeSent);
-    }
-  }
-
   Future<void> logout() async {
     final token = _session?.accessToken;
     if (token != null) {
@@ -374,7 +284,9 @@ class AuthController extends ChangeNotifier {
 
   Future<void> forceLogout() async {
     await _store.clear();
-    _reset();
+    _session = null;
+    _newDeviceAlert = false;
+    _errorMessage = null;
     _status = AuthStatus.idle;
     _notify();
   }
@@ -417,42 +329,11 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
-  void _startCooldown() {
-    _timer?.cancel();
-    _resendInSeconds = resendCooldown;
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_disposed) {
-        t.cancel();
-        return;
-      }
-      _resendInSeconds -= 1;
-      if (_resendInSeconds <= 0) {
-        _resendInSeconds = 0;
-        t.cancel();
-      }
-      _notify();
-    });
-  }
-
   void _fail(String message, AuthStatus status) {
     _errorMessage = message;
     _errorSeq += 1;
     _status = status;
     _notify();
-  }
-
-  void _reset() {
-    _timer?.cancel();
-    _verificationId = null;
-    _channel = 'firebase';
-    _digits10 = '';
-    _attempts = 0;
-    _mustResend = false;
-    _codeExpired = false;
-    _newDeviceAlert = false;
-    _resendInSeconds = 0;
-    _session = null;
-    _errorMessage = null;
   }
 
   void _notify() {
@@ -462,7 +343,6 @@ class AuthController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _timer?.cancel();
     super.dispose();
   }
 }

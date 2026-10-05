@@ -1,4 +1,4 @@
-// Vendor auth validation: phone normalize + mask + role gate rule.
+// Vendor auth validation: phone normalize + mask + access-code rules.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vendor_app/features/auth/auth_controller.dart';
@@ -27,5 +27,17 @@ void main() {
   test('isValidIndianPhone mirrors normalize', () {
     expect(isValidIndianPhone('9302190067'), isTrue);
     expect(isValidIndianPhone('123'), isFalse);
+  });
+
+  group('isValidAccessCode (code-screen validation)', () {
+    test('accepts 4+ chars, trimmed', () {
+      expect(isValidAccessCode('abcd'), isTrue);
+      expect(isValidAccessCode('  abcdef123  '), isTrue);
+    });
+    test('rejects blank and short codes', () {
+      expect(isValidAccessCode(''), isFalse);
+      expect(isValidAccessCode('   '), isFalse);
+      expect(isValidAccessCode('abc'), isFalse);
+    });
   });
 }

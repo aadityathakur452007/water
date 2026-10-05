@@ -2,10 +2,9 @@
 // shell (Home/Orders/Support/Profile) + addresses/subscriptions routes.
 //
 // Guest-browse contract (user-flows flow 1): prices stay visible without
-// login; OTP gates only booking commit + profile data (AuthGate routes the
-// shell; ProfileScreen shows the login CTA when un-authed).
+// login; register gates only booking commit + profile data (AuthGate routes
+// the shell; ProfileScreen shows the login CTA when un-authed).
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
@@ -16,7 +15,7 @@ import 'features/addresses/address_screen.dart';
 import 'features/addresses/selected_address_store.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_gate.dart';
-import 'features/auth/phone_screen.dart';
+import 'features/auth/name_number_screen.dart';
 import 'features/booking/booking_controller.dart';
 import 'features/orders/orders_controller.dart';
 import 'features/profile/profile_screen.dart';
@@ -31,11 +30,8 @@ const String kRazorpayKeyId = String.fromEnvironment(
   defaultValue: '',
 );
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // Reads android/app/google-services.json; required before any FirebaseAuth
-  // call (the login OTP flow). Failure here is fail-fast, never silent.
-  await Firebase.initializeApp();
   runApp(const ShodashaApp());
 }
 
@@ -72,7 +68,6 @@ class _ShodashaAppState extends State<ShodashaApp> {
     );
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),
-      verifier: FirebasePhoneVerifier(),
       store: SecureSessionStore(),
       deviceId: 'pending-device',
     );
@@ -172,10 +167,10 @@ class _ShellPage extends StatelessWidget {
 }
 
 /// Address entry gate (composition root): authed users go straight to
-/// Addresses; guests go through login first and land on Addresses after OTP
-/// (OtpScreen pops to first on success, so the gate re-checks live state
-/// instead of trusting a route result). Never strands a guest on a server
-/// 401 after filling the 3-step form.
+/// Addresses; guests go through login first and land on Addresses after
+/// register (the gate re-checks live state instead of trusting a route
+/// result). Never strands a guest on a server 401 after filling the 3-step
+/// form.
 Future<void> openAddressesGated(
   BuildContext context, {
   required bool Function() isAuthed,
@@ -193,9 +188,9 @@ Future<void> openAddressesGated(
 
 /// Login page for the address gate: no guest-browse escape hatch (that would
 /// loop back into the same gate); the back button cancels the entry.
-/// Demo/direct logins authenticate without pushing OTP — the listener closes
-/// the gate then (OTP logins pop themselves to first via OtpScreen, so the
-/// `isCurrent` check keeps the two pop drivers from racing).
+/// Register/demo logins authenticate without pushing OTP — the listener
+/// closes the gate then (the `isCurrent` check keeps pop drivers from
+/// racing).
 class _LoginGatePage extends StatefulWidget {
   const _LoginGatePage({required this.auth});
 
@@ -229,7 +224,7 @@ class _LoginGatePageState extends State<_LoginGatePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Login karein')),
-      body: PhoneScreen(controller: widget.auth),
+      body: NameNumberScreen(controller: widget.auth),
     );
   }
 }

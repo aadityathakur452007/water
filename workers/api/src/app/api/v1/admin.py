@@ -11,7 +11,9 @@ returns/complaints/quality decisions that create strikes/refund inputs.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
+import secrets
 import sqlite3
 import uuid
 
@@ -20,11 +22,13 @@ from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-export for test overrides)
 from app.api.deps import get_db_conn
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
 from app.repositories.admin_read_repo import AdminReadRepo
+from app.repositories.access_code_repo import AccessCodeRepo
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
+from app.repositories.vendor_access_repo import VendorAccessRepo
 from app.services.dispatch_service import (
     CustodyBlockedError,
     assign_order,
@@ -34,6 +38,7 @@ from app.services.dispatch_service import (
     reassign_order,
     write_audit,
 )
+from app.services.vendor_service import VendorService
 
 router = APIRouter(tags=["admin"])
 Admin = Depends(require_role("admin"))
@@ -313,6 +318,180 @@ async def vendor_release(vendor_id: str, conn=Depends(get_db_conn), user=Admin):
         await _audit(conn, user, "vendor.release", "users", vendor_id, "", "")
         conn.commit()
     return {"vendor_id": vendor_id, "review_hold": False}
+
+
+# -- vendor access codes (027 RBAC: admin-issued, hash-stored, revocable) -----
+# Repo methods self-lock per txn (otp_repo pattern); the audit insert takes
+# WRITE_LOCK per the dispatch convention. Never nested — Lock is not reentrant.
+
+class AccessCodeIssueIn(BaseModel):
+    expires_at: str | None = Field(default=None, max_length=64)
+
+
+class RoleRefusedError(AppError):
+    code = "ROLE_REFUSED"
+    status_code = 422
+
+
+def _code_expiry(raw: str | None) -> str:
+    if raw:
+        try:
+            dt = _dt.datetime.fromisoformat(raw.strip())
+        except ValueError:
+            raise ValidationError(message="expires_at must be ISO-8601.", details={})
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_dt.timezone.utc)
+        return dt.isoformat()
+    return (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=90)).isoformat()
+
+
+async def _require_vendor(conn, vendor_id: str) -> dict:
+    """Target must exist and be a vendor. Role assignment stays on the verify
+    flow — codes never upgrade roles (422, never auto-fix)."""
+    row = (await conn.execute("SELECT * FROM users WHERE id = ?", (vendor_id,))).fetchone()
+    if row is None:
+        raise NotFoundError(message="Vendor not found.", details={"id": vendor_id})
+    if row["role"] != "vendor":
+        raise RoleRefusedError(message="Access codes are vendor-only.",
+                               details={"id": vendor_id, "role": row["role"]})
+    return dict(row)
+
+
+@router.get("/admin/vendors/{vendor_id}/access-codes")
+async def vendor_access_list(vendor_id: str, conn=Depends(get_db_conn), user=Admin):
+    await _require_vendor(conn, vendor_id)
+    return {"data": await VendorAccessRepo(conn).list_for_vendor(vendor_id)}
+
+
+@router.post("/admin/vendors/{vendor_id}/access-codes", status_code=201)
+async def vendor_access_issue(vendor_id: str, payload: AccessCodeIssueIn,
+                              conn=Depends(get_db_conn), user=Admin):
+    await _require_vendor(conn, vendor_id)
+    code = secrets.token_urlsafe(12)
+    code_id = uuid.uuid4().hex
+    expires = _code_expiry(payload.expires_at)
+    hint = f"••{code[-2:]}"
+    await VendorAccessRepo(conn).issue(
+        code_id=code_id, vendor_id=vendor_id,
+        code_hash=hashlib.sha256(code.encode()).hexdigest(),
+        masked_hint=hint, expires_at=expires, created_by=_uid(user))
+    with WRITE_LOCK:
+        await _audit(conn, user, "vendor.access.issue", "vendor_access_codes", code_id,
+                     "", {"vendor_id": vendor_id, "expires_at": expires})
+        conn.commit()
+    return {"id": code_id, "vendor_id": vendor_id, "code": code,
+            "masked_hint": hint, "expires_at": expires}
+
+
+@router.post("/admin/vendors/{vendor_id}/access-codes/{code_id}/revoke")
+async def vendor_access_revoke(vendor_id: str, code_id: str,
+                               conn=Depends(get_db_conn), user=Admin):
+    await _require_vendor(conn, vendor_id)
+    if not await VendorAccessRepo(conn).revoke(code_id, vendor_id):
+        raise NotFoundError(message="Access code not found.", details={"id": code_id})
+    with WRITE_LOCK:
+        await _audit(conn, user, "vendor.access.revoke", "vendor_access_codes", code_id,
+                     "", {"vendor_id": vendor_id})
+        conn.commit()
+    return {"code_id": code_id, "vendor_id": vendor_id, "revoked": True}
+
+
+# -- generalized access codes (028: ONE table for vendor+admin) ---------------
+# Legacy /vendors/* endpoints above stay for 027-seeded DBs. New flows use
+# ONLY access_codes via AccessCodeRepo: any user id, expected_role follows the
+# target's own role (vendor AND admin allowed; role=user → 422, they onboard
+# via POST /v1/auth/user/register). Plaintext is returned ONCE on issue.
+
+def _general_code_expiry(raw: str | None) -> str:
+    now = _dt.datetime.now(_dt.timezone.utc)
+    if raw:
+        try:
+            dt = _dt.datetime.fromisoformat(raw.strip())
+        except ValueError:
+            raise ValidationError(message="expires_at must be ISO-8601.", details={})
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_dt.timezone.utc)
+    else:
+        dt = now + _dt.timedelta(days=90)
+    if dt < now + _dt.timedelta(hours=1) or dt > now + _dt.timedelta(days=180):
+        raise ValidationError(
+            message="expires_at must be between 1 hour and 180 days from now.",
+            details={},
+        )
+    return dt.isoformat()
+
+
+async def _require_code_target(conn, user_id: str) -> dict:
+    """Generalized code target: must exist and be vendor or admin.
+
+    Users (role=user) never get codes (422 — they use name+number register);
+    role assignment stays on the verify flow, codes never upgrade roles."""
+    row = (await conn.execute("SELECT * FROM users WHERE id = ?", (user_id,))).fetchone()
+    if row is None:
+        raise NotFoundError(message="User not found.", details={"id": user_id})
+    if row["role"] not in ("vendor", "admin"):
+        raise RoleRefusedError(message="Access codes are for staff accounts only.",
+                               details={"id": user_id, "role": row["role"]})
+    return dict(row)
+
+
+@router.get("/admin/users/{user_id}/access-codes")
+async def access_list(user_id: str, conn=Depends(get_db_conn), user=Admin):
+    await _require_code_target(conn, user_id)
+    return {"data": await AccessCodeRepo(conn).list_masked(user_id)}
+
+
+@router.post("/admin/users/{user_id}/access-codes", status_code=201)
+async def access_issue(user_id: str, payload: AccessCodeIssueIn,
+                       conn=Depends(get_db_conn), user=Admin):
+    target = await _require_code_target(conn, user_id)
+    code = secrets.token_urlsafe(12)
+    code_id = uuid.uuid4().hex
+    expires = _general_code_expiry(payload.expires_at)
+    hint = f"••{code[-2:]}"
+    await AccessCodeRepo(conn).issue(
+        code_id=code_id, user_id=user_id,
+        code_hash=hashlib.sha256(code.encode()).hexdigest(),
+        masked_hint=hint, expected_role=str(target["role"]),
+        expires_at=expires, created_by=_uid(user))
+    with WRITE_LOCK:
+        await _audit(conn, user, "access.issue", "access_codes", code_id,
+                     "", {"user_id": user_id, "expires_at": expires})
+        conn.commit()
+    return {"id": code_id, "user_id": user_id, "code": code,
+            "masked_hint": hint, "expires_at": expires,
+            "expected_role": str(target["role"])}
+
+
+@router.post("/admin/users/{user_id}/access-codes/{code_id}/revoke")
+async def access_revoke(user_id: str, code_id: str,
+                        conn=Depends(get_db_conn), user=Admin):
+    await _require_code_target(conn, user_id)
+    if not await AccessCodeRepo(conn).revoke(code_id, user_id):
+        raise NotFoundError(message="Access code not found.", details={"id": code_id})
+    with WRITE_LOCK:
+        await _audit(conn, user, "access.revoke", "access_codes", code_id,
+                     "", {"user_id": user_id})
+        conn.commit()
+    return {"code_id": code_id, "user_id": user_id, "revoked": True}
+
+
+@router.get("/admin/vendors/{vendor_id}/preview")
+async def admin_vendor_preview(vendor_id: str, date: str | None = None,
+                               conn=Depends(get_db_conn), user=Admin):
+    """Read-only view-as-vendor: vendor_detail basics + existing VendorService
+    reads composed with an explicit vendor_id param. No writes."""
+    detail = await AdminReadRepo(conn).vendor_detail(vendor_id)
+    if detail is None:
+        raise NotFoundError(message="Vendor not found.", details={"id": vendor_id})
+    svc = VendorService(conn)
+    return {
+        "vendor": detail["vendor"], "profile": detail["profile"],
+        "route": await svc.today_route(vendor_id, date),
+        "earnings": await svc.earnings(vendor_id, date),
+        "customers": await svc.today_customers(vendor_id, date),
+        "complaints": await svc.vendor_complaints(vendor_id),
+    }
 
 
 # -- zones attach/detach (custody-zero guard, §14.2) ----------------------------

@@ -2,9 +2,9 @@
 //
 // Guest-browse rule (user-flows flow 1): prices are NEVER walled behind login.
 // The gate routes a valid session straight to [home]; without a session it
-// shows login, and login's guest action drops into [home] as a guest. OTP is
-// therefore enforced only at booking commit OR profile (F3 wires those gates
-// against AuthController.isAuthenticated).
+// shows login, and login's guest action drops into [home] as a guest.
+// Register is therefore enforced only at booking commit OR profile (F3 wires
+// those gates against AuthController.isAuthenticated).
 //
 // States.md covered: splash (page loading), authenticated, guest user,
 // session expired → login (redirecting), logged out.
@@ -13,12 +13,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import 'auth_controller.dart';
-import 'phone_screen.dart';
+import 'name_number_screen.dart';
 
 /// Splash → home/login router.
 ///
 /// [home] is F3's catalog home (public, guest-browsable). [loginBuilder]
-/// defaults to [PhoneScreen] with guest-browse wired back into the gate.
+/// defaults to [NameNumberScreen] with guest-browse wired back into the gate.
 class AuthGate extends StatefulWidget {
   const AuthGate({
     super.key,
@@ -83,7 +83,7 @@ class _AuthGateState extends State<AuthGate> {
             () => setState(() => _guest = true),
           );
         }
-        return PhoneScreen(
+        return NameNumberScreen(
           controller: widget.controller,
           onGuestBrowse: () => setState(() => _guest = true),
         );

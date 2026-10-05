@@ -24,6 +24,19 @@ import type {
   VendorDetail,
   VendorOption,
 } from "#/lib/admin-types";
+import type {
+  AccessCodeRow,
+  Earnings,
+  PlacedOrder,
+  TodayRoute,
+  VendorComplaint,
+  VendorCustomer,
+  VendorPayouts,
+  VendorPreview,
+  VendorProfile,
+  VendorSlots,
+  VendorStop,
+} from "#/lib/vendor-types";
 
 const day = (offset: number): string => {
   const d = new Date();
@@ -428,6 +441,13 @@ export const configFixture: ConfigRow[] = [
     updated_by: "us_213",
     updated_at: new Date(Date.now() - 20 * 8.64e7).toISOString(),
   },
+  {
+    key: "vendor_access_enabled",
+    value: "1",
+    effective_from: "2026-10-04",
+    updated_by: "us_213",
+    updated_at: new Date(Date.now() - 1 * 8.64e7).toISOString(),
+  },
 ];
 
 export const vendorsFixture: Page<VendorOption> = {
@@ -440,3 +460,164 @@ export const metricsFixture: Overview & { quality_open: number } = {
   ...overviewFixture,
   quality_open: 1,
 };
+
+/** Vendor subtree fixtures — same shapes as the live /v1/vendor/* reads. */
+
+const vendorStop = (seq: number, status: string, order: string, customer: string): VendorStop => ({
+  id: `st_${900 + seq}`,
+  route_id: "rt_51",
+  order_id: order,
+  customer_id: customer,
+  seq,
+  fulls_exp: 2 + (seq % 3),
+  empties_exp: 1 + (seq % 2),
+  version: 3,
+  triple: status === "done" ? '{"fulls_given":3,"empties_back":2,"cash":8400,"upi":0}' : null,
+  status,
+  payment_mode: seq % 2 ? "cod" : "upi",
+  payment_status: status === "done" ? "paid_cash" : "unpaid",
+  total: 8400,
+  order_state: status === "done" ? "delivered" : "dispatched",
+  address_label: `House ${seq}, Sector 12`,
+  address_text: `${seq} Ferenc Marg, Sector 12`,
+  hold_blocked: false,
+});
+
+export const vendorTodayFixture: TodayRoute = {
+  route: { id: "rt_51", date: day(0), vendor_id: "us_200", zone: "Sector 12", status: "open" },
+  stops: [vendorStop(1, "done", "od_1000", "us_201"), vendorStop(2, "pending", "od_1001", "us_202")],
+  loading: { take_fulls: 7, expect_empties: 4 },
+  skip: [],
+};
+
+export const vendorStopFixture: VendorStop = vendorStop(2, "pending", "od_1001", "us_202");
+
+export const vendorPlacedFixture: PlacedOrder[] = [
+  {
+    order_id: "od_1019",
+    customer_id: "us_204",
+    n: 2,
+    total: 5600,
+    deposit_due: 0,
+    payment_mode: "cod",
+    payment_status: "unpaid",
+    window_start: `${day(0)}T08:00:00Z`,
+    address_label: "House 9, Sector 12",
+    address_text: "9 Ferenc Marg, Sector 12",
+    pincode: "122001",
+  },
+];
+
+export const vendorEarningsFixture: Earnings = {
+  shift: day(0),
+  stops_done: 14,
+  cash_total: 382500,
+  upi_total: 1420800,
+  flagged_stops: 1,
+  flagged_hold: 8400,
+  note: "GPS-flagged stops accrue but are held out of payouts until admin clears the flag.",
+};
+
+export const vendorCustomersFixture: VendorCustomer[] = [
+  {
+    customer_id: "us_201",
+    customer_name: "Rahul Verma",
+    customer_phone: "+919300210001",
+    stops: [{ stop_id: "st_901", seq: 1, status: "done", order_id: "od_1000" }],
+    fulls_exp: 3,
+    empties_exp: 2,
+    done: 1,
+    held: 2,
+    dues: 8400,
+  },
+  {
+    customer_id: "us_202",
+    customer_name: "Meena Iyer",
+    customer_phone: "+919300210002",
+    stops: [{ stop_id: "st_902", seq: 2, status: "pending", order_id: "od_1001" }],
+    fulls_exp: 4,
+    empties_exp: 2,
+    done: 0,
+    held: 0,
+    dues: 0,
+  },
+];
+
+export const vendorComplaintsFixture: VendorComplaint[] = [
+  {
+    id: "cm_31",
+    order_id: "od_1002",
+    reason_code: "delivery_missed",
+    text: "No delivery in morning window",
+    status: "open",
+    vendor_agree: null,
+    created_at: new Date(Date.now() - 2.4e7).toISOString(),
+  },
+];
+
+export const vendorPayoutsFixture: VendorPayouts = {
+  payouts: [
+    {
+      id: "po_1",
+      period: "2026-W39",
+      stops_done: 86,
+      gross_fee: 7740000,
+      deductions: 250000,
+      net: 7490000,
+      status: "paid",
+    },
+    {
+      id: "po_2",
+      period: "2026-W40",
+      stops_done: 91,
+      gross_fee: 8190000,
+      deductions: 210000,
+      net: 7980000,
+      status: "pending",
+    },
+  ],
+  in_hand: 382500,
+  note: "Settlements land every Monday; pending clears after admin approval.",
+};
+
+export const vendorProfileFixture: VendorProfile = {
+  user_id: "us_200",
+  name: "Anita Sharma",
+  phone: "+919300210000",
+  address: "Shop 4, Sector 12 market",
+  hours: "8am–8pm, Sun closed",
+  updated_at: new Date(Date.now() - 8.64e7).toISOString(),
+};
+
+export const vendorSlotsFixture: VendorSlots = {
+  user_id: "us_200",
+  slots: { "mon-am": true, "mon-pm": true, "sun-am": false },
+};
+
+export const vendorPreviewFixture: VendorPreview = {
+  vendor: usersRows[0],
+  profile: vendorDetailFixture.profile,
+  route: vendorTodayFixture,
+  earnings: vendorEarningsFixture,
+  customers: { customers: vendorCustomersFixture },
+  complaints: { data: vendorComplaintsFixture },
+};
+
+export const accessCodesFixture: AccessCodeRow[] = [
+  {
+    id: "vac_1",
+    masked_hint: "••••-4821",
+    expires_at: null,
+    revoked_at: null,
+    last_used_at: new Date(Date.now() - 3.6e6).toISOString(),
+    created_at: new Date(Date.now() - 6 * 8.64e7).toISOString(),
+  },
+  {
+    id: "vac_0",
+    masked_hint: "••••-9107",
+    expires_at: new Date(Date.now() - 8.64e7).toISOString(),
+    revoked_at: new Date(Date.now() - 2 * 8.64e7).toISOString(),
+    last_used_at: null,
+    created_at: new Date(Date.now() - 12 * 8.64e7).toISOString(),
+  },
+];

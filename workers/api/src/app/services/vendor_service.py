@@ -208,6 +208,8 @@ class VendorService:
         edited offline replay with the old version fences instead of
         double-applying the ledger.
         """
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
+
         version = payload.get("version")
         if version is None:
             raise ValidationError(message="version is required.", details={})
@@ -261,6 +263,8 @@ class VendorService:
                     "UPDATE stops SET triple = ?, status = 'done', synced_at = ?, version = version + 1 WHERE id = ?",
                     (json.dumps({k: v for k, v in triple.items() if v is not None}), _now(), stop_id),
                 )
+                await write_audit(self._conn, actor=vendor_id, action="vendor.triple",
+                                  entity="stops", entity_id=stop_id)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -313,7 +317,7 @@ class VendorService:
             stop["order_id"], int(amount), vendor_id)
         # F5: custody truth — agency cash in the vendor's pocket (own txn;
         # day-close reconciles from payments if this ever lags).
-        from app.services.dispatch_service import ensure_profile
+        from app.services.dispatch_service import ensure_profile, write_audit
 
         await ensure_profile(self._conn, vendor_id)
         with WRITE_LOCK:
@@ -322,6 +326,8 @@ class VendorService:
                     "UPDATE vendor_profile SET in_hand = in_hand + ? WHERE user_id = ?",
                     (int(amount), vendor_id),
                 )
+                await write_audit(self._conn, actor=vendor_id, action="vendor.cash",
+                                  entity="stops", entity_id=stop_id)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -333,6 +339,8 @@ class VendorService:
 
     async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
         """OTP-gated PoD. Wrong OTP → 401. GPS drift → flagged, never blocked."""
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
+
         stop = await self._owned_stop(vendor_id, stop_id)
         route = (await self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],))).fetchone()
         day = route["date"] if route else _today()
@@ -370,6 +378,8 @@ class VendorService:
                     "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE id = ?",
                     (json.dumps(current), _now(), stop_id),
                 )
+                await write_audit(self._conn, actor=vendor_id, action="vendor.pod",
+                                  entity="stops", entity_id=stop_id)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -430,6 +440,29 @@ class VendorService:
             "flagged_stops": flagged,
             "flagged_hold": held_cash + held_upi,  # §11: accrues, held out of payouts till cleared
             "note": "GPS-flagged stops accrue but are held out of payouts until admin clears the flag.",
+        }
+
+    # -- payouts (027 RBAC: READ-ONLY own payouts + custody) --------------------
+
+    async def payouts_for_vendor(self, vendor_id: str) -> dict:
+        """Own payouts + in_hand custody. Owner-scoped by construction
+        (``payouts WHERE vendor_id=?``); approve stays admin-only."""
+        rows = (await self._conn.execute(
+            "SELECT id, period, stops_done, gross_fee, deductions, net, status,"
+            " approved_by, created_at FROM payouts WHERE vendor_id = ?"
+            " ORDER BY created_at DESC LIMIT 200",
+            (vendor_id,),
+        )).fetchall()
+        try:
+            prof = (await self._conn.execute(
+                "SELECT in_hand FROM vendor_profile WHERE user_id = ?", (vendor_id,))).fetchone()
+            in_hand = int(prof["in_hand"]) if prof is not None else 0
+        except Exception:
+            in_hand = 0  # pre-007 DBs: honest 0, never 500
+        return {
+            "payouts": [dict(r) for r in rows],
+            "in_hand": in_hand,
+            "note": "Payouts are approved by the agency; this view is read-only.",
         }
 
     # -- profile + slots (011_port: server vendor profile, Slice 1) --------------
@@ -550,6 +583,8 @@ class VendorService:
     # -- complaint + quality verification (§14.3) ---------------------------------------
 
     async def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
+
         with WRITE_LOCK:
             row = (await self._conn.execute(
                 "SELECT c.id, c.order_id, c.status FROM complaints c"
@@ -568,6 +603,8 @@ class VendorService:
                     " resolved_at = ? WHERE id = ?",
                     (1 if agree else 0, note[:500], status, _now() if agree else None, complaint_id),
                 )
+                await write_audit(self._conn, actor=vendor_id, action="vendor.complaint_verify",
+                                  entity="complaints", entity_id=complaint_id)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -579,8 +616,10 @@ class VendorService:
         """F4: door/pickup verification on the quality_incidents table (single
         truth with admin). Ownership via the incident's order on this vendor's
         route — else 404, no oracle. Agree → confirmed; disagree stays open
-        with vendor_agree=0, frozen for 48h admin triage (CHECK allows only
+        with vendor_agree=0,         frozen for 48h admin triage (CHECK allows only
         open/confirmed/rejected)."""
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
+
         with WRITE_LOCK:
             row = (await self._conn.execute(
                 "SELECT * FROM quality_incidents WHERE id = ?", (incident_id,))).fetchone()
@@ -600,6 +639,8 @@ class VendorService:
                     (1 if agree else 0, check[:80], note[:500],
                      "confirmed" if agree else "open", incident_id),
                 )
+                await write_audit(self._conn, actor=vendor_id, action="vendor.quality_check",
+                                  entity="quality_incidents", entity_id=incident_id)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
