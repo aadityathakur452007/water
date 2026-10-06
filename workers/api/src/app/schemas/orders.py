@@ -64,8 +64,10 @@ class OrderOut(BaseModel):
 
 
 class OrderDetailOut(OrderOut):
+    delivery_otp: str | None = None
+    stops_ahead: int | None = None
     tracker: dict = Field(default_factory=dict)  # 4-step tracker + current state
-    rider: dict | None = None  # {name, call} once assigned; None before
+    rider: dict | None = None  # {name, phone, stops_ahead} once assigned; None before
     bill: dict = Field(default_factory=dict)
     events: list[dict] = Field(default_factory=list)
 

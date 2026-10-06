@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/api_client.dart' show ApiClient;
 import '../../core/cascade.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
@@ -19,6 +20,7 @@ class RouteScreen extends StatefulWidget {
     this.onOpenSync,
     this.earnings,
     this.customers,
+    this.api,
   });
 
   final RouteController controller;
@@ -32,6 +34,7 @@ class RouteScreen extends StatefulWidget {
   /// controllers — no new fetch shape, no new endpoint.
   final EarningsController? earnings;
   final CustomersController? customers;
+  final ApiClient? api;
 
   @override
   State<RouteScreen> createState() => _RouteScreenState();
@@ -69,6 +72,75 @@ class _RouteScreenState extends State<RouteScreen> {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Future<void> _stockoutPrompt() async {
+    final api = widget.api;
+    if (api == null) return;
+    final reasonController = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Stock Khatam (SOS)?'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Agar aapki gaadi me paani khatam ho gaya hai, to system baaki stops ko repool kar dega taaki doosra vendor deliver kar sake.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'Karan (Reason)',
+                hintText: 'Jaise: Stock khatam, vehicle problem...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Report Stockout'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true && mounted) {
+      try {
+        final res = await api.reportStockout(reason: reasonController.text.trim());
+        final repooled = res['repooled_stops'] ?? 0;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Stockout report kiya. $repooled stops repool ho gaye.')),
+          );
+          widget.controller.load();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Report fail ho gaya: $e')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -81,6 +153,12 @@ class _RouteScreenState extends State<RouteScreen> {
               icon: const Icon(Icons.search),
               tooltip: 'Customers khojein',
               onPressed: widget.onOpenCustomers,
+            ),
+          if (widget.api != null)
+            IconButton(
+              icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              tooltip: 'Stock Khatam (SOS)',
+              onPressed: _stockoutPrompt,
             ),
           if (c.pendingSync > 0)
             Padding(

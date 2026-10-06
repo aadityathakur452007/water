@@ -1315,3 +1315,59 @@ async def admin_ledger(limit: int = Query(default=50, ge=1, le=200),
                  conn=Depends(get_db_conn), user=Admin):
     data, next_cursor = await AdminReadRepo(conn).ledger_page(limit=limit, cursor=_cursor(cursor))
     return {"data": data, "next_cursor": next_cursor}
+
+
+class LeaveReviewIn(BaseModel):
+    action: str = Field(pattern=r"^(approved|rejected)$")
+    cover_vendor_id: str | None = Field(default=None)
+    note: str = Field(default="", max_length=500)
+
+
+@router.get("/admin/vendor-leaves")
+async def list_all_vendor_leaves(
+    status: str | None = Query(default=None),
+    conn=Depends(get_db_conn),
+    user=Admin,
+):
+    where = "WHERE vl.status = ?" if status else ""
+    args = (status,) if status else ()
+    rows = (await conn.execute(
+        f"SELECT vl.*, u.name AS vendor_name, u.phone AS vendor_phone,"
+        f" cu.name AS cover_name, cu.phone AS cover_phone"
+        f" FROM vendor_leaves vl"
+        f" JOIN users u ON u.id = vl.vendor_id"
+        f" LEFT JOIN users cu ON cu.id = vl.cover_vendor_id"
+        f" {where} ORDER BY vl.created_at DESC LIMIT 200",
+        args,
+    )).fetchall()
+    return {"data": [dict(r) for r in rows]}
+
+
+@router.post("/admin/vendor-leaves/{leave_id}/review")
+async def review_vendor_leave(
+    leave_id: str,
+    payload: LeaveReviewIn,
+    conn=Depends(get_db_conn),
+    user=Admin,
+):
+    with WRITE_LOCK:
+        leave = (await conn.execute("SELECT * FROM vendor_leaves WHERE id = ?", (leave_id,))).fetchone()
+        if leave is None:
+            raise NotFoundError(message="Leave request not found.", details={"id": leave_id})
+        now = _now()
+        cover_id = (payload.cover_vendor_id or "").strip() or None
+        if payload.action == "approved" and cover_id:
+            cov = (await conn.execute("SELECT id FROM users WHERE id = ?", (cover_id,))).fetchone()
+            if cov is None:
+                raise NotFoundError(message="Cover vendor not found.", details={"cover_vendor_id": cover_id})
+        await conn.execute(
+            "UPDATE vendor_leaves SET status = ?, cover_vendor_id = ?, reviewed_at = ?, reviewed_by = ?"
+            " WHERE id = ?",
+            (payload.action, cover_id, now, _uid(user), leave_id),
+        )
+        await _audit(conn, user, f"vendor_leave.{payload.action}", "vendor_leaves", leave_id,
+                     dict(leave), {"action": payload.action, "cover_vendor_id": cover_id, "note": payload.note})
+        conn.commit()
+    row = (await conn.execute("SELECT * FROM vendor_leaves WHERE id = ?", (leave_id,))).fetchone()
+    return dict(row)
+

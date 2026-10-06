@@ -128,6 +128,7 @@ class _VendorAppState extends State<VendorApp> {
           meLoader: () => _liveApi.me(),
           profileLoader: () => _liveApi.vendorProfile(),
           profileSaver: (fields) => _liveApi.saveVendorProfile(fields),
+          api: _liveApi,
         ),
       ),
     );

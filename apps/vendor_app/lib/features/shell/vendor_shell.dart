@@ -6,7 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/api_client.dart' show kSupportPhone;
+import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
 import '../auth/auth_controller.dart';
 import '../auth/vendor_strings.dart';
@@ -41,6 +41,7 @@ class VendorShell extends StatefulWidget {
     required this.meLoader,
     this.profileLoader,
     this.profileSaver,
+    this.api,
   });
 
   final AuthController auth;
@@ -55,6 +56,7 @@ class VendorShell extends StatefulWidget {
   final Future<Map<String, dynamic>> Function()? profileLoader;
   final Future<Map<String, dynamic>> Function(Map<String, String> fields)?
       profileSaver;
+  final ApiClient? api;
 
   @override
   State<VendorShell> createState() => _VendorShellState();
@@ -204,6 +206,7 @@ class _VendorShellState extends State<VendorShell>
                     meLoader: widget.meLoader,
                     profileLoader: widget.profileLoader,
                     profileSaver: widget.profileSaver,
+                    api: widget.api,
                   ));
                 },
               ),
@@ -250,6 +253,7 @@ class _VendorShellState extends State<VendorShell>
               children: [
                 RouteScreen(
                   controller: widget.route,
+                  api: widget.api,
                   onOpenStop: (s) => _openStop(context, s),
                   onOpenCustomers: () => _push(
                       CustomersScreen(controller: widget.customers)),

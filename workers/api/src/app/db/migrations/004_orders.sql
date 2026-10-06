@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS returns (
     status TEXT NOT NULL DEFAULT 'requested'
         CHECK (status IN ('requested','picked','refunded','rejected')),
     sla_due TEXT NOT NULL DEFAULT '', -- 10 working days (E)
-    upi_id TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 

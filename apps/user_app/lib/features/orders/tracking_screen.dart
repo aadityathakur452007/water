@@ -294,6 +294,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     _FlatBanner(text: ordersStringsHi['deliveredBanner']!),
                   const SizedBox(height: 16),
                   _WindowCard(order: order),
+                  if (order.stopsAhead != null &&
+                      (order.state == OrderState.dispatched ||
+                          order.state == OrderState.assigned)) ...[
+                    const SizedBox(height: 12),
+                    _LiveStopsAheadBanner(stopsAhead: order.stopsAhead!, order: order),
+                  ],
                   if (order.riderName != null) ...[
                     const SizedBox(height: 12),
                     _RiderCard(order: order, onCall: () => _callRider(order)),
@@ -647,6 +653,76 @@ class _WindowCard extends StatelessWidget {
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: OrdersTokens.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveStopsAheadBanner extends StatelessWidget {
+  const _LiveStopsAheadBanner({required this.stopsAhead, required this.order});
+
+  final int stopsAhead;
+  final Order order;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNext = stopsAhead == 0;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isNext ? const Color(0xFFF0FDF4) : OrdersTokens.blueTint,
+        borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        border: Border.all(
+          color: isNext
+              ? const Color(0xFF86EFAC)
+              : OrdersTokens.blue.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isNext ? const Color(0xFFDCFCE7) : Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isNext ? Icons.local_shipping : Icons.route,
+              color: isNext ? const Color(0xFF15803D) : OrdersTokens.blue,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isNext
+                      ? 'Aapka stop agla hai! 🚀'
+                      : 'Driver abhi $stopsAhead stops door hai ⏱️',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: isNext ? const Color(0xFF166534) : OrdersTokens.ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  isNext
+                      ? 'Driver aapke address par aa raha hai. Kripya empty jar ready rakhein.'
+                      : 'Anumanit samay: lagbhag ${stopsAhead * 10}–${stopsAhead * 15} minute. Empty jar bahar rakhein.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color:
+                        isNext ? const Color(0xFF15803D) : OrdersTokens.muted,
                   ),
                 ),
               ],

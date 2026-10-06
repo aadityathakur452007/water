@@ -217,3 +217,32 @@ async def vendor_payouts(limit: int = Query(default=200, ge=1, le=200),
                   cursor: str = Query(default=""),
                   conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).payouts_for_vendor(_uid(user), limit, cursor)
+
+
+class LeaveRequestIn(BaseModel):
+    start_date: str = Field(min_length=1, max_length=32)
+    end_date: str = Field(min_length=1, max_length=32)
+    reason: str = Field(default="", max_length=500)
+
+
+class StockoutIn(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+@router.post("/vendor/leaves", status_code=201)
+async def request_vendor_leave(payload: LeaveRequestIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Vendor requests planned leave / holidays."""
+    return await _svc(conn).request_leave(_uid(user), payload.start_date, payload.end_date, payload.reason)
+
+
+@router.get("/vendor/leaves")
+async def list_vendor_leaves(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """List own leaves and approval status."""
+    return {"data": await _svc(conn).list_leaves(_uid(user))}
+
+
+@router.post("/vendor/stockout")
+async def report_vendor_stockout(payload: StockoutIn = StockoutIn(), conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Emergency SOS: vendor vehicle is out of stock mid-shift; repool remaining stops."""
+    return await _svc(conn).stockout(_uid(user), payload.reason)
+

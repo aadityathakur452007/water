@@ -54,6 +54,8 @@ class SubscriptionEntry {
     required this.windowStart,
     required this.windowEnd,
     this.paused = false,
+    this.canceled = false,
+    this.refundAmountPaise = 0,
     this.holdFrom,
     this.holdTo,
     this.nextRun,
@@ -65,6 +67,8 @@ class SubscriptionEntry {
   final String windowStart; // '09:00'
   final String windowEnd; // '09:30'
   final bool paused;
+  final bool canceled;
+  final int refundAmountPaise;
   final String? holdFrom; // YYYY-MM-DD
   final String? holdTo; // YYYY-MM-DD
   final String? nextRun; // YYYY-MM-DD
@@ -76,7 +80,9 @@ class SubscriptionEntry {
         qty: (j['qty'] ?? 0) as int,
         windowStart: (j['window_start'] ?? '09:00') as String,
         windowEnd: (j['window_end'] ?? '09:30') as String,
-        paused: (j['paused'] ?? false) as bool,
+        paused: (j['paused'] ?? (j['status'] == 'paused')) as bool,
+        canceled: (j['canceled_at'] != null || j['status'] == 'canceled'),
+        refundAmountPaise: (j['refund_amount_paise'] ?? 0) as int,
         holdFrom: j['hold_from'] as String?,
         holdTo: j['hold_to'] as String?,
         nextRun: j['next_run'] as String?,
@@ -199,6 +205,30 @@ class SubscriptionController extends ChangeNotifier {
       _busy = false;
       _notify();
       return 'loadFailed';
+    }
+  }
+
+  Future<Map<String, dynamic>?> cancelSubscription(
+      String id, String reason, String upiId) async {
+    _busy = true;
+    _notify();
+    try {
+      final res =
+          await _api.cancelSubscription(id: id, reason: reason, upiId: upiId);
+      await load();
+      return res;
+    } on ApiException catch (e) {
+      _busy = false;
+      _notify();
+      return {
+        'error': e.isNetwork
+            ? 'offline'
+            : (e.message.isNotEmpty ? e.message : 'loadFailed')
+      };
+    } catch (e) {
+      _busy = false;
+      _notify();
+      return {'error': e.toString()};
     }
   }
 
@@ -344,6 +374,45 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     _toast(e ?? 'saved');
   }
 
+  Future<void> _cancelSheet(SubscriptionEntry s) async {
+    final res = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _CancelSubscriptionSheet(sub: s),
+    );
+    if (res == null || !mounted) return;
+    final outcome = await widget.controller.cancelSubscription(
+      s.id,
+      res['reason'] ?? '',
+      res['upi_id'] ?? '',
+    );
+    if (!mounted) return;
+    if (outcome == null || outcome.containsKey('error')) {
+      _toast(outcome?['error']?.toString() ?? 'loadFailed');
+    } else {
+      showDialog<void>(
+        context: context,
+        builder: (dlgCtx) => AlertDialog(
+          shape: ShodashaTheme.shape,
+          title: const Text('Subscription Canceled'),
+          content: Text(
+            outcome['message']?.toString() ??
+                'Aapka subscription cancel ho gaya hai. Bacha hua balance refund hoga aur bottle pickup schedule ho gaya hai.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dlgCtx).pop(),
+              child: const Text('Theek hai'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -465,7 +534,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               ),
                             ),
                           ),
-                          if (s.paused)
+                          if (s.canceled)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(
+                                  ShodashaTheme.radius,
+                                ),
+                              ),
+                              child: const Text(
+                                'Canceled',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: ShodashaTheme.danger,
+                                ),
+                              ),
+                            )
+                          else if (s.paused)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
@@ -506,52 +596,72 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           ),
                         ),
                       const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 4,
-                        children: [
-                          if (!s.paused)
-                            TextButton(
-                              onPressed: () => _pauseSheet(s),
-                              child: Text(subStringsHi['pause']!),
-                            )
-                          else
-                            TextButton(
-                              onPressed: () => _resumeSheet(s),
-                              child: Text(subStringsHi['resume']!),
+                      if (s.canceled)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Subscription cancel ho chuki hai • Khali bottle pickup scheduled hai',
+                            style: TextStyle(
+                              color: ShodashaTheme.muted,
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic,
                             ),
-                          if (!s.paused)
+                          ),
+                        )
+                      else
+                        Wrap(
+                          spacing: 4,
+                          children: [
+                            if (!s.paused)
+                              TextButton(
+                                onPressed: () => _pauseSheet(s),
+                                child: Text(subStringsHi['pause']!),
+                              )
+                            else
+                              TextButton(
+                                onPressed: () => _resumeSheet(s),
+                                child: Text(subStringsHi['resume']!),
+                              ),
+                            if (!s.paused)
+                              TextButton(
+                                onPressed: () async {
+                                  final e = await c.skipToday(s.id);
+                                  if (!mounted) return;
+                                  if (e == 'lateSkip') {
+                                    // State.context after State.mounted guard
+                                    // (use_build_context_synchronously).
+                                    showDialog<void>(
+                                      context: this.context,
+                                      builder: (ctx) => AlertDialog(
+                                        shape: ShodashaTheme.shape,
+                                        title:
+                                            Text(subStringsHi['lateSkipTitle']!),
+                                        content:
+                                            Text(subStringsHi['lateSkipBody']!),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () =>
+                                                Navigator.of(ctx).pop(),
+                                            child: const Text('Theek hai'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  } else if (e != null) {
+                                    _toast(e);
+                                  }
+                                },
+                                child: Text(subStringsHi['skipToday']!),
+                              ),
                             TextButton(
-                              onPressed: () async {
-                                final e = await c.skipToday(s.id);
-                                if (!mounted) return;
-                                if (e == 'lateSkip') {
-                                  // State.context after State.mounted guard
-                                  // (use_build_context_synchronously).
-                                  showDialog<void>(
-                                    context: this.context,
-                                    builder: (ctx) => AlertDialog(
-                                      shape: ShodashaTheme.shape,
-                                      title:
-                                          Text(subStringsHi['lateSkipTitle']!),
-                                      content:
-                                          Text(subStringsHi['lateSkipBody']!),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.of(ctx).pop(),
-                                          child: const Text('Theek hai'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                } else if (e != null) {
-                                  _toast(e);
-                                }
-                              },
-                              child: Text(subStringsHi['skipToday']!),
+                              onPressed: () => _cancelSheet(s),
+                              child: const Text(
+                                'Cancel karein',
+                                style: TextStyle(color: ShodashaTheme.danger),
+                              ),
                             ),
-                        ],
-                      ),
+                          ],
+                        ),
                     ],
                   ),
                 );
@@ -844,3 +954,189 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
     );
   }
 }
+
+class _CancelSubscriptionSheet extends StatefulWidget {
+  const _CancelSubscriptionSheet({required this.sub});
+  final SubscriptionEntry sub;
+
+  @override
+  State<_CancelSubscriptionSheet> createState() =>
+      _CancelSubscriptionSheetState();
+}
+
+class _CancelSubscriptionSheetState extends State<_CancelSubscriptionSheet> {
+  final _upiCtrl = TextEditingController();
+  String _selectedReason = 'Ab jar ki zarurat nahi hai';
+  final _reasons = const [
+    'Ab jar ki zarurat nahi hai',
+    'Doosre shahar / ilaqe me ja rahe hain',
+    'Delivery time suit nahi karta',
+    'Quality ya service me samasya',
+    'Kuch aur kaaran',
+  ];
+
+  @override
+  void dispose() {
+    _upiCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.cancel_outlined,
+                  color: ShodashaTheme.danger, size: 24),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Subscription Cancel Karein',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+              border: Border.all(color: ShodashaTheme.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Refund & Jar Return Calculation:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.water_drop_outlined,
+                        size: 16, color: ShodashaTheme.blue),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Unused Days Refund: Mahine ke bache hue dino ka paisa prorate ho kar aapke UPI par turant aayega.',
+                        style:
+                            TextStyle(fontSize: 12, color: ShodashaTheme.ink),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.inventory_2_outlined,
+                        size: 16, color: ShodashaTheme.blue),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Jar Deposit Refund: Ghar par rakhe bottle (${widget.sub.qty} jars) pickup ke baad ₹${widget.sub.qty * 150} turant refund hoga.',
+                        style: const TextStyle(
+                            fontSize: 12, color: ShodashaTheme.ink),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Cancel karne ka kaaran chunein',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          DropdownButtonFormField<String>(
+            initialValue: _selectedReason,
+            isExpanded: true,
+            decoration: InputDecoration(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius)),
+            ),
+            items: _reasons
+                .map((r) => DropdownMenuItem(
+                    value: r,
+                    child: Text(r, style: const TextStyle(fontSize: 13))))
+                .toList(),
+            onChanged: (val) {
+              if (val != null) setState(() => _selectedReason = val);
+            },
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Refund ke liye UPI ID darj karein',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _upiCtrl,
+            decoration: InputDecoration(
+              hintText: 'e.g. 9876543210@upi ya name@okhdfcbank',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius)),
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: ShodashaTheme.danger,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+              ),
+              onPressed: () {
+                final upi = _upiCtrl.text.trim();
+                Navigator.of(context).pop({
+                  'reason': _selectedReason,
+                  'upi_id': upi,
+                });
+              },
+              child: const Text(
+                'Cancel Karein & Pickup Schedule Karein',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

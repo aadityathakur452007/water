@@ -253,12 +253,24 @@ async def _route_for(conn: Conn, vendor_id: str, date: str, zone: str) -> str:
 
 async def route_for_vendor(conn: Conn, vendor_id: str, date: str | None = None) -> str:
     """F8: find-or-create a vendor's route for a date (manual returns assign).
+    If vendor has an approved leave on this date, routes to their cover vendor.
     Zone = vendor's priority-0 zone ("" when zoneless — pool semantics stay)."""
     day = date or _today()
+    target_vid = vendor_id
+    try:
+        leave = (await conn.execute(
+            "SELECT cover_vendor_id FROM vendor_leaves"
+            " WHERE vendor_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ?",
+            (vendor_id, day, day),
+        )).fetchone()
+        if leave and leave["cover_vendor_id"]:
+            target_vid = str(leave["cover_vendor_id"])
+    except Exception:
+        pass
     zrow = (await conn.execute(
         "SELECT zone_id FROM vendor_zones WHERE vendor_id = ? ORDER BY priority LIMIT 1",
-        (vendor_id,))).fetchone()
-    return await _route_for(conn, vendor_id, day, str(zrow["zone_id"]) if zrow else "")
+        (target_vid,))).fetchone()
+    return await _route_for(conn, target_vid, day, str(zrow["zone_id"]) if zrow else "")
 
 
 async def _event(conn: Conn, order_id: str, frm: str | None, to: str,
@@ -271,8 +283,19 @@ async def _event(conn: Conn, order_id: str, frm: str | None, to: str,
 
 
 async def least_loaded_vendor(conn: Conn, zone_id: str, date: str | None = None) -> dict | None:
-    """Deterministic pick (§9.2): fewest stops, then jars, then priority, duty_on."""
+    """Deterministic pick (§9.2): fewest stops, then jars, then priority, duty_on.
+    Excludes vendors on approved leave for the date."""
     date = date or _today()
+    try:
+        on_leave = {
+            r["vendor_id"] for r in (await conn.execute(
+                "SELECT vendor_id FROM vendor_leaves"
+                " WHERE status = 'approved' AND start_date <= ? AND end_date >= ?",
+                (date, date),
+            )).fetchall()
+        }
+    except Exception:
+        on_leave = set()
     cands = (await conn.execute(
         "SELECT vz.vendor_id AS vid, vz.priority AS pri FROM vendor_zones vz"
         " JOIN vendor_profile p ON p.user_id = vz.vendor_id"
@@ -282,6 +305,8 @@ async def least_loaded_vendor(conn: Conn, zone_id: str, date: str | None = None)
     best: tuple | None = None
     best_id: str | None = None
     for c in cands:
+        if str(c["vid"]) in on_leave:
+            continue
         prof = await ensure_profile(conn, str(c["vid"]))
         stops, jars = await _load(conn, str(c["vid"]), date)
         if stops >= int(prof.get("max_stops_per_shift", 25)):

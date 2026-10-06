@@ -214,6 +214,8 @@ class OrderService:
         # F1: PoD delivery code for the owner, only while a stop is active.
         # Hidden before assignment (no route yet) and after terminal states.
         delivery_otp: str | None = None
+        stops_ahead: int | None = None
+        rider_info: dict | None = None
         if order["state"] in ("assigned", "dispatched"):
             day = await self.orders.route_date_for_order(order_id)
             if day is not None:
@@ -222,11 +224,40 @@ class OrderService:
                 # Stored random code when the stop has one (015); legacy
                 # deterministic code for pre-migration rows. Owner-only leg.
                 delivery_otp = await self.orders.stop_pod_otp(order_id) or pod_otp(order_id, day)
+
+            try:
+                stop_row = (await self.orders._conn.execute(
+                    "SELECT s.id, s.route_id, s.seq, r.vendor_id FROM stops s"
+                    " JOIN routes r ON r.id = s.route_id"
+                    " WHERE s.order_id = ? AND s.status = 'pending'",
+                    (order_id,)
+                )).fetchone()
+                if stop_row is not None:
+                    ahead_row = (await self.orders._conn.execute(
+                        "SELECT COUNT(*) c FROM stops WHERE route_id = ? AND status = 'pending' AND seq < ?",
+                        (stop_row["route_id"], stop_row["seq"])
+                    )).fetchone()
+                    stops_ahead = int(ahead_row["c"]) if ahead_row else 0
+                    v_row = (await self.orders._conn.execute(
+                        "SELECT u.name, u.phone, p.name AS prof_name, p.phone AS prof_phone FROM users u"
+                        " LEFT JOIN vendor_profile p ON p.user_id = u.id WHERE u.id = ?",
+                        (stop_row["vendor_id"],)
+                    )).fetchone()
+                    if v_row is not None:
+                        rider_info = {
+                            "name": v_row["prof_name"] or v_row["name"] or "Water Delivery Partner",
+                            "phone": v_row["prof_phone"] or v_row["phone"] or "",
+                            "stops_ahead": stops_ahead,
+                        }
+            except Exception:
+                pass
+
         return {
             **order,
             "delivery_otp": delivery_otp,
+            "stops_ahead": stops_ahead,
             "tracker": {"steps": ["placed", "packed", "dispatched", "delivered"], "current": order["state"]},
-            "rider": None,  # populated once assigned (assignment slice owns stops/routes)
+            "rider": rider_info,
             "bill": {
                 "water_bill": order["water_bill"],
                 "deposit_due": order["deposit_due"],

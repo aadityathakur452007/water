@@ -229,6 +229,7 @@ class Order {
     this.paymentMode = 'cod',
     this.paymentStatus = 'unpaid',
     this.deliveryOtp,
+    this.stopsAhead,
   });
 
   final String id;
@@ -237,6 +238,7 @@ class Order {
   final DateTime? windowEnd;
   final String? riderName;
   final String? riderPhone;
+  final int? stopsAhead;
   final String itemSummary;
   final String addressLabel;
   final int waterBillPaise;
@@ -285,6 +287,7 @@ class Order {
     String? paymentMode,
     String? paymentStatus,
     String? deliveryOtp,
+    int? stopsAhead,
     int? refillQty,
     int? containerQty,
   }) {
@@ -295,6 +298,7 @@ class Order {
       windowEnd: windowEnd ?? this.windowEnd,
       riderName: riderName ?? this.riderName,
       riderPhone: riderPhone ?? this.riderPhone,
+      stopsAhead: stopsAhead ?? this.stopsAhead,
       paymentMode: paymentMode ?? this.paymentMode,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       deliveryOtp: deliveryOtp ?? this.deliveryOtp,
@@ -499,7 +503,12 @@ Order orderFromApi(Map<String, dynamic> json) {
         tryDate(json['window_start']) ?? DateTime.fromMillisecondsSinceEpoch(0),
     windowEnd: tryDate(json['window_end']),
     riderName: rider['name']?.toString(),
-    riderPhone: rider['call']?.toString(),
+    riderPhone: (rider['phone'] ?? rider['call'])?.toString(),
+    stopsAhead: json['stops_ahead'] != null
+        ? (json['stops_ahead'] as num).toInt()
+        : (rider['stops_ahead'] != null
+            ? (rider['stops_ahead'] as num).toInt()
+            : null),
     itemSummary: parts.join(' + '),
     waterBillPaise: paise(bill['water_bill'] ?? json['water_bill']),
     depositDuePaise: paise(bill['deposit_due'] ?? json['deposit_due']),

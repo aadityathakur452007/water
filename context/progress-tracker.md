@@ -122,6 +122,14 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 
 ## Completed
 
+- ADR-101 Edge Case Calculations & Platform Enhancements DONE (2026-10-06):
+  1. Subscription mid-cycle cancellation proration: calculates exact refund for remaining unused prepaid delivery days ($R = \lfloor P \times \frac{D_{\text{remaining}}}{D_{\text{total}}} \rfloor$), updates DB status safely without SQLite CHECK constraint violation, auto-schedules bottle return in `returns` with UPI ID; full user app cancel UI with refund breakdown and UPI entry sheet.
+  2. Incremental bottle deposit deficit math: fixed `pricing.py` to charge ₹150 collateral per extra container when $N > E + \text{covered\_jars}$.
+  3. Vendor planned leaves & cover routing: vendor submits leave request with date range + reason, admin reviews + assigns `cover_vendor_id`, dispatch service re-routes stops to backup vendor and excludes absent vendor; vendor app leave management card + request dialog.
+  4. Emergency stockout mid-route SOS: vendor vehicle out of water mid-shift SOS button repools remaining pending stops to pool and sets off-duty; vendor app AppBar SOS button with confirmation.
+  5. Live stops-ahead transparency: order tracking exposes `stops_ahead` and populated rider details; `_LiveStopsAheadBanner` in user tracking screen.
+  Verify: 310 backend pytest green, 132 user app tests green, 70 vendor app tests green, both Flutter analyzers clean (0 issues). Worker deployed live; migration 022 applied to prod D1.
+- ADR-100 Customer Payment Visibility, Direct UPI Exit Refund, Location Pinpoint Overhaul, Monthly Plan Calculator, Vendor Custody Split DONE (2026-10-06): `GET /v1/payments/me`, `returns.upi_id` migration 021, `PaymentHistoryScreen`, direct UPI refund on deposit return, `MapPicker` + `LocationService` overhaul, `_MonthlyPlanCalculator`, vendor custody vs earned payout split. Verify: 307 backend, 132 user, 70 vendor tests green.
 - Address entry fix ADR-058 DONE (2026-10-02, branch 012-address-auth aeecc83): root cause was never maps — the shared ApiClient had no token source so every address call 401'd (vendor had the wiring, user did not). F1 lazy Bearer getter + F2 login-gate with return + F3 picker auto-locate (Delhi fallback) + F4 persisted-selection race. 5 regression tests; user 87, vendor 28 green, analyzes 0. Awaiting device run + merge call.
 - Grocery-lift verification DONE (2026-10-02, branch 011-grocery-verify 17eb30c): runtime widget tests prove the lift is rendered — home grid/greeting/stagger/tap-to-buy-box, route headers/cards/cascade, customer tiles/cascade. user 82, vendor 28 green, analyzes 0. Merge call open.
 - 010-grocery-ui MERGED + PUSHED to main (2026-10-02, 4e74d8a): ADR-057 lift ships; release auto-cuts dual APKs.

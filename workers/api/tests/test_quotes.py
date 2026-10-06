@@ -133,3 +133,15 @@ def test_router_bad_pincode_400():
     c = _client()
     r = c.get("/v1/serviceability", params={"pincode": "abc"})
     assert r.status_code == 400
+
+
+def test_incremental_extra_container_charged_deposit():
+    # User holds 1 deposit (15000) and orders 2 containers with 0 empties
+    # Container 1 is covered, Container 2 charges 15000 deposit
+    q = pricing.compute_quote(
+        [{"sku": "container", "qty": 2}], 0, RATES, deposit_already_paid_paise=15000
+    )
+    assert q["water_bill"] == 6000
+    assert q["deposit_due"] == 15000
+    assert q["total"] == 21000
+

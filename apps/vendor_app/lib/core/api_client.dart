@@ -302,6 +302,33 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
+  /// Emergency SOS: vehicle out of stock mid-shift; repool remaining stops.
+  Future<Map<String, dynamic>> reportStockout({String reason = ''}) async {
+    final raw = await send('POST', '/vendor/stockout', body: {'reason': reason});
+    return (raw as Map<String, dynamic>);
+  }
+
+  /// Planned holidays / leave request.
+  Future<Map<String, dynamic>> requestLeave({
+    required String startDate,
+    required String endDate,
+    String reason = '',
+  }) async {
+    final raw = await send('POST', '/vendor/leaves', body: {
+      'start_date': startDate,
+      'end_date': endDate,
+      'reason': reason,
+    });
+    return (raw as Map<String, dynamic>);
+  }
+
+  Future<List<dynamic>> listLeaves() async {
+    final raw = await send('GET', '/vendor/leaves');
+    if (raw is List<dynamic>) return raw;
+    return ((raw as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+
   Future<Map<String, dynamic>> todayRoute({String? date}) async {
     final raw = await send(
       'GET',
@@ -470,3 +497,4 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 }
+

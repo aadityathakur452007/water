@@ -239,6 +239,8 @@ class SubscriptionService:
         out = []
         for r in rows:
             d = _row(r)
+            if d.get("canceled_at"):
+                d["status"] = "canceled"
             d["due_today_paise"] = _due_today(d.get("qty"), d.get("sku_mix"))
             out.append(d)
         return out
@@ -247,7 +249,109 @@ class SubscriptionService:
         row = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE id = ? AND user_id = ?", (sub_id, user_id)
         )).fetchone()
-        return _row(row) if row is not None else None
+        if row is None:
+            return None
+        d = _row(row)
+        if d.get("canceled_at"):
+            d["status"] = "canceled"
+        return d
+
+    # -- cancel -----------------------------------------------------------
+
+    async def cancel(self, user_id: str, sub_id: str, reason: str = "", upi_id: str = "") -> dict:
+        sub = await self.get_owned(user_id, sub_id)
+        if sub is None:
+            raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
+        if sub.get("canceled_at") or sub.get("status") == "canceled":
+            raise SubValidationError(message="Subscription is already canceled.", details={"id": sub_id})
+
+        delivered_row = (await self._conn.execute(
+            "SELECT COUNT(*) c FROM orders WHERE idempotency_key LIKE ? AND state = 'delivered'",
+            (f"sub:{sub_id}:%",),
+        )).fetchone()
+        delivered_count = int(delivered_row["c"]) if delivered_row else 0
+        from app.services import pricing
+        rate = pricing.REFILL_PAISE if str(sub.get("sku_mix") or "").lower() != "container" else pricing.CONTAINER_PAISE
+
+        total_cycle_days = 30
+        used_cost_paise = delivered_count * int(sub.get("qty", 1)) * rate
+        cycle_total_paise = total_cycle_days * int(sub.get("qty", 1)) * rate
+        is_prepaid = str(sub.get("payment_method") or "").lower() in ("upi", "prepaid", "online")
+
+        unused_refund_paise = max(0, cycle_total_paise - used_cost_paise) if is_prepaid else 0
+
+        from app.repositories.ledger_repo import LedgerRepo
+        ledger_repo = LedgerRepo(self._conn)
+        led = await ledger_repo.get(user_id)
+        held_jars = max(0, int(led.get("held", 0)))
+        dues = max(0, int(led.get("dues", 0)))
+
+        net_water_refund_paise = max(0, unused_refund_paise - dues)
+
+        return_id = None
+        deposit_rate = pricing.DEPOSIT_PAISE
+        jars_to_return = min(held_jars, int(sub.get("qty", 1))) if held_jars > 0 else 0
+        now_str = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+        with WRITE_LOCK:
+            try:
+                if jars_to_return > 0:
+                    return_id = uuid.uuid4().hex
+                    from app.api.v1.returns import _sla_due
+                    sla = _sla_due()
+                    upi = (upi_id or "").strip()
+                    try:
+                        await self._conn.execute(
+                            "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at, upi_id)"
+                            " VALUES (?, ?, ?, ?, 'requested', ?, ?, ?)",
+                            (return_id, user_id, jars_to_return, sub["address_id"], sla, now_str, upi),
+                        )
+                    except Exception:
+                        await self._conn.execute(
+                            "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
+                            " VALUES (?, ?, ?, ?, 'requested', ?, ?)",
+                            (return_id, user_id, jars_to_return, sub["address_id"], sla, now_str),
+                        )
+
+                # Keep status='paused' for DB CHECK constraint, set canceled_at
+                try:
+                    await self._conn.execute(
+                        "UPDATE subscriptions SET status = 'paused', canceled_at = ?, cancel_reason = ?,"
+                        " refund_amount_paise = ? WHERE id = ?",
+                        (now_str, reason or "Customer canceled subscription", net_water_refund_paise, sub_id),
+                    )
+                except Exception:
+                    await self._conn.execute(
+                        "UPDATE subscriptions SET status = 'paused' WHERE id = ?", (sub_id,)
+                    )
+
+                if net_water_refund_paise > 0:
+                    await ledger_repo.apply_event(
+                        user_id,
+                        d_held=0,
+                        d_deposit=0,
+                        d_dues=-min(unused_refund_paise, dues),
+                        ref=f"sub-cancel:{sub_id}",
+                        actor=user_id,
+                        reason="Subscription unused water refund",
+                        commit=False,
+                    )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        return {
+            "id": sub_id,
+            "status": "canceled",
+            "canceled_at": now_str,
+            "is_prepaid": is_prepaid,
+            "unused_water_refund_paise": net_water_refund_paise,
+            "return_id": return_id,
+            "jars_to_return": jars_to_return,
+            "deposit_refund_expected_paise": jars_to_return * deposit_rate,
+            "message": "Subscription canceled. Unused water balance refunded. Bottle pickup scheduled.",
+        }
 
     # -- pause / resume / skip --------------------------------------------
 
@@ -255,6 +359,8 @@ class SubscriptionService:
         sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
+        if sub.get("canceled_at"):
+            raise SubValidationError(message="Cannot modify a canceled subscription.", details={"id": sub_id})
         dfrom, dto = _parse_day(hold_from), _parse_day(hold_to)
         if dfrom is None or dto is None or dfrom > dto:
             raise SubValidationError(
@@ -281,6 +387,8 @@ class SubscriptionService:
         sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
+        if sub.get("canceled_at"):
+            raise SubValidationError(message="Cannot modify a canceled subscription.", details={"id": sub_id})
         now = now or _now()
         pref = _parse_dt(preferred_date)
         if pref is None:
@@ -312,6 +420,8 @@ class SubscriptionService:
         sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
+        if sub.get("canceled_at"):
+            raise SubValidationError(message="Cannot modify a canceled subscription.", details={"id": sub_id})
         day = _parse_day(date)
         now = now or _now()
         if day is None:

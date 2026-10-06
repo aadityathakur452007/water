@@ -93,3 +93,22 @@ async def resume_subscription(sub_id: str, payload: ResumeIn, user=Depends(requi
 async def skip_subscription(sub_id: str, payload: SkipIn, user=Depends(require_active_user),
                       conn=Depends(get_db_conn)):
     return await SubscriptionService(conn).skip(_uid(user), sub_id, payload.date)
+
+
+class CancelSubIn(BaseModel):
+    reason: str = Field(default="", max_length=500)
+    upi_id: str | None = Field(default=None, max_length=100)
+
+
+@router.post("/subscriptions/{sub_id}/cancel")
+async def cancel_subscription(
+    sub_id: str,
+    payload: CancelSubIn,
+    user=Depends(require_active_user),
+    conn=Depends(get_db_conn),
+):
+    """Cancel subscription: prorates unused water days and schedules empty bottle pickup."""
+    return await SubscriptionService(conn).cancel(
+        _uid(user), sub_id, payload.reason, payload.upi_id or ""
+    )
+

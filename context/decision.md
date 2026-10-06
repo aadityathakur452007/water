@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-101 | 2026-10-06 | Subscription Mid-Cycle Cancellation Proration, Incremental Jar Deposit Deficit Math, Vendor Leave Cover Routing, Stockout SOS Repooling, Live Stops-Ahead Transparency | Accepted | workers/api (pricing/sub_service/vendor_service/dispatch/022), user_app (subs/tracking), vendor_app (profile/route/api_client) |
 | ADR-100 | 2026-10-06 | Customer Payment Visibility, Direct UPI Exit Refund, Location/Map Accuracy Overhaul, Subscription Calculator & Vendor Custody Split | Accepted | workers/api (payments/returns/021/vendor_service), user_app (payment_history/address_screen/map_picker/subs/profile), vendor_app (earnings) |
 | ADR-099 | 2026-10-06 | Razorpay secrets provisioned + worker deployed + live webhook HMAC verified 200/401 + D1 migrations 002-020 verified | Accepted | workers/api prod secrets, water worker deploy, webhook verify, prod D1 |
 | ADR-098 | 2026-10-06 | Git hygiene: ignore root .idea, .freebuff, .utim_tmp, and *.iml | Accepted | .gitignore, repo root |
@@ -155,6 +156,24 @@
 ---
 
 ## Decision Entries
+
+### ADR-101: Subscription Mid-Cycle Cancellation Proration, Incremental Jar Deposit Deficit Math, Vendor Leave Cover Routing, Stockout SOS Repooling, Live Stops-Ahead Transparency
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Solved 5 critical edge-case calculation and operational flow gaps:
+  1. *Mid-cycle subscription cancellation*: When a subscriber cancels midway through their 30-day plan, calculating prorated refund for remaining unused prepaid delivery days ($R = \lfloor P \times \frac{D_{\text{remaining}}}{D_{\text{total}}} \rfloor$), updating DB subscription status without tripping SQLite CHECK constraints, and automatically scheduling container pickup with direct user UPI ID.
+  2. *Incremental jar deposit deficit*: Old `pricing.py` had a calculation bug where a subscribed customer who paid deposit for 1 jar and ordered 2 jars without an empty ($N > E$) was charged ₹0 deposit because `deposit_already_paid_paise >= deposit`. Fixed to calculate `net_uncovered = max(0, n_container - e_vs_containers - covered_jars)` so each additional un-collateralized container is correctly charged ₹150 deposit.
+  3. *Vendor leave request & backup routing*: When a vendor takes planned leave/holidays, vendor submits date range and reason (`POST /v1/vendor/leaves`), admin reviews and assigns a backup vendor (`cover_vendor_id`), and dispatch service automatically re-routes deliveries to the cover vendor and excludes the absent vendor from assignment.
+  4. *Mid-route stockout emergency SOS*: If a vendor runs out of water jars mid-shift, they tap SOS (`POST /v1/vendor/stockout`), the vehicle is marked off-duty, and remaining pending stops are automatically repooled to the unassigned pool for other vendors.
+  5. *Live delivery transparency*: Customers with dispatched orders can see live `stops_ahead` count and driver details in `_LiveStopsAheadBanner` so they know exactly when the delivery is arriving.
+- **Options considered**:
+  (1) Hardcoding canceled in DB CHECK constraint vs keeping status paused + canceled_at timestamp (chosen paused + canceled_at: prevents schema alteration failures on existing SQLite DBs while cleanly surfacing canceled status in DTOs).
+  (2) Flat ₹0 refund on mid-cycle cancellation vs strict daily proration (chosen exact daily proration: fair to users, discourages chargebacks).
+  (3) Unassigned stops remaining stuck when vendor runs out of water vs automated repooling (chosen automated repooling: allows neighboring vendors to service stops without customer delay).
+- **Decision**: Added migration 022 (`vendor_leaves` + `subscriptions.canceled_at`, `cancel_reason`, `refund_amount_paise`), updated `pricing.py`, added `cancel()` in `subscription_service.py`, added leave management and stockout SOS in `vendor_service.py` and `dispatch_service.py`, added `stops_ahead` in `order_service.py`. Built `_CancelSubscriptionSheet` in user app and Leave Management card + Stockout SOS action in vendor app.
+- **Why**: Eliminates financial leaks on container deposits, provides fair transparent refunds on subscription cancellations, guarantees route resilience during vendor absences and mid-day stockouts, and enhances live delivery tracking transparency.
+- **Consequences**: Zero regressions across all 3 codebases: 310 backend pytest green, 132 user app tests green, 70 vendor app tests green, both Flutter analyzers reporting 0 issues.
+- **Affects**: workers/api (pricing/sub_service/vendor_service/dispatch/022), user_app (subs/tracking), vendor_app (profile/route/api_client)
 
 ### ADR-100: Customer Payment Visibility, Direct UPI Exit Refund, Location/Map Overhaul, Monthly Plan Calculator, Vendor Custody Split
 - **Date**: 2026-10-06

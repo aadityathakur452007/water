@@ -40,14 +40,16 @@ def compute_quote(items, e, rates=None, address_id="", window_start="", rate_ver
             n_container += qty
     n_total = n_refill + n_container
     water_bill = n_refill * refill + n_container * container
-    # Once-only deposit: refill never carries deposit; container carries
-    # (n_container - empties_against_containers) only when the wallet does
-    # not already hold >= one deposit. Damage/quit settlement stays in ledger.
-    if n_container <= 0 or int(deposit_already_paid_paise or 0) >= deposit:
+    # Container deposit calculation: refill never carries deposit.
+    # Container carries deposit for any net new jars that exceed both
+    # the returned empties and deposits already held in the customer's wallet.
+    if n_container <= 0:
         deposit_due = 0
     else:
         e_vs_containers = max(0, min(int(e), n_container))
-        deposit_due = max(0, n_container - e_vs_containers) * deposit
+        covered_jars = max(0, int(deposit_already_paid_paise or 0) // deposit)
+        net_uncovered = max(0, n_container - e_vs_containers - covered_jars)
+        deposit_due = net_uncovered * deposit
     total = water_bill + deposit_due
     canonical = json.dumps(
         {

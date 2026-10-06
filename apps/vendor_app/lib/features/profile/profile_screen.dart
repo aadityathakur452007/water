@@ -5,7 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/api_client.dart' show kSupportPhone;
+import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
 import '../auth/auth_controller.dart';
 
@@ -16,6 +16,7 @@ class ProfileScreen extends StatefulWidget {
     required this.meLoader,
     this.profileLoader,
     this.profileSaver,
+    this.api,
   });
 
   final AuthController auth;
@@ -25,6 +26,7 @@ class ProfileScreen extends StatefulWidget {
   final Future<Map<String, dynamic>> Function()? profileLoader;
   final Future<Map<String, dynamic>> Function(Map<String, String> fields)?
       profileSaver;
+  final ApiClient? api;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -43,6 +45,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late final TextEditingController _phone;
   late final TextEditingController _address;
   late final TextEditingController _hours;
+
+  List<dynamic> _leaves = [];
+  bool _leavesLoading = false;
 
   @override
   void initState() {
@@ -78,10 +83,137 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _address.text = (_profile?['address'] ?? '') as String;
         _hours.text = (_profile?['hours'] ?? '') as String;
       }
+      await _loadLeaves();
     } catch (_) {
       _error = 'Profile load nahi hua';
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _loadLeaves() async {
+    final api = widget.api;
+    if (api == null) return;
+    setState(() => _leavesLoading = true);
+    try {
+      final list = await api.listLeaves();
+      if (mounted) setState(() => _leaves = list);
+    } catch (_) {}
+    if (mounted) setState(() => _leavesLoading = false);
+  }
+
+  Future<void> _requestLeaveDialog() async {
+    final api = widget.api;
+    if (api == null) return;
+    DateTime? start;
+    DateTime? end;
+    final reasonCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('Nayi Chutti Request'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Kripya chutti ki tareekh chunein taaki backup vendor route sambhal sake:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.calendar_today),
+                  title: Text(start == null
+                      ? 'Shuru tareekh (Start Date)'
+                      : '${start!.year}-${start!.month.toString().padLeft(2, '0')}-${start!.day.toString().padLeft(2, '0')}'),
+                  trailing: const Text('Select', style: TextStyle(color: ShodashaTheme.blue)),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: DateTime.now().add(const Duration(days: 1)),
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 90)),
+                    );
+                    if (picked != null) {
+                      setDlgState(() {
+                        start = picked;
+                        if (end != null && end!.isBefore(start!)) end = start;
+                      });
+                    }
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event),
+                  title: Text(end == null
+                      ? 'Aakhiri tareekh (End Date)'
+                      : '${end!.year}-${end!.month.toString().padLeft(2, '0')}-${end!.day.toString().padLeft(2, '0')}'),
+                  trailing: const Text('Select', style: TextStyle(color: ShodashaTheme.blue)),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: start ?? DateTime.now().add(const Duration(days: 1)),
+                      firstDate: start ?? DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 90)),
+                    );
+                    if (picked != null) {
+                      setDlgState(() => end = picked);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: reasonCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Karan (Reason - Optional)',
+                    hintText: 'Jaise: Shaadi, Bimari, Tyohar...',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: (start == null || end == null)
+                  ? null
+                  : () => Navigator.of(ctx).pop(true),
+              child: const Text('Request Bhejein'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (ok == true && start != null && end != null && mounted) {
+      final sStr = '${start!.year}-${start!.month.toString().padLeft(2, '0')}-${start!.day.toString().padLeft(2, '0')}';
+      final eStr = '${end!.year}-${end!.month.toString().padLeft(2, '0')}-${end!.day.toString().padLeft(2, '0')}';
+      try {
+        await api.requestLeave(
+          startDate: sStr,
+          endDate: eStr,
+          reason: reasonCtrl.text.trim(),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chutti request bhej di gayi hai! Admin review karega.')),
+          );
+          _loadLeaves();
+        }
+      } catch (err) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Request fail hui: $err')),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _whatsapp() async {
@@ -222,6 +354,103 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         if (widget.profileLoader != null) const SizedBox(height: 12),
+        if (widget.api != null) ...[
+          Card(
+            shape: ShodashaTheme.shape,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Chutti / Planned Leave',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 20),
+                        onPressed: _leavesLoading ? null : _loadLeaves,
+                        tooltip: 'Refresh',
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    'Chutti par jaane se pehle request karein taaki route cover assign ho sake.',
+                    style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _requestLeaveDialog,
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: const Text('Nayi Chutti Request Karein'),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_leavesLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  else if (_leaves.isEmpty)
+                    const Text(
+                      'Abhi koi leave request nahi hai.',
+                      style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                    )
+                  else
+                    ..._leaves.map((l) {
+                      final item = l as Map<String, dynamic>;
+                      final status = (item['status'] ?? 'pending').toString();
+                      final color = status == 'approved'
+                          ? ShodashaTheme.success
+                          : (status == 'rejected' ? ShodashaTheme.danger : Colors.orange);
+                      final label = status == 'approved'
+                          ? 'Manzoor (Approved)'
+                          : (status == 'rejected' ? 'Radd (Rejected)' : 'Under Review');
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: ShodashaTheme.border),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${item['start_date']} se ${item['end_date']}',
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                  if ((item['reason'] ?? '').toString().isNotEmpty)
+                                    Text(
+                                      '${item['reason']}',
+                                      style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Chip(
+                              label: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+                              backgroundColor: color.withValues(alpha: 0.1),
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         OutlinedButton.icon(
           onPressed: _whatsapp,
           icon: const Icon(Icons.support_agent_outlined),

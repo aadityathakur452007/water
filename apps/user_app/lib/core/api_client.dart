@@ -342,6 +342,17 @@ class ApiClient {
       (await send('POST', '/subscriptions/$id/skips', body: {'date': date}))
           as Map<String, dynamic>;
 
+  Future<Map<String, dynamic>> cancelSubscription({
+    required String id,
+    String reason = '',
+    String upiId = '',
+  }) async =>
+      (await send('POST', '/subscriptions/$id/cancel', body: {
+        'reason': reason,
+        'upi_id': upiId,
+      })) as Map<String, dynamic>;
+
+
   // ── Ledger / returns (§4.6) ───────────────────────────────────────────────
   Future<Map<String, dynamic>> ledgerMe() async =>
       (await send('GET', '/ledger/me')) as Map<String, dynamic>;
