@@ -1,11 +1,13 @@
 """Orders router: thin HTTP boundary (parse, validate DTO, map to service).
 
-Bare paths — mounted under ``/v1`` by the app factory/integrator. Every route is
-behind ``get_current_user``: C1's ``app.api.auth_deps`` when it lands, else the
-test-local stub below (header-bound identity, never trusted in production).
+Bare paths — mounted under ``/v1`` by the app factory/integrator. Reads stay on
+``get_current_user`` (suspended users keep history); writes need an active user
+(``require_active_user``), and creation additionally requires ``role=='user'``
+(module ``_user`` gate — vendors/admins never mint orders as themselves).
 Actor id/role always come from the session, never the body (H1).
 """
 from fastapi import APIRouter, Depends, Header, Query, Request
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_db_conn, get_settings
 from app.repositories.ledger_repo import LedgerRepo
@@ -23,7 +25,7 @@ from app.services import pricing
 from app.services.order_service import OrderService
 
 try:  # C1 owns app.api.auth_deps; real session auth takes precedence.
-    from app.api.auth_deps import get_current_user  # type: ignore[import-not-found]
+    from app.api.auth_deps import get_current_user, require_active_user, require_role  # type: ignore[import-not-found]
 except ImportError:  # test-local stub: identity from headers only.
 
     def get_current_user(request: Request) -> dict:
@@ -32,8 +34,21 @@ except ImportError:  # test-local stub: identity from headers only.
             "role": request.headers.get("X-User-Role", "user"),
         }
 
+    def require_active_user(request: Request) -> dict:
+        return get_current_user(request)
+
+    def require_role(*roles: str):
+        def _dep(request: Request) -> dict:
+            return get_current_user(request)
+
+        return _dep
+
 
 router = APIRouter(tags=["orders"])
+
+# Module-level so tests can override this exact dep (same pattern as
+# vendor.py `_vendor`): creation is a user-role-only write.
+_user = require_role("user")
 
 
 def _uid(user: object) -> str:
@@ -64,7 +79,7 @@ def _require_idem(idem: str | None) -> str:
 async def create_order(
     payload: OrderIn,
     conn=Depends(get_db_conn),
-    user=Depends(get_current_user),
+    user=Depends(_user),
     idem: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     return await _service(conn).create(_uid(user), payload.model_dump(mode="json"), _require_idem(idem))
@@ -85,12 +100,27 @@ async def get_order(order_id: str, conn=Depends(get_db_conn), user=Depends(get_c
     return await _service(conn).detail(_uid(user), order_id)
 
 
+@router.get("/orders/{order_id}/tracking")
+async def get_tracking(order_id: str, conn=Depends(get_db_conn), user=Depends(get_current_user)):
+    return await _service(conn).tracking(_uid(user), order_id)
+
+
+class InstructionsIn(BaseModel):
+    instructions: str = Field(default="", max_length=500)
+
+
+@router.patch("/orders/{order_id}/instructions")
+async def set_instructions(order_id: str, payload: InstructionsIn,
+                     conn=Depends(get_db_conn), user=Depends(require_active_user)):
+    return await _service(conn).set_instructions(_uid(user), order_id, payload.instructions)
+
+
 @router.post("/orders/{order_id}/cancel", response_model=CancelOut)
 async def cancel_order(
     order_id: str,
     payload: CancelIn,
     conn=Depends(get_db_conn),
-    user=Depends(get_current_user),
+    user=Depends(require_active_user),
     idem: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     return await _service(conn).cancel(_uid(user), order_id, payload.reason, _require_idem(idem))
@@ -101,6 +131,8 @@ async def reschedule_order(
     order_id: str,
     payload: RescheduleIn,
     conn=Depends(get_db_conn),
-    user=Depends(get_current_user),
+    user=Depends(require_active_user),
+    idem: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    return await _service(conn).reschedule(_uid(user), order_id, payload.window_start)
+    return await _service(conn).reschedule(
+        _uid(user), order_id, payload.window_start, (idem or "").strip())

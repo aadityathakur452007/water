@@ -52,10 +52,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Future<void> _openTracking(Order order) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => TrackingScreen(
-          controller: widget.controller,
-          orderId: order.id,
-        ),
+        builder: (_) =>
+            TrackingScreen(controller: widget.controller, orderId: order.id),
       ),
     );
   }
@@ -129,16 +127,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       c.totalCount == 0) {
                     return const _SkeletonList();
                   }
-                  if (c.status == OrdersListStatus.error &&
-                      c.totalCount == 0) {
+                  if (c.status == OrdersListStatus.error && c.totalCount == 0) {
                     return _ErrorRow(
-                      message: c.errorMessage ??
-                          ordersStringsHi['errorTitle']!,
+                      message: c.errorMessage ?? ordersStringsHi['errorTitle']!,
                       onRetry: c.load,
                     );
                   }
                   final orders = c.filteredOrders;
-                  if (orders.isEmpty && c.query.trim().isNotEmpty) {                    return _EmptyState(
+                  if (orders.isEmpty && c.query.trim().isNotEmpty) {
+                    return _EmptyState(
                       title: ordersStringsHi['noResultsTitle']!,
                       hint: ordersStringsHi['noResultsHint']!,
                     );
@@ -154,11 +151,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     onRefresh: c.refresh,
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemCount: orders.length +
+                      itemCount:
+                          orders.length +
                           (c.hasMore ? 1 : 0) +
                           (c.isOffline ? 1 : 0),
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(height: 12),
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, i) {
                         if (c.isOffline && i == 0) {
                           return const _OfflineBanner();
@@ -180,20 +177,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   ),
                                 ),
                               ),
-                              child: Text(
-                                ordersStringsHi['loadMore']!,
-                              ),
+                              child: Text(ordersStringsHi['loadMore']!),
                             ),
                           );
                         }
                         final order = orders[idx];
-                        final tagsKnown =
-                            orders.every((o) => o.createdAt != null);
+                        final tagsKnown = orders.every(
+                          (o) => o.createdAt != null,
+                        );
                         final tag = !tagsKnown
                             ? ''
                             : (_isFirstOrder(orders, order)
-                                ? 'First order'
-                                : 'Repeat');
+                                  ? 'First order'
+                                  : 'Repeat');
                         return _OrderCard(
                           order: order,
                           historyTag: tag,
@@ -273,9 +269,7 @@ class _OrderCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: OrdersTokens.ink,
-                      borderRadius: BorderRadius.circular(
-                        OrdersTokens.radius,
-                      ),
+                      borderRadius: BorderRadius.circular(OrdersTokens.radius),
                     ),
                     child: const Text(
                       'Bulk',
@@ -304,10 +298,7 @@ class _OrderCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 order.itemSummary,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: OrdersTokens.muted,
-                ),
+                style: const TextStyle(fontSize: 14, color: OrdersTokens.muted),
               ),
             ],
             const SizedBox(height: 6),
@@ -336,10 +327,7 @@ class _OrderCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 ordersStringsHi['refundPending']!,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: OrdersTokens.blue,
-                ),
+                style: const TextStyle(fontSize: 12, color: OrdersTokens.blue),
               ),
             ],
             if (onReorder != null && order.canReorder) ...[
@@ -349,13 +337,12 @@ class _OrderCard extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: onReorder,
                   icon: const Icon(Icons.repeat, size: 18),
-                  label: const Text('Order again'),
+                  label: const Text('Phir se order karein'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: OrdersTokens.blue,
                     side: const BorderSide(color: OrdersTokens.blue),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(OrdersTokens.radius),
+                      borderRadius: BorderRadius.circular(OrdersTokens.radius),
                     ),
                   ),
                 ),
@@ -371,7 +358,8 @@ class _OrderCard extends StatelessWidget {
     String two(int n) => n.toString().padLeft(2, '0');
     final s = o.windowStart;
     final e = o.windowEnd ?? s.add(const Duration(minutes: 30));
-    return '${two(s.hour)}:${two(s.minute)} - '
+    // F10: date rides with the time (same rule as the tracking card).
+    return '${two(s.day)}/${two(s.month)} • ${two(s.hour)}:${two(s.minute)} - '
         '${two(e.hour)}:${two(e.minute)}';
   }
 }
@@ -477,10 +465,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               hint,
-              style: const TextStyle(
-                fontSize: 14,
-                color: OrdersTokens.muted,
-              ),
+              style: const TextStyle(fontSize: 14, color: OrdersTokens.muted),
               textAlign: TextAlign.center,
             ),
           ],
@@ -524,8 +509,7 @@ class _ErrorRow extends StatelessWidget {
                   backgroundColor: ShodashaTheme.ink,
                   foregroundColor: OrdersTokens.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
                 ),
                 child: Text(ordersStringsHi['retry']!),
@@ -560,10 +544,7 @@ class _OfflineBanner extends StatelessWidget {
           Expanded(
             child: Text(
               ordersStringsHi['offlineTitle']!,
-              style: const TextStyle(
-                fontSize: 13,
-                color: OrdersTokens.blue,
-              ),
+              style: const TextStyle(fontSize: 13, color: OrdersTokens.blue),
             ),
           ),
         ],

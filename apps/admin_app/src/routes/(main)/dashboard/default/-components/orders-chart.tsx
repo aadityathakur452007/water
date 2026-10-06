@@ -38,7 +38,9 @@ export function OrdersChart() {
     <Card>
       <CardHeader>
         <CardTitle>Orders & GMV — last 14 days</CardTitle>
-        <CardDescription>Daily order count with revenue in ₹ hundreds</CardDescription>
+        <CardDescription>
+          Daily order count with revenue plotted in ₹ hundreds (axis) — totals below and KPI cards show full ₹
+        </CardDescription>
         <CardAction>
           <span className="text-muted-foreground text-sm tabular-nums">{`Latest ${num(last)} orders`}</span>
         </CardAction>

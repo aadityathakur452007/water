@@ -192,6 +192,26 @@ def test_router_sub_crud_owner_scoped():
                       ).status_code == 404  # not-yours == not-found
 
 
+def test_router_sub_estimate_and_schedule_allowlist():
+    """Phase 7 F4/F5: server first-cycle amount; unknown schedules 400."""
+    from app.api.v1 import subscriptions as subs_mod
+    c = _conn()
+    _addr(c)
+    client = _client(subs_mod, c)
+    r = client.post("/v1/subscriptions/estimate", json={"qty": 2, "sku_mix": "refill"})
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 5600  # 2x refill, refill never deposits
+    r = client.post("/v1/subscriptions/estimate", json={"qty": 1, "sku_mix": "container"})
+    assert r.json()["total"] == 3000 + 15000  # fresh wallet: deposit due
+    bad = client.post("/v1/subscriptions",
+                      json={"address_id": "a1", "qty": 2, "schedule_type": "monthly"})
+    assert bad.status_code == 400
+    ok = client.post("/v1/subscriptions",
+                     json={"address_id": "a1", "qty": 2, "schedule_type": "weekly"})
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["first_cycle_estimate"]["total"] == 5600
+
+
 # -- returns --------------------------------------------------------------
 
 def test_return_sla_text_and_history():

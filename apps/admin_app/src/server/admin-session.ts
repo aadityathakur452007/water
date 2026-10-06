@@ -12,6 +12,11 @@ import { callWorkerPublic } from "./admin-api";
 export const SESSION_COOKIE = "sh_session";
 export const REFRESH_COOKIE = "sh_refresh";
 
+// Device ids minted at login and pinned at refresh: the worker rejects
+// refresh when device_id != device_fp, so each surface must refresh with
+// the id it logged in with (vendor uses VENDOR_WEB_DEVICE).
+export const ADMIN_WEB_DEVICE = "admin-web";
+
 let loggedApiHost = false;
 
 export function apiUrl(): string {
@@ -34,6 +39,7 @@ export const COOKIE_FLAGS = {
   path: "/",
   sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",
+  httpOnly: true,
 };
 
 export type LoginVerifyResult =
@@ -54,7 +60,7 @@ export const loginCodeServer = createServerFn({ method: "POST" })
       res = await callWorkerPublic("/v1/auth/admin/login", {
         phone: data.phone,
         code: data.code,
-        device: { id: "admin-web" },
+        device: { id: ADMIN_WEB_DEVICE },
       });
     } catch (e) {
       console.error(`[admin-auth] admin/login fetch failed: ${e instanceof Error ? e.message : e}`);
@@ -94,7 +100,7 @@ export const refreshSessionServer = createServerFn({ method: "POST" }).handler(
     if (!refresh_token) return null;
     const res = await callWorkerPublic("/v1/auth/refresh", {
       refresh_token,
-      device: { id: "admin-web" },
+      device: { id: ADMIN_WEB_DEVICE },
     });
     if (!res.ok) return null;
     const data = (await res.json().catch(() => null)) as { access_token?: string; refresh_token?: string } | null;

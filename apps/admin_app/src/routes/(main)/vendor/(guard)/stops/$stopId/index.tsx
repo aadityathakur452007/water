@@ -4,9 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
 import type { VendorStop } from "@/lib/vendor-types";
+import { vendorOrderStateLabel, vendorPaymentLabel, vendorStopStatusLabel } from "@/lib/vendor-types";
 import { num } from "@/lib/money";
 
-import { VendorEmpty, VendorError, VendorLoading } from "../../../../-components/vendor-states";
+import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
 import { StopActions } from "./-components/stop-actions";
 
 export const Route = createFileRoute("/(main)/vendor/(guard)/stops/$stopId/")({
@@ -25,13 +26,21 @@ function StopDetail() {
   }
   if (!data?.id) return <VendorLoading />;
 
+  const phone = data.customer_phone ?? "";
+  // Phase 5 S5.5: call/navigate only for real 10-digit numbers — short or
+  // placeholder strings never render a dead link.
+  const phoneDigits = phone.replace(/\D/g, "").slice(-10);
+  const callable = /^[6-9]\d{9}$/.test(phoneDigits);
+  const items = (data.items ?? []).map((e) => `${e.qty} ${e.sku}`).join(" • ");
+
   return (
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-            {`Stop ${num(data.seq)}`}
-            <Badge variant="outline">{data.status}</Badge>
+            {`Stop ${num(data.seq)} — ${data.customer_name ?? data.customer_id ?? data.order_id ?? data.id}`}
+            {/* Phase 5 S5.5: mapped Hindi labels — raw wire text never shows. */}
+            <Badge variant="outline">{vendorStopStatusLabel(data.status) || data.status}</Badge>
             {data.hold_blocked ? (
               <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-600">
                 Hold
@@ -42,6 +51,23 @@ function StopDetail() {
             {[data.address_label, data.address_text].filter(Boolean).join(" · ") ||
               (data.customer_id ?? data.order_id ?? data.id)}
           </CardDescription>
+          {callable ? (
+            <div className="flex gap-2 pt-1">
+              <a className="text-sm underline" href={`tel:${phone}`}>
+                Call customer
+              </a>
+              <a
+                className="text-sm underline"
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  [data.address_text, data.address_label].filter(Boolean).join(", "),
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Navigate
+              </a>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-4">
@@ -53,12 +79,30 @@ function StopDetail() {
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Payment</p>
-              <p className="font-medium text-sm">{`${data.payment_mode ?? "—"} · ${data.payment_status ?? "—"}`}</p>
+              <p className="font-medium text-sm">{`${data.payment_mode ?? "—"} · ${vendorPaymentLabel(data.payment_status) || "—"}`}</p>
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Order</p>
-              <p className="font-medium text-sm">{data.order_state ?? "—"}</p>
+              <p className="font-medium text-sm">{vendorOrderStateLabel(data.order_state) || "—"}</p>
             </div>
+            {data.window_start ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Window</p>
+                <p className="font-medium text-sm">{data.window_start}</p>
+              </div>
+            ) : null}
+            {items ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Items</p>
+                <p className="font-medium text-sm">{items}</p>
+              </div>
+            ) : null}
+            {data.instructions ? (
+              <div>
+                <p className="text-muted-foreground text-xs">Note</p>
+                <p className="font-medium text-sm">{data.instructions}</p>
+              </div>
+            ) : null}
           </div>
           {data.hold_blocked ? (
             <p className="mt-2 text-amber-600 text-xs">{data.hold_reason ?? "Hold limit — delivery blocked."}</p>

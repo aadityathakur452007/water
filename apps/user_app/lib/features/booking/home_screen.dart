@@ -9,7 +9,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/api_client.dart' show kSupportPhone;
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
@@ -81,12 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return child
         .animate(delay: Duration(milliseconds: 60 * index))
         .fade(duration: 200.ms)
-        .slideY(
-          begin: 0.15,
-          end: 0,
-          duration: 200.ms,
-          curve: Curves.easeOut,
-        );
+        .slideY(begin: 0.15, end: 0, duration: 200.ms, curve: Curves.easeOut);
   }
 
   Future<void> _openDetail(CatalogSku sku) async {
@@ -133,10 +129,11 @@ class _HomeScreenState extends State<HomeScreen> {
               'assets/logo.png',
               width: 32,
               height: 32,
-              errorBuilder: (_, _, _) => const Icon(
-                Icons.water_drop,
-                color: ShodashaTheme.blue,
-              ),
+              // 32px display size: decode at display resolution only
+              // (Phase 4 §4.6; full WebP re-export is an owner asset step).
+              cacheWidth: 32,
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.water_drop, color: ShodashaTheme.blue),
             ),
             const SizedBox(width: 8),
             const Text('Shodasha'),
@@ -160,8 +157,14 @@ class _HomeScreenState extends State<HomeScreen> {
           // 014: wallet-safe strip — deposit trust earned by showing it.
           _WalletStrip(addresses: widget.addresses),
           const SizedBox(height: 4),
-          const Text('Sab products',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ShodashaTheme.ink)),
+          const Text(
+            'Sab samaan',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: ShodashaTheme.ink,
+            ),
+          ),
           const SizedBox(height: 8),
           GridView.builder(
             shrinkWrap: true,
@@ -174,10 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             itemCount: items.length,
             itemBuilder: (context, i) => _entrance(
-              _GridCard(
-                sku: items[i],
-                onOpen: () => _openDetail(items[i]),
-              ),
+              _GridCard(sku: items[i], onOpen: () => _openDetail(items[i])),
               i,
             ),
           ),
@@ -241,18 +241,36 @@ class _AddressBar extends StatelessWidget {
         'Deliver to',
         style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
       ),
-      subtitle: Text(
-        current == null
-            ? 'Address chunein (map par pin lagayein)'
-            : '${current.label} • ${current.pincode}',
-        style: const TextStyle(fontWeight: FontWeight.w700),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      subtitle: current == null
+          ? const Text(
+              'Address chunein (map par pin lagayein)',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${current.label} • ${current.pincode}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  addressDetailLine(current),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: ShodashaTheme.muted,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
       trailing: TextButton(
         onPressed: onChange,
         child: const Text(
-          'Change',
+          'Badlein',
           style: TextStyle(
             color: ShodashaTheme.blue,
             fontWeight: FontWeight.w600,
@@ -269,8 +287,6 @@ class _AddressBar extends StatelessWidget {
   }
 }
 
-
-
 /// 014: Two schedule cards (HYDROFAST layout, Shodasha tokens).
 /// Ek Baar = once, fixed Subah 8–12. Roz ka Plan = daily subscription.
 /// No slot-times, no calendar — one tap sets controller.deliveryType.
@@ -284,10 +300,22 @@ class _ScheduleCards extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('ORDER WATER',
-            style: TextStyle(fontSize: 11, color: ShodashaTheme.muted, fontWeight: FontWeight.w700)),
-        const Text('Choose Your Schedule',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ShodashaTheme.ink)),
+        const Text(
+          'PAANI BOOK KAREIN',
+          style: TextStyle(
+            fontSize: 11,
+            color: ShodashaTheme.muted,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const Text(
+          'Schedule chunein',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: ShodashaTheme.ink,
+          ),
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -304,7 +332,7 @@ class _ScheduleCards extends StatelessWidget {
             Expanded(
               child: _ScheduleCard(
                 title: 'Roz ka Plan',
-                sub: 'Auto-refill',
+                sub: 'Apne aap refill',
                 icon: Icons.repeat,
                 selected: !isOnce,
                 onTap: () => controller.deliveryType = DeliveryType.daily,
@@ -313,16 +341,23 @@ class _ScheduleCards extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 4),
-        const Text('Har din paani — Subah 8–12 fixed window',
-            style: TextStyle(fontSize: 12, color: ShodashaTheme.muted)),
+        const Text(
+          'Har din paani — Subah 8–12 fixed window',
+          style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+        ),
       ],
     );
   }
 }
 
 class _ScheduleCard extends StatelessWidget {
-  const _ScheduleCard(
-      {required this.title, required this.sub, required this.icon, required this.selected, required this.onTap});
+  const _ScheduleCard({
+    required this.title,
+    required this.sub,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
   final String title;
   final String sub;
   final IconData icon;
@@ -338,7 +373,8 @@ class _ScheduleCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? ShodashaTheme.blueTint : ShodashaTheme.bg,
           border: Border.all(
-              color: selected ? ShodashaTheme.blue : ShodashaTheme.border),
+            color: selected ? ShodashaTheme.blue : ShodashaTheme.border,
+          ),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
         child: Column(
@@ -347,7 +383,10 @@ class _ScheduleCard extends StatelessWidget {
             Icon(icon, color: ShodashaTheme.blue),
             const SizedBox(height: 8),
             Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            Text(sub, style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted)),
+            Text(
+              sub,
+              style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+            ),
           ],
         ),
       ),
@@ -375,8 +414,11 @@ class _WalletStrip extends StatelessWidget {
           Icon(Icons.shield_outlined, size: 18, color: ShodashaTheme.blue),
           SizedBox(width: 8),
           Expanded(
-              child: Text('Safety deposit app me safe hai — Profile me dekhein',
-                  style: TextStyle(fontSize: 13))),
+            child: Text(
+              'Safety deposit app me safe hai — Profile me dekhein',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
         ],
       ),
     );
@@ -400,10 +442,7 @@ class _GreetingHeader extends StatelessWidget {
             color: ShodashaTheme.blueTint,
             shape: BoxShape.circle,
           ),
-          child: const Icon(
-            Icons.water_drop,
-            color: ShodashaTheme.blue,
-          ),
+          child: const Icon(Icons.water_drop, color: ShodashaTheme.blue),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -446,98 +485,99 @@ String _greeting() {
 /// (the + is a visual affordance; the whole card is the 48dp+ tap target,
 /// so there is no nested-gesture double-open).
 class _GridCard extends StatelessWidget {
-  const _GridCard({
-    required this.sku,
-    required this.onOpen,
-  });
+  const _GridCard({required this.sku, required this.onOpen});
 
   final CatalogSku sku;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return PressScale(
-      onTap: onOpen,
-      child: Container(
-        decoration: BoxDecoration(
-          color: ShodashaTheme.bg,
-          border: Border.all(color: ShodashaTheme.border),
-          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-        ),
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    // a11y-3: one tap target, one announcement (inner + affordance
+    // excluded — SR hears name + price + action once).
+    return Semantics(
+      button: true,
+      label: '${sku.name}, ${rupeesLabel(sku.pricePaise)}, detail kholein',
+      child: ExcludeSemantics(
+        child: PressScale(
+          onTap: onOpen,
+          child: Container(
+            decoration: BoxDecoration(
+              color: ShodashaTheme.bg,
+              border: Border.all(color: ShodashaTheme.border),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Stack(
               children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(8),
-                    topRight: Radius.circular(8),
-                  ),
-                  child: Image.asset(
-                    sku.asset,
-                    height: 120,
-                    fit: BoxFit.cover,
-                    // P4: decode at ~2x display size, never full-res.
-                    cacheWidth: 448,
-                    errorBuilder: (_, _, _) => Container(
-                      height: 120,
-                      color: ShodashaTheme.blueTint,
-                      child: const Icon(
-                        Icons.water_drop,
-                        size: 40,
-                        color: ShodashaTheme.blue,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ClipRRect(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                      ),
+                      child: Image.asset(
+                        sku.asset,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        // P4: decode at ~2x display size, never full-res.
+                        cacheWidth: 448,
+                        errorBuilder: (_, _, _) => Container(
+                          height: 120,
+                          color: ShodashaTheme.blueTint,
+                          child: const Icon(
+                            Icons.water_drop,
+                            size: 40,
+                            color: ShodashaTheme.blue,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 64, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            sku.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: ShodashaTheme.ink,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            rupeesLabel(sku.pricePaise),
+                            style: const TextStyle(
+                              color: ShodashaTheme.blue,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 64, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        sku.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                          color: ShodashaTheme.ink,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        rupeesLabel(sku.pricePaise),
-                        style: const TextStyle(
-                          color: ShodashaTheme.blue,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    width: ShodashaTheme.minTarget,
+                    height: ShodashaTheme.minTarget,
+                    decoration: const BoxDecoration(
+                      color: ShodashaTheme.ink,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.add, color: ShodashaTheme.bg),
                   ),
                 ),
               ],
             ),
-            Positioned(
-              right: 8,
-              bottom: 8,
-              child: Container(
-                width: ShodashaTheme.minTarget,
-                height: ShodashaTheme.minTarget,
-                decoration: const BoxDecoration(
-                  color: ShodashaTheme.ink,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.add,
-                  color: ShodashaTheme.bg,
-                  semanticLabel: 'Detail kholein',
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -562,11 +602,7 @@ class _DuesBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.info_outline,
-            size: 18,
-            color: ShodashaTheme.blue,
-          ),
+          const Icon(Icons.info_outline, size: 18, color: ShodashaTheme.blue),
           const SizedBox(width: 8),
           Expanded(child: Text(msg)),
         ],
@@ -603,8 +639,30 @@ Future<bool?> showBulkConfirmDialog(
   );
 }
 
-/// N > 10 tanker sheet: vendor call CTA only — never creates an order.
-Future<void> showTankerSheet(BuildContext context) {
+/// N > 10 tanker sheet: vendor call CTA + dismiss — never creates an order.
+/// Phase 4 §4.5: the Call button dials the real support number (single
+/// [kSupportPhone] constant); [openUrl] is the widget-test seam.
+Future<void> showTankerSheet(
+  BuildContext context, {
+  Future<bool> Function(Uri url, {LaunchMode mode})? openUrl,
+}) {
+  Future<void> callVendor(BuildContext ctx) async {
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final open = openUrl ?? launchUrl;
+    bool ok = false;
+    try {
+      ok = await open(Uri(scheme: 'tel', path: '+$digits'));
+    } catch (_) {
+      ok = false;
+    }
+    if (ok || !ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text('Call nahi laga — $kSupportPhone par call karein'),
+      ),
+    );
+  }
+
   return showModalBottomSheet<void>(
     context: context,
     shape: const RoundedRectangleBorder(
@@ -630,6 +688,14 @@ Future<void> showTankerSheet(BuildContext context) {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
+                onPressed: () => callVendor(ctx),
+                child: const Text('Vendor ko call karein'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
                 child: const Text('Ho gaya'),
               ),

@@ -64,7 +64,9 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
 
   void _onFocusChanged() {
     if (!_phoneFocus.hasFocus && _phone.text.isNotEmpty && !_touched) {
-      setState(() => _touched = true); // ui-checklist: signal after loss of focus
+      setState(
+        () => _touched = true,
+      ); // ui-checklist: signal after loss of focus
     } else if (_phoneFocus.hasFocus && _touched) {
       setState(() => _touched = false); // default state returns on re-attempt
     }
@@ -87,17 +89,20 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
     return child
         .animate(delay: Duration(milliseconds: delayMs))
         .fade(duration: 250.ms)
-        .slideY(
-          begin: begin,
-          end: 0,
-          duration: 300.ms,
-          curve: Curves.easeOut,
-        );
+        .slideY(begin: begin, end: 0, duration: 300.ms, curve: Curves.easeOut);
   }
 
   Future<void> _submit() async {
     setState(() => _touched = true);
-    if (!_valid) return;
+    if (!_valid) {
+      // a11y-6: focus lands on the first invalid field.
+      if (!_validName) {
+        _nameFocus.requestFocus();
+      } else {
+        _phoneFocus.requestFocus();
+      }
+      return;
+    }
     FocusScope.of(context).unfocus();
     await widget.controller.registerNameNumber(_name.text, _phone.text);
   }
@@ -162,7 +167,9 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                               Text(
                                 authStringsHi['trustLine']!,
                                 style: const TextStyle(
-                                    fontSize: 13, color: AuthTokens.muted),
+                                  fontSize: 13,
+                                  color: AuthTokens.muted,
+                                ),
                               ),
                             ],
                           ),
@@ -184,7 +191,7 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                     SizedBox(width: 8),
                     Chip(
                       avatar: Icon(Icons.support_agent_outlined, size: 16),
-                      label: Text('WhatsApp help'),
+                      label: Text('WhatsApp par madad'),
                     ),
                   ],
                 ),
@@ -292,8 +299,9 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                           height: AuthTokens.minTarget,
                           child: ElevatedButton(
                             // WHY: disabled until valid (no dead taps, no spam register).
-                            onPressed:
-                                (!_valid || registering) ? null : _submit,
+                            onPressed: (!_valid || registering)
+                                ? null
+                                : _submit,
                             style: ElevatedButton.styleFrom(
                               // Locked spec: primary = black #111 (blue is for
                               // links/active/water cues only).
@@ -405,9 +413,8 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                   onPressed: () => showModalBottomSheet<void>(
                     context: context,
                     isScrollControlled: true,
-                    builder: (_) => UserDemoSheet(
-                      controller: widget.controller,
-                    ),
+                    builder: (_) =>
+                        UserDemoSheet(controller: widget.controller),
                   ),
                   style: TextButton.styleFrom(
                     foregroundColor: AuthTokens.blue,
@@ -419,20 +426,14 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
               Center(
                 child: Text(
                   authStringsHi['guestNote']!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AuthTokens.muted,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: AuthTokens.muted),
                 ),
               ),
               const SizedBox(height: 8),
               Center(
                 child: Text(
                   'Madad chahiye? $kSupportPhone',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AuthTokens.muted,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: AuthTokens.muted),
                 ),
               ),
             ],

@@ -132,6 +132,63 @@ function parseEnvelope<T>(raw: string, fallback: T): T | WorkerErrorShape {
 }
 
 /**
+ * Role probe for the dashboard guard: GET /v1/auth/me with the session
+ * cookie → the worker's current role (or null when unauthenticated/dead).
+ * Cheap, read-only, owner-scoped by construction. Mock mode reports admin
+ * so offline dev keeps the shell.
+ */
+export const adminRoleServer = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ role: string } | null> => {
+    if (apiMode() === "mock") return { role: "admin" };
+    let res = await workerFetch("/v1/auth/me", "GET");
+    if (res.status === 401) {
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+        res = await workerFetch("/v1/auth/me", "GET");
+      }
+    }
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { user?: { role?: unknown } } | null;
+    const role = body?.user?.role;
+    return typeof role === "string" ? { role } : null;
+  },
+);
+
+/**
+ * Audit CSV export (GET /v1/admin/audit/export with the viewer filters).
+ * Returns raw CSV text — never parsed as an envelope.
+ */
+export const adminExportCsvServer = createServerFn({ method: "GET" })
+  .validator((input: { query: string }) => input)
+  .handler(async ({ data }): Promise<string> => {
+    if (apiMode() === "mock") {
+      const { auditFixture } = await import("#/data/admin/fixtures");
+      const rows = auditFixture.data as Array<Record<string, unknown>>;
+      const keys = Object.keys(rows[0] ?? { id: "" });
+      const esc = (v: unknown) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+      };
+      return [keys.join(","), ...rows.map((r) => keys.map((k) => esc(r[k])).join(","))].join("\n");
+    }
+    const res = await workerFetch(`/v1/admin/audit/export${data.query}`, "GET");
+    if (res.status === 401) {
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+        const retry = await workerFetch(`/v1/admin/audit/export${data.query}`, "GET");
+        if (retry.ok) return retry.text().catch(() => "");
+      }
+      throw new AdminApiError(401, "UNAUTH", "Session expired — sign in again.");
+    }
+    if (!res.ok) {
+      throw new AdminApiError(res.status, "SERVER", `Export failed (${res.status}).`);
+    }
+    return res.text().catch(() => "");
+  });
+
+/**
  * GET /v1/admin/* (reads). On 401: one silent refresh + retry, then throws
  * AdminApiError(401) so the client guard bounces to sign-in.
  */

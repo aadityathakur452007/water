@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { users } from "@/data/users";
+import { adminRoleServer } from "@/server/admin-api";
 import { hasSessionServer, refreshSessionServer, storeRotatedSessionServer } from "@/server/admin-session";
 import { getDashboardLayout } from "@/server/server-actions";
 
@@ -21,7 +22,9 @@ import { AppSidebar } from "./-components/sidebar/app-sidebar";
  * Dashboard shell — template layout VERBATIM, plus one addition: the admin
  * session gate. No valid sh_session cookie → bounce to sign-in with a `next`
  * param (server-side check in the loader; the worker re-checks the role on
- * every API call — the UI is never the security gate).
+ * every API call — the UI is never the security gate). A non-admin cookie
+ * (e.g. vendor) bounces to sign-in with `reason=denied` before any admin
+ * chrome renders.
  */
 export const Route = createFileRoute("/(main)/dashboard")({
   loader: async () => {
@@ -36,6 +39,14 @@ export const Route = createFileRoute("/(main)/dashboard")({
       } else {
         throw redirect({ to: "/auth/v1/login", search: { next: "/dashboard" }, replace: true });
       }
+    }
+    const me = await adminRoleServer();
+    if (!me || me.role !== "admin") {
+      throw redirect({
+        to: "/auth/v1/login",
+        search: { next: "/dashboard", reason: "denied" },
+        replace: true,
+      });
     }
     return getDashboardLayout();
   },

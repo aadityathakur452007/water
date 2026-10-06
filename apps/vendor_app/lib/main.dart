@@ -65,9 +65,14 @@ class _VendorAppState extends State<VendorApp> {
     _liveApi = ApiClient(
       deviceId: _deviceId,
       accessTokenGetter: () => _auth.session?.accessToken,
+      // Phase 5 §5.1: expired access renews silently once (no mid-shift
+      // bounce); capped/revoked sessions land on login with the honest
+      // copy. tryRefresh never calls authed endpoints itself, and the
+      // refresh POST opts out of the hook — so this cannot loop.
+      tryRefresh: () => _auth.refreshSession(),
       // 401/403 (revoked/suspended/expired): wipe locally, back to login.
       // forceLogout never calls the server, so this cannot loop.
-      onUnauthorized: () => _auth.forceLogout(),
+      onUnauthorized: () => _auth.expireSession(),
     );
     // Logout (manual or forced) also drops the offline outbox: a shared
     // device must never leak prior stops/cash into the next vendor's sync.

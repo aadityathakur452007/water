@@ -44,6 +44,13 @@ class _FakeAuthApi implements AuthApi {
 
   @override
   Future<void> logout(String accessToken) async {}
+
+  @override
+  Future<AuthSession> refreshSession({
+    required String refreshToken,
+    required String deviceId,
+  }) async =>
+      _session();
 }
 
 AuthController _controller(String role, {int? throwStatus}) => AuthController(

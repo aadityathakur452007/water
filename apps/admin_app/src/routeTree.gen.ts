@@ -17,7 +17,6 @@ import { Route as mainDashboardAuditRouteRouteImport } from './routes/(main)/das
 import { Route as mainDashboardConfigRouteRouteImport } from './routes/(main)/dashboard/config/route'
 import { Route as mainDashboardDefaultRouteRouteImport } from './routes/(main)/dashboard/default/route'
 import { Route as mainDashboardLedgerRouteRouteImport } from './routes/(main)/dashboard/ledger/route'
-import { Route as mainDashboardOperationsRouteRouteImport } from './routes/(main)/dashboard/operations/route'
 import { Route as mainDashboardOrdersRouteRouteImport } from './routes/(main)/dashboard/orders/route'
 import { Route as mainDashboardPaymentsRouteRouteImport } from './routes/(main)/dashboard/payments/route'
 import { Route as mainDashboardTrustRouteRouteImport } from './routes/(main)/dashboard/trust/route'
@@ -88,12 +87,6 @@ const mainDashboardLedgerRouteRoute =
   mainDashboardLedgerRouteRouteImport.update({
     id: '/ledger',
     path: '/ledger',
-    getParentRoute: () => mainDashboardRouteRoute,
-  } as any)
-const mainDashboardOperationsRouteRoute =
-  mainDashboardOperationsRouteRouteImport.update({
-    id: '/operations',
-    path: '/operations',
     getParentRoute: () => mainDashboardRouteRoute,
   } as any)
 const mainDashboardOrdersRouteRoute =
@@ -265,7 +258,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/config': typeof mainDashboardConfigRouteRoute
   '/dashboard/default': typeof mainDashboardDefaultRouteRoute
   '/dashboard/ledger': typeof mainDashboardLedgerRouteRoute
-  '/dashboard/operations': typeof mainDashboardOperationsRouteRoute
   '/dashboard/orders': typeof mainDashboardOrdersRouteRouteWithChildren
   '/dashboard/payments': typeof mainDashboardPaymentsRouteRoute
   '/dashboard/trust': typeof mainDashboardTrustRouteRoute
@@ -303,7 +295,6 @@ export interface FileRoutesByTo {
   '/dashboard/config': typeof mainDashboardConfigRouteRoute
   '/dashboard/default': typeof mainDashboardDefaultRouteRoute
   '/dashboard/ledger': typeof mainDashboardLedgerRouteRoute
-  '/dashboard/operations': typeof mainDashboardOperationsRouteRoute
   '/dashboard/payments': typeof mainDashboardPaymentsRouteRoute
   '/dashboard/trust': typeof mainDashboardTrustRouteRoute
   '/dashboard/$': typeof mainDashboardSplatRoute
@@ -338,7 +329,6 @@ export interface FileRoutesById {
   '/(main)/dashboard/config': typeof mainDashboardConfigRouteRoute
   '/(main)/dashboard/default': typeof mainDashboardDefaultRouteRoute
   '/(main)/dashboard/ledger': typeof mainDashboardLedgerRouteRoute
-  '/(main)/dashboard/operations': typeof mainDashboardOperationsRouteRoute
   '/(main)/dashboard/orders': typeof mainDashboardOrdersRouteRouteWithChildren
   '/(main)/dashboard/payments': typeof mainDashboardPaymentsRouteRoute
   '/(main)/dashboard/trust': typeof mainDashboardTrustRouteRoute
@@ -379,7 +369,6 @@ export interface FileRouteTypes {
     | '/dashboard/config'
     | '/dashboard/default'
     | '/dashboard/ledger'
-    | '/dashboard/operations'
     | '/dashboard/orders'
     | '/dashboard/payments'
     | '/dashboard/trust'
@@ -417,7 +406,6 @@ export interface FileRouteTypes {
     | '/dashboard/config'
     | '/dashboard/default'
     | '/dashboard/ledger'
-    | '/dashboard/operations'
     | '/dashboard/payments'
     | '/dashboard/trust'
     | '/dashboard/$'
@@ -451,7 +439,6 @@ export interface FileRouteTypes {
     | '/(main)/dashboard/config'
     | '/(main)/dashboard/default'
     | '/(main)/dashboard/ledger'
-    | '/(main)/dashboard/operations'
     | '/(main)/dashboard/orders'
     | '/(main)/dashboard/payments'
     | '/(main)/dashboard/trust'
@@ -548,13 +535,6 @@ declare module '@tanstack/react-router' {
       path: '/ledger'
       fullPath: '/dashboard/ledger'
       preLoaderRoute: typeof mainDashboardLedgerRouteRouteImport
-      parentRoute: typeof mainDashboardRouteRoute
-    }
-    '/(main)/dashboard/operations': {
-      id: '/(main)/dashboard/operations'
-      path: '/operations'
-      fullPath: '/dashboard/operations'
-      preLoaderRoute: typeof mainDashboardOperationsRouteRouteImport
       parentRoute: typeof mainDashboardRouteRoute
     }
     '/(main)/dashboard/orders': {
@@ -831,7 +811,6 @@ interface mainDashboardRouteRouteChildren {
   mainDashboardConfigRouteRoute: typeof mainDashboardConfigRouteRoute
   mainDashboardDefaultRouteRoute: typeof mainDashboardDefaultRouteRoute
   mainDashboardLedgerRouteRoute: typeof mainDashboardLedgerRouteRoute
-  mainDashboardOperationsRouteRoute: typeof mainDashboardOperationsRouteRoute
   mainDashboardOrdersRouteRoute: typeof mainDashboardOrdersRouteRouteWithChildren
   mainDashboardPaymentsRouteRoute: typeof mainDashboardPaymentsRouteRoute
   mainDashboardTrustRouteRoute: typeof mainDashboardTrustRouteRoute
@@ -849,7 +828,6 @@ const mainDashboardRouteRouteChildren: mainDashboardRouteRouteChildren = {
   mainDashboardConfigRouteRoute: mainDashboardConfigRouteRoute,
   mainDashboardDefaultRouteRoute: mainDashboardDefaultRouteRoute,
   mainDashboardLedgerRouteRoute: mainDashboardLedgerRouteRoute,
-  mainDashboardOperationsRouteRoute: mainDashboardOperationsRouteRoute,
   mainDashboardOrdersRouteRoute: mainDashboardOrdersRouteRouteWithChildren,
   mainDashboardPaymentsRouteRoute: mainDashboardPaymentsRouteRoute,
   mainDashboardTrustRouteRoute: mainDashboardTrustRouteRoute,

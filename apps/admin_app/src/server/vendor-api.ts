@@ -2,7 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
 import { bindingFetch } from "./admin-api";
-import { apiUrl, refreshSessionServer, SESSION_COOKIE, storeRotatedSessionServer } from "./admin-session";
+import { apiUrl, SESSION_COOKIE, storeRotatedSessionServer } from "./admin-session";
+import { refreshVendorSessionServer } from "./vendor-session";
 
 /**
  * Vendor read/write proxy (BFF adapter for the /vendor/* subtree). Mirrors
@@ -107,7 +108,7 @@ export const vendorGetServer = createServerFn({ method: "GET" })
     }
     let res = await vendorWorkerFetch(path, "GET");
     if (res.status === 401) {
-      const pair = await refreshSessionServer();
+      const pair = await refreshVendorSessionServer();
       if (pair) {
         await storeRotatedSessionServer({ data: pair });
         res = await vendorWorkerFetch(path, "GET");
@@ -118,15 +119,20 @@ export const vendorGetServer = createServerFn({ method: "GET" })
 
 /**
  * Closed write allowlist — the only vendor mutations that exist server-side
- * (triple/pod/cash per owned stop, offline sync, duty, complaint verify,
- * quality vendor-check, profile PATCH, slots PUT). Everything else → 400.
- * No /v1/admin/* or /v1/refunds/* path can ever pass this gate.
+ * (triple/pod/cash per owned stop, placed accept, offline sync, duty,
+ * complaint verify, quality vendor-check, profile PATCH, slots PUT).
+ * Everything else → 400. No /v1/admin/* or /v1/refunds/* path can ever
+ * pass this gate.
  */
 function vendorWriteAllowed(path: string): boolean {
   if (
     path.startsWith("/v1/vendor/stops/") &&
     (path.endsWith("/triple") || path.endsWith("/pod") || path.endsWith("/cash"))
   ) {
+    return true;
+  }
+  // Phase 5 S5.5: single-touch self-accept of a zone-scoped placed order.
+  if (path.startsWith("/v1/vendor/placed/") && path.endsWith("/accept")) {
     return true;
   }
   if (path === "/v1/vendor/sync" || path === "/v1/vendor/duty") return true;
@@ -158,7 +164,7 @@ export const vendorPostServer = createServerFn({ method: "POST" })
     const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
     let res = await vendorWorkerFetch(path, method, body, headers);
     if (res.status === 401) {
-      const pair = await refreshSessionServer();
+      const pair = await refreshVendorSessionServer();
       if (pair) {
         await storeRotatedSessionServer({ data: pair });
         res = await vendorWorkerFetch(path, method, body, headers);

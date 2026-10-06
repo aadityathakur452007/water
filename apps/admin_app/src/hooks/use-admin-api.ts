@@ -40,7 +40,13 @@ export function useInvalidateAdmin() {
 }
 
 export function errorMessage(err: unknown): string {
-  if (err instanceof AdminApiError) return err.message;
+  // Phase 6 S6.4: rate-limit and offline get their own lines (server text
+  // covers the rest — never raw status numbers in copy).
+  if (err instanceof AdminApiError) {
+    if (err.code === "NETWORK" || err.status === 0) return "Network unavailable — check connection and retry.";
+    if (err.status === 429) return "Too many tries — wait a moment and retry.";
+    return err.message;
+  }
   if (err instanceof Error) return err.message;
   return "Something went wrong.";
 }

@@ -44,6 +44,12 @@ MONEY_KEEP = ("ledger", "dues", "refund", "payment", "payout", "invoice",
 QUOTE_TTL_MIN = 15
 SUB_WINDOW_START = "08:00:00+00:00"  # subs carry free-text window; orders need an ISO slot
 
+# Phase 8 §8.2: bounded background work — descriptor batches, ledger pages,
+# purge IN-chunks. Small literals (never config) per the minimum-code mandate.
+_SCHED_BATCH = 100
+_LEDGER_PAGE = 500
+_PURGE_CHUNK = 500
+
 Conn = D1Conn | AsyncSqliteConn
 
 log = logging.getLogger(__name__)
@@ -75,39 +81,48 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
     Idempotent per day: ``process_due`` advances ``next_run`` (replay ⇒ empty)
     AND the order key ``sub:{sub}:{date}`` replays to the original order.
     One bad descriptor never blocks the rest (→ ``failed`` with code/message).
+    Phase 8 §8.2: descriptors run in batches of 100 with a progress log
+    (bounded work per tick, visible in the persisted invocation logs).
     """
     due = await SubscriptionService(conn).process_due(today)
     date = due["date"]
     svc = _order_service(conn)
     created: list[dict] = []
     failed: list[dict] = []
-    for d in due["generated"]:
-        sku = str(d.get("sku_mix") or "refill").lower()
-        items = [{"sku": sku if sku in ("refill", "container") else "refill", "qty": int(d["qty"])}]
-        window_start = f"{d['date']}T{SUB_WINDOW_START}"
-        try:
-            q = pricing.compute_quote(items, 0, _rates(), address_id=d["address_id"],
-                                      window_start=window_start, rate_version=pricing.RATE_VERSION)
-            payload = {
-                "items": items, "e": 0, "address_id": d["address_id"], "window_start": window_start,
-                "quote_hash": q["quote_hash"], "quote_total": q["total"],
-                "quote_rate_version": q["rate_version"],
-                "quote_expires_at": (_now() + _dt.timedelta(minutes=QUOTE_TTL_MIN)).isoformat(),
-                "payment_mode": d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod",
-            }
-            order = await svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
-            created.append({"order_id": order["id"], "sub_id": d["sub_id"],
-                            "user_id": d["user_id"], "total": order["total"]})
-        except IdempotentReplayError as e:
-            order = (e.details or {}).get("order") or {}
-            created.append({"order_id": order.get("id"), "sub_id": d["sub_id"],
-                            "user_id": d["user_id"], "total": order.get("total"), "replayed": True})
-        except AppError as e:
-            failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
-                           "code": e.code, "message": e.message})
-        except Exception as e:  # never let one descriptor kill the run
-            failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
-                           "code": "SERVER", "message": str(e)[:200]})
+    pending = list(due["generated"])
+    total = len(pending)
+    while pending:
+        batch, pending = pending[:_SCHED_BATCH], pending[_SCHED_BATCH:]
+        for d in batch:
+            sku = str(d.get("sku_mix") or "refill").lower()
+            items = [{"sku": sku if sku in ("refill", "container") else "refill", "qty": int(d["qty"])}]
+            window_start = f"{d['date']}T{SUB_WINDOW_START}"
+            try:
+                q = pricing.compute_quote(items, 0, _rates(), address_id=d["address_id"],
+                                          window_start=window_start, rate_version=pricing.RATE_VERSION)
+                payload = {
+                    "items": items, "e": 0, "address_id": d["address_id"], "window_start": window_start,
+                    "quote_hash": q["quote_hash"], "quote_total": q["total"],
+                    "quote_rate_version": q["rate_version"],
+                    "quote_expires_at": (_now() + _dt.timedelta(minutes=QUOTE_TTL_MIN)).isoformat(),
+                    "payment_mode": d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod",
+                }
+                order = await svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
+                created.append({"order_id": order["id"], "sub_id": d["sub_id"],
+                                "user_id": d["user_id"], "total": order["total"]})
+            except IdempotentReplayError as e:
+                order = (e.details or {}).get("order") or {}
+                created.append({"order_id": order.get("id"), "sub_id": d["sub_id"],
+                                "user_id": d["user_id"], "total": order.get("total"), "replayed": True})
+            except AppError as e:
+                failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
+                               "code": e.code, "message": e.message})
+            except Exception as e:  # never let one descriptor kill the run
+                failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
+                               "code": "SERVER", "message": str(e)[:200]})
+        done = total - len(pending)
+        log.info("due_subscriptions date=%s progress=%d/%d created=%d failed=%d",
+                 date, done, total, len(created), len(failed))
     return {"date": date, "created": created, "resumed": due["resumed"], "failed": failed}
 
 
@@ -119,23 +134,37 @@ async def collect_reminders(conn: Conn, today: object = None) -> dict:
 
     dues: ledger.dues > 0 · low_balance: held jars not covered by deposit net ·
     resume: paused subs whose hold_to falls within [today, today+2d].
+    Phase 8 §8.2: ledger reads page by customer_id keyset (500/page) — never
+    a full-table load into one list.
     """
     tday = str(today) if today is not None else _now().date().isoformat()
     horizon = (_dt.date.fromisoformat(tday) + _dt.timedelta(days=2)).isoformat()
     deposit = _rates()["deposit"]
-    dues = [{"kind": "dues_reminder", "user_id": r["customer_id"], "dues_paise": int(r["dues"]),
-             "message": f"Rs {int(r['dues']) / 100:.2f} due. Pay via UPI or at the door.",
-             "channels": ["fcm", "whatsapp"]}
-            for r in (await conn.execute("SELECT customer_id, dues FROM ledger WHERE dues > 0")).fetchall()]
-    low = []
-    for r in (await conn.execute("SELECT customer_id, held, deposit_paid, deposit_refunded FROM ledger")).fetchall():
-        net = int(r["deposit_paid"]) - int(r["deposit_refunded"])
-        cover = int(r["held"]) * deposit
-        if int(r["held"]) > 0 and net < cover:
-            low.append({"kind": "low_balance", "user_id": r["customer_id"], "held": int(r["held"]),
-                        "deposit_net_paise": net, "shortfall_paise": cover - net,
-                        "message": f"Deposit short by Rs {(cover - net) / 100:.2f} for {r['held']} jars held.",
-                        "channels": ["fcm", "whatsapp"]})
+    dues: list[dict] = []
+    low: list[dict] = []
+    last = ""
+    while True:
+        page = (await conn.execute(
+            "SELECT customer_id, held, deposit_paid, deposit_refunded, dues FROM ledger"
+            " WHERE customer_id > ? ORDER BY customer_id LIMIT ?", (last, _LEDGER_PAGE))).fetchall()
+        if not page:
+            break
+        for r in page:
+            if int(r["dues"]) > 0:
+                dues.append({"kind": "dues_reminder", "user_id": r["customer_id"],
+                             "dues_paise": int(r["dues"]),
+                             "message": f"Rs {int(r['dues']) / 100:.2f} due. Pay via UPI or at the door.",
+                             "channels": ["fcm", "whatsapp"]})
+            net = int(r["deposit_paid"]) - int(r["deposit_refunded"])
+            cover = int(r["held"]) * deposit
+            if int(r["held"]) > 0 and net < cover:
+                low.append({"kind": "low_balance", "user_id": r["customer_id"], "held": int(r["held"]),
+                            "deposit_net_paise": net, "shortfall_paise": cover - net,
+                            "message": f"Deposit short by Rs {(cover - net) / 100:.2f} for {r['held']} jars held.",
+                            "channels": ["fcm", "whatsapp"]})
+        last = page[-1]["customer_id"]
+        if len(page) < _LEDGER_PAGE:
+            break
     resume = [{"kind": "resume_reminder", "user_id": r["user_id"], "sub_id": r["id"],
                "hold_to": r["hold_to"],
                "message": f"Subscription resumes after {r['hold_to']}. Reply to extend the hold.",
@@ -160,6 +189,9 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
     """Delete rows past retention; idempotent (replay deletes nothing new).
 
     Quotes are stateless (TTL enforced at POST /v1/orders) → count + note only.
+    Phase 8 §8.2: IN-list deletes run in chunks of 500 with the lock
+    released (and committed) between chunks — one giant txn never holds
+    the D1 single writer for the whole audit table.
     """
     now = now or _now()
     cutoff_72h = (now - _dt.timedelta(hours=ORDERS_RETENTION_H)).isoformat()
@@ -167,6 +199,24 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
     cutoff_ops = (now - _dt.timedelta(days=OPS_AUDIT_RETENTION_D)).isoformat()
     cutoff_money = (now - _dt.timedelta(days=MONEY_AUDIT_RETENTION_D)).isoformat()
     pay_filter = "(scoped_key LIKE 'POST /v1/payments%' OR scoped_key LIKE '%refund%')"
+
+    async def _delete_chunked(ids: list) -> int:
+        """DELETE one 500-chunk per lock-hold; returns rows deleted."""
+        done = 0
+        for i in range(0, len(ids), _PURGE_CHUNK):
+            chunk = ids[i:i + _PURGE_CHUNK]
+            with WRITE_LOCK:
+                try:
+                    await conn.execute(
+                        f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(chunk))})",  # noqa: S608
+                        chunk)
+                    conn.commit()
+                    done += len(chunk)
+                except Exception:
+                    conn.rollback()
+                    raise
+        return done
+
     with WRITE_LOCK:
         try:
             cur = await conn.execute(
@@ -175,36 +225,49 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
             cur = await conn.execute(
                 f"DELETE FROM idempotency_keys WHERE created_at < ? AND NOT {pay_filter}", (cutoff_72h,))
             n_72h = cur.rowcount or 0
+            # Phase 8 §8.4: rate windows are 1h; anything older than 2h is dead.
+            # Time-range delete (no IN list); missing table (pre-019) → 0.
+            try:
+                cutoff_rate = (now - _dt.timedelta(hours=2)).isoformat()
+                await conn.execute("DELETE FROM rate_counters WHERE window_start < ?", (cutoff_rate,))
+            except Exception:
+                pass
+            conn.commit()
         except sqlite3.OperationalError:
+            conn.rollback()
             n_72h = n_30d = 0
-        n_ops = n_money = 0
-        if "created_at" in await _cols(conn, "audit_log"):
-            old = (await conn.execute(
-                "SELECT rowid AS rid, COALESCE(action,'') AS action, COALESCE(entity,'') AS entity"
-                " FROM audit_log WHERE created_at < ?", (cutoff_ops,))).fetchall()
-            kill_ops, maybe_money = [], []
-            for r in old:
-                blob = f"{r['action']} {r['entity']}".lower()
-                (maybe_money if any(k in blob for k in MONEY_KEEP) else kill_ops).append(r["rid"])
-            if kill_ops:
-                await conn.execute(f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(kill_ops))})",
-                             kill_ops)
-                n_ops = len(kill_ops)
-            if maybe_money:
-                ancient = (await conn.execute(
+    n_ops = n_money = 0
+    if "created_at" in await _cols(conn, "audit_log"):
+        old = (await conn.execute(
+            "SELECT rowid AS rid, COALESCE(action,'') AS action, COALESCE(entity,'') AS entity"
+            " FROM audit_log WHERE created_at < ?", (cutoff_ops,))).fetchall()
+        kill_ops, maybe_money = [], []
+        for r in old:
+            blob = f"{r['action']} {r['entity']}".lower()
+            (maybe_money if any(k in blob for k in MONEY_KEEP) else kill_ops).append(r["rid"])
+        n_ops = await _delete_chunked(kill_ops)
+        if maybe_money:
+            # Chunk the money-row probe too: one bounded placeholder list
+            # per 500 (SQLite/D1 cap bound variables per statement).
+            ancient_ids: list = []
+            for i in range(0, len(maybe_money), _PURGE_CHUNK):
+                chunk = maybe_money[i:i + _PURGE_CHUNK]
+                ancient_ids += [r["rid"] for r in (await conn.execute(
                     f"SELECT rowid AS rid FROM audit_log WHERE created_at < ? AND rowid IN"
-                    f" ({','.join('?' * len(maybe_money))})", (cutoff_money, *maybe_money))).fetchall()
-                if ancient:
-                    ids = [r["rid"] for r in ancient]
-                    await conn.execute(f"DELETE FROM audit_log WHERE rowid IN ({','.join('?' * len(ids))})", ids)
-                    n_money = len(ids)
-        quotes = 0
-        if "quotes" in {r["name"] for r in (await conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}:
-            if "expires_at" in await _cols(conn, "quotes"):
-                cur = await conn.execute("DELETE FROM quotes WHERE expires_at < ?", (now.isoformat(),))
-                quotes = cur.rowcount or 0
-        conn.commit()
+                    f" ({','.join('?' * len(chunk))})", (cutoff_money, *chunk))).fetchall()]
+            n_money = await _delete_chunked(ancient_ids)
+    quotes = 0
+    if "quotes" in {r["name"] for r in (await conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}:
+        if "expires_at" in await _cols(conn, "quotes"):
+            with WRITE_LOCK:
+                try:
+                    cur = await conn.execute("DELETE FROM quotes WHERE expires_at < ?", (now.isoformat(),))
+                    quotes = cur.rowcount or 0
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
     return {"idempotency_72h_deleted": n_72h, "idempotency_30d_deleted": n_30d,
             "audit_ops_deleted": n_ops, "audit_money_deleted": n_money,
             "expired_quotes": quotes,

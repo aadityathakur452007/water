@@ -26,10 +26,16 @@ export function Trust() {
   const { data: returns } = useAdminQuery<Page<ReturnRow>>("/v1/admin/returns");
   const invalidate = useInvalidateAdmin();
 
-  const openQuality = (quality?.data ?? []).filter((q) => q.status === "open").length;
-  const openStrikes = (strikes?.data ?? []).filter((s) => !s.cleared_at).length;
-  const openComplaints = (complaints?.data ?? []).filter((c) => c.status !== "resolved").length;
-  const openReturns = (returns?.data ?? []).filter((r) => r.status !== "refunded").length;
+  // Badge counts come from the server (dedicated count queries), never from
+  // filtering page 1 — page filters would under-report past the first page.
+  const openQuality = quality?.counts?.open ?? 0;
+  const openStrikes = strikes?.counts?.open ?? 0;
+  const openComplaints = Object.entries(complaints?.counts ?? {})
+    .filter(([status]) => status !== "resolved")
+    .reduce((a, [, n]) => a + (n as number), 0);
+  const openReturns = Object.entries(returns?.counts ?? {})
+    .filter(([status]) => status !== "refunded")
+    .reduce((a, [, n]) => a + (n as number), 0);
 
   async function act(path: string, description: string) {
     try {

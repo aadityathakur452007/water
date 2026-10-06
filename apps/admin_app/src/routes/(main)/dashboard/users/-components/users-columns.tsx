@@ -35,13 +35,8 @@ function metaOf(table: { options: { meta?: unknown } }): UsersMeta {
   );
 }
 
-function RoleCell({ role, team }: { role: string; team: string }) {
-  return (
-    <div className="grid gap-0.5">
-      <span className="whitespace-nowrap">{role}</span>
-      <span className="text-muted-foreground text-xs">{team}</span>
-    </div>
-  );
+function RoleCell({ role }: { role: string }) {
+  return <span className="whitespace-nowrap">{role}</span>;
 }
 
 function StatusBadge({ status }: { status: UserRow["status"] }) {
@@ -71,7 +66,7 @@ function getAvatarTone(name: string) {
 
   return tones[name.length % tones.length];
 }
-function getLastActiveBadge(status: UserRow["status"]) {
+function getStatusBadge(status: UserRow["status"]) {
   if (status === "Active") {
     return {
       className: "bg-green-600 text-green-950 [&>svg]:text-white",
@@ -93,7 +88,7 @@ function getLastActiveBadge(status: UserRow["status"]) {
 }
 
 function AvatarCell({ status, name }: { status: UserRow["status"]; name: string }) {
-  const badge = getLastActiveBadge(status);
+  const badge = getStatusBadge(status);
   const BadgeIcon = badge.icon;
 
   return (
@@ -158,20 +153,9 @@ export const usersColumns: ColumnDef<DataTableFeatures, UserRow>[] = [
   },
   {
     accessorKey: "role",
-    header: "Role / Team",
+    header: "Role",
     filterFn: "equalsString",
-    cell: ({ row }) => <RoleCell role={row.original.role} team={row.original.team} />,
-  },
-  {
-    accessorKey: "team",
-    header: "Team",
-    filterFn: "equalsString",
-    cell: ({ row }) => <div className="text-sm">{row.original.team}</div>,
-  },
-  {
-    accessorKey: "workspace",
-    header: "Workspace",
-    filterFn: "arrIncludes",
+    cell: ({ row }) => <RoleCell role={row.original.role} />,
   },
   {
     accessorKey: "status",

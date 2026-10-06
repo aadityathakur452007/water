@@ -97,13 +97,22 @@ class _RouteScreenState extends State<RouteScreen> {
     );
   }
 
+  /// Phase 5 §5.5: Pull opens the placed list — each order accepts
+  /// single-touch (accept→assign→route reload). Empty pool stays a
+  /// snackbar, never a dead sheet.
   Future<void> _pullPlaced(RouteController c) async {
     final n = await c.refreshPlaced();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(n > 0
-            ? '$n placed orders — dispatch se assign karvayein'
-            : 'Koi naya placed order nahi')));
+    if (n == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Koi naya placed order nahi')));
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PlacedSheet(controller: c),
+    );
   }
 
   Widget _body(RouteController c) {
@@ -185,15 +194,16 @@ class _RouteScreenState extends State<RouteScreen> {
             // 016 dashboard: today strip + one CTA + money + can ledger.
             _todayStrip(c),
             const SizedBox(height: 12),
-            // 015: Pull placed pool (simple — no geo/auto-assign).
+            // Phase 5 §5.5: Pull lists zone-scoped placed orders for
+            // single-touch accept (server gates zone/capacity fail-cheap).
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: () => _pullPlaced(c),
                 icon: const Icon(Icons.download_outlined, size: 18),
                 label: Text(c.placed.isEmpty
-                    ? 'Placed orders kheenchein'
-                    : 'Placed (${c.placed.length}) — dispatch se assign'),
+                    ? 'Naye orders dekhein'
+                    : 'Naye orders (${c.placed.length}) — accept karein'),
               ),
             ),
             const SizedBox(height: 12),
@@ -322,7 +332,7 @@ class _RouteScreenState extends State<RouteScreen> {
         ),
       );
     }
-    final pending = c.stops.where((s) => !s.isDone).toList()
+    final pending = c.stops.where((s) => !s.isDone && !s.isFailed).toList()
       ..sort((a, b) => a.seq.compareTo(b.seq));
     if (pending.isNotEmpty) {
       final first = pending.first;
@@ -410,8 +420,9 @@ class _RouteScreenState extends State<RouteScreen> {
   }
 
   Widget _stopCard(RouteStop s, {bool greyed = false}) {
+    final failed = s.isFailed;
     return Opacity(
-      opacity: greyed ? 0.55 : 1.0,
+      opacity: greyed || failed ? 0.55 : 1.0,
       // Bordered fact-row shape (reference CustomCard rhythm): seq avatar
       // lead, name + facts, status/nav trailing. Hairline border, no shadow.
       child: Container(
@@ -444,12 +455,18 @@ class _RouteScreenState extends State<RouteScreen> {
                       : '${s.fullsExpected} jars • ${s.emptiesExpected} khaali expected • ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis),
-              // 015: payment mode + paid state badge (delivery stops only).
+              // Phase 5 §5.2: honest money badge — partial shows the
+              // remainder (never the full total again); a sent UPI link
+              // asks for verification, never cash.
               if (s.returnId.isEmpty)
                 Text(
                   s.isPaid
                       ? '${s.paymentMode.toUpperCase()} • Paid'
-                      : '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
+                      : s.isLinkSent
+                          ? '${s.paymentMode.toUpperCase()} • UPI link bheja, verify karein'
+                          : s.isPartial
+                              ? '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.remainingPaise)} (baaki)'
+                              : '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -465,14 +482,29 @@ class _RouteScreenState extends State<RouteScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: ShodashaTheme.danger),
                 ),
+              if (failed)
+                const Text(
+                  'Failed — admin dobara assign karega',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: ShodashaTheme.danger),
+                ),
             ],
           ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Phase 9 re-verify: deliberately static — every reload
+              // passes through RouteState.loading (skeleton), which
+              // unmounts this row, so a flip transition could never play;
+              // the avatar + row flip plus the jama notice already
+              // communicate the state (Operate density over decoration).
               if (s.isDone)
                 const Icon(Icons.check_circle,
                     color: ShodashaTheme.success),
+              if (failed)
+                const Icon(Icons.error_outline,
+                    color: ShodashaTheme.danger),
               if (s.address.isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.navigation_outlined,
@@ -484,6 +516,108 @@ class _RouteScreenState extends State<RouteScreen> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Phase 5 §5.5: placed pool bottom sheet — one Accept per order
+/// (single-touch accept→assign→route reload). Rebuilds off the
+/// controller so accepts refresh the list live.
+class _PlacedSheet extends StatefulWidget {
+  const _PlacedSheet({required this.controller});
+
+  final RouteController controller;
+
+  @override
+  State<_PlacedSheet> createState() => _PlacedSheetState();
+}
+
+class _PlacedSheetState extends State<_PlacedSheet> {
+  String? _busyId;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onChange);
+  }
+
+  void _onChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onChange);
+    super.dispose();
+  }
+
+  Future<void> _accept(Map<String, dynamic> o) async {
+    final id = (o['order_id'] ?? '') as String;
+    if (id.isEmpty || _busyId != null) return;
+    setState(() => _busyId = id);
+    final ok = await widget.controller.acceptPlaced(id);
+    if (!mounted) return;
+    setState(() => _busyId = null);
+    // Capture before pop: the sheet context deactivates on close.
+    final messenger = ScaffoldMessenger.of(context);
+    final notice = widget.controller.acceptNotice;
+    if (ok) {
+      Navigator.of(context).pop();
+    }
+    messenger.showSnackBar(
+      SnackBar(content: Text(notice ?? 'Ho gaya')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = widget.controller.placed;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Naye orders (${rows.length})',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Accept karte hi stop route me jud jayega',
+              style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: rows.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final o = rows[i];
+                  final id = (o['order_id'] ?? '') as String;
+                  final label = (o['address_label'] ?? id) as String;
+                  final jars = (o['n'] as num?)?.toInt() ?? 0;
+                  final total = (o['total'] as num?)?.toInt() ?? 0;
+                  final busy = _busyId == id;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('$label • $jars jars',
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(rupees(total),
+                        style: const TextStyle(color: ShodashaTheme.muted)),
+                    trailing: ElevatedButton(
+                      onPressed: busy ? null : () => _accept(o),
+                      child: Text(busy ? '…' : 'Accept'),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

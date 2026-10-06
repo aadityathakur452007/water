@@ -30,7 +30,7 @@ export function MoneyCards() {
       icon: Wallet,
       label: "Dues receivable",
       value: rupees(m.dues_paise),
-      hint: "carry-forward credit outstanding",
+      hint: "ledger total — follow-up list shows top 200",
       tone: "text-destructive",
     },
     {

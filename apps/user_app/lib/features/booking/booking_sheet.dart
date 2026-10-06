@@ -19,19 +19,18 @@ import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
 import 'checkout_service.dart';
-import 'product_detail_sheet.dart'
-    show deliveryTypeLabels, deliveryTypeIcons;
+import 'product_detail_sheet.dart' show deliveryTypeLabels, deliveryTypeIcons;
 
 /// Opens checkout. [address] may be null → step 1 prompts to pick one.
 Future<void> showCheckoutSheet(
   BuildContext context, {
-    required BookingController controller,
-    required ApiClient api,
-    required String razorpayKeyId,
-    required AddressEntry? address,
-    required VoidCallback onChangeAddress,
-    required ValueChanged<CheckoutResult> onDone,
-  }) {
+  required BookingController controller,
+  required ApiClient api,
+  required String razorpayKeyId,
+  required AddressEntry? address,
+  required VoidCallback onChangeAddress,
+  required ValueChanged<CheckoutResult> onDone,
+}) {
   controller.ensureIdempotencyKey();
   return showModalBottomSheet<void>(
     context: context,
@@ -58,7 +57,7 @@ class _Slot {
 
 enum _Phase { form, loadingSlots, paying, error }
 
-const List<String> _stepTitles = ['Address', 'Schedule', 'Pay'];
+const List<String> _stepTitles = ['Pata', 'Samay', 'Bhugtan'];
 
 class _CheckoutSheet extends StatefulWidget {
   const _CheckoutSheet({
@@ -89,6 +88,25 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   int _slotIdx = 0;
   String _slotDate = '';
   bool _unserviceable = false;
+  // F3: slots fetch failed (not empty — error). Pay/Aage stay blocked
+  // with a LOUD banner + retry; the 08:00 fallback never fires silently.
+  bool _slotsFailed = false;
+  // F5: server first-cycle amount for subscriptions (Pay shows this,
+  // never client math). Null until loaded; failure falls back to the
+  // client estimate marked lagbhag.
+  int? _serverTotal;
+  bool _estimateLoading = false;
+  bool _estimateFailed = false;
+
+  /// Schedule ask-once: home pre-selects; checkout shows a read-only
+  /// recap with Badlein (no re-ask). Once-orders collapse to
+  /// Address → Pay (schedule step only for recurring).
+  List<String> get _titles =>
+      _isOnce ? const ['Pata', 'Bhugtan'] : _stepTitles;
+  int get _payStepIdx => _isOnce ? 1 : 2;
+
+  /// Recap editor toggle (once pay step): chips appear only on tap.
+  bool _editSchedule = false;
   Razorpay? _gateway;
   CheckoutResult? _pendingUpi;
 
@@ -105,6 +123,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     super.initState();
     c.addListener(_onChange);
     _loadSlots();
+    if (!_isOnce) _fetchEstimate();
   }
 
   @override
@@ -132,25 +151,30 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       final raw = (res['windows'] as List?) ?? [];
       _slots = raw
           .whereType<Map>()
-          .map((w) => _Slot(
-                start: (w['start'] ?? '') as String,
-                end: (w['end'] ?? '') as String,
-              ))
+          .map(
+            (w) => _Slot(
+              start: (w['start'] ?? '') as String,
+              end: (w['end'] ?? '') as String,
+            ),
+          )
           .where((s) => s.start.isNotEmpty)
           .toList();
       _slotDate = (res['date'] as String?) ?? date;
       _unserviceable = (res['serviceable'] as bool?) == false;
       _slotIdx = 0;
+      _slotsFailed = false;
       setState(() => _phase = _Phase.form);
     } on ApiException {
       setState(() {
         _phase = _Phase.form;
         _slots = [];
+        _slotsFailed = true;
       });
     } catch (_) {
       setState(() {
         _phase = _Phase.form;
         _slots = [];
+        _slotsFailed = true;
       });
     }
   }
@@ -178,6 +202,43 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return deliveryTypeLabels[c.deliveryType]!;
   }
 
+  /// F5: first-cycle server amount (one fetch per sheet-open; retries
+  /// on demand). Client math stays only as the marked fallback.
+  Future<void> _fetchEstimate() async {
+    if (_isOnce || _estimateLoading || _serverTotal != null) return;
+    setState(() {
+      _estimateLoading = true;
+      _estimateFailed = false;
+    });
+    try {
+      final res = await widget.api.subscriptionEstimate(
+        qty: c.totalJars,
+        skuMix: skuMixOf(refill: c.refillQty, container: c.containerQty),
+      );
+      if (!mounted) return;
+      setState(() {
+        _serverTotal = (res['total'] as num?)?.toInt();
+        _estimateLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _estimateLoading = false;
+        _estimateFailed = true;
+      });
+    }
+  }
+
+  String _subPayLabel() {
+    final server = _serverTotal;
+    if (server != null) return 'Subscription • ${rupeesLabel(server)}';
+    if (_estimateLoading) return 'Subscription shuru karein…';
+    if (_estimateFailed) {
+      return 'Subscription • lagbhag ${rupeesLabel(c.quoteTotalPaise)}';
+    }
+    return 'Subscription shuru karein';
+  }
+
   String get _recurrence {
     if (!_isCustom) return '';
     final days = _customDays.toList()..sort();
@@ -185,22 +246,18 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   bool get _stepValid {
-    switch (_step) {
-      case 0:
-        return widget.address != null;
-      case 1:
-        // 014: fixed 8-12 needs no slot payload — address is the only gate.
-        if (_isCustom) return _customDays.isNotEmpty;
-        return true;
-      default:
-        return true;
-    }
+    if (_step == 0) return widget.address != null;
+    if (_step == _payStepIdx) return true;
+    // Schedule step (recurring only — once collapses to Address → Pay).
+    if (_isCustom) return _customDays.isNotEmpty;
+    return true;
   }
 
   void _next() {
-    if (!_stepValid || _step >= 2) return;
+    if (!_stepValid || _step >= _payStepIdx) return;
     if (_step == 0 && _isOnce && _phase != _Phase.loadingSlots) _loadSlots();
     setState(() => _step++);
+    if (_step == _payStepIdx && !_isOnce) _fetchEstimate();
   }
 
   void _back() {
@@ -208,6 +265,16 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   String _errorFor(ApiException e) {
+    // 403 (role/suspended) and 429 (rate limit) get their own guidance —
+    // never the generic wall (a11y: distinct, actionable copy).
+    if (e.statusCode == 403) {
+      return e.message.isNotEmpty
+          ? e.message
+          : 'Ye action allowed nahi — support se baat karein';
+    }
+    if (e.statusCode == 429 || e.code == 'RATE_LIMITED') {
+      return 'Bahut koshish ho gayi — thodi der me retry karein';
+    }
     switch (e.code) {
       case 'NETWORK':
         return 'Internet nahi — dobara try karein';
@@ -220,7 +287,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       case 'UNAUTH':
         return 'Login chahiye — dobara login karein';
       default:
-        return e.message.isNotEmpty ? e.message : 'Kuch galat hua — retry karein';
+        return e.message.isNotEmpty
+            ? e.message
+            : 'Kuch galat hua — retry karein';
     }
   }
 
@@ -232,6 +301,22 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       _phase = _Phase.paying;
       _error = '';
     });
+    // F6: re-resolve identity — the address may have been edited or
+    // deleted while the sheet was open. Fetch failure passes through
+    // (offline never blocks; the server revalidates at create).
+    try {
+      final listed = await widget.api.listAddresses();
+      if (!addressStillListed(listed, addr.id)) {
+        if (!mounted) return;
+        setState(() {
+          _phase = _Phase.error;
+          _error = 'Address badal gaya — peeche jakar dobara chunein';
+        });
+        return;
+      }
+    } catch (_) {
+      // fall through to checkout (server is the enforcer)
+    }
     try {
       final result = await placeCheckout(
         api: widget.api,
@@ -240,6 +325,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         windowStart: _isOnce ? _windowStart : _windowLabel,
         windowLabel: _windowLabel,
         recurrence: _recurrence,
+        addressLabel: '${addr.label} • ${addr.addressLine}',
       );
       if (!mounted) return;
       if (result.isSubscription || c.paymentMode == PaymentMode.cod) {
@@ -330,10 +416,15 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       CheckoutResult(
         orderId: pending.orderId,
         totalPaise: pending.totalPaise,
-        windowLabel:
-            note.isEmpty ? pending.windowLabel : '${pending.windowLabel} • $note',
+        windowLabel: note.isEmpty
+            ? pending.windowLabel
+            : '${pending.windowLabel} • $note',
         isSubscription: false,
         providerRef: pending.providerRef,
+        waterPaise: pending.waterPaise,
+        depositPaise: pending.depositPaise,
+        capsPaise: pending.capsPaise,
+        addressLabel: pending.addressLabel,
       ),
     );
   }
@@ -364,17 +455,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _StepHeader(step: _step, titles: _stepTitles),
+              _StepHeader(step: _step, titles: _titles),
               const SizedBox(height: 16),
               if (_step == 0)
                 _AddressRow(
                   address: widget.address,
                   onChange: widget.onChangeAddress,
                 )
-              else if (_step == 1)
-                _scheduleStep(busy)
+              else if (_step == _payStepIdx)
+                _payStep(busy)
               else
-                _payStep(busy),
+                _scheduleStep(busy),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -388,18 +479,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                   if (_step > 0) const SizedBox(width: 12),
                   Expanded(
                     flex: 2,
-                    child: _step < 2
+                    child: _step < _payStepIdx
                         ? ElevatedButton(
-                            onPressed:
-                                (_stepValid && !busy) ? _next : null,
+                            onPressed: (_stepValid && !busy) ? _next : null,
                             child: const Text('Aage badhein'),
                           )
                         : ElevatedButton(
                             onPressed: _canPay(busy) ? _pay : null,
                             child: Text(
                               c.deliveryType == DeliveryType.once
-                                  ? 'Pay • ${rupeesLabel(c.quoteTotalPaise)}'
-                                  : 'Subscription shuru karein',
+                                  ? 'Bhugtan • ${rupeesLabel(c.quoteTotalPaise)}'
+                                  : _subPayLabel(),
                             ),
                           ),
                   ),
@@ -415,64 +505,122 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   bool _canPay(bool busy) {
     if (widget.address == null || busy || !_stepValid) return false;
     if (c.paymentMode == PaymentMode.cod && !c.codAllowed) return false;
+    // F3: once-orders need loaded slots (banner + retry live in the
+    // schedule recap below) — never a silent 08:00 commit.
+    if (_isOnce && _slotsFailed) return false;
     return true;
+  }
+
+  /// Schedule chips (shared by the recurring step and the once recap
+  /// editor — one picker, no duplicated option lists).
+  Widget _scheduleChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: DeliveryType.values.map((t) {
+        final selected = t == c.deliveryType;
+        return ChoiceChip(
+          avatar: Icon(
+            deliveryTypeIcons[t],
+            size: 18,
+            color: selected ? ShodashaTheme.bg : ShodashaTheme.blue,
+          ),
+          label: Text(deliveryTypeLabels[t]!),
+          selected: selected,
+          onSelected: (_) {
+            setState(() {
+              c.deliveryType = t;
+              _editSchedule = false;
+            });
+            if (t != DeliveryType.once) _fetchEstimate();
+          },
+          selectedColor: ShodashaTheme.ink,
+          labelStyle: TextStyle(
+            color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
+            fontWeight: FontWeight.w600,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: const BorderSide(color: ShodashaTheme.border),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  /// F3 slots-failure row (banner + retry) — shared by the schedule
+  /// step and the once pay recap.
+  Widget _slotsFailureRow() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Slots load nahi hue — time pakka nahi hua',
+              style: TextStyle(color: ShodashaTheme.danger),
+            ),
+          ),
+          TextButton(
+            onPressed: _loadSlots,
+            child: const Text('Dobara try karein'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Once-order schedule recap (read-only home prefill + Badlein —
+  /// the schedule is chosen once, never re-asked).
+  Widget _scheduleRecap() {
+    final when = _slotDate.isEmpty ? 'Subah 8–12' : '$_slotDate Subah 8–12';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: ShodashaTheme.blueTint,
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.wb_sunny_outlined, color: ShodashaTheme.blue),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${deliveryTypeLabels[c.deliveryType]} • $when',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(
+                onPressed: () => setState(() => _editSchedule = !_editSchedule),
+                child: const Text('Badlein'),
+              ),
+            ],
+          ),
+        ),
+        if (_editSchedule) ...[const SizedBox(height: 8), _scheduleChips()],
+        if (_unserviceable)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Is pincode par delivery nahi — address badlein',
+              style: TextStyle(color: ShodashaTheme.danger),
+            ),
+          ),
+        if (_slotsFailed) _slotsFailureRow(),
+      ],
+    );
   }
 
   Widget _scheduleStep(bool busy) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: DeliveryType.values.map((t) {
-            final selected = t == c.deliveryType;
-            return ChoiceChip(
-              avatar: Icon(
-                deliveryTypeIcons[t],
-                size: 18,
-                color: selected ? ShodashaTheme.bg : ShodashaTheme.blue,
-              ),
-              label: Text(deliveryTypeLabels[t]!),
-              selected: selected,
-              onSelected: (_) => setState(() => c.deliveryType = t),
-              selectedColor: ShodashaTheme.ink,
-              labelStyle: TextStyle(
-                color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
-                fontWeight: FontWeight.w600,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: ShodashaTheme.border),
-              ),
-            );
-          }).toList(),
-        ),
+        _scheduleChips(),
         const SizedBox(height: 12),
-        if (_isOnce) ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: ShodashaTheme.blueTint,
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.wb_sunny_outlined, color: ShodashaTheme.blue),
-                SizedBox(width: 8),
-                Expanded(
-                    child: Text('Delivery: Subah 8–12 (fixed window)',
-                        style: TextStyle(fontWeight: FontWeight.w700))),
-              ],
-            ),
-          ),
-          if (_unserviceable)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text('Is pincode par delivery nahi — address badlein',
-                  style: TextStyle(color: ShodashaTheme.danger)),
-            ),
-        ] else if (_isCustom) ...[
+        if (_isCustom) ...[
           TableCalendar<DateTime>(
             firstDay: DateTime.now(),
             lastDay: DateTime.now().add(const Duration(days: 60)),
@@ -484,7 +632,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             onDaySelected: (selected, focused) {
               setState(() {
                 _focusedDay = focused;
-                final day = DateTime(selected.year, selected.month, selected.day);
+                final day = DateTime(
+                  selected.year,
+                  selected.month,
+                  selected.day,
+                );
                 if (_customDays.any(isSameDayCompat(day))) {
                   _customDays.removeWhere(isSameDayCompat(day));
                 } else if (_customDays.length < 6) {
@@ -524,12 +676,31 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Collapsed schedule: once-orders recap here (Badlein edits
+        // inline); recurring chose on the schedule step.
+        if (_isOnce) ...[_scheduleRecap(), const SizedBox(height: 12)],
         Text(
           'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
           '${rupeesLabel(c.depositDuePaise)} = Kul '
           '${rupeesLabel(c.quoteTotalPaise)}',
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
+        // F5: server amount failed → marked client estimate + retry.
+        if (!_isOnce && _estimateFailed)
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Server daam nahi aaya — anumanit rashi',
+                  style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+                ),
+              ),
+              TextButton(
+                onPressed: _fetchEstimate,
+                child: const Text('Dobara try karein'),
+              ),
+            ],
+          ),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -575,12 +746,21 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(Icons.error_outline,
-                  size: 18, color: ShodashaTheme.danger),
+              const Icon(
+                Icons.error_outline,
+                size: 18,
+                color: ShodashaTheme.danger,
+              ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(_error,
-                    style: const TextStyle(color: ShodashaTheme.danger)),
+                child: Text(
+                  _error,
+                  style: const TextStyle(color: ShodashaTheme.danger),
+                ),
+              ),
+              TextButton(
+                onPressed: busy ? null : _pay,
+                child: const Text('Retry karein'),
               ),
             ],
           ),
@@ -592,8 +772,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
 /// Date-only equality ( avoids importing collection helpers).
 bool Function(DateTime) isSameDayCompat(DateTime a) =>
-    (DateTime b) =>
-        a.year == b.year && a.month == b.month && a.day == b.day;
+    (DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
 class _StepHeader extends StatelessWidget {
   const _StepHeader({required this.step, required this.titles});
@@ -673,9 +852,6 @@ class _AddressRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = address;
-    final label = a == null
-        ? 'Address chunein (map par pin lagayein)'
-        : '${a.label} • ${a.addressLine}, ${a.pincode}';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -687,7 +863,29 @@ class _AddressRow extends StatelessWidget {
           const Icon(Icons.location_on, color: ShodashaTheme.blue),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
+            // F7: two lines — label/pincode + house/street/area detail.
+            child: a == null
+                ? const Text('Address chunein (map par pin lagayein)')
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${a.label} • ${a.pincode}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        addressDetailLine(a),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: ShodashaTheme.muted,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
           TextButton(onPressed: onChange, child: const Text('Badlein')),
         ],
@@ -716,9 +914,7 @@ class _PayChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: selected ? ShodashaTheme.blue : ShodashaTheme.bg,
         border: Border.all(
-          color: selected
-              ? ShodashaTheme.blue
-              : ShodashaTheme.border,
+          color: selected ? ShodashaTheme.blue : ShodashaTheme.border,
         ),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -730,9 +926,28 @@ class _PayChip extends StatelessWidget {
         ),
       ),
     );
+    // a11y-1: explicit semantics — a disabled chip announces as
+    // unavailable (never a focusable dead end); enabled chips are
+    // buttons with selected state.
     if (!enabled || onTap == null) {
-      return Opacity(opacity: 0.5, child: box);
+      return Opacity(
+        opacity: 0.5,
+        child: Semantics(
+          button: true,
+          enabled: false,
+          label: '$label — uplabdh nahi',
+          child: ExcludeSemantics(child: box),
+        ),
+      );
     }
-    return GestureDetector(onTap: onTap, child: box);
+    return Semantics(
+      button: true,
+      enabled: true,
+      selected: selected,
+      label: label,
+      child: ExcludeSemantics(
+        child: GestureDetector(onTap: onTap, child: box),
+      ),
+    );
   }
 }

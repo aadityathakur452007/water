@@ -9,14 +9,17 @@
 // Checklist (Contacting Support): entry here + from error pages, hours,
 // expected response time. GET /complaints → open → progress → resolved.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 
 const Map<String, String> supportStringsHi = {
-  'title': 'Support',
+  'title': 'Madad',
   'waTitle': 'WhatsApp par madad',
   'waSub': '8AM–8PM • orders, delivery, jar sab kuch',
   'faqTitle': 'Aksar poochhe jaane wale sawaal',
@@ -78,13 +81,13 @@ class ComplaintEntry {
   final String? createdAt;
 
   static ComplaintEntry fromApi(Map<String, dynamic> j) => ComplaintEntry(
-        id: (j['id'] ?? '') as String,
-        orderId: (j['order_id'] ?? '') as String,
-        reasonCode: (j['reason_code'] ?? 'other') as String,
-        text: (j['text'] ?? '') as String,
-        status: (j['status'] ?? 'open') as String,
-        createdAt: j['created_at'] as String?,
-      );
+    id: (j['id'] ?? '') as String,
+    orderId: (j['order_id'] ?? '') as String,
+    reasonCode: (j['reason_code'] ?? 'other') as String,
+    text: (j['text'] ?? '') as String,
+    status: (j['status'] ?? 'open') as String,
+    createdAt: j['created_at'] as String?,
+  );
 }
 
 class SupportController extends ChangeNotifier {
@@ -175,10 +178,19 @@ class SupportController extends ChangeNotifier {
 
 /// Support tab-page.
 class SupportScreen extends StatefulWidget {
-  const SupportScreen({super.key, this.controller, this.orderContext});
+  const SupportScreen({
+    super.key,
+    this.controller,
+    this.orderContext,
+    this.openUrl,
+  });
 
   final SupportController? controller;
   final String? orderContext; // prefilled wa.me text when opened from orders
+
+  /// Opens [url] externally. Injectable for widget tests (defaults to
+  /// url_launcher's external-application launch).
+  final Future<bool> Function(Uri url, {LaunchMode mode})? openUrl;
 
   @override
   State<SupportScreen> createState() => _SupportScreenState();
@@ -191,20 +203,42 @@ class _SupportScreenState extends State<SupportScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.controller == null &&
-        _c.status == ComplaintStatus.initial) {
+    if (widget.controller == null && _c.status == ComplaintStatus.initial) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _c.load());
     }
   }
 
   Future<void> _openWhatsApp() async {
-    // TODO(F1): url_launcher wa.me/<support>?text=<ctx>. Copy-guard keeps
-    // the flow alive without the dep being wired.
-    await Clipboard.setData(ClipboardData(text: kSupportPhone));
+    // Phase 4 §4.5: launch primary (orders_controller pattern), clipboard
+    // copy stays as the fallback — never the primary. Digits derive from
+    // the single [kSupportPhone] constant (no second source of truth).
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final text =
+        widget.orderContext ??
+        'Namaste! Mujhe paani ke order me madad chahiye.';
+    final uri = Uri.parse(
+      'https://wa.me/$digits?text=${Uri.encodeComponent(text)}',
+    );
+    final open = widget.openUrl ?? launchUrl;
+    bool ok = false;
+    try {
+      ok = await open(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
+    if (ok || !mounted) return;
+    // Copy runs unawaited: a slow/denied clipboard must never delay the
+    // fallback message (and never strand it — the snackbar is the signal,
+    // the copy is best-effort).
+    unawaited(
+      Clipboard.setData(
+        ClipboardData(text: kSupportPhone),
+      ).then<void>((_) {}, onError: (_) {}),
+    );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(supportStringsHi['waFail']!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(supportStringsHi['waFail']!)));
     }
   }
 
@@ -263,7 +297,7 @@ class _SupportScreenState extends State<SupportScreen> {
                 ),
                 TextButton(
                   onPressed: _openWhatsApp,
-                  child: const Text('Open'),
+                  child: const Text('Kholein'),
                 ),
               ],
             ),
@@ -271,10 +305,7 @@ class _SupportScreenState extends State<SupportScreen> {
           const SizedBox(height: 24),
           Text(
             supportStringsHi['faqTitle']!,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
           ),
           const _Faq(
             q: 'Deposit kitna hai?',
@@ -282,7 +313,7 @@ class _SupportScreenState extends State<SupportScreen> {
           ),
           const _Faq(
             q: 'Delivery window kya hai?',
-            a: '30-minute slot, subah 8 se raat 8 baje tak (Sunday band).',
+            a: 'Subah 8–12 fixed window, har din delivery (Sunday bhi).',
           ),
           const _Faq(
             q: 'Khali jar kab wapas karein?',
@@ -303,10 +334,7 @@ class _SupportScreenState extends State<SupportScreen> {
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.report_outlined,
-                  color: ShodashaTheme.blue,
-                ),
+                const Icon(Icons.report_outlined, color: ShodashaTheme.blue),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -331,7 +359,7 @@ class _SupportScreenState extends State<SupportScreen> {
                 ),
                 TextButton(
                   onPressed: _openComplaintForm,
-                  child: const Text('Form'),
+                  child: const Text('Form bharein'),
                 ),
               ],
             ),
@@ -339,22 +367,31 @@ class _SupportScreenState extends State<SupportScreen> {
           const SizedBox(height: 24),
           Text(
             supportStringsHi['myComplaints']!,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
           ),
           const SizedBox(height: 8),
           ListenableBuilder(
             listenable: _c,
             builder: (context, _) {
-              if (_c.status == ComplaintStatus.loading &&
-                  _c.items.isEmpty) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: CircularProgressIndicator(),
-                  ),
+              if (_c.status == ComplaintStatus.loading && _c.items.isEmpty) {
+                // Phase 9 §9.1: compact skeleton (was a bare spinner).
+                return const _ComplaintsSkeleton();
+              }
+              // Error branch (was: silent 'none') — message + retry.
+              if (_c.status == ComplaintStatus.error && _c.items.isEmpty) {
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _c.errorMessage ?? supportStringsHi['errServer']!,
+                        style: const TextStyle(color: ShodashaTheme.muted),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _c.load,
+                      child: const Text('Dobara try karein'),
+                    ),
+                  ],
                 );
               }
               if (_c.items.isEmpty) {
@@ -371,8 +408,9 @@ class _SupportScreenState extends State<SupportScreen> {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         border: Border.all(color: ShodashaTheme.border),
-                        borderRadius:
-                            BorderRadius.circular(ShodashaTheme.radius),
+                        borderRadius: BorderRadius.circular(
+                          ShodashaTheme.radius,
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -401,8 +439,8 @@ class _SupportScreenState extends State<SupportScreen> {
                             cm.status == 'resolved'
                                 ? supportStringsHi['statusResolved']!
                                 : cm.status == 'progress'
-                                    ? supportStringsHi['statusProgress']!
-                                    : supportStringsHi['statusOpen']!,
+                                ? supportStringsHi['statusProgress']!
+                                : supportStringsHi['statusOpen']!,
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -424,9 +462,31 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 }
 
+/// Phase 9 §9.1: compact skeleton for the complaints section
+/// (same blueTint boxes as the orders list).
+class _ComplaintsSkeleton extends StatelessWidget {
+  const _ComplaintsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < 2; i++)
+          Container(
+            height: 64,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// One FAQ row (expand/collapse, hairline border, no accordion deps).
-class _Faq extends StatefulWidget {
-  const _Faq({required this.q, required this.a});
+class _Faq extends StatefulWidget {  const _Faq({required this.q, required this.a});
 
   final String q;
   final String a;
@@ -465,9 +525,7 @@ class _FaqState extends State<_Faq> {
                     ),
                   ),
                   Icon(
-                    _open
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
+                    _open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                     color: ShodashaTheme.muted,
                   ),
                 ],
@@ -533,9 +591,9 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
     if (!mounted) return;
     if (err == null) {
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(supportStringsHi['sent']!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(supportStringsHi['sent']!)));
       return;
     }
     if (err == 'windowExpiredTitle') {
@@ -554,9 +612,9 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(supportStringsHi[err] ?? err)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(supportStringsHi[err] ?? err)));
     }
   }
 
@@ -593,16 +651,15 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
                   ),
                   items: [
                     for (final e in kComplaintReasonsHi.entries)
-                      DropdownMenuItem(
-                        value: e.key,
-                        child: Text(e.value),
-                      ),
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
                   ],
                   onChanged: (v) => setState(() => _reason = v ?? _reason),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _order,
+                  // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                  style: const TextStyle(fontSize: 16),
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     labelText: supportStringsHi['orderLabel'],
@@ -612,6 +669,8 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
                 const SizedBox(height: 10),
                 TextField(
                   controller: _text,
+                  // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                  style: const TextStyle(fontSize: 16),
                   minLines: 3,
                   maxLines: 5,
                   maxLength: 500,

@@ -61,10 +61,17 @@ class RateLimitedError(AppError):
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     trace_id = get_trace_id(request)
-    return JSONResponse(
+    response = JSONResponse(
         status_code=exc.status_code,
         content=error_envelope(exc.code, exc.message, exc.details, trace_id),
     )
+    # Phase 8 §8.4: auth 429s carry Retry-After like the edge throttle —
+    # clients back off instead of hammering the D1 single writer.
+    if exc.code == "RATE_LIMITED":
+        retry = (exc.details or {}).get("retry_after_s")
+        if retry is not None:
+            response.headers["Retry-After"] = str(retry)
+    return response
 
 
 _HTTP_STATUS_TO_CODE = {

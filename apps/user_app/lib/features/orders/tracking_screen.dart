@@ -87,8 +87,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             decoration: InputDecoration(
               labelText: ordersStringsHi['cancelReasonLabel'],
               border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(OrdersTokens.radius),
+                borderRadius: BorderRadius.circular(OrdersTokens.radius),
               ),
             ),
             items: [
@@ -105,8 +104,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             onPressed: () => Navigator.of(ctx).pop(false),
             style: TextButton.styleFrom(
               foregroundColor: OrdersTokens.muted,
-              minimumSize:
-                  const Size(48, OrdersTokens.minTarget),
+              minimumSize: const Size(48, OrdersTokens.minTarget),
             ),
             child: Text(ordersStringsHi['cancelKeep']!),
           ),
@@ -116,8 +114,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               backgroundColor: ShodashaTheme.ink,
               foregroundColor: OrdersTokens.white,
               shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(OrdersTokens.radius),
+                borderRadius: BorderRadius.circular(OrdersTokens.radius),
               ),
             ),
             child: Text(ordersStringsHi['cancelConfirm']!),
@@ -131,7 +128,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          done ? ordersStringsHi['cancelledBanner']! : ordersStringsHi['errorTitle']!,
+          done
+              ? ordersStringsHi['cancelledBanner']!
+              : ordersStringsHi['errorTitle']!,
         ),
       ),
     );
@@ -161,8 +160,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             decoration: InputDecoration(
               labelText: ordersStringsHi['windowLabel'],
               border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(OrdersTokens.radius),
+                borderRadius: BorderRadius.circular(OrdersTokens.radius),
               ),
             ),
             items: [
@@ -179,8 +177,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             onPressed: () => Navigator.of(ctx).pop(false),
             style: TextButton.styleFrom(
               foregroundColor: OrdersTokens.muted,
-              minimumSize:
-                  const Size(48, OrdersTokens.minTarget),
+              minimumSize: const Size(48, OrdersTokens.minTarget),
             ),
             child: Text(ordersStringsHi['cancelKeep']!),
           ),
@@ -190,8 +187,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               backgroundColor: ShodashaTheme.ink,
               foregroundColor: OrdersTokens.white,
               shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(OrdersTokens.radius),
+                borderRadius: BorderRadius.circular(OrdersTokens.radius),
               ),
             ),
             child: Text(ordersStringsHi['rescheduleConfirm']!),
@@ -206,9 +202,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Future<void> _openWhatsApp(Order order) async {
     final opened = await widget.controller.openWhatsApp('order ${order.id}');
     if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ordersStringsHi['whatsappFail']!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(ordersStringsHi['whatsappFail']!)));
     }
   }
 
@@ -217,9 +213,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
     if (phone == null || phone.isEmpty) return;
     final opened = await widget.controller.openDialer(phone);
     if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ordersStringsHi['callFail']!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(ordersStringsHi['callFail']!)));
     }
   }
 
@@ -247,13 +243,35 @@ class _TrackingScreenState extends State<TrackingScreen> {
         child: ListenableBuilder(
           listenable: widget.controller,
           builder: (context, _) {
-            final order =
-                widget.controller.findById(widget.orderId);
+            final order = widget.controller.findById(widget.orderId);
+            // Detail missing: spinner while the list is still loading,
+            // otherwise message + retry instead of a bare line. Refresh
+            // re-reads the order.
             if (order == null) {
+              if (widget.controller.status ==
+                  OrdersListStatus.loading) {
+                // Phase 9 §9.1: tracker-shaped skeleton (was a bare
+                // spinner) — same blueTint rhythm as the orders list.
+                return const _TrackingSkeleton();
+              }
               return Center(
-                child: Text(
-                  ordersStringsHi['errorTitle']!,
-                  style: const TextStyle(color: OrdersTokens.muted),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        ordersStringsHi['errorTitle']!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: OrdersTokens.muted),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => widget.controller.refresh(),
+                        child: const Text('Dobara try karein'),
+                      ),
+                    ],
+                  ),
                 ),
               );
             }
@@ -265,23 +283,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   _HeaderCard(order: order),
                   const SizedBox(height: 16),
                   if (order.state == OrderState.cancelled)
-                    _FlatBanner(
-                      text: ordersStringsHi['cancelledBanner']!,
-                    )
+                    _FlatBanner(text: ordersStringsHi['cancelledBanner']!)
+                  else if (order.state == OrderState.failed)
+                    _FlatBanner(text: ordersStringsHi['failedBanner']!)
+                  else if (order.state == OrderState.rejected)
+                    _FlatBanner(text: ordersStringsHi['rejectedBanner']!)
                   else if (trackerStep(order.state) >= 0)
                     _FourStepTracker(step: trackerStep(order.state))
                   else
-                    _FlatBanner(
-                      text: ordersStringsHi['deliveredBanner']!,
-                    ),
+                    _FlatBanner(text: ordersStringsHi['deliveredBanner']!),
                   const SizedBox(height: 16),
                   _WindowCard(order: order),
                   if (order.riderName != null) ...[
                     const SizedBox(height: 12),
-                    _RiderCard(
-                      order: order,
-                      onCall: () => _callRider(order),
-                    ),
+                    _RiderCard(order: order, onCall: () => _callRider(order)),
                   ],
                   // F1: delivery code the rider asks for at the door.
                   // Renders only when the server sends it (assigned/dispatched).
@@ -350,7 +365,9 @@ class _HeaderCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  order.itemSummary.isEmpty ? '#${order.id}' : order.itemSummary,
+                  order.itemSummary.isEmpty
+                      ? '#${order.id}'
+                      : order.itemSummary,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -386,7 +403,11 @@ class _HeaderCard extends StatelessWidget {
                 order.isPaid
                     ? '${order.paymentMode.toUpperCase()} • Paid'
                     : '${order.paymentMode.toUpperCase()} • ${formatRupees(order.totalPaise - order.paymentsPaise)} due',
-                style: const TextStyle(fontSize: 11, color: OrdersTokens.blue, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: OrdersTokens.blue,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               if (order.refundPending)
                 Text(
@@ -417,52 +438,58 @@ class _FourStepTracker extends StatelessWidget {
   const _FourStepTracker({required this.step});
   final int step;
 
-  static const _labels = ['Confirmed', 'Packed', 'On the way', 'Delivered'];
+  static const _labels = ['Pakka', 'Pack', 'Raste me', 'Mil gaya'];
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: OrdersTokens.white,
-        border: Border.all(color: OrdersTokens.border),
-        borderRadius: BorderRadius.circular(OrdersTokens.radius),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              for (var i = 0; i < 4; i++) ...[
-                _Dot(filled: i <= step),
-                if (i < 3) _Connector(filled: i < step),
+    // a11y-2: progress announced as one node (step X of 4 + label).
+    return Semantics(
+      container: true,
+      label: 'Order pragati: 4 me se charan ${step + 1}, ${_labels[step]}',
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: OrdersTokens.white,
+          border: Border.all(color: OrdersTokens.border),
+          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                for (var i = 0; i < 4; i++) ...[
+                  _Dot(filled: i <= step),
+                  if (i < 3) _Connector(filled: i < step),
+                ],
               ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              for (var i = 0; i < 4; i++)
-                Expanded(
-                  child: Text(
-                    _labels[i],
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight:
-                          i == step ? FontWeight.w700 : FontWeight.w400,
-                      color: i <= step
-                          ? OrdersTokens.blue
-                          : OrdersTokens.muted,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                for (var i = 0; i < 4; i++)
+                  Expanded(
+                    child: Text(
+                      _labels[i],
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: i == step
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                        color: i <= step
+                            ? OrdersTokens.blue
+                            : OrdersTokens.muted,
+                      ),
+                      textAlign: i == 0
+                          ? TextAlign.start
+                          : i == 3
+                          ? TextAlign.end
+                          : TextAlign.center,
                     ),
-                    textAlign: i == 0
-                        ? TextAlign.start
-                        : i == 3
-                            ? TextAlign.end
-                            : TextAlign.center,
                   ),
-                ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -474,20 +501,52 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        color: filled ? OrdersTokens.blue : OrdersTokens.white,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: filled ? OrdersTokens.blue : OrdersTokens.border,
-          width: 2,
+    // Phase 9 §9.1: the fill change pops (scale) + the check fades in —
+    // 200ms, transform + opacity only. Static when reduced motion is on
+    // (the color still flips instantly, so state never depends on motion).
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          color: filled ? OrdersTokens.blue : OrdersTokens.white,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: filled ? OrdersTokens.blue : OrdersTokens.border,
+            width: 2,
+          ),
+        ),
+        child: filled
+            ? const Icon(Icons.check, size: 12, color: OrdersTokens.white)
+            : null,
+      );
+    }
+    return AnimatedScale(
+      scale: filled ? 1.0 : 0.8,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          color: filled ? OrdersTokens.blue : OrdersTokens.white,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: filled ? OrdersTokens.blue : OrdersTokens.border,
+            width: 2,
+          ),
+        ),
+        child: AnimatedOpacity(
+          opacity: filled ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: const Icon(
+            Icons.check,
+            size: 12,
+            color: OrdersTokens.white,
+          ),
         ),
       ),
-      child: filled
-          ? const Icon(Icons.check, size: 12, color: OrdersTokens.white)
-          : null,
     );
   }
 }
@@ -509,6 +568,37 @@ class _Connector extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TrackingSkeleton extends StatelessWidget {
+  const _TrackingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    // Mirrors the loaded layout (header card + tracker card + bill card)
+    // so content replaces boxes 1:1 with no layout pop.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _skelBox(64),
+          const SizedBox(height: 16),
+          _skelBox(132),
+          const SizedBox(height: 16),
+          _skelBox(88),
+        ],
+      ),
+    );
+  }
+
+  static Widget _skelBox(double height) => Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: OrdersTokens.blueTint,
+          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        ),
+      );
 }
 
 class _WindowCard extends StatelessWidget {
@@ -536,6 +626,15 @@ class _WindowCard extends StatelessWidget {
               children: [
                 Text(
                   ordersStringsHi['windowLabel']!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: OrdersTokens.blue,
+                  ),
+                ),
+                // F10: date rides with the time — a bare HH:MM hides
+                // which day (kal/parson confusion at midnight).
+                Text(
+                  '${two(s.day)}/${two(s.month)}',
                   style: const TextStyle(
                     fontSize: 12,
                     color: OrdersTokens.blue,
@@ -612,8 +711,7 @@ class _RiderCard extends StatelessWidget {
                   foregroundColor: OrdersTokens.blue,
                   side: const BorderSide(color: OrdersTokens.border),
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
                 ),
                 child: Text(ordersStringsHi['callRider']!),
@@ -640,11 +738,7 @@ class _DeliveryCodeRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.key_outlined,
-            size: 20,
-            color: OrdersTokens.ink,
-          ),
+          const Icon(Icons.key_outlined, size: 20, color: OrdersTokens.ink),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -652,10 +746,7 @@ class _DeliveryCodeRow extends StatelessWidget {
               children: [
                 const Text(
                   'Delivery code / डिलीवरी कोड',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: OrdersTokens.muted,
-                  ),
+                  style: TextStyle(fontSize: 12, color: OrdersTokens.muted),
                 ),
                 Text(
                   '$code — rider ko batayein',
@@ -720,9 +811,10 @@ class _BillRow extends StatelessWidget {
                 child: Text(
                   'Vendor ko ${formatRupees(order.paymentsPaise)} diye — bill me confirm karein',
                   style: const TextStyle(
-                      fontSize: 12,
-                      color: OrdersTokens.blue,
-                      fontWeight: FontWeight.w600),
+                    fontSize: 12,
+                    color: OrdersTokens.blue,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
           ],
@@ -791,8 +883,7 @@ class _ActionsFor extends StatelessWidget {
                   foregroundColor: OrdersTokens.ink,
                   side: const BorderSide(color: OrdersTokens.border),
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
                 ),
                 child: Text(ordersStringsHi['cancelTitle']!),
@@ -809,8 +900,7 @@ class _ActionsFor extends StatelessWidget {
                   backgroundColor: ShodashaTheme.ink,
                   foregroundColor: OrdersTokens.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
                 ),
                 child: Text(ordersStringsHi['rescheduleTitle']!),
@@ -830,8 +920,7 @@ class _ActionsFor extends StatelessWidget {
             backgroundColor: ShodashaTheme.ink,
             foregroundColor: OrdersTokens.white,
             shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(OrdersTokens.radius),
+              borderRadius: BorderRadius.circular(OrdersTokens.radius),
             ),
           ),
           child: Text(ordersStringsHi['whatsappHelp']!),
@@ -847,8 +936,7 @@ class _ActionsFor extends StatelessWidget {
             decoration: BoxDecoration(
               color: OrdersTokens.white,
               border: Border.all(color: OrdersTokens.border),
-              borderRadius:
-                  BorderRadius.circular(OrdersTokens.radius),
+              borderRadius: BorderRadius.circular(OrdersTokens.radius),
             ),
             child: Row(
               children: [
@@ -857,8 +945,7 @@ class _ActionsFor extends StatelessWidget {
                     onPressed: onCall,
                     style: TextButton.styleFrom(
                       foregroundColor: OrdersTokens.blue,
-                      minimumSize:
-                          const Size(48, OrdersTokens.minTarget),
+                      minimumSize: const Size(48, OrdersTokens.minTarget),
                     ),
                     child: Text(ordersStringsHi['callRider']!),
                   ),
@@ -868,8 +955,7 @@ class _ActionsFor extends StatelessWidget {
                     onPressed: onWhatsApp,
                     style: TextButton.styleFrom(
                       foregroundColor: OrdersTokens.blue,
-                      minimumSize:
-                          const Size(48, OrdersTokens.minTarget),
+                      minimumSize: const Size(48, OrdersTokens.minTarget),
                     ),
                     child: Text(ordersStringsHi['whatsappHelp']!),
                   ),
@@ -885,11 +971,11 @@ class _ActionsFor extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: ShodashaTheme.ink,
                 foregroundColor: OrdersTokens.white,
-              disabledBackgroundColor:
-                  ShodashaTheme.ink.withValues(alpha: 0.3),
+                disabledBackgroundColor: ShodashaTheme.ink.withValues(
+                  alpha: 0.3,
+                ),
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(OrdersTokens.radius),
+                  borderRadius: BorderRadius.circular(OrdersTokens.radius),
                 ),
               ),
               child: Text(ordersStringsHi['rateTitle']!),

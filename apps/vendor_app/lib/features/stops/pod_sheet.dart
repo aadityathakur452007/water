@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../sync/sync_controller.dart';
 import 'stops_controller.dart';
 
 class PodSheet extends StatefulWidget {
@@ -14,12 +15,14 @@ class PodSheet extends StatefulWidget {
     super.key,
     required this.controller,
     required this.stopId,
+    this.outbox,
     this.collectPaise = 0,
     this.paymentMode = 'cod',
   });
 
   final StopsController controller;
   final String stopId;
+  final SyncController? outbox;
 
   /// 015: collect hint from the joined stop (total + mode).
   final int collectPaise;
@@ -141,6 +144,16 @@ class _PodSheetState extends State<PodSheet> {
                   ? null
                   : () async {
                       final pos = await _position();
+                      final pod = buildPodBody(
+                        deliveryOtp: _otp.text.trim(),
+                        emptiesCount:
+                            int.tryParse(_empties.text.trim()) ?? 0,
+                        cashPaise:
+                            (int.tryParse(_cash.text.trim()) ?? 0) * 100,
+                        sealOk: _sealOk,
+                        lat: pos?.latitude,
+                        lng: pos?.longitude,
+                      );
                       final ok = await c.completePod(
                         stopId: widget.stopId,
                         deliveryOtp: _otp.text.trim(),
@@ -152,6 +165,17 @@ class _PodSheetState extends State<PodSheet> {
                         lat: pos?.latitude,
                         lng: pos?.longitude,
                       );
+                      // Offline: queue the same body the sync worker replays
+                      // (server treats a same-OTP retry as the stored outcome).
+                      if (!ok &&
+                          (c.notice ?? '').contains('Sync me queue') &&
+                          widget.outbox != null) {
+                        await widget.outbox!.enqueuePod(
+                          stopId: widget.stopId,
+                          pod: pod,
+                          cashAmountPaise: pod['cash'] as int? ?? 0,
+                        );
+                      }
                       if (context.mounted && ok) {
                         Navigator.of(context).pop();
                       }

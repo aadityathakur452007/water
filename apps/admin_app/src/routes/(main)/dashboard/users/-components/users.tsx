@@ -27,21 +27,17 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
-import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { UserRow as ApiUserRow, Page } from "@/lib/admin-types";
+import { errorMessage, useInvalidateAdmin } from "@/hooks/use-admin-api";
+import { useCursorPages } from "@/hooks/use-cursor-pages";
+import type { UserRow as ApiUserRow } from "@/lib/admin-types";
 import { dataTableFeatures } from "@/lib/data-table-features";
 import { adminPostServer } from "@/server/admin-api";
 
-import { filters, type UserRow, type UserStatus, type UserTeam } from "./data";
+import { filters, type UserRow, type UserStatus } from "./data";
 import { usersColumns } from "./users-columns";
 import { UsersTable } from "./users-table";
 
 const ROLE_LABEL: Record<string, string> = { user: "Customer", vendor: "Delivery Partner", admin: "Admin" };
-const TEAM_BY_ROLE: Record<string, UserTeam> = {
-  user: "Customer Ops",
-  vendor: "Delivery Ops",
-  admin: "Admin",
-};
 
 function confirmLabel(busy: boolean, target: UserRow | null): string {
   if (busy) return "Working…";
@@ -63,11 +59,8 @@ function adapt(u: ApiUserRow): UserRow {
     email: u.phone ? `+91 ${u.phone.slice(-10)}` : u.id,
     phone: u.phone,
     role: ROLE_LABEL[u.role] ?? u.role,
-    team: TEAM_BY_ROLE[u.role] ?? "Customer Ops",
     status,
-    workspace: ["Shodasha"],
     joinedDate: Number.isNaN(created.getTime()) ? u.created_at : format(created, "dd MMM yyyy, h:mm a"),
-    lastActive: u.suspended ? 8 * 24 * 60 : 2,
   };
 }
 
@@ -75,15 +68,22 @@ export function Users() {
   const navigate = useNavigate();
   const invalidate = useInvalidateAdmin();
 
-  const { data, isError, error } = useAdminQuery<Page<ApiUserRow>>("/v1/admin/users");
-  const rows = React.useMemo(() => (data?.data ?? []).map(adapt), [data]);
+  // Cursor-follow: page 1 loads, Load more appends. The table paginates the
+  // loaded rows — counts below are loaded rows, never server totals.
+  const {
+    rows: serverRows,
+    nextCursor,
+    loadMore,
+    isError,
+    error,
+  } = useCursorPages<ApiUserRow>("/v1/admin/users");
+  const rows = React.useMemo(() => serverRows.map(adapt), [serverRows]);
 
   const [rowSelection, setRowSelection] = React.useState({});
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "joinedDate", desc: true }]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>({
     search: false,
-    team: false,
   });
   const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
 
@@ -120,10 +120,7 @@ export function Users() {
 
   const searchQuery = (table.getColumn("search")?.getFilterValue() as string | undefined) ?? "";
   const roleFilter = (table.getColumn("role")?.getFilterValue() as string | undefined) ?? filters.role[0];
-  const teamFilter = (table.getColumn("team")?.getFilterValue() as string | undefined) ?? filters.team[0];
   const statusFilter = (table.getColumn("status")?.getFilterValue() as string | undefined) ?? filters.status[0];
-  const workspaceFilter =
-    (table.getColumn("workspace")?.getFilterValue() as string | undefined) ?? filters.workspace[0];
 
   function setColumnSelectFilter(columnId: string, value: string | null) {
     table.getColumn(columnId)?.setFilterValue(!value || value === "All" ? undefined : value);
@@ -155,13 +152,6 @@ export function Users() {
       setBusy(false);
     }
   }
-
-  const userFilterItems = {
-    role: filters.role.map((option) => ({ value: option, label: option })),
-    team: filters.team.map((option) => ({ value: option, label: option })),
-    status: filters.status.map((option) => ({ value: option, label: option })),
-    workspace: filters.workspace.map((option) => ({ value: option, label: option })),
-  };
 
   return (
     <Card>
@@ -206,21 +196,6 @@ export function Users() {
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <Select value={teamFilter} onValueChange={(value) => setColumnSelectFilter("team", value)}>
-              <SelectTrigger size="sm">
-                <span className="text-muted-foreground">Team:</span>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start" alignItemWithTrigger={false}>
-                <SelectGroup>
-                  {filters.team.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
             <Select value={statusFilter} onValueChange={(value) => setColumnSelectFilter("status", value)}>
               <SelectTrigger size="sm">
                 <span className="text-muted-foreground">Status:</span>
@@ -237,28 +212,19 @@ export function Users() {
               </SelectContent>
             </Select>
           </div>
-          <Select
-            items={userFilterItems.workspace}
-            value={workspaceFilter}
-            onValueChange={(value) => setColumnSelectFilter("workspace", value)}
-          >
-            <SelectTrigger size="sm">
-              <span className="text-muted-foreground">Workspace:</span>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end" alignItemWithTrigger={false}>
-              <SelectGroup>
-                {filters.workspace.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
         </div>
 
         <UsersTable table={table} />
+        <div className="flex items-center justify-between px-4 pb-2">
+          <p className="text-muted-foreground text-xs">
+            {`${rows.length} loaded${nextCursor ? " · more on server" : ""}`}
+          </p>
+          {nextCursor ? (
+            <Button variant="outline" size="sm" onClick={loadMore}>
+              Load more
+            </Button>
+          ) : null}
+        </div>
       </CardContent>
 
       {/* Typed block sheet — template dialog, old-admin flow */}

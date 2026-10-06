@@ -165,6 +165,34 @@ class OrderRepo:
         ).fetchone()
         return str(row["d"]) if row is not None else None
 
+    async def stop_pod_otp(self, order_id: str) -> str | None:
+        """Stored PoD code on the order's latest pending stop, if any.
+
+        None on pre-015 DBs, NULL rows, or no active stop — the caller falls
+        back to the legacy deterministic code. Read-only.
+        """
+        try:
+            cols = {r["name"] for r in (
+                await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
+            ).fetchall()}
+        except Exception:
+            return None
+        if "pod_otp" not in cols:
+            return None
+        try:
+            row = (
+                await self._conn.execute(
+                    "SELECT pod_otp FROM stops WHERE order_id = ? AND status = 'pending'"
+                    " ORDER BY version DESC LIMIT 1",
+                    (order_id,),
+                )
+            ).fetchone()
+        except Exception:
+            return None
+        if row is None or not row["pod_otp"]:
+            return None
+        return str(row["pod_otp"])
+
     # -- writes (each = exactly one transaction) --------------------------
 
     async def insert(self, order: dict, deposit_event: dict | None = None) -> dict:
@@ -271,6 +299,28 @@ class OrderRepo:
             await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
         ).fetchone())
 
+    async def update_instructions(self, order_id: str, instructions: str, actor: object) -> dict:
+        """Owner delivery note (≤500 chars); state untouched, event logged."""
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "UPDATE orders SET instructions = ? WHERE id = ?",
+                    (instructions, order_id),
+                )
+                cur = (
+                    await self._conn.execute("SELECT state FROM orders WHERE id = ?", (order_id,))
+                ).fetchone()
+                await self._event(order_id, cur["state"], cur["state"], _actor_id(actor), _role(actor),
+                            "instructions updated")
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        # instructions stays out of _ORDER_COLS (pre-016 tolerance) — merged here.
+        return {**_row((
+            await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
+        ).fetchone()), "instructions": instructions}
+
     async def cancel_settle(self, order_id: str, actor: object) -> dict:
         """§10 settlement in ONE transaction: state check + void + compensating
         ledger rows + refund row iff money moved. Already-cancelled -> 409 with
@@ -307,11 +357,14 @@ class OrderRepo:
                     )
                 refund = None
                 if order["payment_status"] in PAID_STATUSES:  # money moved -> refund row
+                    paid = (await self._conn.execute(
+                        "SELECT COALESCE(SUM(amount),0) s FROM payments WHERE order_id=?"
+                        " AND status IN ('paid','partial')", (order_id,))).fetchone()["s"]
                     refund = {
                         "id": uuid.uuid4().hex,
                         "order_id": order_id,
                         "payment_id": order_id,  # payments slice migrates this to payments.id
-                        "amount": int(order["total"]),
+                        "amount": int(paid),  # actually collected, never the full bill
                         "method": order["payment_mode"],
                         "status": "pending",
                         "created_at": _now(),

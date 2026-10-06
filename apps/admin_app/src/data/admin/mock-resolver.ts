@@ -11,7 +11,7 @@ import {
   ordersFixture,
   paymentsFixture,
   qualityFixture,
-  reconciliationFixture,
+  reconciliationResponseFixture,
   refundsFixture,
   strikesFixture,
   usersRows,
@@ -23,6 +23,7 @@ import {
   vendorPlacedFixture,
   vendorPreviewFixture,
   vendorProfileFixture,
+  vendorQualityFixture,
   vendorSlotsFixture,
   vendorStopFixture,
   vendorsFixture,
@@ -36,6 +37,17 @@ export function resolveFixture(
 ): unknown {
   if (method === "POST" || method === "PATCH") {
     // Writes succeed in mock mode (optionally echoing affected ids).
+    // Phase 5 S5.5: placed accept echoes the live accept shape.
+    if (path.includes("/placed/") && path.endsWith("/accept")) {
+      const orderId = path.split("/").at(-2) ?? "";
+      return {
+        order_id: orderId,
+        vendor_id: "mock-vendor",
+        route_id: "mock-route",
+        stop_id: "mock-stop-1",
+        version: 1,
+      };
+    }
     if (path.includes("/suspend") || path.includes("/unsuspend")) return { ok: true, revoked_sessions: 2 };
     if (path.includes("/generate")) return { ok: true, routes: 2 };
     // Admin-issued vendor code — plaintext surfaces exactly once, like live.
@@ -52,6 +64,7 @@ export function resolveFixture(
   if (path.startsWith("/v1/vendor/earnings")) return vendorEarningsFixture;
   if (path.startsWith("/v1/vendor/customers")) return { customers: vendorCustomersFixture };
   if (path.startsWith("/v1/vendor/complaints")) return { data: vendorComplaintsFixture };
+  if (path.startsWith("/v1/vendor/quality")) return { data: vendorQualityFixture };
   if (path.startsWith("/v1/vendor/payouts")) return vendorPayoutsFixture;
   if (path.startsWith("/v1/vendor/profile")) return vendorProfileFixture;
   if (path.startsWith("/v1/vendor/slots")) return vendorSlotsFixture;
@@ -73,8 +86,25 @@ export function resolveFixture(
     return vendorDetailFixture;
   }
   if (path.startsWith("/v1/admin/vendors")) return vendorsFixture;
-  if (path.startsWith("/v1/admin/users")) return { data: usersRows };
-  if (path.startsWith("/v1/admin/payments")) return paymentsFixture;
+  // Phase 6 S6.3: mirror the live role counts (GROUP BY role shape).
+  if (path.startsWith("/v1/admin/users")) {
+    const counts: Record<string, number> = { total: usersRows.length };
+    for (const u of usersRows) counts[u.role] = (counts[u.role] ?? 0) + 1;
+    return { data: usersRows, counts };
+  }
+  if (path.startsWith("/v1/admin/payments")) {
+    // Mirror the live server-driven search (ref/order/phone), not page filters.
+    const query = new URLSearchParams(path.split("?")[1] ?? "").get("query")?.toLowerCase() ?? "";
+    if (!query) return paymentsFixture;
+    const data = paymentsFixture.data.filter(
+      (r) =>
+        r.id.toLowerCase().includes(query) ||
+        r.order_id.toLowerCase().includes(query) ||
+        (r.user_name ?? "").toLowerCase().includes(query) ||
+        (r.user_phone ?? "").includes(query),
+    );
+    return { data };
+  }
   if (path.startsWith("/v1/admin/refunds")) return refundsFixture;
   if (path.startsWith("/v1/admin/ledger")) return ledgerFixture;
   if (path.startsWith("/v1/admin/audit")) return auditFixture;
@@ -83,7 +113,7 @@ export function resolveFixture(
   if (path.startsWith("/v1/admin/complaints")) return complaintsFixture;
   if (path.startsWith("/v1/admin/custody")) return { data: custodyFixture };
   if (path.startsWith("/v1/admin/dunning")) return { data: dunningFixture };
-  if (path.startsWith("/v1/admin/reconciliation")) return { data: reconciliationFixture };
+  if (path.startsWith("/v1/admin/reconciliation")) return reconciliationResponseFixture;
   if (path.startsWith("/v1/admin/config")) return { data: configFixture };
   return {};
 }

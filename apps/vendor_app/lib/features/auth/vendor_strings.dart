@@ -26,4 +26,6 @@ const Map<String, String> vendorStringsHi = {
   'demoHint': 'Seeded demo account — QA ke liye, bina access code',
   'demoVendor': 'Demo vendor bharein',
   'demoGo': 'Demo se login karein',
+  'sessionExpired': 'Session khatam ho gaya — dobara login karein',
+  'capExpiring': 'Login kal khatam hoga — kaam ke baad dobara login karein',
 };

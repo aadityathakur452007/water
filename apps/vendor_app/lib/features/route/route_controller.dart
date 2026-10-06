@@ -3,6 +3,8 @@
 
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/api_client.dart';
@@ -16,6 +18,7 @@ class RouteStop {
     required this.seq,
     required this.customerName,
     this.customerId = '',
+    this.customerPhone = '',
     required this.address,
     required this.fullsExpected,
     required this.emptiesExpected,
@@ -27,7 +30,14 @@ class RouteStop {
     this.paymentMode = 'cod',
     this.totalPaise = 0,
     this.paymentStatus = 'unpaid',
+    this.paidSum = 0,
     this.returnId = '',
+    this.orderId = '',
+    this.orderState = '',
+    this.depositDuePaise = 0,
+    this.windowStart = '',
+    this.items = const [],
+    this.instructions = '',
   });
 
   final String id;
@@ -37,6 +47,9 @@ class RouteStop {
   /// 016: server stop customer id (today_route selects s.customer_id).
   /// Falls back to the display name for the users-count fold.
   final String customerId;
+
+  /// §3.2: door contact (assigned-vendor need-to-know) for call action.
+  final String customerPhone;
   final String address;
   final int fullsExpected;
   final int emptiesExpected;
@@ -51,11 +64,46 @@ class RouteStop {
   final int totalPaise;
   final String paymentStatus;
 
+  /// Phase 5 §5.2: paid-to-date (server `paid_sum`; 0 when unknown).
+  final int paidSum;
+
   /// F8: set on empty-jar pickup stops (stops.return_id); else ''.
   final String returnId;
 
+  /// §3.2: order linkage + state + deposit truth (were dropped in fromJson).
+  final String orderId;
+  final String orderState;
+  final int depositDuePaise;
+
+  /// §3.2: promised window + SKU snapshot + delivery note.
+  final String windowStart;
+  final List<Map<String, dynamic>> items;
+  final String instructions;
+
   bool get isDone => status == 'done';
+  bool get isFailed => status == 'failed';
   bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+
+  /// Phase 5 §5.2: honest money predicates (copied to the web client —
+  /// one definition per surface, no shared package).
+  bool get isPartial => paymentStatus == 'partial_dues';
+  bool get isLinkSent => paymentStatus == 'link_sent';
+
+  /// Still collectable at the door: unpaid → full total; partial → the
+  /// remainder; paid/link_sent → 0 (a sent UPI link awaits the webhook —
+  /// demanding cash would double-collect).
+  int get remainingPaise {
+    if (isPaid || isLinkSent) return 0;
+    final due = totalPaise > 0 ? totalPaise : cashDuePaise;
+    if (!isPartial) return due;
+    final left = due - paidSum;
+    return left > 0 ? left : 0;
+  }
+
+  static List<Map<String, dynamic>> itemsOf(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw.whereType<Map<String, dynamic>>().toList();
+  }
 
   static RouteStop fromJson(Map<String, dynamic> j) => RouteStop(
         id: (j['id'] ?? '') as String,
@@ -63,6 +111,7 @@ class RouteStop {
         customerName:
             (j['customer_name'] ?? j['customer_id'] ?? 'Customer') as String,
         customerId: (j['customer_id'] ?? '') as String,
+        customerPhone: (j['customer_phone'] ?? '') as String,
         address: (j['address_text'] ?? j['address'] ?? j['formatted'] ?? '') as String,
         fullsExpected: (j['fulls_exp'] as num?)?.toInt() ?? 0,
         emptiesExpected: (j['empties_exp'] as num?)?.toInt() ?? 0,
@@ -74,7 +123,14 @@ class RouteStop {
         paymentMode: (j['payment_mode'] ?? 'cod') as String,
         totalPaise: (j['total'] as num?)?.toInt() ?? 0,
         paymentStatus: (j['payment_status'] ?? 'unpaid') as String,
+        paidSum: (j['paid_sum'] as num?)?.toInt() ?? 0,
         returnId: (j['return_id'] ?? '') as String,
+        orderId: (j['order_id'] ?? '') as String,
+        orderState: (j['order_state'] ?? '') as String,
+        depositDuePaise: (j['deposit_due'] as num?)?.toInt() ?? 0,
+        windowStart: (j['window_start'] ?? '') as String,
+        items: itemsOf(j['items']),
+        instructions: (j['instructions'] ?? '') as String,
       );
 }
 
@@ -153,6 +209,60 @@ class RouteController extends ChangeNotifier {
       return _placed.length;
     }
   }
+
+  /// Phase 5 §5.5: accept one placed order → reload route + pool.
+  /// Returns an Honest Hindi notice for the caller snackbar; null when the
+  /// call itself failed (caller shows the error copy instead).
+  String? _acceptNotice;
+  String? get acceptNotice => _acceptNotice;
+
+  Future<bool> acceptPlaced(String orderId) async {
+    _acceptNotice = null;
+    try {
+      final out = await _api.acceptPlaced(orderId);
+      await load();
+      await refreshPlaced();
+      _acceptNotice = (out['replay'] == true)
+          ? 'Ye order pehle se route me hai'
+          : 'Stop jud gaya — route me dekhein';
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      _acceptNotice = e.isNetwork
+          ? 'Network nahi — dobara try karein'
+          : e.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Phase 5 §5.4: assignment discovery — 60s poll of route + pool while
+  /// on-duty only (battery-conscious; cancelled off-duty, on background,
+  /// and on dispose — mobile-native rule). Push stays a documented gap.
+  Timer? _discoveryTimer;
+
+  void startDiscovery({Duration interval = const Duration(seconds: 60)}) {
+    stopDiscovery();
+    _discoveryTimer = Timer.periodic(interval, (_) async {
+      try {
+        await load();
+        await refreshPlaced();
+      } catch (_) {
+        // Next tick retries; poll never crashes the shift.
+      }
+    });
+  }
+
+  void stopDiscovery() {
+    _discoveryTimer?.cancel();
+    _discoveryTimer = null;
+  }
+
+  @override
+  void dispose() {
+    stopDiscovery();
+    super.dispose();
+  }
 }
 
 /// 016 dashboard §3(a): today-at-a-glance folded client-side from the
@@ -187,10 +297,12 @@ TodaySummary summarizeToday(List<RouteStop> stops) {
     jars += s.fullsExpected;
     if (s.isDone) {
       done++;
-    } else if (!s.isPaid) {
-      // Paid-but-pending stops are still visits (jars/users count)
-      // but add nothing to collect — money already in.
-      final due = s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise;
+    } else {
+      // Paid/link-sent stops are still visits (jars/users count) but add
+      // nothing to collect — money is in or awaiting the webhook. Partial
+      // stops add only the remainder (never the full total again).
+      final due = s.remainingPaise;
+      if (due <= 0) continue;
       if (s.paymentMode == 'upi') {
         upi += due;
       } else {

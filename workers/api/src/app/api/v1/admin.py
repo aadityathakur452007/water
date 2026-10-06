@@ -17,14 +17,15 @@ import secrets
 import sqlite3
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-export for test overrides)
+from app.api.caching import cached
 from app.api.deps import get_db_conn
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
-from app.repositories.admin_read_repo import AdminReadRepo
+from app.repositories.admin_read_repo import AdminReadRepo, ist_today
 from app.repositories.access_code_repo import AccessCodeRepo
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
@@ -72,6 +73,10 @@ class ReassignIn(BaseModel):
 
 class CancelOverrideIn(BaseModel):
     reason: str = Field(default="admin override", max_length=500)
+
+
+class RejectIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class VendorCreateIn(BaseModel):
@@ -159,7 +164,8 @@ async def orders_queue(state: str | None = Query(default=None),
             pass
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = (await conn.execute(
-        f"SELECT id, user_id, n, e, total, payment_status, state, window_start, created_at,"  # noqa: S608
+        f"SELECT id, user_id, n, e, water_bill, deposit_due, cap_charge, total, payment_status,"
+        f" state, window_start, created_at,"  # noqa: S608
         f" rowid AS _rowid FROM orders {where} ORDER BY rowid DESC LIMIT ?",
         (*args, limit + 1),
     )).fetchall()
@@ -172,11 +178,66 @@ async def orders_queue(state: str | None = Query(default=None),
 async def admin_assign(order_id: str, payload: AssignIn, conn=Depends(get_db_conn), user=Admin):
     return await assign_order(conn, order_id, payload.vendor_id, {"id": _uid(user), "role": "admin"})
 
-
 @router.post("/admin/orders/{order_id}/reassign")
-async def admin_reassign(order_id: str, payload: ReassignIn, conn=Depends(get_db_conn), user=Admin):
+async def admin_reassign(order_id: str, payload: ReassignIn,
+                  conn=Depends(get_db_conn), user=Admin):
     return await reassign_order(conn, order_id, payload.vendor_id,
                           {"id": _uid(user), "role": "admin"}, payload.reason)
+
+
+@router.post("/admin/orders/{order_id}/accept")
+async def admin_accept(order_id: str, conn=Depends(get_db_conn), user=Admin):
+    out = await OrderRepo(conn).transition(
+        order_id, "accepted", {"id": _uid(user), "role": "admin"}, "dispatcher accept")
+    with WRITE_LOCK:
+        await _audit(conn, user, "order.accept", "orders", order_id, "", "accepted")
+        conn.commit()
+    return out
+
+
+@router.post("/admin/orders/{order_id}/reject")
+async def admin_reject(order_id: str, payload: RejectIn,
+                conn=Depends(get_db_conn), user=Admin):
+    out = await OrderRepo(conn).transition(
+        order_id, "rejected", {"id": _uid(user), "role": "admin"}, payload.reason)
+    with WRITE_LOCK:
+        await _audit(conn, user, "order.reject", "orders", order_id, "", payload.reason)
+        conn.commit()
+    return out
+
+
+@router.post("/admin/orders/{order_id}/pack")
+async def admin_pack(order_id: str, conn=Depends(get_db_conn), user=Admin):
+    actor = {"id": _uid(user), "role": "admin"}
+    await OrderRepo(conn).transition(order_id, "picked", actor, "dispatcher single-touch pack")
+    out = await OrderRepo(conn).transition(order_id, "packed", actor, "dispatcher single-touch pack")
+    with WRITE_LOCK:
+        await _audit(conn, user, "order.pack", "orders", order_id, "", "packed")
+        conn.commit()
+    return out
+
+
+@router.post("/admin/routes/{route_id}/dispatch")
+async def admin_dispatch_route(route_id: str, conn=Depends(get_db_conn), user=Admin):
+    actor = {"id": _uid(user), "role": "admin"}
+    stops = (await conn.execute(
+        "SELECT s.id, s.order_id FROM stops s WHERE s.route_id = ? AND s.status = 'pending'"
+        " AND s.order_id IS NOT NULL",
+        (route_id,),
+    )).fetchall()
+    dispatched, skipped = [], []
+    for s in stops:
+        order = (await conn.execute(
+            "SELECT state FROM orders WHERE id = ?", (s["order_id"],))).fetchone()
+        if order is None or str(order["state"]) != "assigned":
+            skipped.append({"stop_id": s["id"], "state": str(order["state"]) if order else "missing"})
+            continue
+        await OrderRepo(conn).transition(s["order_id"], "dispatched", actor, f"route {route_id} dispatched")
+        with WRITE_LOCK:
+            await _audit(conn, user, "admin.dispatch", "stops", s["id"], "", "dispatched")
+            conn.commit()
+        dispatched.append(s["id"])
+    return {"route_id": route_id, "dispatched": dispatched, "skipped": skipped}
 
 
 @router.post("/admin/orders/{order_id}/cancel-override")
@@ -497,10 +558,11 @@ async def admin_vendor_preview(vendor_id: str, date: str | None = None,
 # -- zones attach/detach (custody-zero guard, §14.2) ----------------------------
 
 @router.get("/admin/zones")
-async def zone_list(conn=Depends(get_db_conn), user=Admin):
+async def zone_list(request: Request, conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute(
         "SELECT id, name, pincodes, active FROM zones ORDER BY name LIMIT 200")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
+    return cached({"data": [dict(r) for r in rows]}, request)
 
 @router.post("/admin/zones/{zone_id}/vendors/attach")
 async def zone_attach(zone_id: str, payload: AttachIn, conn=Depends(get_db_conn), user=Admin):
@@ -575,7 +637,9 @@ async def invoice_whatsapp(invoice_id: str, conn=Depends(get_db_conn), user=Admi
 
 
 @router.get("/admin/reconciliation")
-async def reconciliation(conn=Depends(get_db_conn), user=Admin):
+async def reconciliation(date: str | None = Query(default=None),
+                   conn=Depends(get_db_conn), user=Admin):
+    day = (date or "").strip() or ist_today()
     led = (await conn.execute(
         "SELECT COALESCE(SUM(held),0) h, COALESCE(SUM(deposit_paid),0) p,"
         " COALESCE(SUM(deposit_refunded),0) r, COALESCE(SUM(dues),0) d FROM ledger"
@@ -583,7 +647,29 @@ async def reconciliation(conn=Depends(get_db_conn), user=Admin):
     states = (await conn.execute(
         "SELECT state, COUNT(*) c, COALESCE(SUM(total),0) t FROM orders GROUP BY state"
     )).fetchall()
-    return {"jars_out": int(led["h"]), "deposit_liability": int(led["p"]) - int(led["r"]),
+    rows = (await conn.execute(
+        "SELECT r.id AS route_id, r.vendor_id, COALESCE(u.name, '') AS vendor_name,"
+        " COUNT(s.id) AS stops,"
+        " SUM(CASE WHEN s.status = 'done' THEN 1 ELSE 0 END) AS delivered,"
+        " SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) AS failed,"
+        " COALESCE(SUM(s.fulls_exp), 0) AS jars_out,"
+        " COALESCE(SUM(s.empties_exp), 0) AS empties_expected,"
+        " COALESCE(SUM(p.cash), 0) AS cash, COALESCE(SUM(p.upi), 0) AS upi"
+        " FROM routes r LEFT JOIN stops s ON s.route_id = r.id"
+        " LEFT JOIN (SELECT order_id,"
+        " SUM(CASE WHEN method = 'cod' AND status IN ('paid','partial') THEN amount ELSE 0 END) AS cash,"
+        " SUM(CASE WHEN method = 'upi' AND status IN ('paid','partial') THEN amount ELSE 0 END) AS upi"
+        " FROM payments GROUP BY order_id) p ON p.order_id = s.order_id"
+        " LEFT JOIN users u ON u.id = r.vendor_id"
+        " WHERE r.date = ? GROUP BY r.id ORDER BY r.id",
+        (day,),
+    )).fetchall()
+    return {"date": day,
+            "routes": [{**dict(r), "stops": int(r["stops"]), "delivered": int(r["delivered"] or 0),
+                        "failed": int(r["failed"] or 0),
+                        "jars_out": int(r["jars_out"]), "empties_expected": int(r["empties_expected"]),
+                        "cash": int(r["cash"]), "upi": int(r["upi"])} for r in rows],
+            "jars_out": int(led["h"]), "deposit_liability": int(led["p"]) - int(led["r"]),
             "dues_receivable": int(led["d"]),
             "orders_by_state": [{**dict(r)} for r in states]}
 
@@ -591,9 +677,13 @@ async def reconciliation(conn=Depends(get_db_conn), user=Admin):
 @router.get("/admin/custody")
 async def custody(conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute(
-        "SELECT user_id AS vendor_id, in_hand FROM vendor_profile WHERE in_hand != 0"
+        "SELECT u.id AS vendor_id, COALESCE(u.name, '') AS name, COALESCE(u.phone, '') AS phone,"
+        " COALESCE(p.on_duty, 0) AS on_duty, COALESCE(p.in_hand, 0) AS in_hand"
+        " FROM users u LEFT JOIN vendor_profile p ON p.user_id = u.id"
+        " WHERE u.role = 'vendor' ORDER BY u.id"
     )).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    return {"data": [{**dict(r), "on_duty": bool(r["on_duty"]),
+                      "zero": int(r["in_hand"]) == 0} for r in rows]}
 
 
 @router.get("/admin/dunning")
@@ -705,8 +795,10 @@ class RecoCloseIn(BaseModel):
 
 @router.post("/admin/reconciliation/close")
 async def reconciliation_close(payload: RecoCloseIn, conn=Depends(get_db_conn), user=Admin):
-    """Day-close marker: snapshot books + collected + custody into audit_log."""
-    day = payload.date.strip() or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    """Day-close marker: money truth comes from `payments` rows (paid/partial
+    by method for the day); the triple JSON sums stay as a non-blocking
+    cross-check (declared vs posted diverge on offline timing)."""
+    day = payload.date.strip() or ist_today()
     led = (await conn.execute(
         "SELECT COALESCE(SUM(held),0) h, COALESCE(SUM(deposit_paid),0) p,"
         " COALESCE(SUM(deposit_refunded),0) r, COALESCE(SUM(dues),0) d FROM ledger"
@@ -723,11 +815,19 @@ async def reconciliation_close(payload: RecoCloseIn, conn=Depends(get_db_conn), 
             j = {}
         cash += int(j.get("cash", 0))
         upi += int(j.get("upi", 0))
+    prows = (await conn.execute(
+        "SELECT method, COALESCE(SUM(amount),0) s FROM payments"
+        " WHERE status IN ('paid','partial') AND date(created_at) = ? GROUP BY method",
+        (day,))).fetchall()
+    by_method = {str(r["method"]): int(r["s"]) for r in prows}
+    payments_cash, payments_upi = by_method.get("cod", 0), by_method.get("upi", 0)
     snapshot = {"date": day, "route": payload.route,
                 "jars_out": int(led["h"]),
                 "deposit_liability": int(led["p"]) - int(led["r"]),
                 "dues_receivable": int(led["d"]),
                 "collected_cash": cash, "collected_upi": upi,
+                "payments_cash": payments_cash, "payments_upi": payments_upi,
+                "cash_mismatch": payments_cash != cash, "upi_mismatch": payments_upi != upi,
                 "custody_in_hand": int(hand)}
     with WRITE_LOCK:
         await _audit(conn, user, "reco.close", "reconciliation", f"{day}:{payload.route}", "", snapshot)
@@ -746,7 +846,10 @@ async def returns_queue(status: str | None = Query(default=None), conn=Depends(g
         args.append(status)
     rows = await conn.execute(
         f"SELECT * FROM returns {where} ORDER BY created_at DESC LIMIT 200", (*args,))  # noqa: S608
-    return {"data": [dict(r) for r in rows.fetchall()]}
+    counts = (await conn.execute(
+        "SELECT status, COUNT(*) c FROM returns GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows.fetchall()],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 class ReturnAssignIn(BaseModel):
@@ -828,7 +931,10 @@ async def return_refund(return_id: str, payload: ReturnRefundIn,
 @router.get("/admin/complaints")
 async def complaints_queue(conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute("SELECT * FROM complaints ORDER BY created_at DESC LIMIT 200")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    counts = (await conn.execute(
+        "SELECT status, COUNT(*) c FROM complaints GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 @router.post("/admin/complaints/{complaint_id}/resolve")
@@ -857,7 +963,10 @@ async def quality_queue(status: str | None = Query(default=None), conn=Depends(g
     rows = await conn.execute(
         f"SELECT * FROM quality_incidents {where} ORDER BY created_at DESC LIMIT 200",  # noqa: S608
         (*args,))
-    return {"data": [dict(r) for r in rows.fetchall()]}
+    counts = (await conn.execute(
+        "SELECT status, COUNT(*) c FROM quality_incidents GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows.fetchall()],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 @router.post("/admin/quality/{incident_id}/confirm")
@@ -902,7 +1011,11 @@ async def quality_reject(incident_id: str, payload: QualityDecisionIn,
 @router.get("/admin/strikes")
 async def strikes_list(conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute("SELECT * FROM strikes ORDER BY created_at DESC LIMIT 200")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    counts = (await conn.execute(
+        "SELECT CASE WHEN cleared_at IS NULL THEN 'open' ELSE 'cleared' END AS status,"
+        " COUNT(*) c FROM strikes GROUP BY status")).fetchall()
+    return {"data": [dict(r) for r in rows],
+            "counts": {str(r["status"]): int(r["c"]) for r in counts}}
 
 
 @router.post("/admin/strikes/{strike_id}/clear")
@@ -940,13 +1053,14 @@ async def config_patch(payload: ConfigPatchIn, conn=Depends(get_db_conn), user=A
 
 
 @router.get("/admin/config")
-async def config_read(conn=Depends(get_db_conn), user=Admin):
+async def config_read(request: Request, conn=Depends(get_db_conn), user=Admin):
     try:
         rows = (await conn.execute("SELECT key, value, effective_from, updated_by, updated_at"
                             " FROM config ORDER BY key")).fetchall()
     except sqlite3.OperationalError:
         rows = (await conn.execute("SELECT key, value FROM config ORDER BY key")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
+    return cached({"data": [dict(r) for r in rows]}, request)
 
 
 @router.get("/admin/audit")
@@ -954,7 +1068,48 @@ async def audit_read(entity: str | None = Query(default=None),
                actor_id: str | None = Query(default=None, max_length=80),  # F-SA additive
                action: str | None = Query(default=None, max_length=80),  # F-SA additive
                limit: int = Query(default=50, ge=1, le=200),
+               cursor: str = Query(default=""),
                conn=Depends(get_db_conn), user=Admin):
+    args: list[object] = []
+    clauses = []
+    if entity:
+        clauses.append("entity = ?")
+        args.append(entity)
+    if actor_id:
+        clauses.append("actor_id = ?")
+        args.append(actor_id)
+    if action:
+        clauses.append("action = ?")
+        args.append(action)
+    cur = _cursor(cursor)
+    if cur > 0:
+        clauses.append("rowid < ?")
+        args.append(cur)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    try:
+        rows = (await conn.execute(
+            f"SELECT *, rowid AS _rowid FROM audit_log {where} ORDER BY rowid DESC LIMIT ?", (*args, limit + 1)  # noqa: S608
+        )).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    data = [dict(r) for r in rows[:limit]]
+    next_cursor = str(rows[limit]["_rowid"]) if len(rows) > limit else ""
+    return {"data": data, "next_cursor": next_cursor}
+
+
+@router.get("/admin/audit/export")
+async def audit_export(entity: str | None = Query(default=None),
+                 actor_id: str | None = Query(default=None, max_length=80),
+                 action: str | None = Query(default=None, max_length=80),
+                 limit: int = Query(default=200, ge=1, le=1000),
+                 conn=Depends(get_db_conn), user=Admin):
+    """Filtered audit as CSV (same filters as the viewer; header follows the
+    live table shape, whichever migration owns it)."""
+    import csv
+    import io
+
+    from fastapi.responses import PlainTextResponse
+
     args: list[object] = []
     clauses = []
     if entity:
@@ -973,7 +1128,13 @@ async def audit_read(entity: str | None = Query(default=None),
         )).fetchall()
     except sqlite3.OperationalError:
         rows = []
-    return {"data": [dict(r) for r in rows]}
+    data = [dict(r) for r in rows]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(list(data[0].keys()) if data else ["empty"])
+    for r in data:
+        writer.writerow([r.get(k, "") for k in (list(data[0].keys()) if data else [])])
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv")
 
 
 @router.get("/admin/metrics")
@@ -1010,8 +1171,8 @@ def _cursor(value: str) -> int:
 async def metrics_overview(days: int = Query(default=14, ge=1, le=90),
                      conn=Depends(get_db_conn), user=Admin):
     repo = AdminReadRepo(conn)
-    since = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)).isoformat()[:10]
-    today = _dt.datetime.now(_dt.timezone.utc).isoformat()[:10]
+    today = ist_today()
+    since = (_dt.datetime.fromisoformat(today) - _dt.timedelta(days=days)).date().isoformat()
     daily = await repo.daily_series(since)
     on_time = {r["day"]: r for r in await repo.on_time_series(since)}
     series = []
@@ -1051,7 +1212,12 @@ async def admin_users(query: str | None = Query(default=None, max_length=80),
     data, next_cursor = await AdminReadRepo(conn).users_page(
         query=(query or "").strip(), role=role or "", suspended=suspended,
         limit=limit, cursor=_cursor(cursor))
-    return {"data": data, "next_cursor": next_cursor}
+    # Phase 6 S6.3: directory totals for the analytics Customers card
+    # (trust-style counts ride the list read — one GROUP BY, no new route).
+    by_role = {str(r["role"]): int(r["c"]) for r in (await conn.execute(
+        "SELECT role, COUNT(*) c FROM users GROUP BY role")).fetchall()}
+    return {"data": data, "next_cursor": next_cursor,
+            "counts": {"total": sum(by_role.values()), **by_role}}
 
 
 @router.get("/admin/users/{user_id}/detail")
@@ -1123,11 +1289,13 @@ async def admin_unsuspend_user(user_id: str, conn=Depends(get_db_conn), user=Adm
 @router.get("/admin/payments")
 async def admin_payments(status: str | None = Query(default=None),
                    method: str | None = Query(default=None, pattern=r"^(upi|cod)$"),
+                   query: str | None = Query(default=None, max_length=80),
                    limit: int = Query(default=50, ge=1, le=200),
                    cursor: str = Query(default=""),
                    conn=Depends(get_db_conn), user=Admin):
     data, next_cursor = await AdminReadRepo(conn).payments_page(
-        status=status or "", method=method or "", limit=limit, cursor=_cursor(cursor))
+        status=status or "", method=method or "", query=query or "",
+        limit=limit, cursor=_cursor(cursor))
     return {"data": data, "next_cursor": next_cursor}
 
 

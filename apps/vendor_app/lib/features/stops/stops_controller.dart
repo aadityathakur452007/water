@@ -44,6 +44,42 @@ Map<String, dynamic> buildTripleBody({
 
 String newIdempotencyKey() => const Uuid().v4();
 
+/// Phase 5 §5.5: order-pipeline state → Hindi what-it-means label. Unknown
+/// states map to '' (callers hide the row — raw `order_state` never shows).
+String orderStateLabelHi(String state) => switch (state) {
+      'placed' => 'Order aaya — assign ka intezaar',
+      'accepted' => 'Accept ho gaya — pack ho raha',
+      'picked' => 'Uthaya gaya — pack ho raha',
+      'packed' => 'Pack ho gaya — route me jud raha',
+      'assigned' => 'Aapke route me assign',
+      'dispatched' => 'Raste me — delivery karein',
+      'delivered' => 'Deliver ho gaya',
+      'cancelled' => 'Order cancel ho gaya',
+      'rejected' => 'Order reject ho gaya',
+      _ => '',
+    };
+
+/// Builds the PoD body the server expects (same shape live and offline —
+/// the sync worker replays it through POST /vendor/sync).
+Map<String, dynamic> buildPodBody({
+  required String deliveryOtp,
+  required int emptiesCount,
+  required int cashPaise,
+  bool sealOk = true,
+  double? lat,
+  double? lng,
+}) {
+  final body = <String, dynamic>{
+    'delivery_otp': deliveryOtp,
+    'empties_count': emptiesCount,
+    'cash': cashPaise,
+    'seal_ok': sealOk,
+  };
+  if (lat != null) body['lat'] = lat;
+  if (lng != null) body['lng'] = lng;
+  return body;
+}
+
 class StopsController extends ChangeNotifier {
   StopsController({required ApiClient api}) : _api = api;
 
@@ -137,14 +173,14 @@ class StopsController extends ChangeNotifier {
     _notice = null;
     notifyListeners();
     try {
-      final pod = <String, dynamic>{
-        'delivery_otp': deliveryOtp,
-        'empties_count': emptiesCount,
-        'cash': cashPaise,
-        'seal_ok': sealOk,
-      };
-      if (lat != null) pod['lat'] = lat;
-      if (lng != null) pod['lng'] = lng;
+      final pod = buildPodBody(
+        deliveryOtp: deliveryOtp,
+        emptiesCount: emptiesCount,
+        cashPaise: cashPaise,
+        sealOk: sealOk,
+        lat: lat,
+        lng: lng,
+      );
       final raw = await _api.postPod(
         stopId: stopId,
         pod: pod,
@@ -205,6 +241,18 @@ class StopsController extends ChangeNotifier {
     }
   }
 
+  /// Live remainder for the one-tap cash button: the server 422s anything
+  /// above it as OVERPAY, so the button posts this (falls back to the card
+  /// total when unreadable — the server still guards).
+  Future<int?> amountDue(String orderId) async {
+    try {
+      final inv = await _api.invoiceApi(orderId);
+      return (inv['amount_due'] as num?)?.toInt();
+    } on ApiException {
+      return null;
+    }
+  }
+
   /// F2: one-tap cash post → money truth (payment row + dues reconcile).
   /// Returns true when cash is truth (posted now, or 409 already-paid —
   /// same outcome, stop reloaded so the badge flips). Network failure
@@ -212,8 +260,7 @@ class StopsController extends ChangeNotifier {
   Future<bool> postCash({
     required String stopId,
     required int amountPaise,
-  }) async {
-    _submitting = true;
+  }) async {    _submitting = true;
     _notice = null;
     _networkFail = false;
     notifyListeners();

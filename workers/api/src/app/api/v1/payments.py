@@ -19,6 +19,10 @@ from app.services.payment_service import PaymentService
 
 router = APIRouter(tags=["payments"])
 
+# Module-level so tests can override this exact dep (same pattern as
+# vendor.py `_vendor`): user-money writes are a user-role-only surface.
+_user = require_role("user")
+
 
 class UpiIntentIn(BaseModel):
     order_id: str = Field(min_length=1)
@@ -42,7 +46,7 @@ def _require_idem(idem: str | None) -> str:
 
 @router.post("/payments/upi-intent", status_code=201)
 async def upi_intent(payload: UpiIntentIn, conn=Depends(get_db_conn),
-               user=Depends(require_active_user),
+               user=Depends(_user),
                idem: str | None = Header(default=None, alias="Idempotency-Key")):
     return await _service(conn).intent(_uid(user), payload.order_id.strip(), _require_idem(idem))
 
@@ -55,8 +59,14 @@ async def upi_webhook(request: Request, conn=Depends(get_db_conn)):
 
 
 @router.post("/orders/{order_id}/cod-confirm")
-async def cod_confirm(order_id: str, conn=Depends(get_db_conn), user=Depends(require_active_user)):
+async def cod_confirm(order_id: str, conn=Depends(get_db_conn), user=Depends(_user)):
     return await _service(conn).cod_confirm(_uid(user), order_id)
+
+
+@router.post("/payments/dues-intent", status_code=201)
+async def dues_intent(conn=Depends(get_db_conn), user=Depends(_user),
+                idem: str | None = Header(default=None, alias="Idempotency-Key")):
+    return await _service(conn).dues_intent(_uid(user), _require_idem(idem))
 
 
 @router.get("/billing/dues")

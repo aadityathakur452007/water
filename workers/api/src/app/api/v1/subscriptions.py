@@ -1,19 +1,24 @@
 """Subscription routes: bare router (mounted under /v1 by the integrator).
 
 All endpoints owner-scoped behind session auth (ssdlc: never trust client
-identity). Writes require an active (non-suspended) user; reads allow
-suspended users (contract §14.1 — history preserved, never a dead end).
+identity). Creation needs role=='user'; other writes need an active
+(non-suspended) user; reads allow suspended users (contract §14.1 — history
+preserved, never a dead end).
 DTOs live here next to their only consumer (same pattern as auth.py).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
 
-from app.api.auth_deps import get_current_user, require_active_user
+from app.api.auth_deps import get_current_user, require_active_user, require_role
 from app.api.deps import get_db_conn
 from app.services.subscription_service import SubscriptionService
 
 router = APIRouter(tags=["subscriptions"])
+
+# Module-level so tests can override this exact dep (same pattern as
+# vendor.py `_vendor`): subscription creation is a user-role-only write.
+_user = require_role("user")
 
 
 class SubCreateIn(BaseModel):
@@ -45,9 +50,25 @@ def _uid(user: dict) -> str:
 
 
 @router.post("/subscriptions", status_code=201)
-async def create_subscription(payload: SubCreateIn, user=Depends(require_active_user),
-                        conn=Depends(get_db_conn)):
-    return await SubscriptionService(conn).create(_uid(user), payload.model_dump(mode="json"))
+async def create_subscription(payload: SubCreateIn, user=Depends(_user),
+                        conn=Depends(get_db_conn),
+                        idem: str | None = Header(default=None, alias="Idempotency-Key")):
+    return await SubscriptionService(conn).create(
+        _uid(user), payload.model_dump(mode="json"), (idem or "").strip())
+
+
+class SubEstimateIn(BaseModel):
+    qty: int = Field(ge=1, le=30)
+    sku_mix: str = Field(default="refill", max_length=32)
+
+
+@router.post("/subscriptions/estimate")
+async def estimate_subscription(payload: SubEstimateIn, user=Depends(_user),
+                          conn=Depends(get_db_conn)):
+    """Phase 7 F5: pure first-cycle amount (water + once-only deposit) —
+    no write. The sheet shows this on Pay instead of client math."""
+    return await SubscriptionService(conn).estimate_first_cycle(
+        _uid(user), payload.qty, payload.sku_mix)
 
 
 @router.get("/subscriptions")

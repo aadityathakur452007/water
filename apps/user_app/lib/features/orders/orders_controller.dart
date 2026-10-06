@@ -8,10 +8,9 @@
 // Feature_docs/synthesis/user-flows.md flows 3 (tracking, 30-min window,
 // no live dot) + 5 (UPI/COD guards + reconcile + dues carry-forward).
 //
-// Wiring notes (F1 owns pubspec.yaml):
-// - url_launcher is NOT in pubspec.yaml, so tel:/wa.me are TODO stubs that
-//   return false and let screens show a SnackBar fallback. F1 plugs the real
-//   launcher without touching callers.
+// Wiring notes: tel:/wa.me launch via url_launcher with a SnackBar
+// fallback when no handler exists (Phase 4 §4.5: support Open tries
+// launchUrl first, clipboard copy is the fallback, never the primary).
 // - Money is integer paise everywhere; [formatRupees] formats only for
 //   display (2dp only when needed).
 
@@ -56,6 +55,8 @@ const Map<String, String> ordersStringsHi = {
   'callRider': 'Rider ko call karein',
   'deliveredBanner': 'Order deliver ho gaya',
   'cancelledBanner': 'Order cancel ho gaya',
+  'failedBanner': 'Delivery fail ho gayi — support se baat karein',
+  'rejectedBanner': 'Order reject ho gaya — paise wapas honge',
   'refundPending': 'Refund pending — rashi frozen, badlegi nahi',
   'duesNote': 'Baki rashi agle bill me jud jayegi',
   'rateTitle': 'Delivery kaisi rahi?',
@@ -66,7 +67,7 @@ const Map<String, String> ordersStringsHi = {
   'complaintStub': 'Shikayat screen jald aa rahi hai (order juda rahega)',
   'viewBill': 'Bill dekhein',
   'autoRefresh': 'Auto-refresh',
-  'windowLabel': 'Delivery window',
+  'windowLabel': 'Delivery ka samay',
   'riderLabel': 'Rider',
 };
 
@@ -175,14 +176,11 @@ class RescheduleSlot {
   int get hashCode => Object.hash(start, end);
 }
 
-/// Next serviceable day slots: tomorrow onward, skipping Sunday (ex-Sun),
-/// 30-min slots 08:00–20:00 (approved answer 4).
+/// Next serviceable day slots: tomorrow onward, 30-min slots 08:00–20:00.
+/// 014: all days water (no Sunday skip — matches booking + GET /windows).
 List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
   var day = (from ?? DateTime.now()).add(const Duration(days: 1));
   day = DateTime(day.year, day.month, day.day);
-  while (day.weekday == DateTime.sunday) {
-    day = day.add(const Duration(days: 1));
-  }
   final slots = <RescheduleSlot>[];
   for (var h = 8; h < 20; h++) {
     for (final m in [0, 30]) {

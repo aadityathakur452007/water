@@ -5,6 +5,7 @@ import { useParams } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
@@ -30,7 +31,18 @@ export function AccessCodesTable() {
       </Card>
     );
   }
-  if (!data) return null;
+  if (!data) {
+    // Phase 6 S6.4: skeleton while loading — never a blank card.
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
   const rows = Array.isArray((data as Page<AccessCodeRow>).data)
     ? (data as Page<AccessCodeRow>).data
     : ((data as { codes: AccessCodeRow[] }).codes ?? []);
@@ -85,8 +97,19 @@ export function AccessCodesTable() {
                     {c.last_used_at ? dateTime(c.last_used_at) : "never"}
                   </TableCell>
                   <TableCell className="px-3 py-3 text-right text-sm">
+                    {/* a11y-9: inline confirm announces as an alert dialog
+                        with its consequence (revoke blocks new logins;
+                        live sessions run to expiry). */}
                     {c.revoked_at ? null : confirmId === c.id ? (
-                      <span className="flex justify-end gap-2">
+                      <span
+                        className="flex justify-end gap-2"
+                        role="alertdialog"
+                        aria-describedby={`revoke-help-${c.id}`}
+                      >
+                        <span id={`revoke-help-${c.id}`} className="sr-only">
+                          Revoking stops this code working for new logins immediately. Live
+                          sessions run to expiry — this cannot be undone.
+                        </span>
                         <Button variant="ghost" size="sm" className="h-7" onClick={() => setConfirmId(null)}>
                           Keep
                         </Button>

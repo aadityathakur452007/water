@@ -175,3 +175,19 @@
 .disable-transitions * {
   transition: none !important;
 }
+
+/* Phase 9 §9.1: OS reduced-motion collapses all non-essential motion
+ * (template transitions, tw-animate utilities, skeleton pulse, ambient
+ * loops) to instant/static. State still flips — nothing depends on the
+ * animation to communicate. Scoped to this file: src/components/ui/*
+ * stays untouched per admin AGENTS.md. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

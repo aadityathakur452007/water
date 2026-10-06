@@ -44,7 +44,12 @@ export function useInvalidateVendor() {
 }
 
 export function vendorErrorMessage(err: unknown): string {
-  if (err instanceof VendorApiError) return err.message;
+  // Phase 6 S6.4: same rate-limit/offline lines as the admin hook.
+  if (err instanceof VendorApiError) {
+    if (err.code === "NETWORK" || err.status === 0) return "Network unavailable — check connection and retry.";
+    if (err.status === 429) return "Too many tries — wait a moment and retry.";
+    return err.message;
+  }
   if (err instanceof Error) return err.message;
   return "Something went wrong.";
 }

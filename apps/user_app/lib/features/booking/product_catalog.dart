@@ -72,14 +72,3 @@ const List<CatalogSku> kCatalog = [
 
 /// Lookup by id (related-SKU cross-link).
 CatalogSku skuById(SkuId id) => kCatalog.firstWhere((s) => s.id == id);
-
-/// Search scope (ui-checklist Search, honest size: 2 SKUs — name/tag match).
-List<CatalogSku> searchCatalog(String query) {
-  final q = query.trim().toLowerCase();
-  if (q.isEmpty) return kCatalog;
-  return kCatalog
-      .where((s) =>
-          s.name.toLowerCase().contains(q) ||
-          s.tagline.toLowerCase().contains(q))
-      .toList();
-}

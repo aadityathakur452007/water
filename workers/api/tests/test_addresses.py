@@ -47,7 +47,10 @@ def _make_client(user_id: str = "user_a"):
     def _stub_db():
         return AsyncSqliteConn(conn)
 
+    # Reads stay on get_current_user; create/update/delete need
+    # require_active_user — both overridden with the same stub.
     app.dependency_overrides[mod.get_current_user] = _stub_user
+    app.dependency_overrides[mod.require_active_user] = _stub_user
     app.dependency_overrides[mod.get_db_conn] = _stub_db
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient

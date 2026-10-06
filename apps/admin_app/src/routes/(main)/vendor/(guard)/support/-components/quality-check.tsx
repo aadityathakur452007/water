@@ -4,16 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast, useInvalidateVendor, vendorErrorMessage } from "@/hooks/use-vendor-api";
+import { toast, useInvalidateVendor, useVendorQuery, vendorErrorMessage } from "@/hooks/use-vendor-api";
+import type { VendorQualityIncident } from "@/lib/vendor-types";
 import { vendorPostServer } from "@/server/vendor-api";
 
 /**
- * Quality vendor-check — the incident id comes from the admin/shared thread
- * (there is no vendor quality-list endpoint by design); the vendor confirms
- * or disputes what they saw at the door.
+ * Quality vendor-check — open incidents on this vendor's route list up for
+ * one-tap selection (manual id stays as fallback); the vendor confirms or
+ * disputes what they saw at the door.
  */
 export function QualityCheck() {
   const invalidate = useInvalidateVendor();
+  // Phase 6 S6.4: query errors surface inline (never silent undefined).
+  const {
+    data: incidents,
+    isError: listError,
+    refetch: refetchList,
+  } = useVendorQuery<{ data: VendorQualityIncident[] }>("/v1/vendor/quality");
+  const open = (incidents?.data ?? []).filter((q) => q.status === "open");
   const [incidentId, setIncidentId] = React.useState("");
   const [check, setCheck] = React.useState("");
   const [note, setNote] = React.useState("");
@@ -50,11 +58,34 @@ export function QualityCheck() {
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Quality check</CardTitle>
-        <CardDescription>Incident id admin thread se lein — door par jo dekha, wahi likhein</CardDescription>
+        <CardDescription>Apne route ke incidents — door par jo dekha, wahi likhein</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {doneId ? (
           <p role="status" className="text-muted-foreground text-xs">{`Last check: ${doneId} bhej diya.`}</p>
+        ) : null}
+        {listError ? (
+          <p role="alert" className="text-destructive text-xs">
+            List nahi aayi —{" "}
+            <button type="button" className="underline" onClick={() => void refetchList()}>
+              retry karein
+            </button>{" "}
+            ya id haath se likhein.
+          </p>
+        ) : null}
+        {open.length ? (
+          <div className="flex flex-wrap gap-2">
+            {open.map((q) => (
+              <Button
+                key={q.id}
+                variant={incidentId === q.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => setIncidentId(q.id)}
+              >
+                {`${q.id} · ${q.reason_code}`}
+              </Button>
+            ))}
+          </div>
         ) : null}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="qc-id">Incident id</Label>

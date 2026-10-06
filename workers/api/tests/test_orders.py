@@ -34,6 +34,7 @@ from app.services.order_service import (  # noqa: E402
 )
 
 MIGRATION = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
+MIGRATION_005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
 
 WINDOW = "2026-10-01T08:00:00+00:00"
 
@@ -48,6 +49,7 @@ def _rates() -> dict:
 def _conn():
     c = get_connection(":memory:")
     c.executescript(MIGRATION)
+    c.executescript(MIGRATION_005)  # cancel_settle refunds paid_sum from payments
     return c
 
 
@@ -169,6 +171,12 @@ async def test_double_cancel_same_key_same_outcome_single_refund_row():
     s = _svc(c)
     o = await s.create("u1", _payload(), "k1")
     c.execute("UPDATE orders SET payment_status = 'paid_upi' WHERE id = ?", (o["id"],))
+    c.execute(
+        "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+        " status, created_at, verified_at) VALUES ('pay1', ?, 'u1', ?, 'upi', 'ref-1',"
+        " 'paid', 't', 't')",
+        (o["id"], o["total"]),
+    )
     c.commit()
     out1 = await s.cancel("u1", o["id"], "changed mind", "c1")
     assert out1["refund"]["status"] == "pending" and out1["refund"]["amount"] == o["total"]
@@ -250,7 +258,9 @@ def _client(c, user="u1"):
     from fastapi.testclient import TestClient
 
     from app.api.deps import get_db_conn
+    from app.api.v1.orders import _user as orders_create_guard
     from app.api.v1.orders import get_current_user as orders_guard
+    from app.api.v1.orders import require_active_user as orders_write_guard
     from app.api.v1.orders import router
     from app.core.errors import register_exception_handlers
     from app.db_d1 import AsyncSqliteConn
@@ -260,11 +270,16 @@ def _client(c, user="u1"):
     app.include_router(router, prefix="/v1")
     app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     # Real session auth (C1) retired the X-User-Id stub: canned user per test.
-    app.dependency_overrides[orders_guard] = lambda: {
+    # Reads stay on get_current_user; cancel/reschedule need require_active_user;
+    # creation needs require_role("user") (module `_user`).
+    canned = {
         "id": user, "role": "user", "phone": "+919000000000",
         "suspended": False, "session_id": "s", "family_id": "f",
         "device_fp": "d",
     }
+    app.dependency_overrides[orders_guard] = lambda: canned
+    app.dependency_overrides[orders_write_guard] = lambda: canned
+    app.dependency_overrides[orders_create_guard] = lambda: canned
     client = TestClient(app)
     return client
 

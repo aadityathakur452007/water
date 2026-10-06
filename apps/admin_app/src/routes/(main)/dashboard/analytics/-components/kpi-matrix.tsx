@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAdminQuery } from "@/hooks/use-admin-api";
+import type { Page, UserRow } from "@/lib/admin-types";
 import { num, pct, rupees } from "@/lib/money";
 
 import { useOverview } from "../../default/-components/overview-data";
@@ -17,6 +19,10 @@ import { useOverview } from "../../default/-components/overview-data";
 /** FR-33 KPI matrix — the four research pillars in one strip (F1/F2/F3/F7). */
 export function KpiMatrix() {
   const { data } = useOverview();
+  // Phase 6 S6.3: directory totals ride the users list read (limit=1 keeps
+  // the payload tiny — counts are full-book aggregates, not page slices).
+  const { data: users } = useAdminQuery<Page<UserRow>>("/v1/admin/users?limit=1");
+  const customerCount = users?.counts?.user;
   if (!data) return null;
 
   const series = data.series;
@@ -69,9 +75,9 @@ export function KpiMatrix() {
     },
     {
       icon: Users,
-      label: "Customers (all roles)",
-      value: "—",
-      hint: "directory count lands with the aggregate read (FR-32)",
+      label: "Customers",
+      value: customerCount == null ? "—" : num(customerCount),
+      hint: "user-role directory total (full book)",
     },
     {
       icon: Activity,

@@ -30,26 +30,38 @@ class DutyController extends ChangeNotifier {
   int get stopsToday => _stopsToday;
   int get jarsAllocated => _jarsAllocated;
 
+  /// Phase 5 §5.3: stops returned to the pool by the last duty-off
+  /// (server `repooled` count). Shown once, cleared on next load.
+  int _lastRepooled = 0;
+  int get lastRepooled => _lastRepooled;
+
   Future<void> load() async {
     _state = DutyState.loading;
     _error = null;
+    _lastRepooled = 0;
     notifyListeners();
     try {
-      final route = await _api.todayRoute();
-      _applyRoute(route);
-      // Duty is inferred: a live assigned route means on duty.
-      _onDuty = true;
-      _state = DutyState.on;
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        _onDuty = false;
-        _state = DutyState.off;
-      } else {
-        _error = e.isNetwork
-            ? 'Network me dikkat — dobara try karein'
-            : 'Server me dikkat — dobara try karein';
-        _state = DutyState.error;
+      // Phase 5 §5.3: duty truth comes from the server profile — a loaded
+      // route no longer implies duty (off-duty vendors keep stale routes).
+      final profile = await _api.vendorProfile();
+      _onDuty = (profile['on_duty'] as bool?) ?? false;
+      try {
+        final route = await _api.todayRoute();
+        _applyRoute(route);
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) {
+          _stopsToday = 0;
+          _jarsAllocated = 0;
+        } else {
+          rethrow;
+        }
       }
+      _state = _onDuty ? DutyState.on : DutyState.off;
+    } on ApiException catch (e) {
+      _error = e.isNetwork
+          ? 'Network me dikkat — dobara try karein'
+          : 'Server me dikkat — dobara try karein';
+      _state = DutyState.error;
     }
     notifyListeners();
   }
@@ -69,6 +81,9 @@ class DutyController extends ChangeNotifier {
       final raw = await _api.setDuty(on);
       _onDuty = (raw['duty_on'] as bool?) ?? on;
       _since = raw['since'] as String?;
+      // Phase 2 response carries the repool count — surface it on the
+      // off-state ("N stops wapas pool mein"), never silently.
+      _lastRepooled = on ? 0 : (raw['repooled'] as num?)?.toInt() ?? 0;
       _state = _onDuty ? DutyState.on : DutyState.off;
     } on ApiException catch (e) {
       _error = e.isNetwork

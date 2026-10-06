@@ -16,6 +16,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/api_client.dart';
+
 // ── Contract rates (paise, integer-only) ────────────────────────────────
 // TODO(F1): replace [kRateRefillPaise]/[kRateContainerPaise]/
 // [kDepositPerJarPaise]/[kCapChargePaise] with GET /catalog values via
@@ -44,10 +46,9 @@ const int kBulkConfirmMin = 6;
 const int kStepperMin = 0;
 const int kStepperMax = 10;
 
-// ── Contact placeholders ────────────────────────────────────────────────
-// TODO(F1): replace with real vendor/support numbers from config/admin.
-const String kVendorPhone = '+91XXXXXXXXXX';
-const String kSupportPhone = '+91XXXXXXXXXX';
+// ── Contact numbers ─────────────────────────────────────────────────────
+// Single source of truth: [kSupportPhone] in core/api_client.dart
+// ('+91 93021 90067'). No placeholders here.
 
 // TODO(F1): consolidate into lib/l10n/strings.dart (Hindi-first) and import
 // it here. Do NOT create lib/l10n/ from F3 — F1 owns it.
@@ -191,10 +192,46 @@ class CatalogRates {
   final int capPaise;
 }
 
-/// Backend seam: GET /catalog (contract §4.2).
-/// TODO(F1): implement over the real base URL with dart:io (no new pub deps).
+/// Backend seam: GET /catalog (contract §4.2). Live reads go through
+/// [HttpCatalogApi]; [HardcodedCatalogApi] is the offline fallback.
 abstract class CatalogApi {
   Future<CatalogRates> fetchRates();
+}
+
+/// Live rates over GET /catalog (Phase 4 §4.4). The server is the
+/// authority — an admin rate change reaches the app on the next home init.
+/// Failures throw (callers keep the last cached / hardcoded rates); the
+/// [CachingCatalogApi] wrapper converts that into offline honesty.
+/// No new packages: reads through the shared [ApiClient].
+class HttpCatalogApi implements CatalogApi {
+  HttpCatalogApi(this._api);
+
+  final ApiClient _api;
+
+  @override
+  Future<CatalogRates> fetchRates() async {
+    final res = await _api.catalog();
+    int priceOf(String sku) {
+      final skus = res['skus'];
+      if (skus is! List) return -1;
+      for (final s in skus) {
+        if (s is Map && s['id'] == sku) {
+          return (s['price_paise'] as num?)?.toInt() ?? -1;
+        }
+      }
+      return -1;
+    }
+
+    final refill = priceOf('refill');
+    final container = priceOf('container');
+    return CatalogRates(
+      refillPaise: refill >= 0 ? refill : kRateRefillPaise,
+      containerPaise: container >= 0 ? container : kRateContainerPaise,
+      depositPaise:
+          (res['deposit_per_jar'] as num?)?.toInt() ?? kDepositPerJarPaise,
+      capPaise: (res['cap_charge'] as num?)?.toInt() ?? kCapChargePaise,
+    );
+  }
 }
 
 /// Offline fallback: hardcoded contract rates (always available).
@@ -411,7 +448,7 @@ class BookingController extends ChangeNotifier {
   /// Load server rates (best-effort; fallback stays on failure).
   Future<void> refreshRates() async {
     final api = _catalog;
-    if (api == null) return; // TODO(F1): wire real CatalogApi.
+    if (api == null) return; // No catalog wired (tests) — fallback stays.
     try {
       rates = await api.fetchRates();
       notifyListeners();

@@ -137,8 +137,20 @@ export function OrderDetail() {
 
           <Separator className="my-4" />
 
-          {/* Bill */}
+          {/* Bill — server-computed breakup, never client math */}
           <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-muted-foreground text-xs">Water</p>
+              <p className="font-medium text-sm tabular-nums">{rupees(order.water_bill)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Deposit due</p>
+              <p className="font-medium text-sm tabular-nums">{rupees(order.deposit_due)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Cap charge</p>
+              <p className="font-medium text-sm tabular-nums">{rupees(order.cap_charge)}</p>
+            </div>
             <div>
               <p className="text-muted-foreground text-xs">Jars out</p>
               <p className="font-medium text-sm tabular-nums">{order.n}</p>

@@ -140,6 +140,14 @@ def test_users_page_search_and_role_filter():
     assert body["data"] == []
 
 
+def test_users_list_carries_role_counts():
+    """Phase 6 S6.3: directory totals ride the list read (trust pattern)."""
+    c = _conn()
+    _seed_base(c)
+    body = _client(c).get("/v1/admin/users").json()
+    assert body["counts"] == {"total": 3, "admin": 1, "vendor": 1, "user": 1}
+
+
 def test_user_detail_aggregates():
     c = _conn()
     _seed_base(c)

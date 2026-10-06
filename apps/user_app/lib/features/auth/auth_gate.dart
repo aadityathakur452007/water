@@ -33,7 +33,8 @@ class AuthGate extends StatefulWidget {
     BuildContext context,
     AuthController controller,
     VoidCallback onGuestBrowse,
-  )? loginBuilder;
+  )?
+  loginBuilder;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -143,17 +144,17 @@ class _SplashLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
+    final logo = Image.asset(
       'assets/logo.png',
       width: 72,
       height: 72,
       cacheWidth: 144,
-      errorBuilder: (_, _, _) => const Icon(
-        Icons.water_drop,
-        size: 56,
-        color: AuthTokens.blue,
-      ),
-    )
+      errorBuilder: (_, _, _) =>
+          const Icon(Icons.water_drop, size: 56, color: AuthTokens.blue),
+    );
+    // a11y-10: static render when the OS asks for reduced motion.
+    if (MediaQuery.disableAnimationsOf(context)) return logo;
+    return logo
         .animate()
         .fadeIn(duration: 300.ms)
         .scale(begin: const Offset(0.92, 0.92), duration: 300.ms);

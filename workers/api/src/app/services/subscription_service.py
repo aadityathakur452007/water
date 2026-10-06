@@ -14,6 +14,8 @@ Tunables (contract §8 open until survey): SKIP_CUTOFF_HOUR, RESUME_LEAD_HOURS.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
+import json
 import sqlite3
 import uuid
 
@@ -25,6 +27,10 @@ Conn = D1Conn | AsyncSqliteConn
 
 RESUME_LEAD_HOURS = 24  # Bisleri rule: resume needs >=24h notice (E2)
 SKIP_CUTOFF_HOUR = 18  # after 18:00 UTC a same-day skip is late (tunable, §8)
+
+# Phase 7 F4: the only schedules the runner understands (_advance steps
+# daily/alternate/weekly/custom; anything else stalls at step 0 forever).
+SCHEDULE_TYPES = ("daily", "alternate", "weekly", "custom")
 
 
 class SubNotFoundError(AppError):
@@ -111,9 +117,39 @@ class SubscriptionService:
     def __init__(self, conn: Conn):
         self._conn = conn
 
+    async def estimate_first_cycle(self, user_id: str, qty: int, sku_mix: str) -> dict:
+        """Phase 7 F5: server first-cycle amount (water + once-only deposit).
+
+        Same math the doorstep order will carry: dominant-SKU water bill +
+        container deposit unless the wallet already holds one. Pure read —
+        the sheet shows this on Pay instead of client math.
+        """
+        from app.repositories.ledger_repo import LedgerRepo  # noqa: PLC0415 (lazy, light)
+        from app.services import pricing  # noqa: PLC0415 (leaf module, no cycle)
+
+        q = max(0, int(qty or 0))
+        sku = "container" if str(sku_mix or "").strip().lower() == "container" else "refill"
+        try:
+            from app.api.deps import get_settings  # noqa: PLC0415 (cached global)
+
+            s = get_settings()
+            rates = {"refill": int(s.rate_refill_paise), "container": int(s.rate_container_paise),
+                     "deposit": int(s.deposit_per_jar_paise)}
+        except Exception:
+            rates = {"refill": pricing.REFILL_PAISE, "container": pricing.CONTAINER_PAISE,
+                     "deposit": pricing.DEPOSIT_PAISE}
+        try:
+            paid = int((await LedgerRepo(self._conn).get(user_id)).get("deposit_paid", 0))
+        except Exception:
+            paid = 0
+        quote = pricing.compute_quote([{"sku": sku, "qty": q}], 0, rates,
+                                      deposit_already_paid_paise=paid)
+        return {"water_bill": quote["water_bill"], "deposit_due": quote["deposit_due"],
+                "total": quote["total"], "rate_version": quote["rate_version"]}
+
     # -- create / list ----------------------------------------------------
 
-    async def create(self, user_id: str, payload: dict) -> dict:
+    async def create(self, user_id: str, payload: dict, idempotency_key: str = "") -> dict:
         qty = int(payload.get("qty", 0))
         if qty < 1:
             raise SubValidationError(message="Quantity must be >= 1.", details={})
@@ -123,7 +159,33 @@ class SubscriptionService:
         if not await self._owned_address(user_id, address_id):
             raise SubNotFoundError(message="Address not found.", details={"id": address_id})
         schedule = str(payload.get("schedule_type") or "daily")
+        if schedule not in SCHEDULE_TYPES:
+            raise SubValidationError(
+                message=f"schedule_type must be one of {', '.join(SCHEDULE_TYPES)}.",
+                details={"schedule_type": schedule})
         recurrence = str(payload.get("recurrence") or "")
+        key = (idempotency_key or "").strip()
+        scoped = f"POST /v1/subscriptions:{key}" if key else ""
+        idem_phash = hashlib.sha256(json.dumps(
+            {"a": address_id, "q": qty, "s": schedule, "r": recurrence},
+            sort_keys=True).encode()).hexdigest() if key else ""
+        if key:
+            # Double-tap guard: same sheet-open key replays the minted row.
+            row = (await self._conn.execute(
+                "SELECT payload_hash, result FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                (user_id, scoped),
+            )).fetchone()
+            if row is not None:
+                if row["payload_hash"] != idem_phash:
+                    from app.repositories.payment_repo import PayloadMismatchError  # noqa: PLC0415 (lazy, light)
+
+                    raise PayloadMismatchError(
+                        message="Idempotency-Key was already used with a different payload.",
+                        details={"user_id": user_id})
+                out = json.loads(row["result"])
+                out["first_cycle_estimate"] = await self.estimate_first_cycle(
+                    user_id, qty, payload.get("sku_mix"))
+                return out
         next_run = _parse_day(payload.get("next_run")) or self._default_next_run()
         sub = {
             "id": uuid.uuid4().hex,
@@ -152,7 +214,23 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return await self.get_owned(user_id, sub["id"]) or sub
+        out = await self.get_owned(user_id, sub["id"]) or sub
+        out["first_cycle_estimate"] = await self.estimate_first_cycle(
+            user_id, qty, payload.get("sku_mix"))
+        if key:
+            with WRITE_LOCK:
+                try:
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO idempotency_keys(user_id, scoped_key, order_id,"
+                        " payload_hash, result, created_at) VALUES (?,?,?,?,?,?)",
+                        (user_id, scoped, sub["id"], idem_phash,
+                         json.dumps(out), _dt.datetime.now(_dt.timezone.utc).isoformat()),
+                    )
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
+        return out
 
     async def list(self, user_id: str) -> list[dict]:
         rows = (await self._conn.execute(

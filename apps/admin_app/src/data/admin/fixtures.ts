@@ -16,6 +16,7 @@ import type {
   Page,
   PaymentRow,
   QualityRow,
+  ReconResponse,
   Reconciliation,
   RefundRow,
   StrikeRow,
@@ -34,6 +35,7 @@ import type {
   VendorPayouts,
   VendorPreview,
   VendorProfile,
+  VendorQualityIncident,
   VendorSlots,
   VendorStop,
 } from "#/lib/vendor-types";
@@ -84,6 +86,9 @@ function makeOrders(count: number): OrderRow[] {
       user_id: `us_${200 + (i % 9)}`,
       n: 1 + (i % 4) + (i % 3),
       e: i % 4,
+      water_bill: 2800 * (1 + (i % 4)),
+      deposit_due: 0,
+      cap_charge: (i % 3) * 300,
       total: 2800 * (1 + (i % 4)) + (i % 3) * 3000,
       payment_status: pay[i % 3],
       state: states[(i * 5) % states.length],
@@ -307,6 +312,7 @@ export const strikesFixture: Page<StrikeRow> = {
       created_at: new Date(Date.now() - 9 * 8.64e7).toISOString(),
     },
   ],
+  counts: { open: 1, cleared: 1 },
 };
 
 export const qualityFixture: Page<QualityRow> = {
@@ -336,6 +342,7 @@ export const qualityFixture: Page<QualityRow> = {
       created_at: new Date(Date.now() - 4.2e7).toISOString(),
     },
   ],
+  counts: { open: 1, confirmed: 1 },
 };
 
 export const complaintsFixture: Page<ComplaintRow> = {
@@ -361,6 +368,7 @@ export const complaintsFixture: Page<ComplaintRow> = {
       resolved_at: new Date(Date.now() - 5 * 8.64e7).toISOString(),
     },
   ],
+  counts: { open: 1, resolved: 1 },
 };
 
 export const custodyFixture: CustodyRow[] = usersRows
@@ -370,8 +378,9 @@ export const custodyFixture: CustodyRow[] = usersRows
       vendor_id: u.id,
       name: u.name,
       phone: u.phone,
-      in_hand: 26 + i * 9,
-      on_duty: 41 + i * 11,
+      in_hand: i === 0 ? 0 : 26 + i * 9,
+      on_duty: i !== 2,
+      zero: i === 0,
     }),
   );
 
@@ -385,32 +394,43 @@ export const dunningFixture: DunningRow[] = [
   phone: usersRows[i + 2].phone,
 }));
 
+const reconVendors = usersRows.filter((u) => u.role === "vendor");
+
 export const reconciliationFixture: Reconciliation[] = [
   {
-    route: "Sector 12 AM",
-    date: day(0),
-    stopped: 41,
+    route_id: "rt_sector12_am",
+    vendor_id: reconVendors[0]?.id ?? "us_200",
+    vendor_name: reconVendors[0]?.name ?? "Ramu",
+    stops: 41,
     delivered: 39,
     failed: 1,
-    cash_collected: 382500,
-    upi_collected: 1420800,
+    cash: 382500,
+    upi: 1420800,
     jars_out: 61,
-    empty_returned: 44,
-    deposit_delta: 0,
+    empties_expected: 44,
   },
   {
-    route: "Old DLF AM",
-    date: day(0),
-    stopped: 33,
+    route_id: "rt_olddlf_am",
+    vendor_id: reconVendors[1]?.id ?? "us_207",
+    vendor_name: reconVendors[1]?.name ?? "Kishore",
+    stops: 33,
     delivered: 33,
     failed: 0,
-    cash_collected: 210000,
-    upi_collected: 985600,
+    cash: 210000,
+    upi: 985600,
     jars_out: 40,
-    empty_returned: 40,
-    deposit_delta: 0,
+    empties_expected: 40,
   },
 ];
+
+export const reconciliationResponseFixture: ReconResponse = {
+  date: day(0),
+  routes: reconciliationFixture,
+  jars_out: 101,
+  deposit_liability: 0,
+  dues_receivable: 29400,
+  orders_by_state: [],
+};
 
 export const configFixture: ConfigRow[] = [
   {
@@ -468,6 +488,8 @@ const vendorStop = (seq: number, status: string, order: string, customer: string
   route_id: "rt_51",
   order_id: order,
   customer_id: customer,
+  customer_name: "Meena Iyer",
+  customer_phone: "+919300210002",
   seq,
   fulls_exp: 2 + (seq % 3),
   empties_exp: 1 + (seq % 2),
@@ -477,7 +499,12 @@ const vendorStop = (seq: number, status: string, order: string, customer: string
   payment_mode: seq % 2 ? "cod" : "upi",
   payment_status: status === "done" ? "paid_cash" : "unpaid",
   total: 8400,
+  paid_sum: status === "done" ? 8400 : 0,
+  deposit_due: 0,
   order_state: status === "done" ? "delivered" : "dispatched",
+  window_start: `${day(0)}T08:00:00Z`,
+  items: [{ sku: "refill", qty: 2 }],
+  instructions: seq % 2 ? "Gate band hai, call karna" : "",
   address_label: `House ${seq}, Sector 12`,
   address_text: `${seq} Ferenc Marg, Sector 12`,
   hold_blocked: false,
@@ -549,6 +576,17 @@ export const vendorComplaintsFixture: VendorComplaint[] = [
     order_id: "od_1002",
     reason_code: "delivery_missed",
     text: "No delivery in morning window",
+    status: "open",
+    vendor_agree: null,
+    created_at: new Date(Date.now() - 2.4e7).toISOString(),
+  },
+];
+
+export const vendorQualityFixture: VendorQualityIncident[] = [
+  {
+    id: "q_7",
+    order_id: "od_1004",
+    reason_code: "turbid",
     status: "open",
     vendor_agree: null,
     created_at: new Date(Date.now() - 2.4e7).toISOString(),

@@ -1,12 +1,15 @@
 /** Wire types mirroring the Workers API responses (money = integer paise). Ported from apps/admin_app/src/lib/types.ts. */
 
-export type Page<T> = { data: T[]; next_cursor?: string };
+export type Page<T> = { data: T[]; next_cursor?: string; counts?: Record<string, number> };
 
 export type OrderRow = {
   id: string;
   user_id: string;
   n: number;
   e: number;
+  water_bill: number;
+  deposit_due: number;
+  cap_charge: number;
   total: number;
   payment_status: string;
   state: string;
@@ -52,6 +55,10 @@ export type UserRow = {
   suspended_reason: string | null;
   suspended_at: string | null;
   created_at: string;
+  /** Live vendor-profile join — present on /v1/admin/vendors rows only. */
+  on_duty?: number | null;
+  in_hand?: number | null;
+  review_hold?: number | null;
 };
 
 export type ZoneRow = {
@@ -192,7 +199,8 @@ export type CustodyRow = {
   name: string | null;
   phone: string | null;
   in_hand: number;
-  on_duty: number;
+  on_duty: boolean;
+  zero: boolean;
 };
 
 export type DunningRow = {
@@ -202,9 +210,26 @@ export type DunningRow = {
   dues: number;
 };
 
-export type Reconciliation = Record<string, unknown> & {
-  route?: string;
-  date?: string;
+export type Reconciliation = {
+  route_id: string;
+  vendor_id: string;
+  vendor_name: string;
+  stops: number;
+  delivered: number;
+  failed: number;
+  cash: number;
+  upi: number;
+  jars_out: number;
+  empties_expected: number;
+};
+
+export type ReconResponse = {
+  date: string;
+  routes: Reconciliation[];
+  jars_out: number;
+  deposit_liability: number;
+  dues_receivable: number;
+  orders_by_state: Array<Record<string, number | string>>;
 };
 
 export type ConfigRow = {

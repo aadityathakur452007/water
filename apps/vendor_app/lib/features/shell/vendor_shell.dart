@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone;
+import '../../core/theme.dart';
 import '../auth/auth_controller.dart';
+import '../auth/vendor_strings.dart';
 import '../customers/customers_controller.dart';
 import '../customers/customers_screen.dart';
 import '../duty/duty_controller.dart';
@@ -58,21 +60,50 @@ class VendorShell extends StatefulWidget {
   State<VendorShell> createState() => _VendorShellState();
 }
 
-class _VendorShellState extends State<VendorShell> {
+class _VendorShellState extends State<VendorShell>
+    with WidgetsBindingObserver {
   int _tab = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.auth.addListener(_onAuth);
     widget.duty.addListener(_onDuty);
     widget.sync.addListener(_onSync);
     widget.duty.load();
     widget.sync.load();
+    _syncDiscovery();
+  }
+
+  void _onAuth() {
+    if (mounted) setState(() {});
   }
 
   void _onDuty() {
     if (mounted) setState(() {});
+    _syncDiscovery();
+  }
+
+  /// Phase 5 §5.4: discovery poll runs on-duty only (foreground).
+  /// Off-duty, background, and dispose all stop it — no silent traffic.
+  void _syncDiscovery() {
+    if (widget.duty.onDuty) {
+      widget.route.startDiscovery();
+    } else {
+      widget.route.stopDiscovery();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncDiscovery();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      widget.route.stopDiscovery();
+    }
   }
 
   void _onSync() {
@@ -81,6 +112,9 @@ class _VendorShellState extends State<VendorShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.route.stopDiscovery();
+    widget.auth.removeListener(_onAuth);
     widget.duty.removeListener(_onDuty);
     widget.sync.removeListener(_onSync);
     super.dispose();
@@ -193,22 +227,43 @@ class _VendorShellState extends State<VendorShell> {
           ),
         ),
       ),
-      body: IndexedStack(
-        index: _tab,
+      body: Column(
         children: [
-          RouteScreen(
-            controller: widget.route,
-            onOpenStop: (s) => _openStop(context, s),
-            onOpenCustomers: () => _push(
-                CustomersScreen(controller: widget.customers)),
-            onOpenSync: () =>
-                _push(SyncScreen(controller: widget.sync)),
-            // 016 dashboard: money + ledger sections reuse tab controllers.
-            earnings: widget.earnings,
-            customers: widget.customers,
+          // Phase 5 §5.1: 30-day cap within 24h — warning only, the shift
+          // continues (cap logout still needs a re-login, queue is kept).
+          if (widget.auth.capExpiresSoon)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: ShodashaTheme.blueTint,
+              child: Text(
+                vendorStringsHi['capExpiring']!,
+                style: const TextStyle(
+                    color: ShodashaTheme.ink,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13),
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _tab,
+              children: [
+                RouteScreen(
+                  controller: widget.route,
+                  onOpenStop: (s) => _openStop(context, s),
+                  onOpenCustomers: () => _push(
+                      CustomersScreen(controller: widget.customers)),
+                  onOpenSync: () =>
+                      _push(SyncScreen(controller: widget.sync)),
+                  // 016 dashboard: money + ledger sections reuse tab controllers.
+                  earnings: widget.earnings,
+                  customers: widget.customers,
+                ),
+                EarningsScreen(controller: widget.earnings),
+                SupportScreen(controller: widget.support),
+              ],
+            ),
           ),
-          EarningsScreen(controller: widget.earnings),
-          SupportScreen(controller: widget.support),
         ],
       ),
       bottomNavigationBar: NavigationBar(

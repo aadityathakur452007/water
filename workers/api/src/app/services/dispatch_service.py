@@ -57,6 +57,28 @@ def _role(actor: object) -> str:
         return str(actor.get("role") or "admin")
     return str(getattr(actor, "role", None) or "admin")
 
+async def _mint_stop_pod_otp(conn: Conn) -> str | None:
+    """Random PoD code for a new order stop, or None on pre-015 DBs.
+
+    The 015 columns are read-gated (tolerates DBs where the migration is not
+    applied yet); legacy rows verify against the deterministic fallback.
+    """
+    from app.services.vendor_service import _has_pod_cols, mint_pod_otp  # noqa: PLC0415 (lazy, cycle-safe)
+
+    if not await _has_pod_cols(conn):
+        return None
+    return mint_pod_otp()
+
+
+async def _has_items_json_col(conn: Conn) -> bool:
+    """Whether this DB has the 016 stops.items_json column (else NULL/fallback)."""
+    try:
+        names = {r["name"] for r in (
+            await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
+    except Exception:
+        return False
+    return "items_json" in names
+
 
 def _actor_id(actor: object) -> str:
     if isinstance(actor, dict):
@@ -294,11 +316,20 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
                 "SELECT COUNT(*) c FROM stops WHERE route_id = ?", (route_id,)
             )).fetchone()["c"]
             stop_id = uuid.uuid4().hex
+            pod_code = await _mint_stop_pod_otp(conn)
+            cols = "id, route_id, order_id, customer_id, seq, fulls_exp, empties_exp, version"
+            vals: tuple = (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                           int(order["n"]), int(order["e"]), 1)
+            if await _has_items_json_col(conn):  # 016 snapshot: SKUs as promised
+                cols += ", items_json"
+                vals = (*vals, str(order.get("items") or "[]"))
+            if pod_code is not None:
+                cols += ", pod_otp"
+                vals = (*vals, pod_code)
+            placeholders = ", ".join(["?"] * len(vals))
             await conn.execute(
-                "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending')",
-                (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                 int(order["n"]), int(order["e"])),
+                f"INSERT INTO stops({cols}, status) VALUES ({placeholders}, 'pending')",  # noqa: S608
+                vals,
             )
             await conn.execute("UPDATE orders SET state = 'assigned' WHERE id = ?", (order_id,))
             await _event(conn, order_id, "packed", "assigned", actor, f"assigned to {vendor_id}")
@@ -311,6 +342,59 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             raise
     return {"order_id": order_id, "vendor_id": vendor_id, "route_id": route_id,
             "stop_id": stop_id, "version": 1}
+
+
+async def vendor_accept_order(conn: Conn, order_id: str, vendor_id: str) -> dict:
+    """Vendor Pull made real: self-assign one zone-scoped placed order.
+
+    Single-touch for the field (placed→accepted→picked→packed→assigned in one
+    call, one audit event row each) ending in the shared assign_order path
+    (zone+capacity re-checked, route+stop created, PoD code minted). Replay:
+    an existing pending stop on this vendor's route returns as-is. The
+    zone/capacity gates inside assign_order are the pool enforcement — an
+    out-of-zone or over-capacity pull fails like any assign.
+    """
+    from app.repositories.order_repo import OrderRepo  # noqa: PLC0415 (lazy, cycle-safe)
+
+    actor = {"id": vendor_id, "role": "vendor"}
+    repo = OrderRepo(conn)
+    existing = (await conn.execute(
+        "SELECT s.id, s.route_id, s.version FROM stops s JOIN routes r ON r.id = s.route_id"
+        " WHERE s.order_id = ? AND r.vendor_id = ? AND s.status = 'pending'"
+        " ORDER BY s.version DESC LIMIT 1",
+        (order_id, vendor_id),
+    )).fetchone()
+    if existing is not None:
+        return {"order_id": order_id, "vendor_id": vendor_id, "route_id": existing["route_id"],
+                "stop_id": existing["id"], "version": int(existing["version"]), "replay": True}
+    order = (await conn.execute("SELECT id, state FROM orders WHERE id = ?", (order_id,))).fetchone()
+    if order is None:
+        from app.core.errors import NotFoundError  # noqa: PLC0415 (lazy, import-light)
+
+        raise NotFoundError(message="Order not found.", details={"id": order_id})
+    if str(order["state"]) != "placed":
+        from app.core.errors import ConflictError  # noqa: PLC0415 (lazy, import-light)
+
+        raise ConflictError(message="Only placed orders can be pulled (now %s)." % order["state"],
+                            details={"id": order_id, "state": order["state"]})
+    full = (await conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))).fetchone()
+    # Fail cheap: zone + capacity are verified BEFORE the first transition so
+    # a refused pull writes nothing (assign_order re-checks both at commit).
+    await _check_zone(conn, dict(full), vendor_id)
+    await _check_capacity(conn, vendor_id, int(full["n"]), _today())
+    await repo.transition(order_id, "accepted", actor, "vendor pull from placed pool")
+    await repo.transition(order_id, "picked", actor, "vendor single-touch pack")
+    await repo.transition(order_id, "packed", actor, "vendor single-touch pack")
+    out = await assign_order(conn, order_id, vendor_id, actor)
+    with WRITE_LOCK:
+        try:
+            await write_audit(conn, actor=vendor_id, action="vendor.accept",
+                              entity="orders", entity_id=order_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return out
 
 
 async def reassign_order(conn: Conn, order_id: str, new_vendor_id: str,
@@ -344,11 +428,21 @@ async def reassign_order(conn: Conn, order_id: str, new_vendor_id: str,
             )).fetchone()["c"]
             new_id = uuid.uuid4().hex
             new_version = int(old["version"]) + 1
+            pod_code = await _mint_stop_pod_otp(conn)  # fresh code: the failed stop dies with its own
+            snapshot = str(order.get("items") or "[]")
+            cols = "id, route_id, order_id, customer_id, seq, fulls_exp, empties_exp, version"
+            vals = (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
+                    int(order["n"]), int(order["e"]), new_version)
+            if await _has_items_json_col(conn):
+                cols += ", items_json"
+                vals = (*vals, snapshot)
+            if pod_code is not None:
+                cols += ", pod_otp"
+                vals = (*vals, pod_code)
+            placeholders = ", ".join(["?"] * len(vals))
             await conn.execute(
-                "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-                " empties_exp, version, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
-                (new_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
-                 int(order["n"]), int(order["e"]), new_version),
+                f"INSERT INTO stops({cols}, status) VALUES ({placeholders}, 'pending')",  # noqa: S608
+                vals,
             )
             await _event(conn, order_id, "assigned", "assigned", actor,
                    reason or f"reassigned to {new_vendor_id}")

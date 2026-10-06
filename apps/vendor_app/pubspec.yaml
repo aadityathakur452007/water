@@ -37,7 +37,6 @@ dependencies:
   url_launcher: ^6.3.2
   geolocator: ^14.1.1
   shared_preferences: ^2.5.5
-  pin_code_fields: 9.4.0
 
 dev_dependencies:
   flutter_test:

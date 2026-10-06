@@ -54,6 +54,33 @@ class ApiBackedAuthApi implements AuthApi {
   }
 
   @override
+  Future<AuthSession> refreshSession({
+    required String refreshToken,
+    required String deviceId,
+  }) async {
+    final raw = await _api.send(
+      'POST',
+      '/auth/refresh',
+      body: {
+        'refresh_token': refreshToken,
+        'device': {'id': deviceId},
+      },
+      authed: false,
+      // The rotation itself must never trigger the 401→refresh hook
+      // (that would recurse); failures surface to the caller directly.
+      attemptRefresh: false,
+    );
+    if (raw is! Map<String, dynamic>) {
+      throw ApiException(
+        code: 'UNKNOWN',
+        message: 'Malformed refresh response',
+        statusCode: 0,
+      );
+    }
+    return _toSession(raw);
+  }
+
+  @override
   Future<AuthSession> demoLogin({
     required String phone,
     required String code,

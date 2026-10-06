@@ -19,16 +19,14 @@ class _FakeRegisterApi implements AuthApi {
     required String name,
     required String phone,
     required String deviceId,
-  }) async =>
-      throw UnimplementedError();
+  }) async => throw UnimplementedError();
 
   @override
   Future<AuthSession> demoLogin({
     required String phone,
     required String code,
     required String deviceId,
-  }) async =>
-      throw UnimplementedError();
+  }) async => throw UnimplementedError();
 
   @override
   Future<void> logout(String accessToken) async {}
@@ -42,8 +40,9 @@ void main() {
       }
       return http.Response('not found', 404);
     });
-    final controller =
-        AddressController(api: ApiClient(client: mock, deviceId: 't'));
+    final controller = AddressController(
+      api: ApiClient(client: mock, deviceId: 't'),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -61,12 +60,13 @@ void main() {
 
     expect(find.text('Naam'), findsOneWidget);
     expect(find.text('Pata'), findsOneWidget);
-    expect(find.text('Location'), findsOneWidget);
+    expect(find.text('Sthan'), findsOneWidget);
     controller.dispose();
   });
 
-  testWidgets('login shows hero card + trust chips + name-number header',
-      (tester) async {
+  testWidgets('login shows hero card + trust chips + name-number header', (
+    tester,
+  ) async {
     final controller = AuthController(
       api: _FakeRegisterApi(),
       store: InMemorySessionStore(),
@@ -83,7 +83,7 @@ void main() {
 
     expect(find.text('Shodasha'), findsOneWidget);
     expect(find.text('UPI + COD'), findsOneWidget);
-    expect(find.text('WhatsApp help'), findsOneWidget);
+    expect(find.text('WhatsApp par madad'), findsOneWidget);
     expect(find.text('Naam + Mobile number'), findsOneWidget);
     // Flush the hero entrance clock (flutter_animate delay timers) before
     // teardown — same pump pattern as the address test above.

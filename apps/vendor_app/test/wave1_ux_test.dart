@@ -28,6 +28,11 @@ MockClient _mock() => MockClient((req) async {
             }),
             200);
       }
+      // Phase 5 §5.3: duty truth rides the profile read (on-duty here).
+      if (p.endsWith('/vendor/profile')) {
+        return http.Response(
+            jsonEncode({'user_id': 'v1', 'on_duty': true}), 200);
+      }
       if (p.endsWith('/vendor/complaints')) {
         return http.Response(
             jsonEncode({

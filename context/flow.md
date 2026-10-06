@@ -19,24 +19,34 @@ Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 
 VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
  └─ AuthGate (restore → login / shell)
  └─ VendorShell (duty gate → 5 tabs: Route·Sync·Earnings·Support·Profile)
-     ├─ DutyController.setDuty → POST /vendor/duty
-     ├─ RouteController.load → GET /vendor/routes/today (stops sorted by seq)
+     ├─ DutyController.setDuty → POST /vendor/duty (duty-off repools pending stops to failed + audit, same flow)
+     ├─ RouteController.load → GET /vendor/routes/today (stops sorted by seq) + Pull → POST /vendor/placed/{id}/accept
      ├─ StopsController.commitTriple → POST triple + Idempotency-Key + version
      │    └─ 409 STALE_STOP → pull-fresh; NETWORK → SyncController.enqueue
      ├─ StopsController.completePod → POST pod (OTP + GPS soft-flag)
+     │    └─ Phase 1: OTP = stop's stored random code (015, minted at dispatch;
+     │         NULL rows accept the legacy deterministic code); wrong code reads
+     │         as not-found (no oracle), 5 fails lock 429; user tracking shows
+     │         the same stored code (order detail delivery_otp).
      ├─ SyncController.syncNow → POST /vendor/sync batch (applied/replayed/rejected per-stop)
      ├─ EarningsController.load → GET /vendor/earnings (flagged_hold display-only)
      └─ SupportController.verifyComplaint/vendorCheckQuality
+          └─ Phase 1: vendor agree → vendor_confirmed (+≥10-char note), never
+               resolved — only the admin release writes resolved.
 Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via rupees() paise→Rs.
 - 017 sync (branch 017-flow-sync, ADR-065): `GET /orders/{id}` gains `delivery_otp` (owner + assigned/dispatched; user tracking code row) → PoD closable; `POST /vendor/stops/{id}/cash` (owned-stop, deterministic stop+amount dedupe, 409=already-jama) → `mark_paid_cash` + `in_hand` bump + sync `cash_amount` ride → user badge flips on poll; one-tap cash button (COD unpaid) + outbox now actually wired to TripleSheet; `hold_blocked` computed on route+stop (ledger>3, lights dead UI); duty persisted on vendor_profile (ensure convergence); quality on table; admin payouts gen/approve, custody confirm, reco close, zones list + UI (capacity PATCH via BFF, zone attach/detach, refunds actions, payouts, day-close, custody); user dues pay-link + reschedule key; returns assign (vendor+date→route)/pickup (owned-stop, held−/caps→dues)/refund (picked-only, settings deposit rate) + vendor pickup card + admin buttons.
 - Resilience: GET single-flight + replay-safe retry (3, backoff+jitter, Retry-After) + 60s sync flush; 401/403 → forceLogout → login; logout clears outbox.
+- Phase 5 (029-remediation): vendor 401 → tryRefresh once → retry (silent renew; 403 never; refresh opts out — no loop) → else expireSession (honest copy, outbox kept). Duty from GET /vendor/profile.on_duty (+repooled on setDuty-off). RouteController 60s discovery Timer on-duty/foreground only; acceptPlaced → POST /vendor/placed/{id}/accept → route reload. Stops carry paid_sum; predicates isPaid/isPartial/isLinkSent + remaining shared per surface (app + web copies).
+- Phase 4 (029-remediation): BOTH apps now share the resilience shape (user ApiClient copied from vendor — no shared abstraction; user ctor also carries the https-or-loopback assert). User `_boot` mirrors vendor (loadOrCreateDeviceId → stable X-Device-Id; onUnauthorized → forceLogout local-only wipe incl. selected-address pref). Catalog: `HttpCatalogApi(ApiClient.catalog)` inside the existing `CachingCatalogApi` (live GET /catalog on home init, hardcoded fallback kept — zero backend change). Help: support Open → launchUrl wa.me primary + unawaited clipboard fallback + snackbar; tanker sheet → tel: Call on the single kSupportPhone constant (placeholders deleted).
 - Release: push main → version (shared vX.Y.Z) → matrix(user+vendor APKs) → one Release (shodasha-user/shodasha-vendor + SHA256SUMS + file table); CI matrix verifies both apps per PR.
 - Addresses: form (home/office + OSM pin, no Google key) → toApi maps line→`formatted` → POST/PATCH /addresses; 409 when an undispatched order uses it.
 - Demo: Demo sheet → POST /v1/auth/demo (config flag + code hash → normal session) → demo customer sees Rs-206 dues order; demo vendor sees today route stop → triple → PoD → earnings. D1 prerequisite (ADR-054): config/audit_log come from 010_config_audit.sql (never existed on D1 — init_schema is local-only); pre-010 DB fails closed (401, not 500).
 - Port gaps (ADR-055): address form (house/street/area + Use-current-location via LocationService → POST/PATCH /addresses full format) → SelectedAddressStore id → Home bar + checkout resolve() agree; vendor Customers tab → GET /vendor/customers (stops grouped by customer, search) → detail sheet; Stock tab reads RouteController loading sheet (no new endpoint); Profile tab → GET/PATCH /vendor/profile (synced label); Support tab → GET /vendor/complaints queue (tap fills verify-by-id) → existing verify. D1 prerequisite: 011_port.sql applied once (ALTERs are apply-once; CREATEs idempotent).
 - 014 simplify (ADR-059): Home `_ScheduleCards(Ek Baar 8-12 once / Roz ka Plan daily)` → controller.deliveryType → `_WalletStrip(safe message)` → grid (no search) → buy-box (qty only) → `placeCheckout(api.createQuote → api.createOrder[quote_total/rate_version/expires_at] → upiIntent/cod)` → `showOrderConfirm(wallet-safe message)` → track. Backend `compute_quote(deposit_already_paid)` container-only once-only; `OrderService.create` waives + accepts pre-waiver quote. Fixed `Subah 8-12` label, slots only mint window_start ISO. All-days `nextServiceableDay` (no Sunday skip).
-- 015 sync (ADR-060): User `Order(+paymentMode/Status)` → tracking badge + bill mode; subs Due/Paid via dues; `UserShell._refreshLedger(api.ledgerMe→applyLedger)`. Vendor `today_route/_owned_stop JOIN orders+addresses` → `RouteStop(+payment/total/status)` → stop badge; `GET /vendor/placed` pool for Pull button; `GET /ledger/me` wallet truth. Android `POST_NOTIFICATIONS` + `backup_rules/data_extraction` (no backup of tokens).
+- 015 sync (ADR-060): User `Order(+paymentMode/Status)` → tracking badge + bill mode; subs Due/Paid via dues; `UserShell._refreshLedger(api.ledgerMe→applyLedger)`. Vendor `today_route/_owned_stop JOIN orders+addresses` → `RouteStop(+payment/total/status)` → stop badge; `GET /vendor/placed` pool for Pull button (Phase 2: Pull → POST /vendor/placed/{id}/accept); `GET /ledger/me` wallet truth. Android `POST_NOTIFICATIONS` + `backup_rules/data_extraction` (no backup of tokens).
+- Phase 2 Split B money rules: cash overpay → 422 OVERPAY (client posts invoice remainder); cancel refunds paid_sum; refunds maker-checker (claimer≠completer) + claim/complete audits; reschedule + sub-create honor Idempotency-Key; COD checkout best-effort cod-confirm (dues visible now, doorstep carry covers).
 - 015 finish (ADR-062): User orders LIVE `ApiBackedOrdersRepository(_api)` over `GET /orders?cursor` → `data/next_cursor` (base64url created_at|id), detail `tracker/rider/bill/events`, cancel `reason+Idempotency-Key`, reschedule ISO, rating stars; `UserShell._registerDevice(getToken→POST /devices)`; vendor brilliance (48dp/ellipsis/honest states, no new deps).
+- Phase 9 (029-remediation, ADR-091): motion inventory — user skeletons (orders list + tracking detail + subs list + support section, blueTint boxes) + tracker `_Dot` 200ms scale-pop/check-fade (transform+opacity, `disableAnimationsOf` static) + vendor hand-rolled `cascade.dart` (once-only, gated; no flutter_animate dep) + admin `reduce` guard in styles.css + dashboard `CountUp` (change-only rAF, instant under reduce/mount/SSR); Toaster + SnackBars carry the confirmation/aria-live leg on all surfaces.
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]
@@ -190,7 +200,10 @@ Surfaces (sidebar-items.ts = nav source of truth; 4 nav groups Monitor/Money/Peo
   Monitor: overview /dashboard, analytics (FR-33 KPI matrix, payment-mix, on-time, leaderboards), orders(+/$orderId, CSV export);
   Money: finance (FR-30/31 cards + day-close leak watch + dunning wa.me reminders + audited write-off), payments(+refunds), ledger (per-row POST …/ledger/{id}/adjust, deltas + mandatory reason);
   People: users(+$userId, block/unblock), vendors(+$vendorId, review-hold), trust(quality/strikes/complaints/returns);
-  Operate: dispatch (FR-26 funnel/pool/custody/route-board + routes-generate), operations(reco/custody/dues/routes-generate), audit, config.
+  Operate: dispatch (FR-26 funnel/pool/custody/route-board + routes-generate), audit (+CSV export), config.
+  Phase 3 Split B: operations/ merged away (fully redundant with finance + dispatch); recon/custody screens
+  read the live per-route + identity-joined shapes; trust badges use server counts; orders/users/ledger/audit
+  cursor-follow with loaded-row honesty; vendor quality picker replaces the manual-id crutch.
 Dunning enrichment: GET /v1/admin/dunning returns bare {customer_id, dues}; names/phones joined client-side from GET /v1/admin/ledger (users LEFT JOIN) for WhatsApp addressing.
 Money: integer paise on wire → lib/money.ts rupees() for display; server computes all money.
 ```
@@ -209,8 +222,17 @@ Browser (same TanStack Start app, separate /vendor/* subtree)        apps/admin_
 Login: /vendor/login (public, outside guard) → vendor-login-form.tsx → loginVendorVerifyServer
   └─ POST /v1/auth/vendor/login {phone, code, device:{id:"vendor-web"}} → role==="vendor" assert
      → HttpOnly sh_session(30m)+sh_refresh(7d), same flags as admin (server/vendor-session.ts)
-Guard: vendor/(guard)/route.tsx loader → hasVendorSessionServer → refresh once → redirect /vendor/login
+Guard: vendor/(guard)/route.tsx loader → hasVendorSessionServer → refresh once via
+  refreshVendorSessionServer (device vendor-web, §1.8 — admin-web id 401s here) → redirect /vendor/login
   (pathless group so login never guards itself; vendor header nav, NOT the admin sidebar)
+Vendor proxy refresh (server/vendor-api.ts): 401 → refreshVendorSessionServer once → retry
+  → else VendorApiError (401/403 → /vendor/login link)
+Admin guard: dashboard/route.tsx loader → hasSessionServer → refresh once → adminRoleServer
+  (GET /v1/auth/me role probe, server/admin-api.ts) → role!=="admin" bounces to
+  /auth/v1/login?reason=denied with access-denied notice, zero admin chrome (§1.4)
+Admin logout: account-switcher Log out item → logoutServer (worker revoke + clear cookies)
+  → /auth/v1/login. Cookies: COOKIE_FLAGS now httpOnly (§1.3; browser document.cookie
+  holders are theme/sidebar prefs only — never sh_session).
 Screens (each: index.tsx thin + -components/, skeleton + honest empty + error+retry, no delete affordance):
   /vendor/ overview (today-strip fold + money jama/baaki/hold + ledger held/dues),
   /vendor/route (stop list + SKIP + one CTA per state + placed-pool read-only refresh),
@@ -284,7 +306,6 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | `/admin/vendors` + `/[vendorId]` | `apps/admin_app/src/app/admin/vendors/**` | Vendor directory + custody/capacity/strikes/payouts/block/review-hold | Admin session |
 | `/admin/payments` | `apps/admin_app/src/app/admin/payments/page.tsx` | Payments + refunds tabs (status/method filters) | Admin session |
 | `/admin/ledger` | `apps/admin_app/src/app/admin/ledger/page.tsx` | Jar-ledger page with hold-limit flags | Admin session |
-| `/admin/operations` | `apps/admin_app/src/app/admin/operations/page.tsx` | Reconciliation + custody + dues + routes-generate | Admin session |
 | `/admin/trust` | `apps/admin_app/src/app/admin/trust/page.tsx` | Quality incidents + strikes + complaints with resolve actions | Admin session |
 | `/admin/audit` | `apps/admin_app/src/app/admin/audit/page.tsx` | Audit/server-log viewer (actor_id/action filters) | Admin session |
 | `/admin/config` | `apps/admin_app/src/app/admin/config/page.tsx` | Runtime config viewer/editor | Admin session |
@@ -303,40 +324,55 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
+| POST | `/v1/auth/refresh` | `auth.py:refresh` → `auth_service.refresh` → `session_repo.rotate` | Rotated pair (30m/7d, cap preserved); revoked/capped/device-mismatch → plain 401 (family intact) |
 | POST | `/v1/auth/vendor/login` | `auth.py:vendor_login` → `auth_service.code_login(expected_role='vendor')` → `AccessCodeRepo.find_valid` (+legacy 027 fallback) + `_issue_session` | Generalized vendor access-code login (028): flag + valid/unexpired/unrevoked code + role=vendor → 200 session; else generic 401; 10/device/hr; absolute 30d cap |
 | POST | `/v1/auth/admin/login` | `auth.py:admin_login` → `auth_service.code_login(expected_role='admin')` | Admin access-code login (028, NEW): same shape, role=admin assert, generic 401 |
 | POST | `/v1/auth/user/register` | `auth.py:user_register` → `auth_service.user_register` | Name+number onboarding (028, NEW): upsert role=user unverified + capped session + verified:false; staff → 422; 5/phone/hr + 20/IP/hr |
 | GET/POST | `/v1/admin/users/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `AccessCodeRepo` | Generalized codes (028, NEW): masked list / issue plaintext-once (1h–180d, default 90d) / timestamp-revoke; user role → 422, ghost → 404 |
 | POST | `/v1/auth/vendor/login` | `auth.py:vendor_login` → `auth_service.vendor_login` → `VendorAccessRepo.find_valid` + `_issue_session` | Vendor access-code login (027): flag + valid/unexpired/unrevoked code + role=vendor → 200 session; else generic 401; 10/device/hr |
-| GET | `/v1/vendor/payouts` | `vendor.py` → `VendorService.payouts_for_vendor` | Own payouts + in_hand (read-only; approve stays admin) |
+| GET | `/v1/vendor/payouts` | `vendor.py` → `VendorService.payouts_for_vendor` | Own payouts + in_hand (read-only; approve stays admin); Phase 8: 200-cap + created_at\|id cursor → `next_cursor` |
 | GET/POST | `/v1/admin/vendors/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `VendorAccessRepo` | Masked list / issue (plaintext once, 201) / timestamp-revoke; non-vendor → 422, ghost → 404 |
 | GET | `/v1/admin/vendors/{id}/preview` | `admin.py` (Admin) → `AdminReadRepo.vendor_detail` + `VendorService.today_route/earnings/today_customers/vendor_complaints` | Read-only view-as-vendor, no writes |
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
 | GET | `/health` | `app/main.py` | Liveness probe |
-| GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings |
-| GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture |
-| GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` | Pincode regex + prefix allowlist (empty=open) |
+| GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` → `api/caching.py:cached` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings; Phase 8: `Cache-Control: public, max-age=300` + ETag + 304 |
+| GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` → `cached` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture; Phase 8: cached 300s + ETag + 304 |
+| GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` → `cached` | Pincode regex + prefix allowlist (empty=open); Phase 8: cached 300s + ETag + 304 |
 | POST | `/v1/quotes` | `app/api/v1/quotes.py:create_quote` → `services/pricing.py:compute_quote` | Server-computed quote (paise) + sha256 quote_hash + 15-min TTL; N>10 → 422 OVER_LIMIT |
 | POST | `/v1/auth/otp/start|verify` | `app/api/v1/auth.py` → `services/auth_service.py` → `adapters/firebase.py` + `user_repo`/`session_repo` | Firebase OTP → D1 session (30m + rotating 7d, family kill on reuse); suspend → restricted session |
 | POST | `/v1/orders` | `app/api/v1/orders.py` → `services/order_service.py` → `order_repo`/`ledger_repo` | Idempotent create (scoped key), quote re-check, OVER_LIMIT/HOLD_BLOCKED, placed + deposit event, one txn |
 | POST | `/v1/payments/upi-intent` + `/webhooks/upi` | `payments.py` → `payment_service` → `payment_repo` + `adapters/upi.py` | Fake/real provider; HMAC + replay-cache; payee lock; dues reconcile |
-| POST | `/v1/vendor/stops/{id}/triple|pod` | `vendor.py` → `vendor_service.py` | Atomic triple (version fence), PoD OTP + GPS soft-flag, offline sync |
-| GET | `/v1/vendor/placed` | `vendor.py` → `VendorService.placed_pool(vendor_id, limit)` | Zone-scoped placed pool (016: vendor's zones only via zones/vendor_zones pincode match; unzoned admin-only) |
-| POST | `/v1/vendor/stops/{id}/cash` | `vendor.py` → `VendorService.cash_post` → `PaymentRepo.mark_paid_cash` | Doorstep cash → payment row + paid_cash/partial_dues + dues reconcile + in_hand (017; deterministic stop+amount dedupe, 409=already-jama) |
+| POST | `/v1/vendor/stops/{id}/triple|pod` | `vendor.py` → `vendor_service.py` | Atomic triple (version fence), PoD OTP + GPS soft-flag, offline sync (pod items ride sync with done-check-first replay) |
+| GET | `/v1/vendor/placed` | `vendor.py` → `VendorService.placed_pool(vendor_id, limit)` | Zone-scoped placed pool (016: vendor's zones only via zones/vendor_zones pincode match; unzoned admin-only); Phase 8: router `limit` validated 1–50 |
+| POST | `/v1/vendor/placed/{order_id}/accept` | `vendor.py` → `dispatch_service.vendor_accept_order` | Pull made real: placed→accepted→picked→packed→assigned + route/stop + OTP mint; zone/capacity pre-checked (fail-cheap); replay returns existing stop |
+| POST | `/v1/admin/orders/{id}/accept|reject|pack` | `admin.py` → `OrderRepo.transition` + `_audit` | Dispatcher pipeline: accept (placed→accepted), reject (→rejected terminal), pack (accepted→picked→packed one action) |
+| POST | `/v1/admin/routes/{id}/dispatch` | `admin.py` → per-stop `transition` to dispatched + per-stop audit | All pending assigned stops dispatched; non-assigned honestly skipped |
+| POST | `/v1/payments/dues-intent` | `payments.py` → `PaymentService.dues_intent` → `PaymentRepo.create_dues_intent` | Full-dues UPI intent (no order row; scoped idem key); signed webhook settles via dues branch (ledger dues cleared, no order flip) |
+| GET | `/orders/{id}/tracking` | `orders.py` → `OrderService.tracking` (subset of detail: no bill/ledger) | Owner-scoped status resource: state + tracker + rider + window + code + events |
+| PATCH | `/orders/{id}/instructions` | `orders.py` → `OrderService.set_instructions` → `OrderRepo.update_instructions` | Owner delivery note ≤500, pre-dispatch states only, event logged |
+| GET | `/v1/vendor/quality` | `vendor.py` → `VendorService.vendor_quality` | Incidents on vendor's route orders (replaces manual-id crutch); Phase 8: 200-cap + cursor → `next_cursor` |
+| POST | `/leads` | `catalog.py` (public: phone + pincode validated) | Unserved-pincode lead capture into `leads` (human-triaged) |
+| GET | `/v1/admin/audit/export` | `admin.py` (same filters as viewer) | Filtered audit as CSV (header follows live table shape) |
+| GET | `/v1/admin/reconciliation?date=` | `admin.py` → per-route rows + footer | Route/vendor/stops/delivered/cash/upi/jars/empties per route; ledger footer kept |
+| GET | `/v1/admin/custody` | `admin.py` → users ⋈ profile | All vendors with name/phone/on_duty/in_hand + zero flag (no more invisibility) |
+| POST | `/v1/admin/reconciliation/close` | `admin.py` → payments aggregates + triple cross-check | Day-close reads `payments` (paid/partial by method); triple sums kept as non-blocking mismatch flags |
+| POST | `/v1/vendor/stops/{id}/cash` | `vendor.py` → `VendorService.cash_post` → `PaymentRepo.mark_paid_cash_locked` | Doorstep cash → payment row + paid_cash/partial_dues + dues reconcile + in_hand (017; deterministic stop+amount dedupe, 409=already-jama); Phase 8: ONE lock+commit for payment writes + in_hand (was two txns) |
 | POST | `/v1/returns/{id}/pickup` | `returns.py` (role=vendor, owned-stop join) | Empty-jar pickup: held−, caps×Rs3→dues, stop done, return picked (017) |
+| POST | `/v1/subscriptions/estimate` | `subscriptions.py` → `SubscriptionService.estimate_first_cycle` | First-cycle server amount (water + once-only deposit, wallet-aware); pure read for the sheet Pay label (Phase 7) |
 | POST | `/v1/admin/returns/{id}/assign` | `admin.py` → `route_for_vendor` | Pickup stop queued on vendor's route (017; dup → 409) |
 | POST | `/v1/admin/returns/{id}/refund` | `admin.py` → `LedgerRepo` (settings deposit rate) | picked-only deposit refund + audit (017) |
 | GET/POST | `/v1/admin/payouts`, `/generate`, `/{id}/approve` | `admin.py` (per_stop_fee accrual) | Payout lifecycle: pending → approved (017) |
 | POST | `/v1/admin/custody/confirm` | `admin.py` (in_hand decrement + audit) | Cash handover receipt (017) |
 | POST | `/v1/admin/reconciliation/close` | `admin.py` (snapshot + audit row) | Day-close marker, no new table (017) |
-| GET | `/v1/admin/zones` | `admin.py` | Zone list for attach UI (017) |
+| GET | `/v1/admin/zones` | `admin.py` → `cached` | Zone list for attach UI (017); Phase 8: cached 300s + ETag + 304 (auth still required) |
 | PATCH | `/v1/admin/vendors/{id}/capacity` | `admin.py` (BFF PATCH helper) | Capacity + per-stop-fee edit (017 UI wired) |
 | GET/PATCH | `/v1/vendor/profile` | `vendor.py` → `VendorService.profile_get/save` → `vendor_profile` (011) | Server vendor profile (partial merge, ≤500/field); blank until first save — NEW (ADR-055) |
 | GET/PUT | `/v1/vendor/slots` | `vendor.py` → `VendorService.slots_get/set` → `vendor_slots` (011) | Slot toggles, 50-key cap — NEW (ADR-055) |
 | GET | `/v1/vendor/customers` | `vendor.py` → `VendorService.today_customers` (stops ⋈ users) | Today route grouped by customer + totals + held/dues ledger fields (016 additive) — NEW (ADR-055) |
-| GET | `/v1/vendor/complaints` | `vendor.py` → `VendorService.vendor_complaints` (complaints ⋈ stops) | Vendor ticket queue (reads; verify writes) — NEW (ADR-055) |
+| GET | `/v1/vendor/complaints` | `vendor.py` → `VendorService.vendor_complaints` (complaints ⋈ stops) | Vendor ticket queue (reads; verify writes) — NEW (ADR-055); Phase 8: 200-cap + cursor → `next_cursor` |
+| POST | `/v1/vendor/sync` | `vendor.py` → `VendorService.sync_batch` | Offline queue flush (applied/replayed/rejected per-stop); Phase 8: `items` hard-capped at 200 (clients page at 100) |
 | POST | `/v1/admin/orders/{id}/assign` | `admin.py` → `dispatch_service.py` | Transactional zone assign, reassign with version fence, routes-generate |
-| POST | `/v1/auth/otp/start` | `app/api/v1/auth.py:otp_start` → `services/auth_service.py:otp_start` | +91 validate + phone/IP rate-limit → 202 {sent_to_masked, resend_after_s} (Firebase SMS client-side) |
+| POST | `/v1/auth/otp/start` | `app/api/v1/auth.py:otp_start` → `services/auth_service.py:otp_start` | +91 validate + phone/IP rate-limit → 202 {sent_to_masked, resend_after_s} (Firebase SMS client-side); Phase 8: L1 + D1 rate_counters truth, 429s carry Retry-After |
 | POST | `/v1/auth/otp/verify` | `auth.py:otp_verify` → `auth_service.otp_verify` → `adapters/firebase.py:RealVerifier.verify_id_token` → `repositories/user_repo.py:upsert_firebase_user` + `session_repo.py:create` | 200 {access_token (30m), refresh_token (7d rotating), role, restrictions?, new_device_alert?, details.integrity}; device-cap → 409 DEVICE_CAP |
 | POST | `/v1/auth/otp/verify` (DEV_AUTH=1 only) | `auth_service.otp_verify` dev branch → `find_by_phone` → `_issue_session` (shared with Firebase path) | Raw code `dev\|<phone>\|<any>` logs in the EXISTING account for that phone — no Firebase round-trip; never enable in prod; admin panel dev login uses it when `NEXT_PUBLIC_FIREBASE_API_KEY` is unset |
 | POST | `/v1/auth/refresh` | `auth.py:refresh` → `auth_service.refresh` → `session_repo.rotate` | 200 new pair; burned-token reuse → revoke family + 401 |
@@ -344,7 +380,7 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | GET | `/v1/auth/me` | `auth.py:get_me` → `auth_service.me` (via `api/auth_deps.py:get_current_user`) | 200 {user, addresses_count, ledger_summary}; suspended → + restrictions |
 | PATCH | `/v1/auth/me` | `auth.py:patch_me` (via `require_active_user`) → `user_repo.update_profile` | 200 {user}; suspended → 403 FORBIDDEN |
 | GET | `/v1/admin/metrics/overview?days=` | `admin.py` → `admin_read_repo.daily_series/on_time_series/money_totals` | Panel KPIs: today + per-day orders/gmv/delivered/on_time_pct + money totals (deposits, dues, jars held) — NEW, additive |
-| GET | `/v1/admin/users?query=&role=&suspended=&limit=&cursor=` | `admin.py` → `admin_read_repo.users_page` | Directory: search (phone/name/id), role/suspended filters, rowid-cursor paging — NEW |
+| GET | `/v1/admin/users?query=&role=&suspended=&limit=&cursor=` | `admin.py` → `admin_read_repo.users_page` + role GROUP BY | Directory: search (phone/name/id), role/suspended filters, rowid-cursor paging + full-book `counts{total,user,vendor,admin}` (Phase 6, trust pattern) — NEW |
 | GET | `/v1/admin/users/{id}/detail` | `admin.py` → `admin_read_repo.user_detail` | User + recent orders + ledger summary; ghost → 404 — NEW |
 | GET | `/v1/admin/vendors/{id}/detail` | `admin.py` → `admin_read_repo.vendor_detail` | Vendor + profile + stops_done/jars_delivered — NEW |
 | POST | `/v1/admin/users/{id}/suspend` | `admin.py` (`SuspendIn{reason≥3, level}`) | restrict\|suspend; suspend revokes the user's sessions; admin accounts → 400; audit `user.suspend` — NEW (vendors block via this too) |

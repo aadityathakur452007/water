@@ -100,8 +100,26 @@ class PaymentService:
         return await self.payments.claim_refund(refund_id, actor_id)
 
     async def complete_refund(self, actor_id: str, refund_id: str, to_status: str) -> dict:
-        _ = actor_id  # any admin closes; claim lock already picked the owner
-        return await self.payments.complete_refund(refund_id, to_status)
+        """Close a claimed refund (maker-checker: claimer ≠ closer, enforced in
+        the repo). `done` = status settlement only — the actual provider payout
+        moves out-of-band (out of scope, noted per spec)."""
+        return await self.payments.complete_refund(refund_id, to_status, actor_id)
+
+    # -- dues-pay intent (settles ledger dues over UPI) ---------------------
+
+    async def dues_intent(self, user_id: str, idempotency_key: str) -> dict:
+        """Intent row for the current full dues (no order): the signed webhook
+        settles it like any intent (dues branch, no order flip)."""
+        if not idempotency_key or not str(idempotency_key).strip():
+            raise ValidationError(message="Idempotency-Key header required.", details={})
+        dues = int((await self.get_dues(user_id))["dues"])
+        if dues <= 0:
+            raise ValidationError(message="No dues to pay.", details={})
+        created = self.provider.create_intent({"id": f"dues-{user_id}", "total": dues})
+        payment = await self.payments.create_dues_intent(
+            user_id, dues, idempotency_key.strip(), created["provider_ref"])
+        return {"payment": payment, "link": created["link"],
+                "provider_ref": created["provider_ref"]}
 
     # -- dues / invoice reads ----------------------------------------------
 

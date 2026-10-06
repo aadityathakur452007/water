@@ -2,8 +2,8 @@ import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tansta
 
 import { cn } from "cn";
 
-import { refreshSessionServer, storeRotatedSessionServer } from "@/server/admin-session";
-import { hasVendorSessionServer } from "@/server/vendor-session";
+import { storeRotatedSessionServer } from "@/server/admin-session";
+import { hasVendorSessionServer, refreshVendorSessionServer } from "@/server/vendor-session";
 
 const NAV = [
   { to: "/vendor", label: "Overview" },
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/(main)/vendor/(guard)")({
   loader: async () => {
     const { authed } = await hasVendorSessionServer();
     if (!authed) {
-      const pair = await refreshSessionServer();
+      const pair = await refreshVendorSessionServer();
       if (pair) {
         await storeRotatedSessionServer({ data: pair });
       } else {

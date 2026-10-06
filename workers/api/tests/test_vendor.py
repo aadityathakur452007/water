@@ -15,12 +15,11 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from app.core.errors import AppError  # noqa: E402
+from app.core.errors import AppError, NotFoundError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.services.vendor_service import (  # noqa: E402
     PayloadMismatchError,
-    PodOtpError,
     StaleStopError,
     VendorService,
     pod_otp,
@@ -100,7 +99,7 @@ def _triple(**over) -> dict:
 async def test_duty_on_off_persisted():
     c = _conn()
     on = await _svc(c).duty("v1", True)
-    assert on == {"vendor_id": "v1", "duty_on": True, "since": on["since"]}
+    assert on == {"vendor_id": "v1", "duty_on": True, "since": on["since"], "repooled": 0}
     # Fresh service instance reads the same truth (no in-memory store).
     assert await VendorService(AsyncSqliteConn(c)).is_on_duty("v1") is True
     assert c.execute("SELECT on_duty, duty_on FROM vendor_profile WHERE user_id = 'v1'").fetchone()["on_duty"] == 1
@@ -263,10 +262,11 @@ async def test_pod_happy_delivers():
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "delivered"
 
 
-async def test_pod_wrong_otp_401():
-    with pytest.raises(PodOtpError) as e:
+async def test_pod_wrong_otp_reads_as_not_found():
+    # No oracle: a wrong code is indistinguishable from an unknown stop.
+    with pytest.raises(NotFoundError) as e:
         await _svc(_conn()).pod_complete("v1", "s1", {"delivery_otp": "000000"})
-    assert e.value.code == "UNAUTH" and e.value.status_code == 401
+    assert e.value.code == "NOT_FOUND" and e.value.status_code == 404
 
 
 async def test_pod_gps_drift_flagged_not_blocked():
@@ -377,9 +377,10 @@ async def test_hold_blocked_flag_boundary():
 
 # -- complaint + quality (§14.3) ------------------------------------------------------
 
-async def test_complaint_verify_agree_resolves():
+async def test_complaint_verify_agree_countersigns_not_resolves():
+    # The vendor countersigns (never closes): admin release writes `resolved`.
     out = await _svc(_conn()).verify_complaint("v1", "c1", True, "short jar redelivered")
-    assert out["status"] == "resolved" and out["vendor_agree"] == 1
+    assert out["status"] == "vendor_confirmed" and out["vendor_agree"] == 1
 
 
 async def test_complaint_verify_disagree_freezes_for_admin():
@@ -523,7 +524,51 @@ def test_router_triple_pod_me_validation():
     hk2 = {**h, "Idempotency-Key": "k-router-2"}
     assert client.post("/v1/vendor/stops/s1/triple", json=bad, headers=hk2).status_code == 400
     assert client.post("/v1/vendor/stops/s1/pod", json={"delivery_otp": "000000"},
-                       headers=h).status_code == 401
+                       headers=h).status_code == 404
     ok = client.post("/v1/vendor/stops/s1/pod",
                      json={"delivery_otp": pod_otp("o1", DAY), "seal_ok": True}, headers=h)
     assert ok.status_code == 200 and ok.json()["triple"]["pod"]["seal_ok"] is True
+
+
+# -- Phase 5 S5.2/S5.3: paid_sum per stop + duty truth on profile --------------
+
+
+async def test_today_route_carries_paid_sum():
+    c = _conn()
+    await _svc(c).cash_post("v1", "s1", 1000)  # o1 partial: 1000 of 20600
+    out = await _svc(c).today_route("v1", DAY)
+    s1 = next(s for s in out["stops"] if s["id"] == "s1")
+    assert s1["paid_sum"] == 1000
+    s2 = next(s for s in out["stops"] if s["id"] == "s2")
+    assert s2["paid_sum"] == 0  # no payments yet
+    s4 = next(s for s in out["stops"] if s["id"] == "s4")
+    assert s4["paid_sum"] == 0  # return stop, no order
+
+
+async def test_get_stop_carries_paid_sum():
+    c = _conn()
+    await _svc(c).cash_post("v1", "s1", 20600)  # o1 full
+    stop = await _svc(c).get_stop("v1", "s1")
+    assert stop["paid_sum"] == 20600
+
+
+async def test_profile_get_carries_on_duty():
+    c = _conn()
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is False  # blank
+    await _svc(c).duty("v1", True)
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is True
+    await _svc(c).duty("v1", False)
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is False
+
+
+async def test_profile_get_tolerates_pre007_shape():
+    """Pre-007 DBs (no on_duty column) read duty as off, never 500."""
+    c = get_connection(":memory:")
+    c.executescript(M002)
+    c.execute(
+        "CREATE TABLE vendor_profile(user_id TEXT PRIMARY KEY, name TEXT,"
+        " phone TEXT, address TEXT, hours TEXT, updated_at TEXT)")
+    c.execute("INSERT INTO users(id, phone, role, created_at) VALUES ('v1', '+911111111111', 'vendor', ?)",
+              (_dt.datetime.now(_dt.timezone.utc).isoformat(),))
+    c.commit()
+    assert (await _svc(c).profile_get("v1"))["on_duty"] is False

@@ -54,11 +54,24 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     await launchUrl(uri);
   }
 
+  /// Phase 5 S5.5: call button only for real 10-digit numbers — short or
+  /// placeholder strings never render a dead link.
+  bool _hasCallablePhone(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    final local =
+        digits.length > 10 ? digits.substring(digits.length - 10) : digits;
+    return RegExp(r'^[6-9]\d{9}$').hasMatch(local);
+  }
+
   /// F2 cash post; offline queues triple+cash into the outbox (sync replays
-  /// the triple as a no-op then posts cash — server dedupes both).
+  /// the triple as a no-op then posts cash — server dedupes both). Posts the
+  /// live remainder (partial orders) so the server OVERPAY guard never trips.
   Future<void> _postCash(StopsController c, int amountPaise) async {
+    final orderId = (c.stop?['order_id'] ?? '') as String;
+    final due = orderId.isNotEmpty ? await c.amountDue(orderId) : null;
+    final amount = (due != null && due > 0) ? due : amountPaise;
     final ok = await c.postCash(
-        stopId: widget.stopId, amountPaise: amountPaise);
+        stopId: widget.stopId, amountPaise: amount);
     if (!ok && c.lastWasNetwork && widget.outbox != null) {
       final triple = c.stop?['triple'];
       if (triple is Map<String, dynamic>) {
@@ -141,13 +154,39 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     final cashDue = totalPaise;
     final paymentMode = (s['payment_mode'] ?? 'cod') as String;
     final paymentStatus = (s['payment_status'] ?? 'unpaid') as String;
+    // Phase 5 §5.2: same predicates as the route list (copied, not shared).
     final isPaid =
         paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+    final isPartial = paymentStatus == 'partial_dues';
+    final isLinkSent = paymentStatus == 'link_sent';
+    final paidSum = (s['paid_sum'] as num?)?.toInt() ?? 0;
+    int remaining() {
+      if (isPaid || isLinkSent) return 0;
+      if (!isPartial) return totalPaise;
+      final left = totalPaise - paidSum;
+      return left > 0 ? left : 0;
+    }
+
+    final remainingPaise = remaining();
+    // Phase 5 §5.5: required-action gating — PoD needs a saved triple;
+    // a finished stop shows the done note, never action buttons.
+    final tripleDone = s['triple'] is Map;
+    final stopDone = (s['status'] ?? '') == 'done';
+    final orderLabel = orderStateLabelHi((s['order_state'] ?? '') as String);
     final held = (s['held'] as num?)?.toInt();
     final deposit = (s['deposit_balance'] as num?)?.toInt();
     final dues = (s['dues'] as num?)?.toInt();
     final holdBlocked = (s['hold_blocked'] as bool?) ?? false;
     final returnId = (s['return_id'] ?? '') as String;
+    final windowStart = (s['window_start'] ?? '') as String;
+    final instructions = (s['instructions'] ?? '') as String;
+    final items = (s['items'] is List)
+        ? (s['items'] as List)
+            .whereType<Map<String, dynamic>>()
+            .map((e) => '${e['qty'] ?? 0} ${e['sku'] ?? ''}'.trim())
+            .where((e) => e.isNotEmpty && e != '0')
+            .join(' • ')
+        : '';
     if (c.notice != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context)
@@ -172,14 +211,20 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                         fontSize: 18, fontWeight: FontWeight.w700)),
                 // 015: payment badge — mode + paid/collect state (prominent,
                 // amount only when server sent a total; never "Rs 0").
+                // Phase 5 §5.2: partial shows the remainder; a sent UPI
+                // link asks for verification, never cash.
                 Text(
                   isPaid
                       ? (totalPaise > 0
                           ? '${paymentMode.toUpperCase()} • Paid ${rupees(totalPaise)}'
                           : '${paymentMode.toUpperCase()} • Paid')
-                      : (totalPaise > 0
-                          ? '${paymentMode.toUpperCase()} • Collect ${rupees(totalPaise)}'
-                          : paymentMode.toUpperCase()),
+                      : isLinkSent
+                          ? '${paymentMode.toUpperCase()} • UPI link bheja, verify karein'
+                          : isPartial
+                              ? '${paymentMode.toUpperCase()} • Collect ${rupees(remainingPaise)} (baaki)'
+                              : (totalPaise > 0
+                                  ? '${paymentMode.toUpperCase()} • Collect ${rupees(totalPaise)}'
+                                  : paymentMode.toUpperCase()),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -190,8 +235,24 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                 if (address.isNotEmpty)
                   Text(address,
                       maxLines: 3, overflow: TextOverflow.ellipsis),
+                if (windowStart.isNotEmpty)
+                  Text('Window: $windowStart',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (items.isNotEmpty)
+                  Text(items,
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                if (instructions.isNotEmpty)
+                  Text('Note: $instructions',
+                      maxLines: 3, overflow: TextOverflow.ellipsis),
+                // Phase 5 §5.5: pipeline state as a Hindi what-it-means
+                // line (unknown states hide — raw text never shows).
+                if (orderLabel.isNotEmpty)
+                  Text(orderLabel,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: ShodashaTheme.muted)),
                 const SizedBox(height: 8),
-                if (phone.isNotEmpty)
+                if (_hasCallablePhone(phone))
                   TextButton.icon(
                     onPressed: () => _call(phone),
                     icon: const Icon(Icons.call),
@@ -267,15 +328,21 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        // Phase 5 §5.5: required-action ordering — Triple → PoD → Cash,
+        // gated by state with "pehle X karein" hints instead of
+        // all-rendered. A finished stop shows the done note only.
+        if (stopDone)
+          const Text('Delivery complete / ho gayi',
+              style: TextStyle(fontWeight: FontWeight.w600)),
         // F8: pickup stops act on the return, not the triple/PoD flow.
-        if (returnId.isNotEmpty)
+        if (!stopDone && returnId.isNotEmpty)
           _PickupCard(
             controller: c,
             stopId: widget.stopId,
             returnId: returnId,
             emptiesExp: emptiesExp,
           ),
-        if (returnId.isEmpty)
+        if (!stopDone && returnId.isEmpty && !tripleDone)
           ElevatedButton.icon(
             onPressed: c.submitting || holdBlocked
                 ? null
@@ -288,15 +355,18 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                         fullsExp: fullsExp,
                         emptiesExp: emptiesExp,
                         outbox: widget.outbox,
-                        collectPaise: totalPaise,
+                        collectPaise: remainingPaise,
                         paymentMode: paymentMode,
                       ),
                     ),
             icon: const Icon(Icons.inventory_2_outlined),
             label: const Text('Triple likhein: diye / wapas / paise'),
           ),
+        if (!stopDone && returnId.isEmpty && tripleDone)
+          const Text('Triple ho gayi — PoD karein',
+              style: TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
-        if (returnId.isEmpty)
+        if (!stopDone && returnId.isEmpty && tripleDone)
           OutlinedButton.icon(
             onPressed: c.submitting
                 ? null
@@ -306,25 +376,37 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                       builder: (_) => PodSheet(
                         controller: c,
                         stopId: widget.stopId,
-                        collectPaise: totalPaise,
+                        outbox: widget.outbox,
+                        collectPaise: remainingPaise,
                         paymentMode: paymentMode,
                       ),
                     ),
             icon: const Icon(Icons.check_circle_outline),
             label: const Text('PoD: OTP se complete karein'),
           ),
-        // F2: one-tap cash post (COD delivery stops only, unpaid with total).
-        // Paid/partial state comes back on reload and hides this.
-        if (returnId.isEmpty && paymentMode != 'upi' && !isPaid && totalPaise > 0) ...[
+        if (!stopDone && returnId.isEmpty && !tripleDone)
+          const Text('PoD ke liye pehle triple likhein',
+              style: TextStyle(color: ShodashaTheme.muted)),
+        // F2: one-tap cash post (COD delivery stops only, remainder due).
+        // Paid/link-sent hide this; partial posts the remainder (the
+        // server OVERPAY guard still enforces races).
+        if (!stopDone &&
+            returnId.isEmpty &&
+            paymentMode != 'upi' &&
+            !isLinkSent &&
+            remainingPaise > 0) ...[
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: c.submitting
                 ? null
-                : () => _postCash(c, totalPaise),
+                : () => _postCash(c, remainingPaise),
             icon: const Icon(Icons.payments_outlined),
-            label: Text('Cash jama karein (${rupees(totalPaise)})'),
+            label: Text('Cash jama karein (${rupees(remainingPaise)})'),
           ),
         ],
+        if (!stopDone && isLinkSent)
+          const Text('UPI link bheja — cash na lein, payment verify karein',
+              style: TextStyle(color: ShodashaTheme.muted)),
       ],
     );
   }

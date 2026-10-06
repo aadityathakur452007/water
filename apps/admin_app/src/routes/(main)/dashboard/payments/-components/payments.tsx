@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusLegend } from "@/components/status-legend";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -28,25 +29,15 @@ export function Payments() {
   const params = new URLSearchParams();
   if (status !== "All") params.set("status", status);
   if (method !== "All") params.set("method", method);
+  // Server-driven search (the worker LIKE-matches ref/order/phone) — never
+  // filter the page client-side, which would hide off-page matches.
+  if (search.trim()) params.set("query", search.trim());
   const qs = params.toString();
 
   const { data, isError, error } = useAdminQuery<Page<PaymentRow>>(`/v1/admin/payments${qs ? `?${qs}` : ""}`);
   const { data: refunds } = useAdminQuery<Page<RefundRow>>("/v1/admin/refunds");
 
-  const rows = React.useMemo(() => {
-    let list = data?.data ?? [];
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (r) =>
-          r.id.toLowerCase().includes(q) ||
-          r.order_id.toLowerCase().includes(q) ||
-          (r.user_name ?? "").toLowerCase().includes(q) ||
-          (r.user_phone ?? "").includes(q),
-      );
-    }
-    return list;
-  }, [data, search]);
+  const rows = data?.data ?? [];
 
   return (
     <Card>
@@ -115,6 +106,7 @@ export function Payments() {
             <RefundStream rows={refunds?.data ?? []} />
           </TabsContent>
         </Tabs>
+        <StatusLegend />
       </CardContent>
     </Card>
   );

@@ -47,6 +47,11 @@ class RefundClaimError(AppError):
     status_code = 409
 
 
+class OverpayError(AppError):
+    code = "OVERPAY"
+    status_code = 422
+
+
 def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
@@ -180,6 +185,8 @@ class PaymentRepo:
             if int(amount) != int(existing["amount"]):
                 raise AmountMismatchError(message="Amount does not match the intent.",
                                           details={"expected": int(existing["amount"])})
+            if str(existing.get("order_id") or "").startswith("dues:"):
+                return await self._settle_dues_intent(existing, int(amount))
             order = await self._order(existing["order_id"])
             if int(amount) != int(order["total"]):
                 raise AmountMismatchError(message="Amount does not match the frozen bill.",
@@ -206,46 +213,135 @@ class PaymentRepo:
                                            (existing["id"],))
             ).fetchone())
 
+    async def _settle_dues_intent(self, intent: dict, amount: int) -> dict:
+        """Settle a dues-pay intent: flip paid + clear ledger dues (no order
+        row exists for dues intents). Caller holds WRITE_LOCK."""
+        led = LedgerRepo(self._conn)
+        dues = int((await led.get(str(intent["user_id"])))["dues"])
+        try:
+            await self._conn.execute(
+                "UPDATE payments SET status='paid', verified_at=? WHERE id=?",
+                (_now(), intent["id"]),
+            )
+            if dues > 0:  # clear what the ledger holds, never more
+                await led.apply_event(str(intent["user_id"]), d_dues=-min(dues, amount),
+                                ref=f"dues:{intent['id']}", actor="upi-webhook",
+                                reason="dues upi paid", commit=False)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return dict((
+            await self._conn.execute("SELECT * FROM payments WHERE id=?", (intent["id"],))
+        ).fetchone())
+
+    async def create_dues_intent(self, user_id: str, amount: int, idem_key: str,
+                           provider_ref: str) -> dict:
+        """Dues-pay intent row (no order): reuses the intent idempotency shape
+        with a dues-scoped key + payload hash over (user, amount)."""
+        if not idem_key or not str(idem_key).strip():
+            raise ValidationError(message="Idempotency-Key header required.", details={})
+        if int(amount) <= 0:
+            raise ValidationError(message="No dues to pay.", details={})
+        scoped = f"POST /v1/payments/dues-intent:{idem_key.strip()}"
+        phash = _payload_hash(f"dues:{user_id}", int(amount))
+        with WRITE_LOCK:
+            stored = (
+                await self._conn.execute(
+                    "SELECT payload_hash, result FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                    (user_id, scoped),
+                )
+            ).fetchone()
+            if stored is not None:
+                if stored["payload_hash"] != phash:
+                    raise PayloadMismatchError(
+                        message="Idempotency-Key was already used with a different payload.",
+                        details={"user_id": user_id})
+                return json.loads(stored["result"])
+            pid = uuid.uuid4().hex
+            try:
+                await self._conn.execute(
+                    "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+                    " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, NULL)",
+                    (pid, f"dues:{user_id}", user_id, int(amount), "upi",
+                     provider_ref, "link_sent", _now()),
+                )
+                payment = dict((
+                    await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
+                ).fetchone())
+                await self._conn.execute(
+                    "INSERT INTO idempotency_keys(user_id, scoped_key, order_id, payload_hash, result,"
+                    " created_at) VALUES (?,?,?,?,?,?)",
+                    (user_id, scoped, f"dues:{user_id}", phash, json.dumps(payment), _now()),
+                )
+                self._conn.commit()
+            except sqlite3.IntegrityError as e:  # concurrent same-ref race → return winner
+                self._conn.rollback()
+                dup = await self.find_by_provider_ref(provider_ref)
+                if dup is not None:
+                    return dup
+                raise ConflictError(message="Payment already exists.", details={}) from e
+            return payment
+
     # -- vendor cash (paid_cash / partial_dues + ledger dues event) ------
 
     async def mark_paid_cash(self, order_id: str, amount: int, actor: str) -> dict:
+        """Phase 8 §8.3: this wrapper owns the lock+commit for standalone
+        callers (admin mark_cash). Vendor cash_post holds the lock itself so
+        the payment writes and the in_hand bump commit together — use
+        mark_paid_cash_locked there."""
+        with WRITE_LOCK:
+            try:
+                out = await self.mark_paid_cash_locked(order_id, amount, actor)
+                self._conn.commit()
+                return out
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    async def mark_paid_cash_locked(self, order_id: str, amount: int, actor: str) -> dict:
+        """Lock-free core: payment row + paid_cash/partial_dues + dues
+        reconcile. Caller holds WRITE_LOCK and commits (single txn with any
+        sibling writes, e.g. vendor in_hand — never two txns on D1)."""
         if int(amount) < 0:
             raise ValidationError(message="Invalid cash amount.", details={})
-        with WRITE_LOCK:
-            order = await self._order(order_id)
-            if order["payment_status"] in ("paid_upi", "paid_cash"):
-                raise ConflictError(message="Order is already paid.", details={"id": order_id})
-            paid_before = await self.paid_sum_for_order(order_id)
-            total_paid = paid_before + int(amount)
-            full = total_paid >= int(order["total"])
-            status = "paid_cash" if full else "partial_dues"
-            led = LedgerRepo(self._conn)
-            dues = int((await led.get(order["user_id"]))["dues"])
-            if await self._dues_posted(order_id) and dues > 0:
-                await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
-                                ref=f"cash:{order_id}", actor=actor,
-                                reason="cash collected", commit=False)
-            elif not await self._dues_posted(order_id) and dues == 0 and not full:
-                # cash without a prior COD-confirm: carry the remainder as dues (VR-08)
-                await led.apply_event(order["user_id"], d_dues=int(order["total"]) - total_paid,
-                                ref=f"order:{order_id}", actor=actor,
-                                reason="cod remainder carried", commit=False)
-            pid = uuid.uuid4().hex
-            await self._conn.execute(
-                "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
-                " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, ?)",
-                (pid, order_id, order["user_id"], int(amount), "cod",
-                 f"cash:{order_id}:{uuid.uuid4().hex[:8]}",
-                 "paid" if full else "partial", _now(), _now()),
-            )
-            await self._conn.execute("UPDATE orders SET payment_status=? WHERE id=?", (status, order_id))
-            self._conn.commit()
-            payment = dict((
-                await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
-            ).fetchone())
-            fresh = await self._order(order_id)
-            return {"payment": payment, "order": fresh,
-                    "ledger": await led.get(order["user_id"])}
+        order = await self._order(order_id)
+        if order["payment_status"] in ("paid_upi", "paid_cash"):
+            raise ConflictError(message="Order is already paid.", details={"id": order_id})
+        paid_before = await self.paid_sum_for_order(order_id)
+        remaining = int(order["total"]) - paid_before
+        if int(amount) > remaining:
+            raise OverpayError(message="Cash exceeds the remaining bill.",
+                               details={"remaining": remaining})
+        total_paid = paid_before + int(amount)
+        full = total_paid >= int(order["total"])
+        status = "paid_cash" if full else "partial_dues"
+        led = LedgerRepo(self._conn)
+        dues = int((await led.get(order["user_id"]))["dues"])
+        if await self._dues_posted(order_id) and dues > 0:
+            await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
+                            ref=f"cash:{order_id}", actor=actor,
+                            reason="cash collected", commit=False)
+        elif not await self._dues_posted(order_id) and dues == 0 and not full:
+            # cash without a prior COD-confirm: carry the remainder as dues (VR-08)
+            await led.apply_event(order["user_id"], d_dues=int(order["total"]) - total_paid,
+                            ref=f"order:{order_id}", actor=actor,
+                            reason="cod remainder carried", commit=False)
+        pid = uuid.uuid4().hex
+        await self._conn.execute(
+            "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+            " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, ?)",
+            (pid, order_id, order["user_id"], int(amount), "cod",
+             f"cash:{order_id}:{uuid.uuid4().hex[:8]}",
+             "paid" if full else "partial", _now(), _now()),
+        )
+        await self._conn.execute("UPDATE orders SET payment_status=? WHERE id=?", (status, order_id))
+        payment = dict((
+            await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
+        ).fetchone())
+        fresh = await self._order(order_id)
+        return {"payment": payment, "order": fresh,
+                "ledger": await led.get(order["user_id"])}
 
     # -- refunds (C15: single claimant) ----------------------------------
 
@@ -258,6 +354,8 @@ class PaymentRepo:
         return dict(row)
 
     async def claim_refund(self, refund_id: str, actor_id: str) -> dict:
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, cycle-safe)
+
         with WRITE_LOCK:
             cur = await self._conn.execute(
                 "UPDATE refunds SET status='claimed', claimed_by=?, claimed_at=?, attempts=attempts+1"
@@ -267,14 +365,29 @@ class PaymentRepo:
             if cur.rowcount == 0:
                 self._conn.rollback()
                 raise RefundClaimError(message="Refund already claimed or closed.",
-                                      details={"id": refund_id})
+                                        details={"id": refund_id})
+            await write_audit(self._conn, actor=actor_id, action="refund.claim",
+                              entity="refunds", entity_id=refund_id)
             self._conn.commit()
             return await self.get_refund(refund_id)
 
-    async def complete_refund(self, refund_id: str, to_status: str) -> dict:
+    async def complete_refund(self, refund_id: str, to_status: str, actor_id: str = "") -> dict:
+        from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, cycle-safe)
+
         if to_status not in ("done", "failed"):
             raise ValidationError(message="Invalid refund outcome.", details={})
         with WRITE_LOCK:
+            row = (await self._conn.execute(
+                "SELECT claimed_by, status FROM refunds WHERE id=?", (refund_id,))).fetchone()
+            if row is None or row["status"] != "claimed":
+                self._conn.rollback()
+                raise RefundClaimError(message="Refund must be claimed before closing.",
+                                        details={"id": refund_id})
+            if actor_id and str(row["claimed_by"] or "") == str(actor_id):
+                # Maker-checker: the claimer never closes their own claim.
+                self._conn.rollback()
+                raise RefundClaimError(message="Claimer cannot close their own refund.",
+                                        details={"id": refund_id})
             cur = await self._conn.execute(
                 "UPDATE refunds SET status=?, done_at=? WHERE id=? AND status='claimed'",
                 (to_status, _now(), refund_id),
@@ -282,6 +395,8 @@ class PaymentRepo:
             if cur.rowcount == 0:
                 self._conn.rollback()
                 raise RefundClaimError(message="Refund must be claimed before closing.",
-                                      details={"id": refund_id})
+                                        details={"id": refund_id})
+            await write_audit(self._conn, actor=actor_id or "admin", action=f"refund.{to_status}",
+                              entity="refunds", entity_id=refund_id)
             self._conn.commit()
             return await self.get_refund(refund_id)

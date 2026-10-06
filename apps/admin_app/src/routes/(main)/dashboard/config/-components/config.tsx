@@ -5,15 +5,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
-import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
+import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { ConfigRow, Page } from "@/lib/admin-types";
 import { dateTime } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
+
+/** Per-key unit labels (the old "paise unless noted" header hid money-traps). */
+function unitFor(key: string): string {
+  if (key.endsWith("_paise")) return "paise";
+  if (key.endsWith("_enabled") || key.startsWith("access_code_")) return "flag (0/1)";
+  if (key.includes("ttl") || key.includes("minutes")) return "minutes";
+  return "text";
+}
 
 export function Config() {
   const { data } = useAdminQuery<Page<ConfigRow>>("/v1/admin/config");
   const rows = data?.data ?? [];
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const invalidate = useInvalidateAdmin();
 
   async function save(row: ConfigRow) {
     const value = drafts[row.key];
@@ -21,6 +30,7 @@ export function Config() {
     try {
       await adminPostServer({ data: { path: "/v1/admin/config", body: { key: row.key, value } } });
       toast.add({ title: "Config updated", description: `${row.key} → ${value} (audited)` });
+      invalidate("/v1/admin");
     } catch (err) {
       toast.add({ title: "Update failed", description: errorMessage(err), type: "error" });
     }
@@ -35,13 +45,14 @@ export function Config() {
       <CardContent className="px-0 pb-4">
         <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
           <TableHeader className="[&_tr]:border-t">
-            <TableRow>
-              <TableHead className="py-3">Key</TableHead>
-              <TableHead className="py-3">Value (paise unless noted)</TableHead>
-              <TableHead className="py-3">Effective</TableHead>
-              <TableHead className="py-3">Updated</TableHead>
-              <TableHead className="py-3 text-right">Save</TableHead>
-            </TableRow>
+              <TableRow>
+                <TableHead className="py-3">Key</TableHead>
+                <TableHead className="py-3">Value</TableHead>
+                <TableHead className="py-3">Unit</TableHead>
+                <TableHead className="py-3">Effective</TableHead>
+                <TableHead className="py-3">Updated</TableHead>
+                <TableHead className="py-3 text-right">Save</TableHead>
+              </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((r) => (
@@ -54,6 +65,7 @@ export function Config() {
                     onChange={(e) => setDrafts((d) => ({ ...d, [r.key]: e.target.value }))}
                   />
                 </TableCell>
+                <TableCell className="px-3 py-3 text-muted-foreground text-xs">{unitFor(r.key)}</TableCell>
                 <TableCell className="px-3 py-3 text-muted-foreground text-sm">{r.effective_from ?? "—"}</TableCell>
                 <TableCell className="px-3 py-3 text-muted-foreground text-sm">
                   {r.updated_at ? dateTime(r.updated_at) : "—"}

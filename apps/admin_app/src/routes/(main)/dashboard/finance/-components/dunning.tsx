@@ -82,7 +82,7 @@ export function Dunning() {
         <CardTitle>Dues follow-up</CardTitle>
         <CardDescription>
           {rows.length
-            ? `${rows.length} customers · ${rupees(total)} outstanding — remind on WhatsApp, write off only with a reason`
+            ? `${rows.length} customers · ${rupees(total)} outstanding — remind on WhatsApp, write off only with a reason (top 200 by dues)`
             : "No outstanding dues."}
         </CardDescription>
       </CardHeader>

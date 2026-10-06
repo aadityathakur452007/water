@@ -274,7 +274,10 @@ class AuthController extends ChangeNotifier {
         _fail(authStringsHi['staffNumber']!, AuthStatus.error);
       } else if (e.statusCode == 429) {
         _fail(authStringsHi['rateLimited']!, AuthStatus.error);
-      } else if (e.statusCode == 400 && e.message.isNotEmpty) {
+      } else if ((e.statusCode == 400 || e.statusCode == 403) &&
+          e.message.isNotEmpty) {
+        // 400 validation + 403 role/suspended detail ride the server
+        // message (generic, no oracle); anything else stays generic.
         _fail(e.message, AuthStatus.error);
       } else {
         _fail(authStringsHi['serverError']!, AuthStatus.error);
@@ -343,6 +346,22 @@ class AuthController extends ChangeNotifier {
         // Local wipe is authoritative — never strand a token on logout.
       }
     }
+    await _store.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('selected_address_id');
+    } catch (_) {
+      // Prefs wipe is best-effort — secure session already cleared.
+    }
+    _reset();
+    _status = AuthStatus.idle;
+    _notify();
+  }
+
+  /// Local-only wipe (no server call): the global 401/403 hook
+  /// (revoked/suspended/expired — must not call authed endpoints again,
+  /// that would loop). Mirrors the vendor controller (Phase 4 §4.3).
+  Future<void> forceLogout() async {
     await _store.clear();
     try {
       final prefs = await SharedPreferences.getInstance();

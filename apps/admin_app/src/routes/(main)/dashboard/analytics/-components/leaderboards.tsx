@@ -14,7 +14,9 @@ export function Leaderboards() {
   const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
   const { data: users } = useAdminQuery<Page<ApiUserRow>>("/v1/admin/users");
 
-  const vendors = [...(custody?.data ?? [])].sort((a, b) => b.on_duty - a.on_duty).slice(0, 5);
+  const vendors = [...(custody?.data ?? [])]
+    .sort((a, b) => Number(b.on_duty) - Number(a.on_duty) || b.in_hand - a.in_hand)
+    .slice(0, 5);
   const customers = (users?.data ?? []).filter((u) => u.role === "user").slice(0, 5);
 
   return (
@@ -25,7 +27,7 @@ export function Leaderboards() {
             <Award className="size-4" aria-hidden />
             Vendor load — today
           </CardTitle>
-          <CardDescription>On-duty stops and jars in hand (capacity balance, F2)</CardDescription>
+          <CardDescription>On-duty first, then jars in hand — top 5 (capacity balance, F2)</CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-2">
           <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
@@ -41,7 +43,7 @@ export function Leaderboards() {
                 vendors.map((v) => (
                   <TableRow key={v.vendor_id} className="border-border/60">
                     <TableCell className="px-3 py-3 font-medium text-sm">{v.name ?? v.vendor_id}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(v.on_duty)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm">{v.on_duty ? "On duty" : "Off"}</TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
                       {num(v.in_hand)}
                       {v.in_hand > 30 ? (

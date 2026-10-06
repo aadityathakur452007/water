@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
@@ -55,7 +56,18 @@ export function UserDetail() {
       </Card>
     );
   }
-  if (!data) return null;
+  if (!data) {
+    // Phase 6 S6.4: skeleton while loading — never a blank page.
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const u = data.user;
   const status = toStatus(u);

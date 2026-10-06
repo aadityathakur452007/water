@@ -20,12 +20,17 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { CustodyRow, OrderRow, Page, Reconciliation } from "@/lib/admin-types";
+import type { CustodyRow, OrderRow, Page, ReconResponse } from "@/lib/admin-types";
 import { num, rupees } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
 
 const FUNNEL: Array<{ state: string; label: string }> = [
   { state: "placed", label: "Placed (unassigned)" },
+  // Phase 6 S6.1: pack-pipeline states included — every server state has
+  // a column, so nothing hides between placed and assigned.
+  { state: "accepted", label: "Accepted" },
+  { state: "picked", label: "Picked" },
+  { state: "packed", label: "Packed" },
   { state: "assigned", label: "Assigned" },
   { state: "dispatched", label: "Dispatched" },
   { state: "delivered", label: "Delivered" },
@@ -36,8 +41,10 @@ const FUNNEL: Array<{ state: string; label: string }> = [
 /** FR-26 dispatch board — funnel, unassigned pool, route board, custody (F2). */
 export function Dispatch() {
   const navigate = useNavigate();
-  const { data: orders } = useAdminQuery<Page<OrderRow>>("/v1/admin/orders");
-  const { data: reco } = useAdminQuery<Page<Reconciliation>>("/v1/admin/reconciliation");
+  const { data: reco } = useAdminQuery<ReconResponse>("/v1/admin/reconciliation");
+  // Pool table reads placed-only (bounded) — the header counts below are
+  // full-book aggregates, never page-1 slices.
+  const { data: placedPage } = useAdminQuery<Page<OrderRow>>("/v1/admin/orders?state=placed&limit=8");
   const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
   const [generating, setGenerating] = React.useState(false);
   const invalidate = useInvalidateAdmin();
@@ -65,12 +72,21 @@ export function Dispatch() {
     }
   }
 
-  const rows = orders?.data ?? [];
+  // Phase 6 S6.1: funnel + pool read the full-book per-state aggregates
+  // (reco orders_by_state {state, c, t}) — page-1 rows under-reported
+  // past the first page with no scope note.
+  const byState = new Map(
+    (reco?.orders_by_state ?? []).map((r) => [
+      String(r.state),
+      { c: Number(r.c ?? 0), t: Number(r.t ?? 0) },
+    ]),
+  );
   const counts = Object.fromEntries(
-    FUNNEL.map(({ state }) => [state, rows.filter((o) => o.state === state).length]),
+    FUNNEL.map(({ state }) => [state, byState.get(state)?.c ?? 0]),
   ) as Record<string, number>;
-  const unassigned = rows.filter((o) => o.state === "placed");
-  const poolGmv = unassigned.reduce((a, o) => a + o.total, 0);
+  const unassignedCount = byState.get("placed")?.c ?? 0;
+  const poolGmv = byState.get("placed")?.t ?? 0;
+  const unassigned = placedPage?.data ?? [];
 
   async function generateRoutes() {
     setGenerating(true);
@@ -88,7 +104,7 @@ export function Dispatch() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Funnel strip */}
+      {/* Funnel strip — full-book counts from reconciliation aggregates. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {FUNNEL.map(({ state, label }) => (
           <button
@@ -111,7 +127,7 @@ export function Dispatch() {
               <PackageOpen className="size-4" aria-hidden />
               Unassigned pool
             </CardTitle>
-            <CardDescription>{`${unassigned.length} placed orders waiting · ${rupees(poolGmv)} in pool (FR-26)`}</CardDescription>
+            <CardDescription>{`${unassignedCount} placed orders waiting · ${rupees(poolGmv)} in pool (full book)`}</CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-2">
             <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
@@ -152,6 +168,11 @@ export function Dispatch() {
                 )}
               </TableBody>
             </Table>
+            {unassignedCount > unassigned.length ? (
+              <p className="px-4 py-2 text-muted-foreground text-xs">
+                {`First ${unassigned.length} of ${unassignedCount} — full list in Orders.`}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -169,7 +190,7 @@ export function Dispatch() {
               <div key={c.vendor_id} className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-sm">{c.name ?? c.vendor_id}</p>
-                  <p className="text-muted-foreground text-xs">{`on duty ${num(c.on_duty)}`}</p>
+                  <p className="text-muted-foreground text-xs">{c.on_duty ? "On duty" : "Off duty"}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge
@@ -230,18 +251,23 @@ export function Dispatch() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(reco?.data ?? []).length ? (
-                (reco?.data ?? []).map((r) => (
-                  <TableRow key={`${String(r.route)}-${String(r.date)}`} className="border-border/60">
-                    <TableCell className="px-3 py-3 font-medium text-sm">{String(r.route ?? "—")}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.stopped ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.delivered ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(Number(r.failed ?? 0))}</TableCell>
+              {(reco?.routes ?? []).length ? (
+                (reco?.routes ?? []).map((r) => (
+                  <TableRow key={r.route_id} className="border-border/60">
+                    <TableCell className="px-3 py-3 font-medium text-sm">
+                      {r.route_id}
+                      <span className="block font-normal text-muted-foreground text-xs">
+                        {r.vendor_name || r.vendor_id}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.stops)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.delivered)}</TableCell>
+                    <TableCell className="px-3 py-3 text-sm tabular-nums">{num(r.failed)}</TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
-                      {`${rupees(Number(r.cash_collected ?? 0))} + ${rupees(Number(r.upi_collected ?? 0))}`}
+                      {`${rupees(r.cash)} + ${rupees(r.upi)}`}
                     </TableCell>
                     <TableCell className="px-3 py-3 text-sm tabular-nums">
-                      {`${num(Number(r.jars_out ?? 0))} / ${num(Number(r.empty_returned ?? 0))}`}
+                      {`${num(r.jars_out)} / ${num(r.empties_expected)}`}
                     </TableCell>
                   </TableRow>
                 ))

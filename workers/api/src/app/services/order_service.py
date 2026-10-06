@@ -219,7 +219,9 @@ class OrderService:
             if day is not None:
                 from app.services.vendor_service import pod_otp
 
-                delivery_otp = pod_otp(order_id, day)
+                # Stored random code when the stop has one (015); legacy
+                # deterministic code for pre-migration rows. Owner-only leg.
+                delivery_otp = await self.orders.stop_pod_otp(order_id) or pod_otp(order_id, day)
         return {
             **order,
             "delivery_otp": delivery_otp,
@@ -297,7 +299,8 @@ class OrderService:
 
     # -- reschedule (pre-dispatch only) ------------------------------------
 
-    async def reschedule(self, user_id: str, order_id: str, window_start: str) -> dict:
+    async def reschedule(self, user_id: str, order_id: str, window_start: str,
+                     idempotency_key: str = "") -> dict:
         order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
@@ -306,9 +309,61 @@ class OrderService:
                 message="Reschedule is allowed only before dispatch. Call support to cancel instead.",
                 details={"from": order["state"], "to": order["state"]},
             )
-        return await self.orders.update_window(
-            order_id, window_start, self._window_end(window_start), {"id": user_id, "role": "user"}
-        )
+        key = (idempotency_key or "").strip()
+        scoped = f"POST /v1/orders/{order_id}/reschedule:{key}" if key else ""
+        phash = hashlib.sha256(str(window_start).encode()).hexdigest() if key else ""
+        if key:
+            # Retry-safe window moves: same key+window replays the stored row.
+            existing = await self._idem_get(user_id, scoped)
+            if existing is not None:
+                if existing.get("payload_hash") != phash:
+                    raise PayloadMismatchError(
+                        message="Idempotency-Key was already used with a different payload.",
+                        details={"order_id": order_id})
+                return json.loads(existing["result"])
+        out = await self.orders.update_window(
+            order_id, window_start, self._window_end(window_start), {"id": user_id, "role": "user"})
+        if key:
+            await self._idem_put(user_id, scoped, order_id, phash, out)
+        return out
+
+    async def set_instructions(self, user_id: str, order_id: str, note: str) -> dict:
+        """Owner delivery note: pre-dispatch states only, ≤500 chars."""
+        order = await self.orders.find_owned(order_id, user_id)
+        if order is None:
+            raise NotFoundError(message="Order not found.", details={"id": order_id})
+        if order["state"] not in RESCHEDULABLE:
+            raise ConflictError(
+                message="Instructions can only change before dispatch.",
+                details={"from": order["state"], "to": order["state"]},
+            )
+        text = str(note or "").strip()
+        if len(text) > 500:
+            raise ValidationError(message="Instructions must be at most 500 characters.", details={})
+        try:
+            cols = {r["name"] for r in (await self.orders._conn.execute(
+                "SELECT name FROM pragma_table_info('orders')")).fetchall()}
+        except Exception:
+            cols = set()
+        if "instructions" not in cols:
+            raise ValidationError(message="Instructions need migration 016 applied.", details={})
+        return await self.orders.update_instructions(
+            order_id, text, {"id": user_id, "role": "user"})
+
+    async def tracking(self, user_id: str, order_id: str) -> dict:
+        """Status-only tracking resource (no bill/ledger): state + tracker +
+        rider + window + delivery code + event timeline, owner-scoped."""
+        d = await self.detail(user_id, order_id)
+        return {
+            "order_id": d["id"],
+            "state": d["state"],
+            "tracker": d["tracker"],
+            "rider": d["rider"],
+            "window_start": d.get("window_start"),
+            "window_end": d.get("window_end"),
+            "delivery_otp": d["delivery_otp"],
+            "events": d["events"],
+        }
 
     # -- internals --------------------------------------------------------
 

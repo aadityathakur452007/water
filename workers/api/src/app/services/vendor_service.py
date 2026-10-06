@@ -7,8 +7,12 @@ earnings with flagged-hold note, complaint verify, quality door-check.
 Scope deviations (documented, ponytail-minimal):
 - Duty persists on vendor_profile.on_duty (F5, via ensure_profile column
   convergence — 007 vs 011 shape conflict resolved in code, no migration).
-- PoD OTP is ``pod_otp(order_id, route_date)`` — a server-known deterministic
-  code (v1 simplification). TODO: per-order random OTP stored at dispatch.
+- PoD OTP is a random 6-digit code minted per order stop at dispatch
+  (``stops.pod_otp``, 015) with a DB-backed attempt counter (lockout after 5
+  fails). Pre-015 rows (pod_otp NULL) fall back to the legacy deterministic
+  ``pod_otp(order_id, route_date)`` during the migration window. Wrong codes
+  read as not-found (no oracle); the code is disclosed to the order owner
+  only, never logged.
 - Quality door-checks write the quality_incidents table (F4, single truth).
 - Cash posts to money truth via POST .../cash → mark_paid_cash (F2);
   in_hand custody bumps with duty convergence (F5).
@@ -21,6 +25,7 @@ import hashlib
 import hmac
 import json
 import math
+import secrets
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
@@ -41,9 +46,9 @@ class StaleStopError(AppError):
     status_code = 409
 
 
-class PodOtpError(AppError):
-    code = "UNAUTH"
-    status_code = 401
+class PodLockedError(AppError):
+    code = "POD_LOCKED"
+    status_code = 429
 
 
 class PayloadMismatchError(AppError):
@@ -63,13 +68,95 @@ def _today() -> str:
     return _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 
 
-def pod_otp(order_id: str, route_date: str) -> str:
-    """v1-simplification PoD code: deterministic, server-known.
+def _decode_cursor(cursor: str) -> tuple[str, str] | None:
+    """Phase 8 §8.2: base64url created_at|id cursor (same shape as order
+    list_by_user). Bad cursor → 400, never a silent full re-read."""
+    if not cursor:
+        return None
+    import base64
 
-    TODO: per-order random OTP generated at dispatch and stored on the stop.
+    try:
+        ts, _, oid = base64.urlsafe_b64decode(cursor.encode()).decode().rpartition("|")
+        if not ts or not oid:
+            raise ValueError
+    except (ValueError, UnicodeDecodeError):
+        raise ValidationError(message="Bad cursor.", details={}) from None
+    return ts, oid
+
+
+def _encode_cursor(created_at: str, row_id: str) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(f"{created_at}|{row_id}".encode()).decode()
+
+
+def pod_otp(order_id: str, route_date: str) -> str:
+    """Legacy deterministic PoD code — fallback for pre-015 stops only.
+
+    New stops carry a random code minted at dispatch (``mint_pod_otp``);
+    this stays as the migration-window fallback for rows with pod_otp NULL.
     """
+
     digest = hashlib.sha256(f"{order_id}:{route_date}".encode()).hexdigest()
     return f"{int(digest, 16) % 1000000:06d}"
+
+
+POD_MAX_ATTEMPTS = 5  # wrong codes per stop before the stop locks (DB-backed)
+
+
+def mint_pod_otp() -> str:
+    """Random 6-digit PoD code, minted once per order stop at dispatch."""
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+async def _has_pod_cols(conn: Conn) -> bool:
+    """Whether this DB has the 015 columns (tolerates pre-migration DBs)."""
+    try:
+        rows = (await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()
+    except Exception:
+        return False
+    names = {r["name"] for r in rows}
+    return "pod_otp" in names and "pod_attempts" in names
+
+
+async def _stop_field_cols(conn: Conn) -> dict[str, bool]:
+    """016 presence flags (tolerates pre-migration DBs)."""
+    out = {"items_json": False, "instructions": False}
+    try:
+        out["items_json"] = "items_json" in {
+            r["name"] for r in (
+                await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
+        out["instructions"] = "instructions" in {
+            r["name"] for r in (
+                await conn.execute("SELECT name FROM pragma_table_info('orders')")).fetchall()}
+    except Exception:
+        pass
+    return out
+
+
+def _parse_items(raw: object) -> list:
+    """Order/stop SKU snapshot as a list (NULL/garbage → [])."""
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
+
+
+async def _stop_pod_code(conn: Conn, stop_id: str) -> str | None:
+    """Stored PoD code for one stop, or None (pre-015 / NULL / missing)."""
+    if not await _has_pod_cols(conn):
+        return None
+    try:
+        row = (await conn.execute(
+            "SELECT pod_otp FROM stops WHERE id = ?", (stop_id,))).fetchone()
+    except Exception:
+        return None
+    if row is None or not row["pod_otp"]:
+        return None
+    return str(row["pod_otp"])
 
 
 def _haversine_m(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -119,7 +206,25 @@ class VendorService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return {"vendor_id": vendor_id, "duty_on": bool(on), "since": since}
+        repooled = 0
+        if not on:
+            # Duty-off keeps the promise on the confirm copy ("baki stops ruk
+            # jayenge"): pending stops return to the zone pool in the same
+            # flow, audited with the count. Separate txn — auto_repool owns
+            # its lock (WRITE_LOCK is not reentrant).
+            from app.services.dispatch_service import auto_repool, write_audit  # noqa: PLC0415 (lazy, lock-safe)
+
+            repooled = int((await auto_repool(self._conn, vendor_id,
+                                              {"id": vendor_id, "role": "vendor"}))["repooled"])
+            with WRITE_LOCK:
+                try:
+                    await write_audit(self._conn, actor=vendor_id, action="vendor.duty_off",
+                                      entity="vendors", entity_id=vendor_id)
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
+        return {"vendor_id": vendor_id, "duty_on": bool(on), "since": since, "repooled": repooled}
 
     async def is_on_duty(self, vendor_id: str) -> bool:
         from app.services.dispatch_service import ensure_profile
@@ -137,13 +242,20 @@ class VendorService:
         )).fetchone()
         if route is None:
             return {"route": None, "stops": [], "loading": {"take_fulls": 0, "expect_empties": 0}, "skip": []}
+        extra = await _stop_field_cols(self._conn)
+        ij = ", s.items_json" if extra["items_json"] else ""
+        ins = ", o.instructions" if extra["instructions"] else ""
         rows = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
             " o.payment_mode, o.payment_status, o.total, o.deposit_due, o.state AS order_state,"
-            " a.label AS address_label, a.formatted AS address_text, a.pincode"
+            " o.window_start, o.items AS order_items,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode,"
+            " u.name AS customer_name, u.phone AS customer_phone"
+            f"{ij}{ins}"
             " FROM stops s LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN addresses a ON a.id = o.address_id"
+            " LEFT JOIN users u ON u.id = s.customer_id"
             " WHERE s.route_id = ? ORDER BY s.seq",
             (route["id"],),
         )).fetchall()
@@ -151,6 +263,7 @@ class VendorService:
         # F3: hold-block surfacing (same >3 rule as order create).
         # Lights the vendor's existing hold UI; bounded reads (route ≤ caps).
         from app.services.order_service import HOLD_BLOCK_LIMIT
+        from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
 
         for s in stops:
             held = 0
@@ -159,6 +272,13 @@ class VendorService:
             s["hold_blocked"] = held > HOLD_BLOCK_LIMIT
             if s["hold_blocked"]:
                 s["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+            # Phase 5 §5.2: paid-to-date per stop (return/pickup stops have no
+            # order → 0). UI renders Collect total−paid_sum; never the full
+            # total on partial/link_sent rows.
+            paid = 0
+            if s.get("order_id"):
+                paid = int(await PaymentRepo(self._conn).paid_sum_for_order(s["order_id"]))
+            s["paid_sum"] = paid
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
             "route": dict(route),
@@ -281,24 +401,23 @@ class VendorService:
         """Post doorstep cash to money truth (F2: closes the COD loop).
 
         Vendor-scoped via _owned_stop (cross-vendor → 404, zero writes).
-        Delegates to PaymentRepo.mark_paid_cash: payment row + paid_cash /
-        partial_dues + dues reconcile, all in its own txn. Already-paid
-        replays propagate as 409 (app treats as "pehle se jama").
+        Phase 8 §8.3: ONE lock + ONE commit covers the payment writes AND
+        the in_hand bump (was two txns: mark_paid_cash's own + the bump's).
+        On sqlite that is one atomic txn; on D1 (per-statement commits) the
+        statements are adjacent under the single-writer so no other write
+        interleaves, and the deterministic (stop, amount) dedupe makes any
+        retry or replay safe — never a double-post.
 
         Dedupe is deterministic on (stop, amount): same-stop same-amount
         retries replay the stored outcome; a different amount (partial
         top-up) is a new scope and posts the remainder. No client key
         needed — the dedupe dimension is fully server-known.
-        in_hand custody bump lands with F5 (column shape reconciled there).
         """
         if amount is None or int(amount) <= 0:
             raise ValidationError(message="Cash amount must be > 0.", details={"stop_id": stop_id})
         core = {"stop_id": stop_id, "amount": int(amount)}
         scoped = f"{CASH_ENDPOINT}:{stop_id}:{int(amount)}"
         phash = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
-        # No outer WRITE_LOCK: mark_paid_cash takes it itself (non-reentrant).
-        # Correctness rests on its already-paid guard; the idem row is replay
-        # fast-path only (concurrent duplicate → honest 409, never double-post).
         stop = await self._owned_stop(vendor_id, stop_id)
         if not stop["order_id"]:
             raise ValidationError(message="Stop has no order to post cash against.",
@@ -312,16 +431,16 @@ class VendorService:
                 )
             return {**json.loads(stored["result"]), "replay": True}
         from app.repositories.payment_repo import PaymentRepo
-
-        out = await PaymentRepo(self._conn).mark_paid_cash(
-            stop["order_id"], int(amount), vendor_id)
-        # F5: custody truth — agency cash in the vendor's pocket (own txn;
-        # day-close reconciles from payments if this ever lags).
         from app.services.dispatch_service import ensure_profile, write_audit
 
-        await ensure_profile(self._conn, vendor_id)
         with WRITE_LOCK:
             try:
+                # Reads above are pre-lock (fail-cheap, zero writes); the
+                # already-paid guard inside re-checks under the lock so a
+                # concurrent duplicate still 409s instead of double-posting.
+                out = await PaymentRepo(self._conn).mark_paid_cash_locked(
+                    stop["order_id"], int(amount), vendor_id)
+                await ensure_profile(self._conn, vendor_id)
                 await self._conn.execute(
                     "UPDATE vendor_profile SET in_hand = in_hand + ? WHERE user_id = ?",
                     (int(amount), vendor_id),
@@ -338,16 +457,55 @@ class VendorService:
         return result
 
     async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
-        """OTP-gated PoD. Wrong OTP → 401. GPS drift → flagged, never blocked."""
+        """OTP-gated PoD. Wrong OTP reads as not-found (no oracle for stop
+        existence); 5 wrong codes lock the stop (429 POD_LOCKED, support
+        re-issues). Replays of a completed close return the current outcome
+        with no write and no attempt burn (offline-outbox safety). GPS drift
+        → flagged, never blocked."""
         from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
 
         stop = await self._owned_stop(vendor_id, stop_id)
         route = (await self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],))).fetchone()
         day = route["date"] if route else _today()
+        try:
+            closed = bool((json.loads(stop["triple"]) if stop["triple"] else {}).get("pod"))
+        except (ValueError, TypeError):
+            closed = False
+        if stop["order_id"] and stop["status"] == "done" and closed:
+            # Completed-close replay (offline outbox flush after success):
+            # same code → current outcome, no write, no attempt burn.
+            # A tripled-but-unclosed stop falls through to the normal close.
+            stored = await _stop_pod_code(self._conn, stop_id)
+            expected = stored or pod_otp(stop["order_id"], day)
+            if hmac.compare_digest(str(payload.get("delivery_otp", "")), expected):
+                return {**self._stop_out(stop), "replay": True}
+            raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         if stop["order_id"]:
-            expected = pod_otp(stop["order_id"], day)
-            if not hmac.compare_digest(str(payload.get("delivery_otp", "")), expected):
-                raise PodOtpError(message="Invalid delivery code.", details={"stop_id": stop_id})
+            provided = str(payload.get("delivery_otp", ""))
+            if await _has_pod_cols(self._conn):
+                row = (await self._conn.execute(
+                    "SELECT pod_otp, pod_attempts FROM stops WHERE id = ?", (stop_id,))).fetchone()
+                attempts = int(row["pod_attempts"] or 0) if row is not None else 0
+                if attempts >= POD_MAX_ATTEMPTS:
+                    raise PodLockedError(
+                        message="Too many wrong codes — ask support to re-issue the delivery code.",
+                        details={"stop_id": stop_id})
+                expected = str(row["pod_otp"]) if row is not None and row["pod_otp"] else None
+                expected = expected or pod_otp(stop["order_id"], day)  # NULL = legacy in-flight row
+                if not hmac.compare_digest(provided, expected):
+                    with WRITE_LOCK:
+                        try:
+                            await self._conn.execute(
+                                "UPDATE stops SET pod_attempts = pod_attempts + 1 WHERE id = ?",
+                                (stop_id,),
+                            )
+                            self._conn.commit()
+                        except Exception:
+                            self._conn.rollback()
+                            raise
+                    raise NotFoundError(message="Stop not found.", details={"id": stop_id})
+            elif not hmac.compare_digest(provided, pod_otp(stop["order_id"], day)):
+                raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         gps: dict = {}
         if payload.get("lat") is not None and payload.get("lng") is not None:
             pin = await self._stop_pin(stop)
@@ -390,12 +548,19 @@ class VendorService:
 
     async def sync_batch(self, vendor_id: str, items: list[dict]) -> dict:
         """Offline queue flush. Per-stop txns (server-wins ledger); stale entries
-        are rejected individually, never fail the batch. Replays are no-ops."""
+        are rejected individually, never fail the batch. Replays are no-ops.
+        Phase 8 §8.2: at most 200 items per call (router-enforced); clients
+        page the outbox at 100."""
         applied, rejected, replayed = [], [], []
         for it in items:
             sid = it.get("stop_id", "")
             try:
-                out = await self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
+                if it.get("pod") is True:
+                    # Offline PoD close: same gate as live (OTP + lockout);
+                    # replays of a completed close return the stored outcome.
+                    out = await self.pod_complete(vendor_id, sid, it)
+                else:
+                    out = await self.triple_commit(vendor_id, sid, it, str(it.get("idempotency_key", "")))
                 # F2: queued cash rides the triple; post after jars applied.
                 # Already-paid 409 = money truth already recorded → absorbed.
                 cash = int(it.get("cash_amount", 0) or 0)
@@ -444,15 +609,26 @@ class VendorService:
 
     # -- payouts (027 RBAC: READ-ONLY own payouts + custody) --------------------
 
-    async def payouts_for_vendor(self, vendor_id: str) -> dict:
+    async def payouts_for_vendor(self, vendor_id: str, limit: int = 200,
+                               cursor: str | None = None) -> dict:
         """Own payouts + in_hand custody. Owner-scoped by construction
-        (``payouts WHERE vendor_id=?``); approve stays admin-only."""
+        (``payouts WHERE vendor_id=?``); approve stays admin-only.
+        Phase 8 §8.2: 200-cap + created_at|id cursor (same shape as orders)."""
+        limit = max(1, min(int(limit), 200))
+        args: list[object] = [vendor_id]
+        cursor_sql = ""
+        decoded = _decode_cursor(cursor or "")
+        if decoded is not None:
+            cursor_sql = " AND (created_at < ? OR (created_at = ? AND id < ?))"
+            args += [decoded[0], decoded[0], decoded[1]]
         rows = (await self._conn.execute(
             "SELECT id, period, stops_done, gross_fee, deductions, net, status,"
-            " approved_by, created_at FROM payouts WHERE vendor_id = ?"
-            " ORDER BY created_at DESC LIMIT 200",
-            (vendor_id,),
+            f" approved_by, created_at FROM payouts WHERE vendor_id = ?{cursor_sql}"  # noqa: S608
+            " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (*args, limit + 1),
         )).fetchall()
+        page = rows[:limit]
+        next_cursor = _encode_cursor(page[-1]["created_at"], page[-1]["id"]) if len(rows) > limit else None
         try:
             prof = (await self._conn.execute(
                 "SELECT in_hand FROM vendor_profile WHERE user_id = ?", (vendor_id,))).fetchone()
@@ -460,23 +636,40 @@ class VendorService:
         except Exception:
             in_hand = 0  # pre-007 DBs: honest 0, never 500
         return {
-            "payouts": [dict(r) for r in rows],
+            "payouts": [dict(r) for r in page],
             "in_hand": in_hand,
+            "next_cursor": next_cursor,
             "note": "Payouts are approved by the agency; this view is read-only.",
         }
 
     # -- profile + slots (011_port: server vendor profile, Slice 1) --------------
 
     async def profile_get(self, vendor_id: str) -> dict:
+        # Phase 5 §5.3: duty truth rides the profile read. Fully shape-
+        # tolerant like _stop_field_cols — any applied migration subset
+        # (pre-007 no table, 007-only duty shape, 011 port shape) reads
+        # without writes (unlike ensure_profile, a read stays a read).
+        blank = {"user_id": vendor_id, "name": "", "phone": "",
+                 "address": "", "hours": "", "updated_at": None,
+                 "on_duty": False}
+        cols = {r["name"] for r in (await self._conn.execute(
+            "SELECT name FROM pragma_table_info('vendor_profile')")).fetchall()}
+        if "user_id" not in cols:
+            return dict(blank)
+        want = ("user_id", "name", "phone", "address", "hours",
+                "updated_at", "on_duty")
+        sel = ", ".join(k for k in want if k in cols)
         row = (await self._conn.execute(
-            "SELECT user_id, name, phone, address, hours, updated_at"
-            " FROM vendor_profile WHERE user_id = ?",
+            f"SELECT {sel} FROM vendor_profile WHERE user_id = ?",  # noqa: S608 (allowlisted cols)
             (vendor_id,),
         )).fetchone()
         if row is None:
-            return {"user_id": vendor_id, "name": "", "phone": "",
-                    "address": "", "hours": "", "updated_at": None}
-        return dict(row)
+            return dict(blank)
+        out = dict(blank)
+        out.update({k: v for k, v in dict(row).items() if v is not None})
+        # Phase 5 §5.3: duty truth for the vendor switch (NULL → off).
+        out["on_duty"] = bool(out.get("on_duty"))
+        return out
 
     async def profile_save(self, vendor_id: str, patch: dict) -> dict:
         allow = ("name", "phone", "address", "hours")
@@ -569,20 +762,59 @@ class VendorService:
 
     # -- vendor complaint queue (011_port: ticket thread reads, verify writes) ---
 
-    async def vendor_complaints(self, vendor_id: str) -> dict:
+    async def vendor_complaints(self, vendor_id: str, limit: int = 100,
+                                cursor: str | None = None) -> dict:
+        """Phase 8 §8.2: 200-cap + created_at|id cursor (was fixed LIMIT 100)."""
+        limit = max(1, min(int(limit), 200))
+        args: list[object] = [vendor_id]
+        cursor_sql = ""
+        decoded = _decode_cursor(cursor or "")
+        if decoded is not None:
+            cursor_sql = " AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))"
+            args += [decoded[0], decoded[0], decoded[1]]
         rows = (await self._conn.execute(
             "SELECT c.id, c.order_id, c.reason_code, c.text, c.status,"
             " c.vendor_agree, c.created_at FROM complaints c"
             " JOIN stops s ON s.order_id = c.order_id"
-            " JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?"
-            " ORDER BY c.created_at DESC, c.id DESC LIMIT 100",
-            (vendor_id,),
+            f" JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?{cursor_sql}"  # noqa: S608
+            " ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
+            (*args, limit + 1),
         )).fetchall()
-        return {"data": [dict(r) for r in rows]}
+        page = rows[:limit]
+        next_cursor = _encode_cursor(page[-1]["created_at"], page[-1]["id"]) if len(rows) > limit else None
+        return {"data": [dict(r) for r in page], "next_cursor": next_cursor}
+
+    async def vendor_quality(self, vendor_id: str, limit: int = 100,
+                             cursor: str | None = None) -> dict:
+        """Quality incidents on this vendor's route orders (replaces the
+        manual-id crutch): owned by the same stop join as complaints.
+        Phase 8 §8.2: 200-cap + created_at|id cursor (was fixed LIMIT 100)."""
+        limit = max(1, min(int(limit), 200))
+        args: list[object] = [vendor_id]
+        cursor_sql = ""
+        decoded = _decode_cursor(cursor or "")
+        if decoded is not None:
+            cursor_sql = " AND (q.created_at < ? OR (q.created_at = ? AND q.id < ?))"
+            args += [decoded[0], decoded[0], decoded[1]]
+        rows = (await self._conn.execute(
+            "SELECT q.id, q.order_id, q.reason_code, q.status,"
+            " q.vendor_agree, q.created_at FROM quality_incidents q"
+            " JOIN stops s ON s.order_id = q.order_id"
+            f" JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?{cursor_sql}"  # noqa: S608
+            " ORDER BY q.created_at DESC, q.id DESC LIMIT ?",
+            (*args, limit + 1),
+        )).fetchall()
+        page = rows[:limit]
+        next_cursor = _encode_cursor(page[-1]["created_at"], page[-1]["id"]) if len(rows) > limit else None
+        return {"data": [dict(r) for r in page], "next_cursor": next_cursor}
 
     # -- complaint + quality verification (§14.3) ---------------------------------------
 
     async def verify_complaint(self, vendor_id: str, complaint_id: str, agree: bool, note: str = "") -> dict:
+        """Vendor countersigns a complaint it may be party to — but never
+        closes it: agree → ``vendor_confirmed`` (mandatory ≥10-char note) and
+        only an admin release writes ``resolved``; disagree → ``under_review``.
+        """
         from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
 
         with WRITE_LOCK:
@@ -595,13 +827,20 @@ class VendorService:
             )).fetchone()
             if row is None:
                 raise NotFoundError(message="Complaint not found.", details={"id": complaint_id})
-            # agree → auto redelivery/refund path; disagree → frozen, 48h admin triage.
-            status = "resolved" if agree else "under_review"
+            # Ownership first (no oracle), then the countersign rule: agree
+            # needs a real explanation — the vendor never writes `resolved`.
+            if agree and len(note.strip()) < 10:
+                raise ValidationError(
+                    message="Vendor note must explain the confirmation (at least 10 characters).",
+                    details={"id": complaint_id})
+            # agree → vendor_confirmed (admin releases to resolved);
+            # disagree → frozen, 48h admin triage.
+            status = "vendor_confirmed" if agree else "under_review"
             try:
                 await self._conn.execute(
                     "UPDATE complaints SET vendor_agree = ?, vendor_note = ?, status = ?,"
                     " resolved_at = ? WHERE id = ?",
-                    (1 if agree else 0, note[:500], status, _now() if agree else None, complaint_id),
+                    (1 if agree else 0, note[:500], status, None, complaint_id),
                 )
                 await write_audit(self._conn, actor=vendor_id, action="vendor.complaint_verify",
                                   entity="complaints", entity_id=complaint_id)
@@ -652,14 +891,21 @@ class VendorService:
     # -- internals ----------------------------------------------------------------------
 
     async def _owned_stop(self, vendor_id: str, stop_id: str) -> dict:
+        extra = await _stop_field_cols(self._conn)
+        ij = ", s.items_json" if extra["items_json"] else ""
+        ins = ", o.instructions" if extra["instructions"] else ""
         row = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
             " o.payment_mode, o.payment_status, o.total, o.deposit_due, o.state AS order_state,"
-            " a.label AS address_label, a.formatted AS address_text, a.pincode"
+            " o.window_start, o.items AS order_items,"
+            " a.label AS address_label, a.formatted AS address_text, a.pincode,"
+            " u.name AS customer_name, u.phone AS customer_phone"
+            f"{ij}{ins}"
             " FROM stops s JOIN routes r ON r.id = s.route_id"
             " LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN addresses a ON a.id = o.address_id"
+            " LEFT JOIN users u ON u.id = s.customer_id"
             " WHERE s.id = ? AND r.vendor_id = ?",
             (stop_id, vendor_id),
         )).fetchone()
@@ -675,6 +921,13 @@ class VendorService:
         stop["hold_blocked"] = held > HOLD_BLOCK_LIMIT
         if stop["hold_blocked"]:
             stop["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+        # Phase 5 §5.2: same paid-to-date rule as the route list (single stop).
+        from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
+
+        paid = 0
+        if stop.get("order_id"):
+            paid = int(await PaymentRepo(self._conn).paid_sum_for_order(stop["order_id"]))
+        stop["paid_sum"] = paid
         return stop
 
     async def _stop_pin(self, stop: dict) -> tuple[float, float] | None:
@@ -693,7 +946,14 @@ class VendorService:
             triple = json.loads(stop["triple"]) if stop.get("triple") else None
         except (ValueError, TypeError):
             triple = None
-        return {**stop, "triple": triple}
+        out = {**stop, "triple": triple}
+        # §3.2: SKU snapshot (dispatch promise) with the frozen order items as
+        # fallback; contact + instructions, honest empties on every shape.
+        out["items"] = _parse_items(out.pop("items_json", None)) or _parse_items(out.pop("order_items", None))
+        out["customer_name"] = stop.get("customer_name") or ""
+        out["customer_phone"] = stop.get("customer_phone") or ""
+        out["instructions"] = stop.get("instructions") or ""
+        return out
 
     async def _idem_get(self, vendor_id: str, scoped: str) -> dict | None:
         row = (await self._conn.execute(
