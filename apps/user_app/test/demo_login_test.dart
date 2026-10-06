@@ -18,6 +18,7 @@ class _FakeAuthApi implements AuthApi {
   @override
   Future<AuthSession> register(
           {required String name,
+          required String email,
           required String phone,
           required String deviceId}) async =>
       _session();

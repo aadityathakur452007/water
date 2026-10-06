@@ -1,6 +1,6 @@
-// User auth seams — name+number register (028). No OTP SDK anywhere:
-// name + number → POST /v1/auth/user/register. Demo door (server-gated)
-// stays as the QA fallback.
+// User auth seams — name+email+phone register. No OTP SDK anywhere:
+// name + email + number → POST /v1/auth/user/register. Demo door
+// (server-gated) stays as the QA fallback.
 
 import '../features/auth/auth_controller.dart';
 import 'api_client.dart';
@@ -29,6 +29,7 @@ class ApiBackedAuthApi implements AuthApi {
   @override
   Future<AuthSession> register({
     required String name,
+    required String email,
     required String phone,
     required String deviceId,
   }) async {
@@ -37,6 +38,7 @@ class ApiBackedAuthApi implements AuthApi {
       '/auth/user/register',
       body: {
         'name': name,
+        'email': email,
         'phone': phone,
         'device': {'id': deviceId},
       },

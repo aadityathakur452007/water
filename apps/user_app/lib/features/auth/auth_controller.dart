@@ -1,8 +1,10 @@
-// F2 — Auth state for the Shodasha user app (028: name+number register).
+// F2 — Auth state for the Shodasha user app (name+email+phone register).
 //
-// Backend contract: POST /v1/auth/user/register {name, phone, device:{id}}
-// → 200 {access_token, refresh_token, role:"user", user_id, verified:false}
-// / 400 (bad name/phone/device) / 422 ROLE_RESERVED (staff number) / 429.
+// Backend contract: POST /v1/auth/user/register {name, email, phone,
+// device:{id}} → 200 {access_token, refresh_token, role:"user", user_id,
+// verified:false} / 400 (bad name/email/phone/device) / 422 ROLE_RESERVED
+// (staff number) / 429. No OTP anywhere — phone is the identity, email a
+// required contact field.
 // Doorstep-verified: `verified` flips on first PoD in a later slice; until
 // then display + future gating only.
 //
@@ -26,11 +28,14 @@ const Map<String, String> authStringsHi = {
   'appName': 'Shodasha',
   'appTagline': 'Shodasha Mineral Water • RO+UV, lab-tested',
   'trustLine': 'RO+UV • Lab report • Refill Rs 28 / Jar Rs 30',
-  'registerTitle': 'Naam aur mobile number likhein',
+  'registerTitle': 'Naam, email aur mobile number likhein',
   'registerSubtitle': 'Naya account apne-aap ban jayega • OTP nahi chahiye',
   'nameLabel': 'Naam',
   'nameHint': 'Aapka naam',
   'nameError': 'Sahi naam likhein (1–100 akshar)',
+  'emailLabel': 'Email',
+  'emailHint': 'aap@example.com',
+  'emailError': 'Sahi email likhein (jaise aap@example.com)',
   'phoneLabel': 'Mobile number',
   'phoneHint': '93021 90067',
   'phoneHelper': '10 ank, 6–9 se shuru ho',
@@ -76,6 +81,14 @@ bool isValidIndianPhone(String raw) => normalizeIndianPhone(raw) != null;
 bool isValidUserName(String raw) {
   final name = raw.trim();
   return name.isNotEmpty && name.length <= 100;
+}
+
+/// True when [raw] looks like an email address (backend: ≤254 chars,
+/// `local@domain.tld` — format check only, never verified).
+bool isValidUserEmail(String raw) {
+  final email = raw.trim();
+  if (email.isEmpty || email.length > 254) return false;
+  return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
 }
 
 /// `9876543210` → `+91 ••••• 43210` (never show full digits on screen).
@@ -165,10 +178,11 @@ class InMemorySessionStore implements SessionStore {
 
 /// Backend seam: Workers API user-auth surface (028).
 abstract class AuthApi {
-  /// POST /auth/user/register `{name, phone, device:{id}}` → session
+  /// POST /auth/user/register `{name, email, phone, device:{id}}` → session
   /// (200; 400 validation; 422 ROLE_RESERVED staff number; 429 rate-limit).
   Future<AuthSession> register({
     required String name,
+    required String email,
     required String phone,
     required String deviceId,
   });
@@ -229,12 +243,21 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
-  /// Name+number register from [NameNumberScreen] (raw user input,
+  /// Name+email+phone register from [NameNumberScreen] (raw user input,
   /// normalized here). Returns true on success.
-  Future<bool> registerNameNumber(String rawName, String rawPhone) async {
+  Future<bool> registerNameNumber(
+    String rawName,
+    String rawEmail,
+    String rawPhone,
+  ) async {
     final name = rawName.trim();
     if (!isValidUserName(rawName)) {
       _fail(authStringsHi['nameError']!, AuthStatus.idle);
+      return false;
+    }
+    final email = rawEmail.trim();
+    if (!isValidUserEmail(rawEmail)) {
+      _fail(authStringsHi['emailError']!, AuthStatus.idle);
       return false;
     }
     final digits = normalizeIndianPhone(rawPhone);
@@ -248,6 +271,7 @@ class AuthController extends ChangeNotifier {
     try {
       final session = await _api.register(
         name: name,
+        email: email,
         phone: '+91$digits',
         deviceId: deviceId,
       );

@@ -17,6 +17,7 @@ class _FakeRegisterApi implements AuthApi {
   @override
   Future<AuthSession> register({
     required String name,
+    required String email,
     required String phone,
     required String deviceId,
   }) async => throw UnimplementedError();
@@ -84,7 +85,8 @@ void main() {
     expect(find.text('Shodasha'), findsOneWidget);
     expect(find.text('UPI + COD'), findsOneWidget);
     expect(find.text('WhatsApp par madad'), findsOneWidget);
-    expect(find.text('Naam + Mobile number'), findsOneWidget);
+    expect(find.text('Naam + Email + Mobile number'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
     // Flush the hero entrance clock (flutter_animate delay timers) before
     // teardown — same pump pattern as the address test above.
     await tester.pump(const Duration(milliseconds: 500));

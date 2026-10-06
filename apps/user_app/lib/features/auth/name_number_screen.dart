@@ -1,4 +1,4 @@
-// F2 (028) — Name+number entry screen: naam + mobile → registerNameNumber.
+// F2 — Name+email+number entry screen: naam + email + mobile → registerNameNumber.
 //
 // No OTP, no SMS round-trip. Guest browse keeps prices visible WITHOUT
 // login (user-flows flow 1); demo sheet stays as the server-gated QA
@@ -44,8 +44,10 @@ class NameNumberScreen extends StatefulWidget {
 
 class _NameNumberScreenState extends State<NameNumberScreen> {
   final _name = TextEditingController();
+  final _email = TextEditingController();
   final _phone = TextEditingController();
   final _nameFocus = FocusNode();
+  final _emailFocus = FocusNode();
   final _phoneFocus = FocusNode();
   bool _touched = false; // errors show only after submit or focus-loss
 
@@ -53,6 +55,7 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
   void initState() {
     super.initState();
     _name.addListener(_onChanged);
+    _email.addListener(_onChanged);
     _phone.addListener(_onChanged);
     _phoneFocus.addListener(_onFocusChanged);
   }
@@ -73,11 +76,14 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
   }
 
   bool get _validName => isValidUserName(_name.text);
+  bool get _validEmail => isValidUserEmail(_email.text);
   bool get _validPhone => isValidIndianPhone(_phone.text);
-  bool get _valid => _validName && _validPhone;
+  bool get _valid => _validName && _validEmail && _validPhone;
 
   String? get _nameError =>
       (_touched && !_validName) ? authStringsHi['nameError'] : null;
+  String? get _emailError =>
+      (_touched && !_validEmail) ? authStringsHi['emailError'] : null;
   String? get _phoneError =>
       (_touched && !_validPhone) ? authStringsHi['phoneError'] : null;
 
@@ -98,20 +104,25 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
       // a11y-6: focus lands on the first invalid field.
       if (!_validName) {
         _nameFocus.requestFocus();
+      } else if (!_validEmail) {
+        _emailFocus.requestFocus();
       } else {
         _phoneFocus.requestFocus();
       }
       return;
     }
     FocusScope.of(context).unfocus();
-    await widget.controller.registerNameNumber(_name.text, _phone.text);
+    await widget.controller
+        .registerNameNumber(_name.text, _email.text, _phone.text);
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _email.dispose();
     _phone.dispose();
     _nameFocus.dispose();
+    _emailFocus.dispose();
     _phoneFocus.dispose();
     super.dispose();
   }
@@ -200,7 +211,7 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'Naam + Mobile number',
+                'Naam + Email + Mobile number',
                 style: TextStyle(fontSize: 12, color: AuthTokens.muted),
               ),
               const SizedBox(height: 6),
@@ -244,6 +255,33 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                     borderSide: const BorderSide(color: AuthTokens.blue),
                   ),
                   errorText: _nameError,
+                  errorStyle: TextStyle(color: errorColor, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _email,
+                focusNode: _emailFocus,
+                keyboardType: TextInputType.emailAddress,
+                style: const TextStyle(fontSize: 16, color: AuthTokens.text),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => _emailFocus.nextFocus(),
+                decoration: InputDecoration(
+                  labelText: authStringsHi['emailLabel'],
+                  hintText: authStringsHi['emailHint'],
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 14,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AuthTokens.radius),
+                    borderSide: const BorderSide(color: AuthTokens.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AuthTokens.radius),
+                    borderSide: const BorderSide(color: AuthTokens.blue),
+                  ),
+                  errorText: _emailError,
                   errorStyle: TextStyle(color: errorColor, fontSize: 13),
                 ),
               ),

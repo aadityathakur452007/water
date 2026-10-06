@@ -26,11 +26,17 @@ class _FakeApi implements AuthApi {
   @override
   Future<AuthSession> register({
     required String name,
+    required String email,
     required String phone,
     required String deviceId,
   }) async {
     registerCalls += 1;
-    lastRegisterArgs = {'name': name, 'phone': phone, 'deviceId': deviceId};
+    lastRegisterArgs = {
+      'name': name,
+      'email': email,
+      'phone': phone,
+      'deviceId': deviceId,
+    };
     final status = throwStatus;
     if (status != null) {
       throw ApiException(
@@ -123,17 +129,49 @@ void main() {
     });
   });
 
+  group('isValidUserEmail', () {
+    test('accepts normal addresses', () {
+      expect(isValidUserEmail('aap@example.com'), isTrue);
+      expect(isValidUserEmail('  AAP@Example.IN  '), isTrue);
+      expect(isValidUserEmail('a.b+tag@sub.domain.co'), isTrue);
+    });
+
+    test('rejects blank and malformed', () {
+      for (final bad in [
+        '',
+        '   ',
+        'nope',
+        'a@b',
+        'a@b.',
+        '@x.in',
+        'a b@c.in',
+        'a' * 250 + '@x.in', // over 254 chars
+      ]) {
+        expect(isValidUserEmail(bad), isFalse, reason: bad);
+      }
+    });
+  });
+
   group('AuthController.registerNameNumber', () {
-    test('valid name+number → authenticated + session persisted', () async {
+    test('valid name+email+number → authenticated + session persisted',
+        () async {
       final api = _FakeApi();
       final c = _controller(api: api);
-      expect(await c.registerNameNumber('Naya User', '98765 43210'), isTrue);
+      expect(
+        await c.registerNameNumber(
+          'Naya User',
+          'naya@example.in',
+          '98765 43210',
+        ),
+        isTrue,
+      );
       expect(c.status, AuthStatus.authenticated);
       expect(c.isAuthenticated, isTrue);
       expect(c.session?.role, 'user');
       expect(c.session?.verified, isFalse);
       expect(api.lastRegisterArgs, {
         'name': 'Naya User',
+        'email': 'naya@example.in',
         'phone': '+919876543210',
         'deviceId': 'test-device',
       });
@@ -143,7 +181,10 @@ void main() {
     test('bad phone fails without calling api', () async {
       final api = _FakeApi();
       final c = _controller(api: api);
-      expect(await c.registerNameNumber('Naya User', '12345'), isFalse);
+      expect(
+        await c.registerNameNumber('Naya User', 'naya@example.in', '12345'),
+        isFalse,
+      );
       expect(api.registerCalls, 0);
       expect(c.errorMessage, authStringsHi['phoneError']);
       expect(c.status, AuthStatus.idle);
@@ -153,16 +194,39 @@ void main() {
     test('blank name fails without calling api', () async {
       final api = _FakeApi();
       final c = _controller(api: api);
-      expect(await c.registerNameNumber('   ', '9876543210'), isFalse);
+      expect(
+        await c.registerNameNumber('   ', 'naya@example.in', '9876543210'),
+        isFalse,
+      );
       expect(api.registerCalls, 0);
       expect(c.errorMessage, authStringsHi['nameError']);
       expect(c.status, AuthStatus.idle);
       c.dispose();
     });
 
+    test('bad email fails without calling api', () async {
+      final api = _FakeApi();
+      final c = _controller(api: api);
+      expect(
+        await c.registerNameNumber('Naya User', 'not-an-email', '9876543210'),
+        isFalse,
+      );
+      expect(api.registerCalls, 0);
+      expect(c.errorMessage, authStringsHi['emailError']);
+      expect(c.status, AuthStatus.idle);
+      c.dispose();
+    });
+
     test('non-user role is rejected + wiped', () async {
       final c = _controller(api: _FakeApi(role: 'vendor'));
-      expect(await c.registerNameNumber('Naya User', '9876543210'), isFalse);
+      expect(
+        await c.registerNameNumber(
+          'Naya User',
+          'naya@example.in',
+          '9876543210',
+        ),
+        isFalse,
+      );
       expect(c.isAuthenticated, isFalse);
       expect(c.errorMessage, authStringsHi['notUser']);
       c.dispose();
@@ -172,7 +236,14 @@ void main() {
       final c = _controller(
         api: _FakeApi(throwStatus: 422, throwMessage: 'ROLE_RESERVED'),
       );
-      expect(await c.registerNameNumber('Intruder', '9876543210'), isFalse);
+      expect(
+        await c.registerNameNumber(
+          'Intruder',
+          'intruder@example.in',
+          '9876543210',
+        ),
+        isFalse,
+      );
       expect(c.isAuthenticated, isFalse);
       expect(c.errorMessage, authStringsHi['staffNumber']);
       c.dispose();
@@ -180,7 +251,14 @@ void main() {
 
     test('429 maps to rate-limit copy', () async {
       final c = _controller(api: _FakeApi(throwStatus: 429));
-      expect(await c.registerNameNumber('Naya User', '9876543210'), isFalse);
+      expect(
+        await c.registerNameNumber(
+          'Naya User',
+          'naya@example.in',
+          '9876543210',
+        ),
+        isFalse,
+      );
       expect(c.errorMessage, authStringsHi['rateLimited']);
       c.dispose();
     });
@@ -189,7 +267,14 @@ void main() {
       final c = _controller(
         api: _FakeApi(throwStatus: 400, throwMessage: 'Bad phone'),
       );
-      expect(await c.registerNameNumber('Naya User', '9876543210'), isFalse);
+      expect(
+        await c.registerNameNumber(
+          'Naya User',
+          'naya@example.in',
+          '9876543210',
+        ),
+        isFalse,
+      );
       expect(c.errorMessage, 'Bad phone');
       c.dispose();
     });
@@ -201,7 +286,11 @@ void main() {
         store: store,
         deviceId: 'test-device',
       );
-      await c.registerNameNumber('Naya User', '9876543210');
+      await c.registerNameNumber(
+        'Naya User',
+        'naya@example.in',
+        '9876543210',
+      );
       expect(c.isAuthenticated, isTrue);
       await c.logout();
       expect(c.isAuthenticated, isFalse);
