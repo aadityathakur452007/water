@@ -285,7 +285,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   if (order.state == OrderState.cancelled)
                     _FlatBanner(text: ordersStringsHi['cancelledBanner']!)
                   else if (order.state == OrderState.failed)
-                    _FlatBanner(text: ordersStringsHi['failedBanner']!)
+                    _FlatBanner(
+                      text: ordersStringsHi['failedBanner']!,
+                      isError: true,
+                    )
                   else if (order.state == OrderState.rejected)
                     _FlatBanner(text: ordersStringsHi['rejectedBanner']!)
                   else if (trackerStep(order.state) >= 0)
@@ -901,23 +904,25 @@ class _BillRow extends StatelessWidget {
 }
 
 class _FlatBanner extends StatelessWidget {
-  const _FlatBanner({required this.text});
+  const _FlatBanner({required this.text, this.isError = false});
   final String text;
+  final bool isError;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OrdersTokens.blueTint,
+        color: isError ? const Color(0xFFFEF2F2) : OrdersTokens.blueTint,
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        border: isError ? Border.all(color: const Color(0xFFFCA5A5)) : null,
       ),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
-          color: OrdersTokens.blue,
+          color: isError ? const Color(0xFFDC2626) : OrdersTokens.blue,
         ),
         textAlign: TextAlign.center,
       ),
@@ -1060,7 +1065,24 @@ class _ActionsFor extends StatelessWidget {
         ],
       );
     }
-    // cancelled (and terminal fail/rejected): no actions.
+    if (order.state == OrderState.failed) {
+      return SizedBox(
+        height: OrdersTokens.minTarget,
+        child: OutlinedButton.icon(
+          onPressed: onWhatsApp,
+          icon: const Icon(Icons.support_agent, color: OrdersTokens.blue),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: OrdersTokens.blue,
+            side: const BorderSide(color: OrdersTokens.blue),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(OrdersTokens.radius),
+            ),
+          ),
+          label: const Text('Support se baat karein / WhatsApp'),
+        ),
+      );
+    }
+    // cancelled (and terminal rejected): no actions.
     return const SizedBox.shrink();
   }
 }

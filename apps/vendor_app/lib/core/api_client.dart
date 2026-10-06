@@ -378,6 +378,19 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
+  Future<Map<String, dynamic>> failStop({
+    required String stopId,
+    required String reasonCode,
+    String note = '',
+  }) async {
+    final raw = await send(
+      'POST',
+      '/vendor/stops/$stopId/fail',
+      body: {'reason_code': reasonCode, 'note': note},
+    );
+    return (raw as Map<String, dynamic>);
+  }
+
   /// F2: doorstep cash → money truth. Replay-safe server-side
   /// (deterministic stop+amount scope), so background retry is allowed.
   Future<Map<String, dynamic>> postStopCash({

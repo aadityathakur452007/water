@@ -98,7 +98,7 @@ class OrderRepo:
     async def find_owned(self, order_id: str, user_id: str) -> dict | None:
         row = (
             await self._conn.execute(
-                f"SELECT {_ORDER_COLS} FROM orders WHERE id = ? AND user_id = ?",  # noqa: S608
+                "SELECT * FROM orders WHERE id = ? AND user_id = ?",
                 (order_id, user_id),
             )
         ).fetchone()
@@ -107,7 +107,7 @@ class OrderRepo:
     async def find_by_scoped_key(self, user_id: str, scoped_key: str) -> dict | None:
         row = (
             await self._conn.execute(
-                f"SELECT {_ORDER_COLS} FROM orders WHERE user_id = ? AND idempotency_key = ?",  # noqa: S608
+                "SELECT * FROM orders WHERE user_id = ? AND idempotency_key = ?",
                 (user_id, scoped_key),
             )
         ).fetchone()
@@ -236,12 +236,20 @@ class OrderRepo:
                         reason=deposit_event.get("reason", "order deposit"),
                         commit=False,
                     )
+                if order.get("address_snapshot_json"):
+                    try:
+                        await self._conn.execute(
+                            "UPDATE orders SET address_snapshot_json = ? WHERE id = ?",
+                            (order["address_snapshot_json"], order["id"]),
+                        )
+                    except Exception:
+                        pass
                 self._conn.commit()
         except sqlite3.IntegrityError as e:
             self._conn.rollback()
             raise ConflictError(message="Order already exists.", details={"scoped_key": order["idempotency_key"]}) from e
         row = (
-            await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order["id"],))  # noqa: S608
+            await self._conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],))
         ).fetchone()
         return _row(row)
 

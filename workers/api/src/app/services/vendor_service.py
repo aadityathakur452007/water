@@ -120,15 +120,20 @@ async def _has_pod_cols(conn: Conn) -> bool:
 
 
 async def _stop_field_cols(conn: Conn) -> dict[str, bool]:
-    """016 presence flags (tolerates pre-migration DBs)."""
-    out = {"items_json": False, "instructions": False}
+    """016/023 presence flags (tolerates pre-migration DBs)."""
+    out = {"items_json": False, "instructions": False, "failure_reason": False, "address_snapshot_json": False}
     try:
-        out["items_json"] = "items_json" in {
+        stops_cols = {
             r["name"] for r in (
                 await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
-        out["instructions"] = "instructions" in {
+        out["items_json"] = "items_json" in stops_cols
+        out["failure_reason"] = "failure_reason" in stops_cols
+
+        order_cols = {
             r["name"] for r in (
                 await conn.execute("SELECT name FROM pragma_table_info('orders')")).fetchall()}
+        out["instructions"] = "instructions" in order_cols
+        out["address_snapshot_json"] = "address_snapshot_json" in order_cols
     except Exception:
         pass
     return out
@@ -300,6 +305,8 @@ class VendorService:
         extra = await _stop_field_cols(self._conn)
         ij = ", s.items_json" if extra["items_json"] else ""
         ins = ", o.instructions" if extra["instructions"] else ""
+        fr = ", s.failure_reason" if extra["failure_reason"] else ""
+        asnap = ", o.address_snapshot_json" if extra["address_snapshot_json"] else ""
         rows = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
@@ -307,7 +314,7 @@ class VendorService:
             " o.window_start, o.items AS order_items,"
             " a.label AS address_label, a.formatted AS address_text, a.pincode,"
             " u.name AS customer_name, u.phone AS customer_phone"
-            f"{ij}{ins}"
+            f"{ij}{ins}{fr}{asnap}"
             " FROM stops s LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN addresses a ON a.id = o.address_id"
             " LEFT JOIN users u ON u.id = s.customer_id"
@@ -321,6 +328,24 @@ class VendorService:
         from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
 
         for s in stops:
+            # Address snapshot overlay: frozen address snapshot takes precedence
+            # so customer address book edits do not drift an in-flight delivery stop
+            if s.get("address_snapshot_json"):
+                try:
+                    snap = json.loads(s["address_snapshot_json"]) if isinstance(s["address_snapshot_json"], str) else s["address_snapshot_json"]
+                    if isinstance(snap, dict):
+                        if snap.get("formatted"):
+                            s["address_text"] = snap["formatted"]
+                        if snap.get("label"):
+                            s["address_label"] = snap["label"]
+                        if snap.get("pincode"):
+                            s["pincode"] = snap["pincode"]
+                        if snap.get("customer_name"):
+                            s["customer_name"] = snap["customer_name"]
+                        if snap.get("customer_phone") or snap.get("phone"):
+                            s["customer_phone"] = snap.get("customer_phone") or snap.get("phone")
+                except Exception:
+                    pass
             held = 0
             if s.get("customer_id"):
                 held = int((await self.ledger.get(s["customer_id"])).get("held", 0))
@@ -423,17 +448,48 @@ class VendorService:
                     message="Stop was reassigned. Pull the fresh route.",
                     details={"stop_id": stop_id, "expected": stop["version"], "got": version},
                 )
+            damaged_empties = int(payload.get("damaged_empties") or 0)
+            empty_cond = str(payload.get("empty_condition") or "ok").lower()
+            usable_empties = max(0, core["empties_back"] - damaged_empties)
             try:
                 await self.ledger.apply_event(
                     stop["customer_id"] or stop_id,
-                    d_held=core["fulls_given"] - core["empties_back"],
+                    d_held=core["fulls_given"] - usable_empties,
                     ref=f"stop:{stop_id}",
                     actor=vendor_id,
                     reason="doorstep triple",
                     commit=False,
                 )
-                triple = {**core, "tendered": tendered, "change_given": change,
-                          "seal_ok": payload.get("seal_ok"), "pod": current.get("pod")}
+                if damaged_empties > 0 or empty_cond != "ok":
+                    try:
+                        import uuid
+                        dc_id = uuid.uuid4().hex
+                        await self._conn.execute(
+                            "INSERT INTO damaged_containers (id, order_id, stop_id, customer_id, vendor_id, qty, condition, note, created_at)"
+                            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                dc_id,
+                                stop.get("order_id"),
+                                stop_id,
+                                stop.get("customer_id"),
+                                vendor_id,
+                                max(1, damaged_empties),
+                                empty_cond,
+                                str(payload.get("damage_note") or ""),
+                                _now(),
+                            ),
+                        )
+                    except Exception:
+                        pass
+                triple = {
+                    **core,
+                    "tendered": tendered,
+                    "change_given": change,
+                    "seal_ok": payload.get("seal_ok"),
+                    "pod": current.get("pod"),
+                    "damaged_empties": damaged_empties if damaged_empties > 0 else None,
+                    "empty_condition": empty_cond if empty_cond != "ok" else None,
+                }
                 await self._conn.execute(
                     "UPDATE stops SET triple = ?, status = 'done', synced_at = ?, version = version + 1 WHERE id = ?",
                     (json.dumps({k: v for k, v in triple.items() if v is not None}), _now(), stop_id),
@@ -598,6 +654,53 @@ class VendorService:
                 self._conn.rollback()
                 raise
         return self._stop_out(await self._owned_stop(vendor_id, stop_id))
+
+    async def fail_stop(self, vendor_id: str, stop_id: str, reason_code: str, note: str = "") -> dict:
+        """Vendor reports a delivery failure / RTO (Door Locked, Unreachable, Refused)."""
+        from app.services.dispatch_service import write_audit
+        from app.repositories.order_repo import OrderRepo
+
+        valid_reasons = {"DOOR_LOCKED", "CUSTOMER_UNREACHABLE", "CUSTOMER_REFUSED", "INCORRECT_ADDRESS", "RESCHEDULE_REQUESTED"}
+        code = str(reason_code or "DOOR_LOCKED").upper().strip()
+        if code not in valid_reasons:
+            code = "DOOR_LOCKED"
+
+        stop = await self._owned_stop(vendor_id, stop_id)
+        if stop["status"] == "done":
+            raise ConflictError(message="Completed stop cannot be marked failed.", details={"stop_id": stop_id})
+
+        failure_desc = f"{code}: {note}".strip(": ")
+        if stop.get("order_id"):
+            try:
+                # Own txn inside OrderRepo (WRITE_LOCK is not reentrant — never nest it).
+                await OrderRepo(self._conn).transition(
+                    stop["order_id"], "failed", {"id": vendor_id, "role": "vendor"}, f"RTO: {code}"
+                )
+            except Exception:
+                pass
+
+        with WRITE_LOCK:
+            try:
+                try:
+                    await self._conn.execute(
+                        "UPDATE stops SET status = 'failed', failure_reason = ?, synced_at = ?, version = version + 1 WHERE id = ?",
+                        (failure_desc, _now(), stop_id),
+                    )
+                except Exception:
+                    # In case failure_reason column is absent on pre-migration DB
+                    await self._conn.execute(
+                        "UPDATE stops SET status = 'failed', synced_at = ?, version = version + 1 WHERE id = ?",
+                        (_now(), stop_id),
+                    )
+                await write_audit(self._conn, actor=vendor_id, action="vendor.stop_failed",
+                                  entity="stops", entity_id=stop_id)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        fresh = await self._owned_stop(vendor_id, stop_id)
+        return self._stop_out(fresh)
 
     # -- sync ---------------------------------------------------------------------
 
@@ -959,7 +1062,9 @@ class VendorService:
     async def _owned_stop(self, vendor_id: str, stop_id: str) -> dict:
         extra = await _stop_field_cols(self._conn)
         ij = ", s.items_json" if extra["items_json"] else ""
+        fr = ", s.failure_reason" if extra["failure_reason"] else ""
         ins = ", o.instructions" if extra["instructions"] else ""
+        snap_col = ", o.address_snapshot_json" if extra["address_snapshot_json"] else ""
         row = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
@@ -967,7 +1072,7 @@ class VendorService:
             " o.window_start, o.items AS order_items,"
             " a.label AS address_label, a.formatted AS address_text, a.pincode,"
             " u.name AS customer_name, u.phone AS customer_phone"
-            f"{ij}{ins}"
+            f"{ij}{fr}{ins}{snap_col}"
             " FROM stops s JOIN routes r ON r.id = s.route_id"
             " LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN addresses a ON a.id = o.address_id"
@@ -978,6 +1083,22 @@ class VendorService:
         if row is None:  # IDOR rule: not-yours reads as not-found (no oracle)
             raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         stop = dict(row)
+        if stop.get("address_snapshot_json"):
+            try:
+                snap = json.loads(stop["address_snapshot_json"]) if isinstance(stop["address_snapshot_json"], str) else stop["address_snapshot_json"]
+                if isinstance(snap, dict):
+                    if snap.get("formatted"):
+                        stop["address_text"] = snap["formatted"]
+                    if snap.get("label"):
+                        stop["address_label"] = snap["label"]
+                    if snap.get("pincode"):
+                        stop["pincode"] = snap["pincode"]
+                    if snap.get("customer_name"):
+                        stop["customer_name"] = snap["customer_name"]
+                    if snap.get("customer_phone") or snap.get("phone"):
+                        stop["customer_phone"] = snap.get("customer_phone") or snap.get("phone")
+            except Exception:
+                pass
         # F3: same hold rule as the route list (single-stop path).
         from app.services.order_service import HOLD_BLOCK_LIMIT
 

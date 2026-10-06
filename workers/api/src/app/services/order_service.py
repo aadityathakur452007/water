@@ -163,6 +163,28 @@ class OrderService:
                 details={"held": int(led_now.get("held", 0)), "max": HOLD_BLOCK_LIMIT},
             )
 
+        # Freeze address snapshot so subsequent edits to the address book
+        # never change the destination of active in-flight or dispatched orders.
+        addr_snapshot = None
+        try:
+            from app.repositories.address_repo import AddressRepo
+            addr_row = await AddressRepo(self.orders._conn).get_owned(payload["address_id"], user_id)
+            if addr_row:
+                addr_snapshot = json.dumps({
+                    "id": addr_row.get("id"),
+                    "formatted": addr_row.get("formatted"),
+                    "label": addr_row.get("label"),
+                    "pincode": addr_row.get("pincode"),
+                    "lat": addr_row.get("lat"),
+                    "lng": addr_row.get("lng"),
+                    "house_no": addr_row.get("house_no"),
+                    "street": addr_row.get("street"),
+                    "area": addr_row.get("area"),
+                    "phone": addr_row.get("phone"),
+                })
+        except Exception:
+            pass
+
         window_end = self._window_end(str(payload.get("window_start", "")))
         order = {
             "user_id": user_id,
@@ -182,6 +204,8 @@ class OrderService:
             "quote_rate_version": current_rv,
             "_actor": user_id,
         }
+        if addr_snapshot:
+            order["address_snapshot_json"] = addr_snapshot
         try:
             return await self.orders.insert(
                 order,
@@ -252,8 +276,16 @@ class OrderService:
             except Exception:
                 pass
 
+        delivery_address = None
+        if order.get("address_snapshot_json"):
+            try:
+                delivery_address = json.loads(order["address_snapshot_json"])
+            except Exception:
+                pass
+
         return {
             **order,
+            "delivery_address": delivery_address,
             "delivery_otp": delivery_otp,
             "stops_ahead": stops_ahead,
             "tracker": {"steps": ["placed", "packed", "dispatched", "delivered"], "current": order["state"]},

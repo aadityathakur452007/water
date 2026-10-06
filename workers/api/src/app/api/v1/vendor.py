@@ -48,7 +48,14 @@ class TripleIn(BaseModel):
     tendered: int | None = Field(ge=0, default=None)
     change_given: int | None = Field(ge=0, default=None)
     seal_ok: bool | None = None
+    damaged_empties: int = Field(ge=0, default=0)
+    empty_condition: str | None = None
     version: int
+
+
+class FailStopIn(BaseModel):
+    reason_code: str = Field(min_length=1, max_length=50)
+    note: str = Field(default="", max_length=500)
 
 
 class PodIn(BaseModel):
@@ -133,6 +140,11 @@ async def commit_triple(stop_id: str, payload: TripleIn,
 @router.post("/vendor/stops/{stop_id}/pod")
 async def complete_pod(stop_id: str, payload: PodIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).pod_complete(_uid(user), stop_id, payload.model_dump(mode="json"))
+
+
+@router.post("/vendor/stops/{stop_id}/fail")
+async def fail_stop(stop_id: str, payload: FailStopIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).fail_stop(_uid(user), stop_id, payload.reason_code, payload.note)
 
 
 class CashIn(BaseModel):

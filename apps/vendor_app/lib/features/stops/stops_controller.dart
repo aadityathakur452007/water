@@ -21,6 +21,8 @@ Map<String, dynamic> buildTripleBody({
   int? tenderedPaise,
   int? changePaise,
   bool sealOk = true,
+  int damagedEmpties = 0,
+  String? emptyCondition,
   required int version,
 }) {
   if (tenderedPaise != null && changePaise != null) {
@@ -35,8 +37,12 @@ Map<String, dynamic> buildTripleBody({
     'upi': upiPaise,
     'caps_missing': capsMissing,
     'seal_ok': sealOk,
+    'damaged_empties': damagedEmpties,
     'version': version,
   };
+  if (emptyCondition != null && emptyCondition.isNotEmpty) {
+    body['empty_condition'] = emptyCondition;
+  }
   if (tenderedPaise != null) body['tendered'] = tenderedPaise;
   if (changePaise != null) body['change_given'] = changePaise;
   return body;
@@ -192,6 +198,33 @@ class StopsController extends ChangeNotifier {
       _notice = e.isNetwork
           ? 'Network nahi — Sync me queue karein'
           : e.message;
+      return false;
+    } finally {
+      _submitting = false;
+      notifyListeners();
+    }
+  }
+
+  /// Reports a delivery failure / RTO (Door Locked, Unreachable, Refused, etc.)
+  Future<bool> failStop({
+    required String stopId,
+    required String reasonCode,
+    String note = '',
+  }) async {
+    _submitting = true;
+    _notice = null;
+    notifyListeners();
+    try {
+      final raw = await _api.failStop(
+        stopId: stopId,
+        reasonCode: reasonCode,
+        note: note,
+      );
+      _stop = raw;
+      _notice = 'Delivery issue recorded ($reasonCode)';
+      return true;
+    } on ApiException catch (e) {
+      _notice = e.isNetwork ? 'Network nahi — dobara try karein' : e.message;
       return false;
     } finally {
       _submitting = false;

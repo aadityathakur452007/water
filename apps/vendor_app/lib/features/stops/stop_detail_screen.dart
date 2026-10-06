@@ -84,6 +84,72 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     }
   }
 
+  void _showFailDialog(BuildContext context, StopsController c) {
+    String selectedReason = 'DOOR_LOCKED';
+    final noteCtrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('Delivery Issue / RTO'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Agar delivery kisi wajah se nahi ho paayi, toh yahan select karein:',
+                style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+              initialValue: selectedReason,
+              decoration: const InputDecoration(labelText: 'Wajah (Reason)'),
+                items: const [
+                  DropdownMenuItem(value: 'DOOR_LOCKED', child: Text('Door Locked / Ghar band hai')),
+                  DropdownMenuItem(value: 'CUSTOMER_UNREACHABLE', child: Text('Unreachable / Phone nahi uthaya')),
+                  DropdownMenuItem(value: 'CUSTOMER_REFUSED', child: Text('Refused / Customer ne mana kiya')),
+                  DropdownMenuItem(value: 'INCORRECT_ADDRESS', child: Text('Wrong Address / Pata nahi mila')),
+                  DropdownMenuItem(value: 'RESCHEDULE_REQUESTED', child: Text('Reschedule / Baad me chahiye')),
+                ],
+                onChanged: (v) => setDlgState(() => selectedReason = v ?? 'DOOR_LOCKED'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: noteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Note (Optional)',
+                  hintText: 'e.g. 3 baar call kiya, gate band',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                final ok = await c.failStop(
+                  stopId: widget.stopId,
+                  reasonCode: selectedReason,
+                  note: noteCtrl.text.trim(),
+                );
+                if (ok && context.mounted) {
+                  await c.load(widget.stopId);
+                }
+              },
+              child: const Text('Submit / Mark RTO', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -172,6 +238,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     // a finished stop shows the done note, never action buttons.
     final tripleDone = s['triple'] is Map;
     final stopDone = (s['status'] ?? '') == 'done';
+    final stopFailed = (s['status'] ?? '') == 'failed';
     final orderLabel = orderStateLabelHi((s['order_state'] ?? '') as String);
     final held = (s['held'] as num?)?.toInt();
     final deposit = (s['deposit_balance'] as num?)?.toInt();
@@ -334,15 +401,38 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
         if (stopDone)
           const Text('Delivery complete / ho gayi',
               style: TextStyle(fontWeight: FontWeight.w600)),
+        if (stopFailed)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              border: Border.all(color: Colors.red.shade200),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Delivery Failed / RTO (Ghar Band / Mana Kiya)',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: ShodashaTheme.danger),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Wajah: ${s['failure_reason'] ?? 'Not delivered'}',
+                  style: const TextStyle(fontSize: 13, color: ShodashaTheme.danger),
+                ),
+              ],
+            ),
+          ),
         // F8: pickup stops act on the return, not the triple/PoD flow.
-        if (!stopDone && returnId.isNotEmpty)
+        if (!stopDone && !stopFailed && returnId.isNotEmpty)
           _PickupCard(
             controller: c,
             stopId: widget.stopId,
             returnId: returnId,
             emptiesExp: emptiesExp,
           ),
-        if (!stopDone && returnId.isEmpty && !tripleDone)
+        if (!stopDone && !stopFailed && returnId.isEmpty && !tripleDone)
           ElevatedButton.icon(
             onPressed: c.submitting || holdBlocked
                 ? null
@@ -362,11 +452,11 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             icon: const Icon(Icons.inventory_2_outlined),
             label: const Text('Triple likhein: diye / wapas / paise'),
           ),
-        if (!stopDone && returnId.isEmpty && tripleDone)
+        if (!stopDone && !stopFailed && returnId.isEmpty && tripleDone)
           const Text('Triple ho gayi — PoD karein',
               style: TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
-        if (!stopDone && returnId.isEmpty && tripleDone)
+        if (!stopDone && !stopFailed && returnId.isEmpty && tripleDone)
           OutlinedButton.icon(
             onPressed: c.submitting
                 ? null
@@ -384,13 +474,14 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             icon: const Icon(Icons.check_circle_outline),
             label: const Text('PoD: OTP se complete karein'),
           ),
-        if (!stopDone && returnId.isEmpty && !tripleDone)
+        if (!stopDone && !stopFailed && returnId.isEmpty && !tripleDone)
           const Text('PoD ke liye pehle triple likhein',
               style: TextStyle(color: ShodashaTheme.muted)),
         // F2: one-tap cash post (COD delivery stops only, remainder due).
         // Paid/link-sent hide this; partial posts the remainder (the
         // server OVERPAY guard still enforces races).
         if (!stopDone &&
+            !stopFailed &&
             returnId.isEmpty &&
             paymentMode != 'upi' &&
             !isLinkSent &&
@@ -404,9 +495,21 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             label: Text('Cash jama karein (${rupees(remainingPaise)})'),
           ),
         ],
-        if (!stopDone && isLinkSent)
+        if (!stopDone && !stopFailed && isLinkSent)
           const Text('UPI link bheja — cash na lein, payment verify karein',
               style: TextStyle(color: ShodashaTheme.muted)),
+        if (!stopDone && !stopFailed) ...[
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.deepOrange,
+              side: const BorderSide(color: Colors.deepOrange),
+            ),
+            onPressed: c.submitting ? null : () => _showFailDialog(context, c),
+            icon: const Icon(Icons.report_problem_outlined),
+            label: const Text('Delivery Issue / RTO (Ghar band, phone nahi laga)'),
+          ),
+        ],
       ],
     );
   }

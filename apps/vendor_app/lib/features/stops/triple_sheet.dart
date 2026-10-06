@@ -39,6 +39,8 @@ class _TripleSheetState extends State<TripleSheet> {
   int _fulls = 0;
   int _empties = 0;
   int _caps = 0;
+  int _damaged = 0;
+  String _damageReason = 'cracked';
   final _cash = TextEditingController(text: '0');
   final _upi = TextEditingController(text: '0');
 
@@ -115,8 +117,51 @@ class _TripleSheetState extends State<TripleSheet> {
               ),
             const SizedBox(height: 12),
             _stepper('Jars diye', _fulls, (v) => setState(() => _fulls = v)),
-            _stepper('Khaali wapas', _empties,
-                (v) => setState(() => _empties = v)),
+            _stepper('Khaali wapas', _empties, (v) => setState(() {
+                  _empties = v;
+                  if (_damaged > v) _damaged = v;
+                })),
+            if (_empties > 0) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Tuta / Kharab jar ($_damaged)',
+                      style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.deepOrange),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    iconSize: 28,
+                    onPressed: _damaged > 0 ? () => setState(() => _damaged--) : null,
+                  ),
+                  Text('$_damaged', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline, color: Colors.deepOrange),
+                    iconSize: 28,
+                    onPressed: _damaged < _empties ? () => setState(() => _damaged++) : null,
+                  ),
+                ],
+              ),
+              if (_damaged > 0)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _damageReason,
+                    decoration: const InputDecoration(
+                      labelText: 'Damage Reason / खराबी की वजह',
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'cracked', child: Text('Cracked / फूटा हुआ')),
+                      DropdownMenuItem(value: 'leaking', child: Text('Leaking / छेद है')),
+                      DropdownMenuItem(value: 'dirty_oil', child: Text('Contaminated / तेल/गंदा')),
+                      DropdownMenuItem(value: 'broken_neck', child: Text('Neck broken / गर्दन टूटी')),
+                    ],
+                    onChanged: (v) => setState(() => _damageReason = v ?? 'cracked'),
+                  ),
+                ),
+            ],
             _stepper('Bina dhakkan ($_caps × Rs 3 = Rs $capRs)', _caps,
                 (v) => setState(() => _caps = v)),
             const SizedBox(height: 8),
@@ -160,6 +205,8 @@ class _TripleSheetState extends State<TripleSheet> {
                           cashPaise: _rs(_cash) * 100,
                           upiPaise: _rs(_upi) * 100,
                           capsMissing: _caps,
+                          damagedEmpties: _damaged,
+                          emptyCondition: _damaged > 0 ? _damageReason : null,
                           version: c.version,
                         );
                       } on ArgumentError catch (e) {

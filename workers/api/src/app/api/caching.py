@@ -32,5 +32,9 @@ def cached(body: dict, request: Request | None = None,
         return JSONResponse(status_code=304, content=None, headers={"ETag": etag})
     return JSONResponse(
         content=json.loads(raw.decode()),
-        headers={"Cache-Control": f"public, max-age={max_age_s}", "ETag": etag},
+        headers={
+            "Cache-Control": f"public, max-age={max_age_s}",
+            "CDN-Cache-Control": f"public, max-age={max_age_s * 2}, stale-while-revalidate={max_age_s * 4}",
+            "ETag": etag,
+        },
     )

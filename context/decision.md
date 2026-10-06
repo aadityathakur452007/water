@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-102 | 2026-10-06 | Address Freeze Snapshotting on Dispatched Orders, Doorstep Empty Jar Quality Inspection & Damaged Bottle Accounting, Stop RTO Failure Flow, Serverless Concurrency / CDN Edge Caching | Accepted | workers/api (order_repo/order_service/vendor_service/023), vendor_app (triple_sheet/stop_detail/stops_controller/api_client), user_app (tracking_screen) |
 | ADR-101 | 2026-10-06 | Subscription Mid-Cycle Cancellation Proration, Incremental Jar Deposit Deficit Math, Vendor Leave Cover Routing, Stockout SOS Repooling, Live Stops-Ahead Transparency | Accepted | workers/api (pricing/sub_service/vendor_service/dispatch/022), user_app (subs/tracking), vendor_app (profile/route/api_client) |
 | ADR-100 | 2026-10-06 | Customer Payment Visibility, Direct UPI Exit Refund, Location/Map Accuracy Overhaul, Subscription Calculator & Vendor Custody Split | Accepted | workers/api (payments/returns/021/vendor_service), user_app (payment_history/address_screen/map_picker/subs/profile), vendor_app (earnings) |
 | ADR-099 | 2026-10-06 | Razorpay secrets provisioned + worker deployed + live webhook HMAC verified 200/401 + D1 migrations 002-020 verified | Accepted | workers/api prod secrets, water worker deploy, webhook verify, prod D1 |
@@ -156,6 +157,23 @@
 ---
 
 ## Decision Entries
+
+### ADR-102: Address Freeze Snapshotting on Dispatched Orders, Doorstep Empty Jar Quality Inspection & Damaged Bottle Accounting, Stop RTO Failure Flow, Serverless Concurrency / CDN Edge Caching
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Solved core edge cases and operational failure modes spanning customers, vendors, and platform reliability:
+  1. *Address Freezing on Dispatched Orders*: When an active order is placed, user address modifications in their profile/address book previously caused live in-flight delivery stops to mutate destinations or pincodes mid-delivery. Addressed by capturing an immutable JSON address snapshot (`address_snapshot_json`) upon order placement. Route generation (`today_route`) and stop inspection (`_owned_stop`) overlay this frozen snapshot onto the stop, ensuring the vendor always delivers to the address promised at checkout.
+  2. *Doorstep Jar Quality Inspection & Damaged Empties Accounting*: In the real world, customers return chipped, cracked, punctured, or chemically contaminated bottles. If credited blindly as usable empties against their held container ledger, the business incurs silent asset destruction. In `triple_commit`, vendors can now record damaged empties count and condition reason (`cracked`, `leaking`, `dirty_oil`, `broken_neck`). Only usable empties reduce customer `held` liabilities (`d_held = fulls_given - usable_empties`), and an incident is persisted into the `damaged_containers` audit table.
+  3. *Delivery Failure / RTO Flow*: Previously, if a customer's gate was locked or they were unreachable, stops had no clean resolution mechanism besides forcing a dummy OTP or remaining indefinitely in pending state. Added `POST /v1/vendor/stops/{stop_id}/fail` supporting standard failure reason codes (`DOOR_LOCKED`, `CUSTOMER_UNREACHABLE`, `CUSTOMER_REFUSED`, `INCORRECT_ADDRESS`, `RESCHEDULE_REQUESTED`). The stop and order transition to `failed` state with audit logging, and the customer app renders a clear RTO notification with direct WhatsApp support actions.
+  4. *Serverless Concurrency & CDN Edge Caching*: Addressed the architecture difference between traditional Python OS multi-process workers (e.g. Gunicorn) and Cloudflare Workers (Pyodide WebAssembly serverless isolates). Cloudflare Workers auto-scale globally across edge Points of Presence (POPs) without OS fork trees or POSIX listening sockets. Mitigated single-writer contention on SQLite Cloudflare D1 by optimizing edge caching with `CDN-Cache-Control` (`stale-while-revalidate`), preserving fast edge responses while shielding D1 write transactions.
+- **Options considered**:
+  (1) Live relational joins on `addresses` table vs immutable order snapshot (chosen snapshot: classic e-commerce pattern where invoices and shipments preserve legal delivery destinations at moment of purchase).
+  (2) Rejecting entire delivery when an empty bottle is cracked vs recording damaged count and adjusting net held balance (chosen partial deduction: customer still gets their water jars, vendor records the damaged asset, and customer's deposit liability reflects the damaged bottle).
+  (3) Leaving stops in `pending` vs structured RTO failure codes (chosen structured failure codes: gives ops clarity on why routes were incomplete and facilitates scheduled next-day re-attempts).
+- **Decision**: Added migration 023 (`orders.address_snapshot_json`, `stops.failure_reason`, and `damaged_containers` table). Implemented backend snapshot freezing in `order_service.py` & `order_repo.py`, damaged empties accounting and stop failure endpoint in `vendor_service.py` & `vendor.py`, and added `CDN-Cache-Control` in `caching.py`. Updated `apps/vendor_app` (`triple_sheet.dart`, `stop_detail_screen.dart`, `stops_controller.dart`, `api_client.dart`) and `apps/user_app` (`tracking_screen.dart`).
+- **Why**: Eliminates in-flight delivery destination drift, prevents loss from uninspected damaged empties, provides vendors and customers a graceful RTO resolution flow, and ensures high-concurrency serverless efficiency without DB bottlenecks.
+- **Consequences**: Remote D1 database migrated with migration 023. Cloudflare Worker deployed to production. 319 pytest tests green, 70 vendor app tests green, 132 user app tests green, all Flutter analyzers clean with 0 issues.
+- **Affects**: workers/api (order_repo/order_service/vendor_service/caching/023), vendor_app (triple_sheet/stop_detail/stops_controller/api_client), user_app (tracking_screen)
 
 ### ADR-101: Subscription Mid-Cycle Cancellation Proration, Incremental Jar Deposit Deficit Math, Vendor Leave Cover Routing, Stockout SOS Repooling, Live Stops-Ahead Transparency
 - **Date**: 2026-10-06

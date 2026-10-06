@@ -52,6 +52,11 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   3. Vendor planned leaves & route cover: vendor requests leave (`POST /v1/vendor/leaves`), admin reviews (`POST /v1/admin/vendor-leaves/{id}/review`) and assigns `cover_vendor_id`. `dispatch_service.py` (`route_for_vendor`, `least_loaded_vendor`) routes stops to `cover_vendor_id` and excludes on-leave vendors.
   4. Mid-route stockout emergency SOS: vendor reports stockout (`POST /v1/vendor/stockout`), vendor marked off-duty, pending route stops automatically repooled to unassigned pool for other vendors.
   5. Live stops-ahead transparency: `GET /v1/orders/{id}` returns `stops_ahead` + populated rider; user tracking screen displays `_LiveStopsAheadBanner`.
+- ADR-102 resilience & snapshots (2026-10-06):
+  1. Address Freeze Snapshotting: `OrderService.create` captures immutable JSON address snapshot (`address_snapshot_json`) stored in `orders`. `today_route` and `_owned_stop` overlay snapshot values onto route stops, isolating in-flight deliveries from subsequent profile address mutations.
+  2. Doorstep Jar Quality Inspection & Damaged Bottle Accounting: `triple_commit` accepts `damaged_empties` and `empty_condition`. Calculates usable empties (`empties_back - damaged_empties`) so damaged bottles are not credited against customer `held` liabilities (`d_held = fulls_given - usable_empties`), and logs incident into `damaged_containers` table. `TripleSheet` in `vendor_app` provides stepper and reason dropdown.
+  3. Delivery Failure / RTO Flow: `POST /v1/vendor/stops/{stop_id}/fail` transitions stop and underlying order to `failed` state with reason codes (`DOOR_LOCKED`, `CUSTOMER_UNREACHABLE`, `CUSTOMER_REFUSED`, `INCORRECT_ADDRESS`, `RESCHEDULE_REQUESTED`) and writes audit log. `stop_detail_screen` adds RTO dialog; `tracking_screen` in `user_app` displays RTO banner and WhatsApp support re-attempt action.
+  4. Serverless Concurrency & CDN Edge Caching: `caching.py` equips cacheable reads with `CDN-Cache-Control` (`stale-while-revalidate`), protecting SQLite Cloudflare D1 single-writer throughput from read stampedes across global edge isolates.
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]
