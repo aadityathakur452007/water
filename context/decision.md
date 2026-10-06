@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-094 | 2026-10-06 | CI release fix: AGP 9 configure<ApplicationExtension> + explicit java imports (bare android{} is a compile error under newDsl; newDsl opt-out rejected — dies in AGP 10) | Accepted | apps/user_app + vendor_app android/app/build.gradle.kts, main branch |
 | ADR-093 | 2026-10-06 | Re-verify + purge notes: 9 dead admin deps removed, SyncItem + searchCatalog deleted, Phase 7 revoke-dialog syntax break fixed (admin build green first time since Phase 0) | Accepted | admin_app package.json/lock + access-codes-table, workers/api vendor.py, user_app catalog, branch 029-remediation |
 | ADR-092 | 2026-10-06 | Phase 10 verification notes: window_start bucket fix (UPSERT was scattering); 4 gap tests; 17/18 break-in cells hold; §13 filled, §14 shrunk, dead-code resolved | Accepted | workers/api auth_service/tests, user_app catalog, Feature_docs/platform-audit/report.md, branch 029-remediation |
 | ADR-091 | 2026-10-06 | Phase 9 polish notes: 3 new skeletons (stop-detail already had one); 200ms gated tracker fill; admin reduce-guard + change-only CountUp on dashboard KPIs; ≤5s assessment recorded | Accepted | user_app tracking/subs/support/tests, admin_app styles/metric-cards/count-up, branch 029-remediation |
@@ -148,6 +149,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-094: CI release fix (AGP 9 Gradle scripts)
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Release workflow failed on `assembleRelease`: `java.util.*` unresolvable in app scripts + bare `android {}` is a compile error under AGP 9 newDsl (same latent break in both apps; user leg never ran).
+- **Options considered**: (1) `android.newDsl=false` opt-out (rejected — removed in AGP 10 mid-2026, just postpones the break). (2) Explicit `java.io`/`java.util` imports + `extensions.configure<ApplicationExtension>` with body unchanged (chosen — documented AGP 9 migration path, verified against release notes).
+- **Decision**: Same 7-line fix in both `android/app/build.gradle.kts`; `settings.gradle.kts` untouched (compiles). Verify: local `flutter build apk --release` green on both legs (vendor 50.8 MB, user 55.7 MB fat APKs, debug-fallback signing as CI); pushed to main so the release workflow re-runs as proof.
+- **Why**: Smallest diff that compiles on the pinned AGP 9.0.1; signing semantics untouched (key.properties still owner-provisioned, debug fallback intact — ssdlc: no secrets in git).
+- **Consequences**: Release workflow should go green; APK size re-measure comes from CI artifacts.
+- **Affects**: apps/user_app + vendor_app android/app/build.gradle.kts, main branch
 
 ### ADR-093: Full re-verify + dead-code/dependency purge notes
 - **Date**: 2026-10-06

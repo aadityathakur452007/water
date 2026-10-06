@@ -4,19 +4,26 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+import com.android.build.api.dsl.ApplicationExtension
+import java.io.FileInputStream
+import java.util.Properties
+
 // Release signing (Phase 4 §4.2): the real keystore is OWNER-provisioned and
 // never committed. Create android/key.properties (gitignored) with:
 //   storeFile=<path to .jks>  storePassword=…  keyAlias=…  keyPassword=…
 // Without it, release falls back to debug keys so `flutter run --release`
 // still works. Signed-release smoke (login→order) is an owner step — R8
 // (minify + shrink) can strip reflective calls.
-val keystoreProperties = java.util.Properties()
+val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-android {
+// AGP 9 (newDsl): the bare `android {}` block resolves to the removed
+// BaseAppModuleExtension accessor (compile error) — configure the public
+// ApplicationExtension instead. Body unchanged.
+extensions.configure<ApplicationExtension> {
     namespace = "com.shodasha.shodasha_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
