@@ -15,3 +15,11 @@ workers/api/data/
 .venv-workers/
 python_modules/
 pylock.toml
+
+# IDE & Editor files
+.idea/
+*.iml
+
+# Scratch & Tool caches
+.freebuff/
+.utim_tmp/

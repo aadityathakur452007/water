@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-098 | 2026-10-06 | Git hygiene: ignore root .idea, .freebuff, .utim_tmp, and *.iml | Accepted | .gitignore, repo root |
 | ADR-097 | 2026-10-06 | User signup is name+email+phone (no OTP): 020 users.email + tolerant reads/writes + Flutter email field | Accepted | workers/api 020/user_repo/auth_service/auth.py/tests, user_app auth screen/controller/tests, prod D1 |
 | ADR-096 | 2026-10-06 | Razorpay-only UPI: FakeUpiProvider deleted from src; verify_webhook speaks real Razorpay events; tests via tests/_rzp.py (stubbed HTTP + signed bodies) | Accepted | workers/api upi/payments/payment_service/tests/.env/wrangler, prod secrets owed |
 | ADR-095 | 2026-10-06 | Prod admin-login unblock: apply D1 013–019 + flag=1 + bootstrap first admin code via direct D1 INSERT (audited doors need a session; live POST verified 200 role=admin) | Accepted | prod D1 shodasha, workers/api auth_service code_login, admin_app login |
@@ -152,6 +153,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-098: Git hygiene: ignore root .idea, .freebuff, .utim_tmp, and *.iml
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Untracked files `.idea/` (JetBrains workspace caches, deviceStreaming), `.freebuff/` (tool project-id), and `.utim_tmp/` (PDF text extraction scratch cache) remained in workspace before push to main.
+- **Options considered**: (1) Commit `.idea/` and tool caches (rejected — local IDE settings and scratch extraction caches must never be checked into version control). (2) Git ignore via root `.gitignore` (chosen).
+- **Decision**: Added `.idea/`, `*.iml`, `.freebuff/`, and `.utim_tmp/` to root `.gitignore`.
+- **Why**: Keeps repository clean, prevents IDE bloat and leak of local cache files to origin/main.
+- **Consequences**: Local development caches and JetBrains configs will no longer show as untracked files across branches.
+- **Affects**: `.gitignore`, repo root
 
 ### ADR-097: User signup name+email+phone (no OTP)
 - **Date**: 2026-10-06
