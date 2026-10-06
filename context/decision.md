@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-092 | 2026-10-06 | Phase 10 verification notes: window_start bucket fix (UPSERT was scattering); 4 gap tests; 17/18 break-in cells hold; §13 filled, §14 shrunk, dead-code resolved | Accepted | workers/api auth_service/tests, user_app catalog, Feature_docs/platform-audit/report.md, branch 029-remediation |
 | ADR-091 | 2026-10-06 | Phase 9 polish notes: 3 new skeletons (stop-detail already had one); 200ms gated tracker fill; admin reduce-guard + change-only CountUp on dashboard KPIs; ≤5s assessment recorded | Accepted | user_app tracking/subs/support/tests, admin_app styles/metric-cards/count-up, branch 029-remediation |
 | ADR-090 | 2026-10-06 | Phase 8 backend performance notes: 017/018 split indexes + 019 counters; spike→(c) + single-txn cash; L1+D1 limits + Retry-After; cached() 300s+ETag on 5 GETs | Accepted | workers/api migrations/vendor/scheduler/payment_repo/auth/errors/caching/tests, branch 029-remediation |
 | ADR-089 | 2026-10-05 | Phase 7 customer UX notes: clipboard kept; full bilingual; schedule allowlist + estimate endpoint; Address→Pay collapse + recap; confirm breakup/UPI; identity revalidation; slots LOUD; a11y full sweep | Accepted | workers/api subs/tests, user_app booking/orders/support/subs/profile/addresses/auth/shell/tests, admin_app revoke dialog, branch 029-remediation |
@@ -146,6 +147,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-092: Phase 10 final verification notes
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Phase 10 spec (`Feature_docs/platform-audit/specs/phase-10-verification.md`) on branch `029-remediation` — verification-only workstream (no source except gap-driven fixes). Owner answers locked: all 4 gap tests, targeted break-in re-grep, report close-out included, owner-owed builds/measures/secrets confirmed.
+- **Options considered**: (1) The cross-isolate test exposed a REAL bug: `window_start` was wall-clock ISO, so the UPSERT never conflicted and D1 counts scattered as count=1 rows (the Phase 8 SUM assertion masked it — sums matched). Fixed with bucket-start ISO (chosen over reworking keys — one-line, purge/reads already bucket-keyed). (2) Stop done-fade (carried from Phase 9 re-verify): attempted, reverted, locked with test. (3) Dead `searchCatalog` (chosen DELETE — zero callers since 014 killed search; pin_code_fields already gone; everything else KEEP-with-reason). (4) Break-in depth (chosen targeted 18-cell re-grep over full re-audit — gates structurally verified + behaviorally tested; 17/18 hold, devices cell scoped-by-construction with test still owed in §14).
+- **Decision**: `tests/test_phase10_verification.py` (sync-200 scale+ordering, sync stale-after-reassign, cross-isolate D1 deny, triple parallel twin); window_start bucket fix; report §13 filled (placed→delivered FIXED*, D1 atomicity FIXED*, tests 308/129/70), §14 shrunk to true unknowns + owner prod list, §15 resolved; suites green throughout.
+- **Why**: Diagnose-before-record — every §10.1 row mapped to file:line proof before writing; the one real bug found by the new test (not by inspection); report cells updated, never rewritten (matrix mechanism preserved).
+- **Consequences**: Owner owes admin build, APK re-measure vs 26.05/18.13 MB, device cold-start, prod webhook secret, 014–019 D1 applies, UPI secrets, keystore/smoke/WebP, device walks. No P0/P1 open without owner + next-cycle date (all carried items named in §14).
+- **Affects**: workers/api auth_service/tests, user_app catalog, Feature_docs/platform-audit/report.md, branch 029-remediation
 
 ### ADR-091: Phase 9 premium polish notes
 - **Date**: 2026-10-06

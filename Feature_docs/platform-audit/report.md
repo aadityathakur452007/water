@@ -130,22 +130,27 @@ authorization (suspend gates, role gates, httpOnly, logout, guards)
 | Area | Before | After | Evidence | Status |
 |---|---|---|---|---|
 | Admin build | FAILED (vendor-states import) | GREEN (vite 3675 modules 1.55s + SSR + nitro, 0 unresolved) | Phase 0 build output, commit 97c6971 | FIXED |
-| APK user/vendor | 26.05 / 18.13 MB arm64 | | | OPEN |
-| Order placed→delivered | strands at placed | | | OPEN |
+| APK user/vendor | 26.05 / 18.13 MB arm64 | dep purge landed (Phase 4); signed re-measure owed | ADR-086 | OPEN (owner: keystore + release re-measure) |
+| Order placed→delivered | strands at placed | full pipeline live: admin accept/reject/pack/dispatch + vendor pull + duty repool + PoD offline | Phase 2 (dispatch_service.vendor_accept_order, 16 tests) + Phase 5 wiring | FIXED* (*device walkthrough owed) |
 | UPI real money | impossible | fail-closed in prod (fake refused 502); dues-pay settles end-to-end; real needs owner secrets | Split 2 + Phase 2B: upi.py guards + dues-intent → webhook → cleared (test_phase02_splitb) | PARTIAL (code done, secrets owed) |
 | Webhook forgery | self-fraud possible | unsigned/dev-fake callbacks fail closed, zero ledger writes | Split 2: FakeUpiProvider guards + test no-write | FIXED |
-| D1 atomicity | torn writes possible | | | OPEN |
+| D1 atomicity | torn writes possible | strategy (c): narrow sections + deterministic dedupe; cash_post ONE lock/commit; kill-mid-op harness + parallel same-key tests green | Phase 8 (mark_paid_cash_locked, test_phase08_performance) + Phase 10 (triple twin, sync-200, cross-isolate deny) | FIXED* (*D1 prod demonstration owed; 017/018/019 apply owed) |
 | Suspended writes | bypass | 403 + zero rows on 10 write routes, reads stay 200 | Split 1: dep swaps + test_phase01_authz (5) | FIXED |
 | PoD OTP | computable | random per-stop (015) + 5-fail lockout + wrong→404 no-oracle | Split 2: vendor_service/dispatch + test_phase01_split2 (6) | FIXED |
 | Vendor resolve | unilateral | agree→vendor_confirmed + note≥10; only admin resolves | Split 2: verify_complaint + admin release test | FIXED |
 | Reconciliation live | empty | per-route rows + custody identity join live AND rendered; trust counts server-side; no mock-only boards; cursor-follow on 4 screens | Split A backend + Split B UI remap (admin build verify owed) | FIXED* |
 | Vendor session | ~30m death | refresh pinned to vendor-web device (BFF + guard) | Split 1 W1b (build verify owed by owner) | FIXED* |
-| Tests | 241 + 99 + 40 green | 256 pytest (+5 authz +10 split2) + 99 + 40 green | pytest 256 green | BASELINED+ |
+| Tests | 241 + 99 + 40 green | 308 pytest (+13 Phase 8 +4 Phase 10) + 129 user + 70 vendor green, all analyzes 0 | pytest + flutter suites on 029-remediation | BASELINED+ |
 
 ## 14. UNVERIFIED list (needs device/prod to close)
 
-On-device jank/cold-start/battery/GPS; exact SDK ints; country_flags parent chain; Play review; multi-isolate rate drift; D1 torn-write demonstration; cross-user device scoping test; subs screen state parity; zoom fields; contrast ratios; calendar Hindi; sub launchUrl path; yesterday-Δ edge; raw-phone render in users-columns; window semantics vs 30-min copy; CVE scan of deps.
+On-device jank/cold-start/battery/GPS; exact SDK ints; Play review; D1 torn-write demonstration (harness green locally); cross-user device scoping test (scoped-by-construction in code); calendar Hindi; yesterday-Δ edge; CVE scan of deps (npm/pip audit never run).
+Owner-owed prod: webhook secret names-only confirm; 014/015/016/017/018/019 D1 applies; UPI secrets; keystore + signed smoke; admin `npm run check/build`.
+
+Closed during remediation (moved here so the list only holds true unknowns): multi-isolate rate drift → D1 `rate_counters` truth + cross-isolate deny test (ADR-090/092); contrast ratios → measured muted 7.0 PASS, blue 4.1 links-only (ADR-089); country_flags parent chain → transitive via shadcn, verified (ADR-086); zoom fields → 16px min (ADR-089); window semantics → arrival-window copy + date (ADR-089); sub launchUrl path → launch-primary + clipboard fallback + tests (ADR-086); subs screen state parity → server estimate + Due/Paid wiring (ADR-089); raw-phone render → invented fields removed, masked/server shapes (ADR-085); wa.me empty-phone → 10-digit callable guard (re-verify fix).
 
 ## 15. Dead code ledger (SAFE TO DELETE / NEEDS VERIFICATION / KEEP)
 
-See Track F §6: delete stale url_launcher comment; verify-then-remove pin_code_fields (both), searchCatalog, Hardcoded vs Caching catalog (keep one as offline fallback), StubOrdersRepository (tests still use); keep SMS seam/OTP/demo endpoints (until 029), InMemorySessionStore (tests), 027 legacy access table (until 027 merges).
+Resolved on 029-remediation (Phase 10): pin_code_fields DELETED from both pubspecs (OTP screens gone in 028); `searchCatalog` DELETED (home search killed in 014/ADR-059, zero callers); stale url_launcher comment — url_launcher is LIVE (tel:/wa.me via launchUrl, Phase 4), nothing stale remains. KEPT with reason: hardcoded catalog fallback inside CachingCatalogApi (offline fallback by design, Phase 4); StubOrdersRepository (tests use); SMS seam + OTP/demo endpoints (transition doors); InMemorySessionStore (tests); 027 legacy `vendor_access_codes` read-fallback in code_login (until transition ends); pre-016/legacy OTP + shape fallbacks (PRAGMA-tolerant precedent).
+
+Original track note (superseded by the above): See Track F §6: delete stale url_launcher comment; verify-then-remove pin_code_fields (both), searchCatalog, Hardcoded vs Caching catalog (keep one as offline fallback), StubOrdersRepository (tests still use); keep SMS seam/OTP/demo endpoints (until 029), InMemorySessionStore (tests), 027 legacy access table (until 027 merges).

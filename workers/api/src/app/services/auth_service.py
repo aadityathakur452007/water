@@ -181,10 +181,15 @@ class AuthService:
         try:
             bucket = int(time.time() // window_s) * window_s
             dkey = f"{key}:{bucket}"
+            # Window start is the bucket start (NOT wall-clock now): every
+            # hit in the same window shares one row so the UPSERT actually
+            # increments instead of scattering count=1 rows.
+            window_start = _dt.datetime.fromtimestamp(
+                bucket, tz=_dt.timezone.utc).isoformat()
             await self._conn.execute(
                 "INSERT INTO rate_counters(key, window_start, count) VALUES (?, ?, 1)"
                 " ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1",
-                (dkey, _now().isoformat()),
+                (dkey, window_start),
             )
             row = (await self._conn.execute(
                 "SELECT count FROM rate_counters WHERE key = ?", (dkey,))).fetchone()
