@@ -10,6 +10,8 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+MERGED TO MAIN (2026-10-06, fd69937, pushed to origin/main): 029-remediation (Phases 0–10 + reverifies + purge) merged with zero conflicts (main had no divergent work); post-merge green (308/129/70, analyzes clean, admin build green). Work continues on main.
+
 RE-VERIFY + PURGE (2026-10-06, branch 029-remediation, uncommitted): cross-phase pass — all suites green (backend 308, user 129, vendor 70, both analyzes clean, admin build GREEN first time since Phase 0); deleted 9 dead admin deps + `SyncItem` + `searchCatalog` (all import-proven dead; Flutter/backend dep lists fully used); fixed 1 real bug (Phase 7 revoke-dialog comment broke vite build). Owner items now device/prod-only.
 
 PHASE 10 DONE (2026-10-06, branch 029-remediation, uncommitted): final verification — 4 gap tests green (sync-200 scale+ordering, sync stale-after-reassign, cross-isolate D1 deny, triple parallel twin); cross-isolate test exposed a REAL Phase 8 bug (window_start wall-clock ISO scattered UPSERT rows; fixed with bucket-start ISO); 17/18 break-in cells hold (devices cell scoped-by-construction, test owed); report §13 filled + §14 shrunk + §15 resolved (searchCatalog deleted, pin_code already gone); backend 308 + user 129 + vendor 70 green, all analyzes clean. Owner owes: admin build, APK re-measure, cold-start, prod secrets, 014–019 D1 applies, all prior carry items. REMEDIATION COMPLETE pending owner device/prod passes.
