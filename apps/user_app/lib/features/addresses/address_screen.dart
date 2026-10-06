@@ -17,7 +17,7 @@ import 'selected_address_store.dart';
 
 /// Hindi-first copy (TODO(F1): consolidate into lib/l10n/strings.dart).
 const Map<String, String> addressStringsHi = {
-  'title': 'Addresses',
+  'title': 'Pate',
   'addTitle': 'Naya address',
   'editTitle': 'Address badlein',
   'emptyTitle': 'Koi address nahi',

@@ -101,7 +101,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   /// Schedule ask-once: home pre-selects; checkout shows a read-only
   /// recap with Badlein (no re-ask). Once-orders collapse to
   /// Address → Pay (schedule step only for recurring).
-  List<String> get _titles => _isOnce ? const ['Address', 'Pay'] : _stepTitles;
+  List<String> get _titles =>
+      _isOnce ? const ['Pata', 'Bhugtan'] : _stepTitles;
   int get _payStepIdx => _isOnce ? 1 : 2;
 
   /// Recap editor toggle (once pay step): chips appear only on tap.

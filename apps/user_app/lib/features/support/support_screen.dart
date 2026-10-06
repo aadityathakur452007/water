@@ -19,7 +19,7 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 
 const Map<String, String> supportStringsHi = {
-  'title': 'Support',
+  'title': 'Madad',
   'waTitle': 'WhatsApp par madad',
   'waSub': '8AM–8PM • orders, delivery, jar sab kuch',
   'faqTitle': 'Aksar poochhe jaane wale sawaal',

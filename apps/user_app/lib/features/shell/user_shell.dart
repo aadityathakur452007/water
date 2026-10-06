@@ -213,12 +213,12 @@ class _UserShellState extends State<UserShell> {
           NavigationDestination(
             icon: Icon(Icons.receipt_long_outlined),
             selectedIcon: Icon(Icons.receipt_long),
-            label: 'Orders',
+            label: 'Order',
           ),
           NavigationDestination(
             icon: Icon(Icons.support_agent_outlined),
             selectedIcon: Icon(Icons.support_agent),
-            label: 'Support',
+            label: 'Madad',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
