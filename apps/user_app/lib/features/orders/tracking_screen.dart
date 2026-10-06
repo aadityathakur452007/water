@@ -250,7 +250,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
             if (order == null) {
               if (widget.controller.status ==
                   OrdersListStatus.loading) {
-                return const Center(child: CircularProgressIndicator());
+                // Phase 9 §9.1: tracker-shaped skeleton (was a bare
+                // spinner) — same blueTint rhythm as the orders list.
+                return const _TrackingSkeleton();
               }
               return Center(
                 child: Padding(
@@ -499,20 +501,52 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        color: filled ? OrdersTokens.blue : OrdersTokens.white,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: filled ? OrdersTokens.blue : OrdersTokens.border,
-          width: 2,
+    // Phase 9 §9.1: the fill change pops (scale) + the check fades in —
+    // 200ms, transform + opacity only. Static when reduced motion is on
+    // (the color still flips instantly, so state never depends on motion).
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          color: filled ? OrdersTokens.blue : OrdersTokens.white,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: filled ? OrdersTokens.blue : OrdersTokens.border,
+            width: 2,
+          ),
+        ),
+        child: filled
+            ? const Icon(Icons.check, size: 12, color: OrdersTokens.white)
+            : null,
+      );
+    }
+    return AnimatedScale(
+      scale: filled ? 1.0 : 0.8,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          color: filled ? OrdersTokens.blue : OrdersTokens.white,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: filled ? OrdersTokens.blue : OrdersTokens.border,
+            width: 2,
+          ),
+        ),
+        child: AnimatedOpacity(
+          opacity: filled ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: const Icon(
+            Icons.check,
+            size: 12,
+            color: OrdersTokens.white,
+          ),
         ),
       ),
-      child: filled
-          ? const Icon(Icons.check, size: 12, color: OrdersTokens.white)
-          : null,
     );
   }
 }
@@ -534,6 +568,37 @@ class _Connector extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TrackingSkeleton extends StatelessWidget {
+  const _TrackingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    // Mirrors the loaded layout (header card + tracker card + bill card)
+    // so content replaces boxes 1:1 with no layout pop.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _skelBox(64),
+          const SizedBox(height: 16),
+          _skelBox(132),
+          const SizedBox(height: 16),
+          _skelBox(88),
+        ],
+      ),
+    );
+  }
+
+  static Widget _skelBox(double height) => Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: OrdersTokens.blueTint,
+          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        ),
+      );
 }
 
 class _WindowCard extends StatelessWidget {

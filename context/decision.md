@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-091 | 2026-10-06 | Phase 9 polish notes: 3 new skeletons (stop-detail already had one); 200ms gated tracker fill; admin reduce-guard + change-only CountUp on dashboard KPIs; ≤5s assessment recorded | Accepted | user_app tracking/subs/support/tests, admin_app styles/metric-cards/count-up, branch 029-remediation |
 | ADR-090 | 2026-10-06 | Phase 8 backend performance notes: 017/018 split indexes + 019 counters; spike→(c) + single-txn cash; L1+D1 limits + Retry-After; cached() 300s+ETag on 5 GETs | Accepted | workers/api migrations/vendor/scheduler/payment_repo/auth/errors/caching/tests, branch 029-remediation |
 | ADR-089 | 2026-10-05 | Phase 7 customer UX notes: clipboard kept; full bilingual; schedule allowlist + estimate endpoint; Address→Pay collapse + recap; confirm breakup/UPI; identity revalidation; slots LOUD; a11y full sweep | Accepted | workers/api subs/tests, user_app booking/orders/support/subs/profile/addresses/auth/shell/tests, admin_app revoke dialog, branch 029-remediation |
 | ADR-088 | 2026-10-05 | Phase 6 admin truth notes: users counts ride list read; vendors reviewHold live; dispatch from reco aggregates; KPI wired; skeletons replace null blanks; shared 429/offline copies | Accepted | workers/api admin/tests, admin_app dashboard screens/hooks/types/fixtures, branch 029-remediation |
@@ -145,6 +146,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-091: Phase 9 premium polish notes
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Phase 9 spec (`Feature_docs/platform-audit/specs/phase-09-polish.md`) on branch `029-remediation`. Owner answers locked: expanded skeletons (tracking+subs+support+stop), 200ms tracker fill, cheap KPI count-up, assess-and-device 5s test. Design approved before implementation.
+- **Options considered**: (1) Stop-detail skeleton (chosen verify-present — skeleton boxes in route rhythm already exist, zero churn beats a rewrite). (2) Tracker fill via color tween (rejected — violates transform+opacity-only; chosen scale-pop + check-fade, state still instant without motion). (3) Analytics kpi-matrix counters (scoped out — pre-formatted strings would need a refactor; dashboard MetricCards are the primary KPIs). (4) Mount 0→value count-up (rejected — SSR flash/mismatch risk; chosen change-only animation, mount renders final). (5) New animation deps (rejected — flutter_animate stays user-only, vendor hand-rolled cascade upheld, web uses rAF + CSS).
+- **Decision**: `_TrackingSkeleton` (header+tracker+bill blocks) + `_SubsSkeleton` (3 rows) + `_ComplaintsSkeleton` (2 compact) reusing the orders blueTint rhythm; gated 200ms `_Dot` transition; global reduce-guard in `styles.css` (no `ui/` edits); co-located `count-up.tsx` on the 4 dashboard KPIs; 5 new widget tests in `test/phase09_polish_test.dart`. Verify: user 129 + vendor 69 green, both analyzes clean, backend 304 untouched.
+- **Why**: Every §9.1 item proven against current code first (most motion/skeleton/toast infra already existed from Phases 4/6/7); only verified gaps touched with the smallest diffs on existing rhythms; nothing decorative, nothing library-added.
+- **Consequences**: Owner owes admin `npm run check/build`, reduced-motion emulation + hardware confirm, vendor ≤5s device confirm, all prior carry items. ≤5s code assessment: Route (one CTA per state: sync→triple→done) · Stop (triple/cash/PoD actions inline) · Earnings (read-only jama/baaki) · Support (one action per ticket) · Profile (duty switch + slots) — every tab answers "what now" above the fold.
+- **Affects**: user_app tracking_screen/subs/support/tests, admin_app styles/metric-cards/count-up, branch 029-remediation
 
 ### ADR-090: Phase 8 backend performance notes
 - **Date**: 2026-10-06

@@ -374,12 +374,8 @@ class _SupportScreenState extends State<SupportScreen> {
             listenable: _c,
             builder: (context, _) {
               if (_c.status == ComplaintStatus.loading && _c.items.isEmpty) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: CircularProgressIndicator(),
-                  ),
-                );
+                // Phase 9 §9.1: compact skeleton (was a bare spinner).
+                return const _ComplaintsSkeleton();
               }
               // Error branch (was: silent 'none') — message + retry.
               if (_c.status == ComplaintStatus.error && _c.items.isEmpty) {
@@ -466,9 +462,31 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 }
 
+/// Phase 9 §9.1: compact skeleton for the complaints section
+/// (same blueTint boxes as the orders list).
+class _ComplaintsSkeleton extends StatelessWidget {
+  const _ComplaintsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < 2; i++)
+          Container(
+            height: 64,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.blueTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// One FAQ row (expand/collapse, hairline border, no accordion deps).
-class _Faq extends StatefulWidget {
-  const _Faq({required this.q, required this.a});
+class _Faq extends StatefulWidget {  const _Faq({required this.q, required this.a});
 
   final String q;
   final String a;

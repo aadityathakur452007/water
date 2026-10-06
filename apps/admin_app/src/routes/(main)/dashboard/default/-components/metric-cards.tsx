@@ -7,6 +7,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { num, rupees } from "@/lib/money";
 
 import { useOverview } from "./overview-data";
+import { CountUp } from "./count-up";
 
 export function MetricCards() {
   const { data, isError } = useOverview();
@@ -47,7 +48,9 @@ export function MetricCards() {
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-1">
-          <div className="font-medium text-3xl tabular-nums leading-none tracking-tight">{rupees(today.gmv_paise)}</div>
+          <div className="font-medium text-3xl tabular-nums leading-none tracking-tight">
+            <CountUp value={today.gmv_paise} format={rupees} />
+          </div>
           <p className="text-muted-foreground text-sm">
             {`${num(today.delivered)} delivered · ${num(today.cancelled)} cancelled · ${num(today.failed)} failed`}
           </p>
@@ -70,7 +73,9 @@ export function MetricCards() {
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-1">
-          <div className="font-medium text-3xl tabular-nums leading-none tracking-tight">{num(today.orders)}</div>
+          <div className="font-medium text-3xl tabular-nums leading-none tracking-tight">
+            <CountUp value={today.orders} format={num} />
+          </div>
           <p className="text-muted-foreground text-sm">
             {`UPI ${num(today.upi_orders)} · COD ${num(today.cod_orders)}`}
           </p>
@@ -91,7 +96,7 @@ export function MetricCards() {
         </CardHeader>
         <CardContent className="flex flex-col gap-1">
           <div className="font-medium text-3xl tabular-nums leading-none tracking-tight">
-            {rupees(money.deposit_liability_paise)}
+            <CountUp value={money.deposit_liability_paise} format={rupees} />
           </div>
           <p className="text-muted-foreground text-sm">Refundable ₹150 per jar liability</p>
         </CardContent>
@@ -107,7 +112,7 @@ export function MetricCards() {
         </CardHeader>
         <CardContent className="flex flex-col gap-1">
           <div className="font-medium text-3xl tabular-nums leading-none tracking-tight">
-            {rupees(money.dues_paise)}
+            <CountUp value={money.dues_paise} format={rupees} />
           </div>
           <div className="flex gap-2">
             <button

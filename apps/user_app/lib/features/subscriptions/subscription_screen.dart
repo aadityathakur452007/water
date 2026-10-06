@@ -353,7 +353,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         listenable: c,
         builder: (context, _) {
           if (c.status == SubStatus.loading && c.items.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            // Phase 9 §9.1: list skeleton (was a bare spinner) — same
+            // blueTint rhythm as the orders list.
+            return const _SubsSkeleton();
           }
           if (c.status == SubStatus.error && c.items.isEmpty) {
             return Center(
@@ -548,6 +550,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Phase 9 §9.1: first-load skeleton matching the sub-row rhythm
+/// (same blueTint boxes as the orders list).
+class _SubsSkeleton extends StatelessWidget {
+  const _SubsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      itemCount: 3,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => Container(
+        height: 88,
+        decoration: BoxDecoration(
+          color: ShodashaTheme.blueTint,
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
       ),
     );
   }
