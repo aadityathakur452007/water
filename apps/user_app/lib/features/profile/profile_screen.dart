@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import 'payment_history_screen.dart';
 
 const Map<String, String> profileStringsHi = {
   'title': 'Profile',
@@ -25,13 +26,15 @@ const Map<String, String> profileStringsHi = {
   'returnSub': '10 working days me pickup + refund',
   'returnQty': 'Kitni jar wapas karni hain?',
   'returnPick': 'Pickup address',
+  'returnUpi': 'UPI ID (Deposit refund ke liye)',
   'returnSend': 'Request bhejein',
-  'returnSent': 'Request darj — 10 working days me pickup',
+  'returnSent': 'Request darj — pickup ke baad UPI par refund',
   'langTitle': 'Bhasha',
   'langHi': 'Hindi',
   'langEn': 'English',
   'subsLink': 'Subscriptions',
   'addrLink': 'Pate',
+  'paymentsLink': 'Mere Payments / Hisaab',
   'logout': 'Logout karein',
   'logoutConfirmTitle': 'Logout karein?',
   'logoutConfirmBody': 'Order track karne ke liye dobara login karna hoga.',
@@ -57,13 +60,15 @@ const Map<String, String> profileStringsEn = {
   'returnSub': 'Pickup + refund in 10 working days',
   'returnQty': 'How many jars to return?',
   'returnPick': 'Pickup address',
+  'returnUpi': 'UPI ID (For deposit refund)',
   'returnSend': 'Send request',
-  'returnSent': 'Request filed — pickup within 10 working days',
+  'returnSent': 'Request filed — deposit refund to UPI upon pickup',
   'langTitle': 'Language',
   'langHi': 'Hindi',
   'langEn': 'English',
   'subsLink': 'Subscriptions',
   'addrLink': 'Addresses',
+  'paymentsLink': 'My Payments & Deposits',
   'logout': 'Log out',
   'logoutConfirmTitle': 'Log out?',
   'logoutConfirmBody': 'You will need to log in again to track orders.',
@@ -154,11 +159,12 @@ class ProfileController extends ChangeNotifier {
   Future<String?> requestReturn({
     required int qty,
     required String addressId,
+    String? upiId,
   }) async {
     _busy = true;
     _notify();
     try {
-      await _api.createReturn(qty: qty, addressId: addressId);
+      await _api.createReturn(qty: qty, addressId: addressId, upiId: upiId);
       return null;
     } on ApiException catch (e) {
       return e.isNetwork ? 'offline' : 'errReturn';
@@ -447,6 +453,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       onTap: widget.onOpenSubscriptions,
                     ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.receipt_long_outlined,
+                        color: ShodashaTheme.ink,
+                      ),
+                      title: Text(_c.t('paymentsLink')),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: ShodashaTheme.muted,
+                      ),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const PaymentHistoryScreen(),
+                          ),
+                        );
+                      },
+                    ),
                     const Divider(),
                     // Language toggle (Hindi default, English fallback).
                     SwitchListTile(
@@ -545,13 +570,18 @@ class _ReturnSheet extends StatefulWidget {
 
 class _ReturnSheetState extends State<_ReturnSheet> {
   final _address = TextEditingController();
+  final _upi = TextEditingController();
   int _qty = 1;
 
-  bool get _valid => _qty >= 1 && _address.text.trim().isNotEmpty;
+  bool get _valid =>
+      _qty >= 1 &&
+      _address.text.trim().isNotEmpty &&
+      _upi.text.trim().isNotEmpty;
 
   @override
   void dispose() {
     _address.dispose();
+    _upi.dispose();
     super.dispose();
   }
 
@@ -560,6 +590,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
     final err = await widget.controller.requestReturn(
       qty: _qty,
       addressId: _address.text.trim(),
+      upiId: _upi.text.trim(),
     );
     if (!mounted) return;
     Navigator.of(context).pop(err); // null = success
@@ -624,11 +655,21 @@ class _ReturnSheetState extends State<_ReturnSheet> {
               TextField(
                 controller: _address,
                 onChanged: (_) => setState(() {}),
-                // WHY: 16px stops iOS auto-zoom (mobile-native A4).
                 style: const TextStyle(fontSize: 16),
                 decoration: InputDecoration(
                   labelText: c.t('returnPick'),
                   hintText: 'address id ya Home/Office',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _upi,
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(fontSize: 16),
+                decoration: InputDecoration(
+                  labelText: c.t('returnUpi'),
+                  hintText: 'jaise: 9876543210@upi ya name@okhdfcbank',
+                  helperText: 'Security deposit refund isi UPI par transfer hoga',
                 ),
               ),
               const SizedBox(height: 14),

@@ -6,7 +6,7 @@ auth (HMAC only, ssdlc); everything else uses ``get_current_user`` /
 from the session, never the body (H1).
 """
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
 from app.adapters.upi import get_provider
@@ -90,6 +90,12 @@ async def ledger_me(conn=Depends(get_db_conn), user=Depends(get_current_user)):
         "wallet_held": max(0, paid - refunded),
         "dues": int(led.get("dues", 0)),
     }
+
+
+@router.get("/payments/me")
+async def payments_me(limit: int = Query(default=50, ge=1, le=100),
+                      conn=Depends(get_db_conn), user=Depends(_user)):
+    return {"data": await PaymentRepo(conn).list_user_payments(_uid(user), limit=limit)}
 
 
 @router.get("/invoices/{order_id}")

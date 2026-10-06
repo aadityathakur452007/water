@@ -7,6 +7,7 @@
 // States.md: skeleton → list → empty ("add your first address") → error.
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/api_client.dart';
@@ -730,19 +731,43 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       setState(() {
         _lat = loc.latitude;
         _lng = loc.longitude;
-        if (_street.text.trim().isEmpty && loc.street != null) {
+        if (loc.street != null && loc.street!.isNotEmpty) {
           _street.text = loc.street!;
         }
-        if (_area.text.trim().isEmpty && loc.area != null) {
+        if (loc.area != null && loc.area!.isNotEmpty) {
           _area.text = loc.area!;
         }
-        if (_line.text.trim().isEmpty) _line.text = loc.displayLabel;
-        if (_pincode.text.trim().isEmpty && loc.postalCode != null) {
+        if (loc.displayLabel.isNotEmpty) {
+          _line.text = loc.displayLabel;
+        }
+        if (loc.postalCode != null && loc.postalCode!.isNotEmpty) {
           _pincode.text = loc.postalCode!;
         }
       });
     } on LocationError catch (e) {
       if (!mounted) return;
+      if (e.type == LocationErrorType.reverseGeocodeFailed) {
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 10),
+            ),
+          );
+          if (mounted) {
+            setState(() {
+              _lat = pos.latitude;
+              _lng = pos.longitude;
+              if (_line.text.trim().isEmpty) {
+                _line.text =
+                    'GPS (${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)})';
+              }
+              _locateError = null;
+            });
+            return;
+          }
+        } catch (_) {}
+      }
       setState(() => _locateError = e.userMessage);
     } finally {
       if (mounted) setState(() => _locating = false);
@@ -905,7 +930,31 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                             ? StepState.complete
                             : StepState.indexed,
                         content: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            OutlinedButton.icon(
+                              onPressed: _locating ? null : _useCurrentLocation,
+                              icon: _locating
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.my_location, size: 18),
+                              label: const Text('📍 Current Location se pata bharein'),
+                            ),
+                            if (_locateError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, bottom: 4),
+                                child: Text(
+                                  _locateError!,
+                                  style: const TextStyle(
+                                    color: ShodashaTheme.danger,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 10),
                             TextField(
                               controller: _pincode,
                               focusNode: _pincodeFocus,

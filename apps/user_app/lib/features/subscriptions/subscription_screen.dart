@@ -373,24 +373,33 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             );
           }
           if (c.items.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+            return RefreshIndicator(
+              onRefresh: c.load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
                 children: [
-                  Text(
-                    subStringsHi['emptyTitle']!,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 17,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    subStringsHi['emptyHint']!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: ShodashaTheme.muted,
-                      fontSize: 14,
+                  const _MonthlyPlanCalculator(),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Column(
+                      children: [
+                        Text(
+                          subStringsHi['emptyTitle']!,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subStringsHi['emptyHint']!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: ShodashaTheme.muted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -572,6 +581,265 @@ class _SubsSkeleton extends StatelessWidget {
           color: ShodashaTheme.blueTint,
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
+      ),
+    );
+  }
+}
+
+/// Interactive Monthly Plan Calculator & Information Card.
+/// Explains the 30 jars × ₹30 = ₹900/mo math, deposit refund, and Prepaid vs Postpaid modes.
+class _MonthlyPlanCalculator extends StatefulWidget {
+  const _MonthlyPlanCalculator();
+
+  @override
+  State<_MonthlyPlanCalculator> createState() => _MonthlyPlanCalculatorState();
+}
+
+class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
+  int _jarsPerDelivery = 1;
+  int _deliveriesPerMonth = 30; // 30 = Daily, 15 = Alternate, 8 = Twice a week
+  bool _isPrepaid = true;
+  static const int _ratePerJar = 30;
+  static const int _depositPerJar = 150;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalJars = _jarsPerDelivery * _deliveriesPerMonth;
+    final waterBill = totalJars * _ratePerJar;
+    final deposit = _jarsPerDelivery * _depositPerJar;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.bg,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.calculate_outlined, color: ShodashaTheme.blue, size: 22),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Mahina Subscription Calculator',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.blueTint,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'Plans',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: ShodashaTheme.blue,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '1. Roz kitne jar chahiye?',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [1, 2, 3].map((qty) {
+              final sel = _jarsPerDelivery == qty;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text('$qty Jar${qty > 1 ? "s" : ""}'),
+                  selected: sel,
+                  selectedColor: ShodashaTheme.blueTint,
+                  onSelected: (_) => setState(() => _jarsPerDelivery = qty),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '2. Delivery frequency:',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('Rozana (30 din)'),
+                selected: _deliveriesPerMonth == 30,
+                selectedColor: ShodashaTheme.blueTint,
+                onSelected: (_) => setState(() => _deliveriesPerMonth = 30),
+              ),
+              ChoiceChip(
+                label: const Text('Alternate (15 din)'),
+                selected: _deliveriesPerMonth == 15,
+                selectedColor: ShodashaTheme.blueTint,
+                onSelected: (_) => setState(() => _deliveriesPerMonth = 15),
+              ),
+              ChoiceChip(
+                label: const Text('Hafte me 2 din (8 din)'),
+                selected: _deliveriesPerMonth == 8,
+                selectedColor: ShodashaTheme.blueTint,
+                onSelected: (_) => setState(() => _deliveriesPerMonth = 8),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '3. Payment Mode:',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _isPrepaid = true),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _isPrepaid ? ShodashaTheme.blueTint : ShodashaTheme.bg,
+                      border: Border.all(
+                        color: _isPrepaid ? ShodashaTheme.blue : ShodashaTheme.border,
+                        width: _isPrepaid ? 2 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Prepaid Monthly',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Mahine ki shuruat me UPI se',
+                          style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _isPrepaid = false),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: !_isPrepaid ? ShodashaTheme.blueTint : ShodashaTheme.bg,
+                      border: Border.all(
+                        color: !_isPrepaid ? ShodashaTheme.blue : ShodashaTheme.border,
+                        width: !_isPrepaid ? 2 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Postpaid / Per-day',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Har delivery par ya hisaab se',
+                          style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Calculation Breakdown
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+              border: Border.all(color: ShodashaTheme.border),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '$totalJars Jars ($totalJars × ₹$_ratePerJar)',
+                      style: const TextStyle(fontSize: 13, color: ShodashaTheme.ink),
+                    ),
+                    Text(
+                      '₹$waterBill/month',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Refundable Deposit ($_jarsPerDelivery jar)',
+                      style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+                    ),
+                    Text(
+                      '₹$deposit (one-time)',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: ShodashaTheme.blue,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 16, color: ShodashaTheme.border),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total Mahina Kharcha:',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                    Text(
+                      '₹$waterBill',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: ShodashaTheme.blue,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '💡 Service chhodne par Jar Deposit aapke UPI par turant refund ho jata hai.',
+                  style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

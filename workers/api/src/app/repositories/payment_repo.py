@@ -101,6 +101,18 @@ class PaymentRepo:
         ).fetchone()
         return int(row["s"])
 
+    async def list_user_payments(self, user_id: str, limit: int = 50) -> list[dict]:
+        rows = (
+            await self._conn.execute(
+                "SELECT p.id, p.order_id, p.amount, p.method, p.provider_ref, p.status, p.created_at, p.verified_at,"
+                " COALESCE(o.n, 0) as jars_count, COALESCE(o.deposit_due, 0) as deposit_due, COALESCE(o.water_bill, 0) as water_bill"
+                " FROM payments p LEFT JOIN orders o ON o.id = p.order_id"
+                " WHERE p.user_id = ? ORDER BY p.created_at DESC LIMIT ?",
+                (user_id, max(1, min(int(limit), 100))),
+            )
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     async def _order(self, order_id: str) -> dict:
         row = (
             await self._conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))

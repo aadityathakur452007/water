@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../profile/payment_history_screen.dart';
 import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'tracking_screen.dart';
@@ -84,6 +85,22 @@ class _OrdersScreenState extends State<OrdersScreen> {
             color: OrdersTokens.ink,
           ),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Mere Payments / Hisaab',
+            icon: const Icon(
+              Icons.receipt_long_outlined,
+              color: OrdersTokens.ink,
+            ),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const PaymentHistoryScreen(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(

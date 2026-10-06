@@ -113,11 +113,56 @@ flowchart TD
     E --> F[Return request + 10-day pickup + refund]
 ```
 
-### Flow: [User flow name]
-**Goal**: [what the user wants]
-**Steps**: [brief description]
+### Flow: Customer Payment Visibility & Receipts (ADR-100)
+**Goal**: User views verified transaction history, split between water bills and jar deposits.
+**Steps**: User opens Profile -> taps "Mere Payments / Hisaab" (or taps receipt icon in Orders) -> `GET /v1/payments/me` -> displays card list with status badges (Paid / Refunded), date, order ID, amount, and deposit breakdown -> Pull-to-refresh for real-time verification.
 
 ```mermaid
+flowchart LR
+    A([User in Profile / Orders]) --> B[Tap Mere Payments]
+    B --> C[ApiClient.listUserPayments]
+    C --> D[GET /v1/payments/me]
+    D --> E[PaymentHistoryScreen: Receipts, Deposits, Status]
+```
+
+### Flow: Service Exit & Direct UPI Deposit Repay (ADR-100)
+**Goal**: Customer terminating service requests jar return and direct deposit return to UPI ID without manual bank IFSC hurdles.
+**Steps**: User opens Profile -> taps "Request bhejein" on Jar Return card -> inputs jar return count, pickup address, and UPI ID -> calls `POST /v1/returns` with `upi_id` -> vendor picks up jars -> Admin dashboard views picked return with user's `upi_id` -> Admin triggers `POST /admin/returns/{id}/refund` (method: upi) -> security deposit returned to user's UPI.
+
+```mermaid
+flowchart TD
+    A([Customer leaving service]) --> B[Open Jar Return Sheet]
+    B --> C[Enter Empties Qty + Address + UPI ID]
+    C --> D[POST /v1/returns with upi_id]
+    D --> E[Vendor routes pickup stop & collects jars]
+    E --> F[Return status: picked]
+    F --> G[Admin triggers UPI refund to saved upi_id]
+    G --> H([Status: refunded + deposit reversed])
+```
+
+### Flow: Robust GPS & Map Pinpoint Resolution (ADR-100)
+**Goal**: User adding address acquires instant, meter-accurate location without stuck New Delhi defaults or dropped coordinates.
+**Steps**: User clicks "Current Location" or "Map par pin" -> checks GPS enabled (prompts settings if off) -> fetches instant `getLastKnownPosition` (0ms response) to center map on local city -> high-accuracy GPS fix updates pin -> coordinates badge displays live -> even if reverse-geocoding times out, exact `(lat, lng)` is preserved and user text is auto-filled.
+
+```mermaid
+flowchart LR
+    A([Tap Location / Map]) --> B{GPS Enabled?}
+    B -- No --> C[Prompt GPS Settings]
+    B -- Yes --> D[Get Last Known Position: instant jump]
+    D --> E[High-accuracy GPS Fix]
+    E --> F[Preserve Lat/Lng + Autofill Address Line & Pin]
+```
+
+### Flow: Vendor Cash Custody vs Commission Split (ADR-100)
+**Goal**: Delivery vendor and agency have crystal-clear separation between agency cash custody and vendor earned delivery wages.
+**Steps**: Vendor finishes stops (`POST /vendor/stops/{id}/cash` or UPI) -> `GET /vendor/earnings` returns `cash_total`, `in_hand` (agency cash custody), and `earned_payout` (`stops_done × per_stop_fee`) -> Vendor Earnings screen renders Card 1 (Aapki Kamai) and Card 2 (Agency Cash In-Hand Custody to handover to admin).
+
+```mermaid
+flowchart LR
+    A([Vendor completes deliveries]) --> B[GET /vendor/earnings]
+    B --> C[Card 1: Aapki Kamai - Earned Commission]
+    B --> D[Card 2: Agency Cash Custody - In-Hand to Handover]
+```
 flowchart LR
     A([User lands on /]) --> B[Browses X]
     B --> C{Has account?}

@@ -19,6 +19,9 @@ class EarningsController extends ChangeNotifier {
   int _stopsDone = 0;
   int _cashTotal = 0;
   int _upiTotal = 0;
+  int _inHand = 0;
+  int _perStopFee = 0;
+  int _earnedPayout = 0;
   int _flaggedStops = 0;
   int _flaggedHold = 0;
   String? _note;
@@ -28,6 +31,9 @@ class EarningsController extends ChangeNotifier {
   int get stopsDone => _stopsDone;
   int get cashTotal => _cashTotal;
   int get upiTotal => _upiTotal;
+  int get inHand => _inHand;
+  int get perStopFee => _perStopFee;
+  int get earnedPayout => _earnedPayout;
   int get flaggedStops => _flaggedStops;
   int get flaggedHold => _flaggedHold;
   String? get note => _note;
@@ -41,6 +47,9 @@ class EarningsController extends ChangeNotifier {
       _stopsDone = (raw['stops_done'] as num?)?.toInt() ?? 0;
       _cashTotal = (raw['cash_total'] as num?)?.toInt() ?? 0;
       _upiTotal = (raw['upi_total'] as num?)?.toInt() ?? 0;
+      _inHand = (raw['in_hand'] as num?)?.toInt() ?? _cashTotal;
+      _perStopFee = (raw['per_stop_fee'] as num?)?.toInt() ?? 0;
+      _earnedPayout = (raw['earned_payout'] as num?)?.toInt() ?? 0;
       _flaggedStops = (raw['flagged_stops'] as num?)?.toInt() ?? 0;
       _flaggedHold = (raw['flagged_hold'] as num?)?.toInt() ?? 0;
       _note = raw['note'] as String?;

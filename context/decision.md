@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-100 | 2026-10-06 | Customer Payment Visibility, Direct UPI Exit Refund, Location/Map Accuracy Overhaul, Subscription Calculator & Vendor Custody Split | Accepted | workers/api (payments/returns/021/vendor_service), user_app (payment_history/address_screen/map_picker/subs/profile), vendor_app (earnings) |
 | ADR-099 | 2026-10-06 | Razorpay secrets provisioned + worker deployed + live webhook HMAC verified 200/401 + D1 migrations 002-020 verified | Accepted | workers/api prod secrets, water worker deploy, webhook verify, prod D1 |
 | ADR-098 | 2026-10-06 | Git hygiene: ignore root .idea, .freebuff, .utim_tmp, and *.iml | Accepted | .gitignore, repo root |
 | ADR-097 | 2026-10-06 | User signup is name+email+phone (no OTP): 020 users.email + tolerant reads/writes + Flutter email field | Accepted | workers/api 020/user_repo/auth_service/auth.py/tests, user_app auth screen/controller/tests, prod D1 |
@@ -154,6 +155,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-100: Customer Payment Visibility, Direct UPI Exit Refund, Location/Map Overhaul, Monthly Plan Calculator, Vendor Custody Split
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: User requested: (1) In-app customer payment visibility; (2) Direct UPI refund flow for exit/security deposit repay; (3) Location service & Map picker pinpoint overhaul fixing New Delhi stuck fallbacks and reverse geocode drops; (4) Monthly subscription calculation breakdown (30 jars × ₹30 = ₹900/mo) supporting both Prepaid UPI and Postpaid/Per-delivery; (5) Vendor custody cash (`in_hand`) vs earned delivery payout (`earned_payout`) distinction. User approved design decisions: dedicated sub-screen under Profile, direct UPI ID for refunds, both prepaid and postpaid models.
+- **Options considered**: (1) Embedded payments list in Profile screen vs dedicated sub-screen (chosen dedicated sub-screen `PaymentHistoryScreen` accessible from Profile and Orders AppBar). (2) Bank account IFSC entry for refunds vs direct UPI ID (chosen direct UPI ID — zero IFSC typos, instantaneous repayment). (3) Dropping lat/lng coordinates when reverse geocoding times out vs retaining coordinates with graceful text fallback (chosen retaining coordinates with graceful fallback). (4) Mixing cash collections into vendor salary vs explicit agency cash custody (chosen strict split: `in_hand` custody for handover, `earned_payout` for vendor earnings).
+- **Decision**: Added `list_user_payments()` and `GET /v1/payments/me`; migration 021 adding `returns.upi_id` (applied to prod D1) and updated `POST /v1/returns`; built `PaymentHistoryScreen` with receipts, statuses, deposit splits, and pull-to-refresh; updated `_ReturnSheet` with UPI ID input; overhauled `MapPicker` (GPS enabled check, last-known position instant cache, zoom controls, coordinate pill); added direct location autofill in Address Stepper Step 1; added interactive `_MonthlyPlanCalculator` in `subscription_screen.dart`; split `in_hand` agency custody and `earned_payout` in vendor earnings screen; deployed live Worker `water` (Version `df796744-9b4f-47fe-a088-4f88ece91ae3`).
+- **Why**: Eliminates customer ambiguity on transactions, enables clean offboarding without stuck deposits, makes GPS address entry fast and reliable across India, and guarantees strict separation of agency cash vs vendor commissions.
+- **Consequences**: Zero regressions: 307 backend pytest green, 132 user app flutter tests green, 70 vendor app flutter tests green, both flutter analyzes clean (0 issues).
+- **Affects**: workers/api (payments/returns/021/vendor_service), user_app (payment_history/address_screen/map_picker/subs/profile/orders), vendor_app (earnings)
 
 ### ADR-099: Razorpay secrets provisioned, worker deployed, live webhook HMAC verified
 - **Date**: 2026-10-06

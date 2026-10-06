@@ -597,11 +597,22 @@ class VendorService:
                 flagged += 1
                 held_cash += c
                 held_upi += u
+        prof_row = (await self._conn.execute(
+            "SELECT in_hand, per_stop_fee FROM vendor_profile WHERE user_id = ?",
+            (vendor_id,),
+        )).fetchone()
+        in_hand = int(prof_row["in_hand"]) if prof_row and prof_row["in_hand"] is not None else 0
+        per_stop_fee = int(prof_row["per_stop_fee"]) if prof_row and prof_row["per_stop_fee"] is not None else 0
+        earned_payout = done * per_stop_fee
+
         return {
             "shift": day,
             "stops_done": done,
             "cash_total": cash,
             "upi_total": upi,
+            "in_hand": in_hand,
+            "per_stop_fee": per_stop_fee,
+            "earned_payout": earned_payout,
             "flagged_stops": flagged,
             "flagged_hold": held_cash + held_upi,  # §11: accrues, held out of payouts till cleared
             "note": "GPS-flagged stops accrue but are held out of payouts until admin clears the flag.",

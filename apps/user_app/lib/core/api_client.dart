@@ -350,15 +350,24 @@ class ApiClient {
   Future<Map<String, dynamic>> billingDues() async =>
       (await send('GET', '/billing/dues')) as Map<String, dynamic>;
 
-  /// POST /returns {qty, address_id} → request id + 10-working-day SLA.
+  /// POST /returns {qty, address_id, upi_id} → request id + 10-working-day SLA.
   Future<Map<String, dynamic>> createReturn({
     required int qty,
     required String addressId,
+    String? upiId,
   }) async =>
       (await send('POST', '/returns', body: {
         'qty': qty,
         'address_id': addressId,
+        if (upiId != null && upiId.trim().isNotEmpty) 'upi_id': upiId.trim(),
       })) as Map<String, dynamic>;
+
+  /// GET /payments/me → user payment history list
+  Future<List<dynamic>> listUserPayments({int limit = 50}) async {
+    final res = await send('GET', '/payments/me', query: {'limit': '$limit'});
+    if (res is List<dynamic>) return res;
+    return ((res as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
 
   // ── Complaints (§4.7, no-photo v1: reason codes + text ≤500) ──────────────
   Future<Map<String, dynamic>> createComplaint({

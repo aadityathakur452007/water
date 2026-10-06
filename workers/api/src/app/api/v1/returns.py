@@ -35,6 +35,7 @@ SLA_WORKING_DAYS = 10  # Bisleri rulebook: pickup within 10 working days (E2)
 class ReturnIn(BaseModel):
     qty: int = Field(ge=1, le=30)
     address_id: str = Field(min_length=1)
+    upi_id: str | None = Field(default=None, max_length=100)
 
 
 def _sla_due(from_day: _dt.date | None = None) -> str:
@@ -67,13 +68,21 @@ async def create_return(payload: ReturnIn, user=Depends(_user),
         raise NotFoundError(message="Address not found.", details={"id": payload.address_id})
     rid, sla = uuid.uuid4().hex, _sla_due()
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    upi = (payload.upi_id or "").strip()
     with WRITE_LOCK:
         try:
-            await conn.execute(
-                "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
-                " VALUES (?, ?, ?, ?, 'requested', ?, ?)",
-                (rid, uid, int(payload.qty), payload.address_id, sla, now),
-            )
+            try:
+                await conn.execute(
+                    "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at, upi_id)"
+                    " VALUES (?, ?, ?, ?, 'requested', ?, ?, ?)",
+                    (rid, uid, int(payload.qty), payload.address_id, sla, now, upi),
+                )
+            except Exception:
+                await conn.execute(
+                    "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
+                    " VALUES (?, ?, ?, ?, 'requested', ?, ?)",
+                    (rid, uid, int(payload.qty), payload.address_id, sla, now),
+                )
             conn.commit()
         except Exception:
             conn.rollback()
