@@ -18,4 +18,5 @@ dev = [
     "workers-py",
     "workers-runtime-sdk",
     "pytest",
+    "pytest-asyncio",
 ]

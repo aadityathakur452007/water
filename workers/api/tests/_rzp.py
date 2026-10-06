@@ -38,6 +38,8 @@ def use_dummy_keys(monkeypatch):
     """Dummy Razorpay keys win over any local .env (pydantic env > file)."""
     for k, v in DUMMY_KEYS.items():
         monkeypatch.setenv(k, v)
+    from app.api.deps import get_settings  # noqa: PLC0415
+    get_settings.cache_clear()
 
 
 def stub_orders_api(monkeypatch, prefix="order_TEST"):

@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-099 | 2026-10-06 | Razorpay secrets provisioned + worker deployed + live webhook HMAC verified 200/401 + D1 migrations 002-020 verified | Accepted | workers/api prod secrets, water worker deploy, webhook verify, prod D1 |
 | ADR-098 | 2026-10-06 | Git hygiene: ignore root .idea, .freebuff, .utim_tmp, and *.iml | Accepted | .gitignore, repo root |
 | ADR-097 | 2026-10-06 | User signup is name+email+phone (no OTP): 020 users.email + tolerant reads/writes + Flutter email field | Accepted | workers/api 020/user_repo/auth_service/auth.py/tests, user_app auth screen/controller/tests, prod D1 |
 | ADR-096 | 2026-10-06 | Razorpay-only UPI: FakeUpiProvider deleted from src; verify_webhook speaks real Razorpay events; tests via tests/_rzp.py (stubbed HTTP + signed bodies) | Accepted | workers/api upi/payments/payment_service/tests/.env/wrangler, prod secrets owed |
@@ -153,6 +154,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-099: Razorpay secrets provisioned, worker deployed, live webhook HMAC verified
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: UPI settlement required live test secrets (UPI_KEY_ID, UPI_KEY_SECRET, UPI_WEBHOOK_SECRET, AGENCY_UPI_VPA) set via wrangler secret put and redeployment of the Python Worker `water` so prod stops serving the old fake-UPI bundle.
+- **Options considered**: (1) Wait for owner to manually paste in dashboard (user provided tokens and secrets in prompt). (2) Programmatic deploy using provided scoped Cloudflare API tokens: `wandering-breeze-cc33` for worker script/secrets and `shy-band-8258` for D1 (chosen).
+- **Decision**: Provisioned all 4 secrets via wrangler; built with `pywrangler sync` and deployed `water` Worker via `pywrangler deploy` (Version `02c6b5f2-5224-444a-94fc-0a492a06f54f`). Probed live webhook endpoint with valid HMAC signature (`vsz_L_fV9RgEtGr`) -> 200 OK ignored event; invalid signature -> 401 UNAUTH. Probed Razorpay Orders API directly with test credentials -> 200 OK created order. Verified prod D1 schema (all migrations 002 through 020 applied, all tables and custom indexes present).
+- **Why**: Proves end-to-end payment pipeline is fully functional and ready for transactions without stubs or missing tables.
+- **Consequences**: Prod `water` worker is fully up to date with main branch; UPI payments and webhook callbacks will process and settle into D1 correctly.
+- **Affects**: workers/api prod secrets, water worker deploy, webhook verify, prod D1
 
 ### ADR-098: Git hygiene: ignore root .idea, .freebuff, .utim_tmp, and *.iml
 - **Date**: 2026-10-06

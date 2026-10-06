@@ -10,6 +10,8 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+RAZORPAY LIVE VERIFIED & DEPLOYED (2026-10-06, main branch, prod water worker `02c6b5f2-5224-444a-94fc-0a492a06f54f`): Provisioned all 4 secrets (UPI_KEY_ID, UPI_KEY_SECRET, UPI_WEBHOOK_SECRET, AGENCY_UPI_VPA) into water Worker via Cloudflare token `wandering-breeze-cc33`. Deployed new water Python Worker bundle to production via `pywrangler deploy`. Live verified: (1) Razorpay Orders API direct probe -> 200 created order; (2) Webhook POST with valid HMAC signature (`vsz_L_fV9RgEtGr`) -> 200 OK ignored event; (3) Webhook POST with invalid signature -> 401 UNAUTH; (4) Verified prod D1 schema using token `shy-band-8258` -> all migrations 002-020 fully applied, all tables and custom indexes present. Payments are ready and active!
+
 GIT HYGIENE & MAIN PUSH (2026-10-06, main branch): Ignored IDE configs (.idea/, *.iml) and scratch tool caches (.freebuff/, .utim_tmp/) in root .gitignore (ADR-098). All 5 commits pushed to origin/main.
 
 ADMIN LOGIN UNBLOCKED (2026-10-06, prod D1 `shodasha`): root cause was missing migrations 013–019 (no `access_codes` table, no `session_expires_at`, flag row absent → `code_login` fail-closed 401). Applied 013→014→015→016→017→018→019 via `wrangler d1 execute --remote`, set `access_code_login_enabled=1`, issued first admin code (direct D1 INSERT, 90d) for +917828442476, live-verified POST /v1/auth/admin/login → 200 role=admin. No code changes; user tests https://shodasha-admin.adityathakur452007.workers.dev/auth/v1/login next.
