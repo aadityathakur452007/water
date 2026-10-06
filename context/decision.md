@@ -35,6 +35,9 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-097 | 2026-10-06 | User signup is name+email+phone (no OTP): 020 users.email + tolerant reads/writes + Flutter email field | Accepted | workers/api 020/user_repo/auth_service/auth.py/tests, user_app auth screen/controller/tests, prod D1 |
+| ADR-096 | 2026-10-06 | Razorpay-only UPI: FakeUpiProvider deleted from src; verify_webhook speaks real Razorpay events; tests via tests/_rzp.py (stubbed HTTP + signed bodies) | Accepted | workers/api upi/payments/payment_service/tests/.env/wrangler, prod secrets owed |
+| ADR-095 | 2026-10-06 | Prod admin-login unblock: apply D1 013–019 + flag=1 + bootstrap first admin code via direct D1 INSERT (audited doors need a session; live POST verified 200 role=admin) | Accepted | prod D1 shodasha, workers/api auth_service code_login, admin_app login |
 | ADR-094 | 2026-10-06 | CI release fix: AGP 9 configure<ApplicationExtension> + explicit java imports (bare android{} is a compile error under newDsl; newDsl opt-out rejected — dies in AGP 10) | Accepted | apps/user_app + vendor_app android/app/build.gradle.kts, main branch |
 | ADR-093 | 2026-10-06 | Re-verify + purge notes: 9 dead admin deps removed, SyncItem + searchCatalog deleted, Phase 7 revoke-dialog syntax break fixed (admin build green first time since Phase 0) | Accepted | admin_app package.json/lock + access-codes-table, workers/api vendor.py, user_app catalog, branch 029-remediation |
 | ADR-092 | 2026-10-06 | Phase 10 verification notes: window_start bucket fix (UPSERT was scattering); 4 gap tests; 17/18 break-in cells hold; §13 filled, §14 shrunk, dead-code resolved | Accepted | workers/api auth_service/tests, user_app catalog, Feature_docs/platform-audit/report.md, branch 029-remediation |
@@ -149,6 +152,36 @@
 ---
 
 ## Decision Entries
+
+### ADR-097: User signup name+email+phone (no OTP)
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Owner requires email at signup (name + email + phone, still no OTP). users table had no email column; phone stays the identity.
+- **Options considered**: (1) Email as second identity/unique (rejected — phone is the established identity, rate-limit key, and staff check; email is contact-only, no mail sender exists so verification is impossible). (2) Backfill/force on old rows (rejected — NOT NULL DEFAULT '' + fill-if-blank-once, same convention as 016 instructions). (3) Add email to every harness (rejected — mirrored session_repo's pre-014 tolerance: email-inclusive reads with base fallback, tolerant INSERT/UPDATE; only the register test harness applies 020).
+- **Decision**: 020_user_email.sql (apply-once ALTER, applied to prod D1) + _USER_COLS_EMAIL tolerant finds + tolerant create/fill + required email in UserRegisterIn/service (regex, ≤254, lowercased) + Flutter email field (16px, next-focus, focus-first-invalid) + controller/api/tests updated. Verify: backend 312 green, user_app 132 green + analyze clean.
+- **Why**: Smallest schema change that satisfies "name email phone, no OTP"; old DBs and old harnesses keep working by construction.
+- **Consequences**: Old app versions (pre-email) now get 400 on register → owner must cut a new APK from main; admin user-detail does not surface email yet (owed if wanted).
+- **Affects**: workers/api 020/user_repo/auth_service/auth.py/tests, user_app auth screen/controller/api/tests, prod D1
+
+### ADR-096: Razorpay-only UPI (fake deleted, real webhook protocol)
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: UPI could never settle real money: verify_webhook spoke a custom JSON shape no Razorpay client sends (missing created_at → every real event 401s), and FakeUpiProvider was a second provider to maintain. Prod D1 shows the proof: a link_sent UPI order from 10-03 never settled; today's UPI order stuck unpaid (no keys provisioned → 502).
+- **Options considered**: (1) Keep Fake for prod fallback (rejected — owner explicitly ordered all stubs removed; fail-closed-by-absence is strictly safer). (2) Keep custom webhook shape alongside Razorpay (rejected — unauthenticated custom shape is a forgery surface; Razorpay HMAC + our secret is the only authenticity that matters). (3) Test-local provider double (rejected — stub the HTTP boundary instead: httpx.post + signed real-shaped bodies in tests/_rzp.py, shared by all 5 payment test files).
+- **Decision**: Deleted FakeUpiProvider/_refuse_fake_in_prod/_seen_nonces/DuplicateWebhookError; get_provider() always returns RealUpiProvider (keys checked lazily, reads untouched); verify_webhook parses Razorpay payment.captured→approved / payment.failed→declined / else→IgnoredWebhook-200, HMAC + created_at freshness, payee=agency-by-construction; payments.py accepts X-Razorpay-Signature; UPI_PROVIDER var removed from docs; .env/wrangler document TEST keys + webhook URL. Verify: backend 312 green (was 308; delta = real-protocol tests).
+- **Why**: One provider, one protocol (the one Razorpay actually speaks); replay safety from the payments table (cross-isolate) instead of memory; tests hermetic without a prod stub.
+- **Consequences**: Owner owes Razorpay TEST keys (UPI_KEY_ID/SECRET, UPI_WEBHOOK_SECRET, AGENCY_UPI_VPA via `wrangler secret put`) + webhook URL registration in Razorpay dashboard; until then UPI intent/webhook 502/401 while dues/invoice/COD keep working. Razorpay event redelivery after paid → duplicate 200 no-op (proven by test).
+- **Affects**: workers/api upi/payments/payment_service/tests/.env/wrangler, prod secrets owed
+
+### ADR-095: Prod admin-login unblock (D1 was behind code)
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Admin UI showed "Invalid phone or code" + worker log POST /v1/auth/admin/login → 401. D1 probe: no `access_codes`/`vendor_access_codes`/`rate_counters` tables, no `sessions.session_expires_at`, no `stops.pod_otp/pod_attempts/items_json`, no `orders.instructions`, config lacked `access_code_login_enabled` — i.e. migrations 013–019 never applied, so `code_login` fail-closed (ssdlc: closed-by-default) on every attempt. Admin user +917828442476 existed.
+- **Options considered**: (1) Minimal 013+014 only (rejected — 015/016 columns + 017–019 indexes/counters are owed anyway and all apply cleanly; one ordered pass closes the whole gap). (2) Issue first code via admin API (impossible — chicken-egg: issuing needs an admin session; chosen direct D1 INSERT of sha256 hash, plaintext returned once, hash-only at rest, 90d expiry, masked hint `..last2`). (3) New Cloudflare token (rejected — provided `shy-band-8258` token verified working for D1; the other token is R2/S3, not needed).
+- **Decision**: Applied 013→019 in numeric order via `wrangler d1 execute --remote --file`, set `access_code_login_enabled='1'`, INSERTed one `expected_role='admin'` code row for the existing admin, verified masked row + live POST → 200 role=admin (tokens redacted, not stored). No repo code changed.
+- **Why**: Diagnose-before-write — every failure branch of `code_login` mapped to live D1 proof before touching prod; smallest possible prod write (migrations as shipped + one bootstrap row); secrets hygiene (plaintext shown once, only hash in DB).
+- **Consequences**: Admin login works; rotate/revoke codes from the admin panel (Access codes screen, audited) now that a session exists; vendor door rides the same flag; keep `vendor_access_enabled=0` (legacy fallback only). Watch: future migrations must be D1-applied in order — code ships unapplied by design.
+- **Affects**: prod D1 shodasha, workers/api auth_service code_login, admin_app login
 
 ### ADR-094: CI release fix (AGP 9 Gradle scripts)
 - **Date**: 2026-10-06
