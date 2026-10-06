@@ -10,6 +10,8 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+PHASE 7 DONE (2026-10-05, branch 029-remediation, uncommitted): customer UX in 3 splits — A honesty (tracker failed/rejected banners, window date, slots LOUD, subs allowlist + estimate endpoint + server Pay, confirm breakup/recap/UPI, identity revalidation, error branches + retry, 403/429) + Sunday-skip removal; B friction (Address→Pay collapse, recap+Badlein, 2-line bars, FAQ 014, full bilingual) ; C a11y (Semantics chips/grid/tracker, 16px fields, focus-first-error, 48dp theme, motion gates, revoke alertdialog, measured contrast) — backend 291 + user 123 + vendor 69 green, all analyzes clean. Owed owner: device walkthrough, calendar Hindi verify, admin check/build, prior carry items. Next: commit Phase 7 → Phase 8 design gate.
+
 PHASE 7 SPLIT A DONE (2026-10-05, branch 029-remediation, committed 812fac8): honesty — tracker failed/rejected banners (was deliveredBanner) + window date + tracker Semantics + slots LOUD (banner/retry/Aage-block) + subs schedule allowlist + first-cycle server estimate endpoint + Pay server amount + confirm breakup/recap/UPI what-next + scrollable sheet + address identity revalidation + support/profile/tracking error branches + checkout retry + 403/429 copies + Sunday-skip removal — backend 291 + user 122 green, analyzes clean. Next: Split B (friction + bilingual), then Split C (a11y).
 
 PHASE 6 RE-VERIFY (2026-10-05, branch 029-remediation, committed 77c94b5): line-by-line pass over §6.1–§6.5 — backend 290 green; 4 fixes: over-120-col wraps, leaderboard caption corrected (custody is unpaged → top-5 by load), QualityCheck query-error state, funnel pack-pipeline states included. Next: commit fixes → Phase 7 design gate.

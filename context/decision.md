@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-089 | 2026-10-05 | Phase 7 customer UX notes: clipboard kept; full bilingual; schedule allowlist + estimate endpoint; Address→Pay collapse + recap; confirm breakup/UPI; identity revalidation; slots LOUD; a11y full sweep | Accepted | workers/api subs/tests, user_app booking/orders/support/subs/profile/addresses/auth/shell/tests, admin_app revoke dialog, branch 029-remediation |
 | ADR-088 | 2026-10-05 | Phase 6 admin truth notes: users counts ride list read; vendors reviewHold live; dispatch from reco aggregates; KPI wired; skeletons replace null blanks; shared 429/offline copies | Accepted | workers/api admin/tests, admin_app dashboard screens/hooks/types/fixtures, branch 029-remediation |
 | ADR-087 | 2026-10-05 | Phase 5 vendor ops notes: additive paid_sum/on_duty; silent-refresh-once + cap banner; duty via profile; 60s on-duty discovery; per-order accept; copied 5-status predicates + gating + Hindi labels; web parity owner-verified | Accepted | workers/api vendor_service/tests, vendor_app auth/api/client/duty/route/shell/stops/sync/main/tests, admin_app vendor subtree/server/fixtures, branch 029-remediation |
 | ADR-086 | 2026-10-05 | Phase 4 Flutter notes: purge proven-dead deps (keep razorpay/animate/calendar); copy-vendor client parity; live catalog zero-backend; launch-primary help; gradle keystore-wired + R8 | Accepted | apps/user_app api_client/main/booking/support/home/pubspec/manifest/gradle/tests + apps/vendor_app pubspec/manifest/gradle, branch 029-remediation |
@@ -143,6 +144,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-089: Phase 7 customer UX notes (splits A/B/C)
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Phase 7 spec (`Feature_docs/platform-audit/specs/phase-07-customer-ux.md`) on branch `029-remediation`. Three parallel audits (checkout/support-states/a11y) mapped every item to DONE/OPEN with file:line proof; spec evidence partly stale (tanker/support-launch done in Phase 4). Owner answers locked: clipboard fallback stays (no proof to overturn), full bilingual pass, Split A first.
+- **Options considered**: (1) Clipboard remove vs keep (kept — never dead-end without proof; recorded). (2) Bilingual scope: confirm-only vs full (full — Hindi-primary, UPI/COD/OTP/Rs/IDs/brand stay Latin). (3) Sub totals: client estimate vs server (server — new estimate endpoint + create carries it; schedule allowlist also fixes scheduler stall). (4) Calendar `hi` locale (skipped forcing — intl purged in Phase 4; device locale rules, owner verifies). (5) 400 vs 500 in failure-path widget tests (400 — skips retry backoff, deterministic; same banner path).
+- **Decision**: Split A honesty (tracker banners, window date, slots LOUD, subs backend, confirm breakup, identity revalidation, error branches, 403/429); Split B friction (Address→Pay collapse, recap+Badlein, 2-line bars, FAQ 014, bilingual); Split C a11y (chip/grid/tracker Semantics, 16px fields, focus-first-error, 48dp via theme, motion gates, revoke alertdialog). Measured contrast: muted 7.0 PASS, blue 4.1 (links/badges only; legal copy stays muted/ink).
+- **Why**: Audits before code; smallest additive diffs; one runnable check per item (10 new Dart tests + backend estimate/allowlist test); suites green throughout.
+- **Consequences**: Owner owes device walkthrough (full journey), calendar Hindi verification, admin check/build, all prior carry items.
+- **Affects**: workers/api subs/tests, user_app booking/orders/support/subs/profile/addresses/auth/shell/tests, admin_app revoke dialog, branch 029-remediation
 
 ### ADR-088: Phase 6 admin truth notes
 - **Date**: 2026-10-05
