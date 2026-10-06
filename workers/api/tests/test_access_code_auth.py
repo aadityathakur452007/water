@@ -2,7 +2,8 @@
 
 DB harness: raw migrations (no init_schema) — M002 (users/sessions) + M010
 (config/audit_log) + M014 (access_codes + access_code_login_enabled flag +
-sessions.session_expires_at). Router tests use the REAL auth_deps gates.
+sessions.session_expires_at) + M020 (users.email). Router tests use the REAL
+auth_deps gates.
 """
 import datetime as _dt
 import hashlib
@@ -23,6 +24,7 @@ from app.services.auth_service import AuthService, reset_rate_limits  # noqa: E4
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 M014 = (API_ROOT / "src" / "app" / "db" / "migrations" / "014_access_codes.sql").read_text()
+M020 = (API_ROOT / "src" / "app" / "db" / "migrations" / "020_user_email.sql").read_text()
 
 NOW = _dt.datetime.now(_dt.timezone.utc)
 FUTURE = (NOW + _dt.timedelta(days=30)).isoformat()
@@ -49,7 +51,7 @@ def _H(s: str) -> str:
 
 def _conn(flag=True):
     raw = get_connection(":memory:")
-    raw.executescript(M002 + M010 + M014)
+    raw.executescript(M002 + M010 + M014 + M020)
     now = NOW.isoformat()
     raw.execute(
         "INSERT INTO users(id, phone, name, role, kyc_status, created_at) VALUES "
@@ -119,31 +121,37 @@ def _audit(raw):
 async def test_register_new_user_unverified_plus_session():
     reset_rate_limits()
     raw = _conn()
-    out = await _svc(raw).user_register("Naya User", PHONE_N, "reg-dev-1", ip="10.0.0.1")
+    out = await _svc(raw).user_register("Naya User", PHONE_N, "naya@example.in",
+                                        "reg-dev-1", ip="10.0.0.1")
     assert out["role"] == "user" and out["access_token"] and out["refresh_token"]
     assert out["verified"] is False
-    row = raw.execute("SELECT role, kyc_status, name FROM users WHERE phone = ?",
+    row = raw.execute("SELECT role, kyc_status, name, email FROM users WHERE phone = ?",
                       (PHONE_N,)).fetchone()
     assert row["role"] == "user" and row["kyc_status"] == "unverified"
-    assert row["name"] == "Naya User"
+    assert row["name"] == "Naya User" and row["email"] == "naya@example.in"
 
 
 async def test_register_blank_name_filled_once_never_overwritten():
     reset_rate_limits()
     raw = _conn()
-    out1 = await _svc(raw).user_register("First Name", PHONE_B, "reg-dev-2", ip="10.0.0.2")
+    out1 = await _svc(raw).user_register("First Name", PHONE_B, "first@example.in",
+                                        "reg-dev-2", ip="10.0.0.2")
     assert out1["role"] == "user"
-    assert raw.execute("SELECT name FROM users WHERE id = 'ub'").fetchone()["name"] == "First Name"
-    out2 = await _svc(raw).user_register("Second Name", PHONE_B, "reg-dev-3", ip="10.0.0.3")
+    row = raw.execute("SELECT name, email FROM users WHERE id = 'ub'").fetchone()
+    assert row["name"] == "First Name" and row["email"] == "first@example.in"
+    out2 = await _svc(raw).user_register("Second Name", PHONE_B, "second@example.in",
+                                        "reg-dev-3", ip="10.0.0.3")
     assert out2["role"] == "user"
-    assert raw.execute("SELECT name FROM users WHERE id = 'ub'").fetchone()["name"] == "First Name"
+    row = raw.execute("SELECT name, email FROM users WHERE id = 'ub'").fetchone()
+    assert row["name"] == "First Name" and row["email"] == "first@example.in"
 
 
 async def test_register_staff_number_422():
     reset_rate_limits()
     for phone in (PHONE_V, PHONE_A):
         with pytest.raises(AppError) as e:
-            await _svc(_conn()).user_register("Intruder", phone, "reg-dev-4", ip="10.0.0.4")
+            await _svc(_conn()).user_register("Intruder", phone, "i@example.in",
+                                              "reg-dev-4", ip="10.0.0.4")
         assert e.value.status_code == 422
         assert e.value.code == "ROLE_RESERVED"
 
@@ -151,17 +159,29 @@ async def test_register_staff_number_422():
 async def test_register_bad_phone_400():
     reset_rate_limits()
     with pytest.raises(AppError) as e:
-        await _svc(_conn()).user_register("Bad", "123", "reg-dev-5", ip="10.0.0.5")
+        await _svc(_conn()).user_register("Bad", "123", "b@example.in",
+                                          "reg-dev-5", ip="10.0.0.5")
     assert e.value.status_code == 400
+
+
+async def test_register_bad_email_400():
+    reset_rate_limits()
+    for bad in ("nope", "a@b", "a@b.", "@x.in", "a b@c.in"):
+        with pytest.raises(AppError) as e:
+            await _svc(_conn()).user_register("Bad", PHONE_N, bad,
+                                              "reg-dev-6", ip="10.0.0.6")
+        assert e.value.status_code == 400
 
 
 async def test_register_rate_limit_phone():
     reset_rate_limits()
     raw = _conn()
     for i in range(5):
-        await _svc(raw).user_register(f"Rate {i}", PHONE_N, f"reg-dev-rl-{i}", ip=f"10.9.9.{i}")
+        await _svc(raw).user_register(f"Rate {i}", PHONE_N, f"r{i}@example.in",
+                                      f"reg-dev-rl-{i}", ip=f"10.9.9.{i}")
     with pytest.raises(AppError) as e:
-        await _svc(raw).user_register("Rate 5", PHONE_N, "reg-dev-rl-5", ip="10.9.9.99")
+        await _svc(raw).user_register("Rate 5", PHONE_N, "r5@example.in",
+                                      "reg-dev-rl-5", ip="10.9.9.99")
     assert e.value.status_code == 429
 
 
@@ -169,13 +189,19 @@ def test_register_router_end_to_end():
     reset_rate_limits()
     client = _client(_conn())
     r = client.post("/v1/auth/user/register",
-                    json={"name": "Router User", "phone": PHONE_N, "device": {"id": "reg-dev-9"}})
+                    json={"name": "Router User", "email": "router@example.in",
+                          "phone": PHONE_N, "device": {"id": "reg-dev-9"}})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["role"] == "user" and body["verified"] is False and body["access_token"]
     bad = client.post("/v1/auth/user/register",
-                      json={"name": "X", "phone": PHONE_V, "device": {"id": "reg-dev-9"}})
+                      json={"name": "X", "email": "x@example.in",
+                            "phone": PHONE_V, "device": {"id": "reg-dev-9"}})
     assert bad.status_code == 422
+    no_email = client.post("/v1/auth/user/register",
+                           json={"name": "No Mail", "phone": PHONE_N,
+                                 "device": {"id": "reg-dev-9"}})
+    assert no_email.status_code in (400, 422)
 
 
 # -- code login matrix --------------------------------------------------------

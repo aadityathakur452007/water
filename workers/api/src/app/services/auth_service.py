@@ -462,14 +462,16 @@ class AuthService:
     # -- user name+number onboarding (028 F-register, doorstep-verified) --------
 
     async def user_register(
-        self, name: str | None, phone: str | None, device_id: str,
-        device: dict | None = None, ip: str = "unknown",
+        self, name: str | None, phone: str | None, email: str | None,
+        device_id: str, device: dict | None = None, ip: str = "unknown",
     ) -> dict:
-        """Name + number → role=user (kyc_status=unverified) + capped session.
+        """Name + email + phone → role=user (kyc_status=unverified) + session.
 
-        Rate limits mirror OTP_START (5/phone/hr, 20/IP/hr). Staff numbers
-        (vendor/admin) → 422 ROLE_RESERVED. Existing user with a blank name
-        gets the name filled once — a set name is never overwritten.
+        No OTP: identity is the phone number (unique), email is a required
+        contact field (format-validated, never verified — no mail sender
+        exists). Rate limits mirror OTP_START (5/phone/hr, 20/IP/hr). Staff
+        numbers (vendor/admin) → 422 ROLE_RESERVED. An existing user gets
+        blank name/email filled once — set values are never overwritten.
         Returns the session plus ``verified: False`` (flag flips on first
         POD in a later slice; until then display + future gating only).
         """
@@ -478,6 +480,9 @@ class AuthService:
         clean_name = (name or "").strip()
         if not clean_name or len(clean_name) > 100:
             raise ValidationError("Enter your name (1–100 characters).", {"name": name})
+        clean_email = (email or "").strip().lower()
+        if (len(clean_email) > 254 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", clean_email)):
+            raise ValidationError("Enter a valid email address.", {"email": "invalid"})
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
         phone_n = normalize_phone(phone or "")
@@ -492,9 +497,12 @@ class AuthService:
         if existing is not None:
             user = await self._users.set_name_if_blank(existing["id"], clean_name)
             assert user is not None
+            user = await self._users.set_email_if_blank(existing["id"], clean_email)
+            assert user is not None
         else:
             user = await self._users.create_register_user(
-                user_id=_uuid.uuid4().hex, phone=phone_n, name=clean_name)
+                user_id=_uuid.uuid4().hex, phone=phone_n, name=clean_name,
+                email=clean_email)
         out = await self._issue_session(user, device_id, device)
         out["verified"] = False
         return out

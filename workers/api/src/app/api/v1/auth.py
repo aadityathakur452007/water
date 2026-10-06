@@ -56,6 +56,8 @@ class AdminLoginIn(BaseModel):
 
 class UserRegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    email: str = Field(min_length=3, max_length=254,
+                       pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     phone: str = Field(min_length=10, max_length=16)
     device: DeviceIn
 
@@ -138,12 +140,13 @@ async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service
 async def user_register(
     payload: UserRegisterIn, request: Request, svc: AuthService = Depends(_service)
 ):
-    """User name+number onboarding: upsert role=user (unverified) + session.
+    """User name+email+phone onboarding: upsert role=user + session (no OTP).
     Staff numbers → 422 ROLE_RESERVED. Rate-limited per phone+IP."""
     ip = request.client.host if request.client else "unknown"
     return await svc.user_register(
         payload.name,
         payload.phone,
+        payload.email,
         payload.device.id,
         payload.device.model_dump(),
         ip=ip,
