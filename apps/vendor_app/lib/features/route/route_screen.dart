@@ -494,6 +494,11 @@ class _RouteScreenState extends State<RouteScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Phase 9 re-verify: deliberately static — every reload
+              // passes through RouteState.loading (skeleton), which
+              // unmounts this row, so a flip transition could never play;
+              // the avatar + row flip plus the jama notice already
+              // communicate the state (Operate density over decoration).
               if (s.isDone)
                 const Icon(Icons.check_circle,
                     color: ShodashaTheme.success),
