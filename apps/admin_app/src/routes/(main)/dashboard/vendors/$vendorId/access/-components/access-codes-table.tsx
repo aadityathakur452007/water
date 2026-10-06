@@ -97,10 +97,10 @@ export function AccessCodesTable() {
                     {c.last_used_at ? dateTime(c.last_used_at) : "never"}
                   </TableCell>
                   <TableCell className="px-3 py-3 text-right text-sm">
+                    {/* a11y-9: inline confirm announces as an alert dialog
+                        with its consequence (revoke blocks new logins;
+                        live sessions run to expiry). */}
                     {c.revoked_at ? null : confirmId === c.id ? (
-                      {/* a11y-9: inline confirm announces as an alert dialog
-                          with its consequence (revoke blocks new logins;
-                          live sessions run to expiry). */}
                       <span
                         className="flex justify-end gap-2"
                         role="alertdialog"

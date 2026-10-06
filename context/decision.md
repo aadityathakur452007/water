@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-093 | 2026-10-06 | Re-verify + purge notes: 9 dead admin deps removed, SyncItem + searchCatalog deleted, Phase 7 revoke-dialog syntax break fixed (admin build green first time since Phase 0) | Accepted | admin_app package.json/lock + access-codes-table, workers/api vendor.py, user_app catalog, branch 029-remediation |
 | ADR-092 | 2026-10-06 | Phase 10 verification notes: window_start bucket fix (UPSERT was scattering); 4 gap tests; 17/18 break-in cells hold; §13 filled, §14 shrunk, dead-code resolved | Accepted | workers/api auth_service/tests, user_app catalog, Feature_docs/platform-audit/report.md, branch 029-remediation |
 | ADR-091 | 2026-10-06 | Phase 9 polish notes: 3 new skeletons (stop-detail already had one); 200ms gated tracker fill; admin reduce-guard + change-only CountUp on dashboard KPIs; ≤5s assessment recorded | Accepted | user_app tracking/subs/support/tests, admin_app styles/metric-cards/count-up, branch 029-remediation |
 | ADR-090 | 2026-10-06 | Phase 8 backend performance notes: 017/018 split indexes + 019 counters; spike→(c) + single-txn cash; L1+D1 limits + Retry-After; cached() 300s+ETag on 5 GETs | Accepted | workers/api migrations/vendor/scheduler/payment_repo/auth/errors/caching/tests, branch 029-remediation |
@@ -147,6 +148,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-093: Full re-verify + dead-code/dependency purge notes
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Owner-ordered cross-phase re-verify (all suites + config correctness) with dead code + dead dependency deletion across Flutter/admin/backend.
+- **Options considered**: (1) Admin dep removal without lockfile update (rejected — inconsistent tree; ran `npm uninstall` so package.json + lock update together). (2) Running admin build despite the standing bar (chosen — owner explicitly ordered verification; build is the only proof for JSX). (3) Deleting vs keeping `searchCatalog`/`SyncItem` (chosen DELETE — zero callers each, proven by grep; everything else KEEP-with-reason per §15).
+- **Decision**: Removed 9 admin deps (@dnd-kit×3, @hookform/resolvers, react-hook-form, d3-geo, topojson-client, temporal-polyfill, @types×2) — import-proven unused; Flutter (13+6) and backend (4) dep lists fully used, untouched. Deleted `SyncItem` (vendor.py) + `searchCatalog` (catalog). Fixed one REAL bug: Phase 7 revoke-dialog comment placement broke admin `vite build` (first green build since Phase 0; check's remaining findings are pre-existing aria/format nits in untouched files). Verify: backend 308 + user 129 + vendor 70 green, both analyzes clean, admin build green.
+- **Why**: Diagnose-before-delete throughout (per-dep import proof, per-function caller proof); smallest diffs; one verification command per surface.
+- **Consequences**: Admin build unblocked (long-owed since Phase 6); remaining owner items shrink to device/prod only (APK re-measure, cold-start, D1 applies, secrets, keystore/smoke/WebP, device walks).
+- **Affects**: admin_app package.json/lock + access-codes-table, workers/api vendor.py, user_app catalog, branch 029-remediation
 
 ### ADR-092: Phase 10 final verification notes
 - **Date**: 2026-10-06

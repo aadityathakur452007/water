@@ -60,13 +60,6 @@ class PodIn(BaseModel):
     lng: float | None = None
 
 
-class SyncItem(BaseModel):
-    model_config = {"extra": "allow"}  # triple fields + stop_id/version/key pass through
-
-    stop_id: str
-    version: int
-
-
 class SyncIn(BaseModel):
     # Phase 8 §8.2: hard cap 200 items per flush; clients page at 100
     # (server processes per-stop txns — one giant batch would hold the
