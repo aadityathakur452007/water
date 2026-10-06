@@ -28,8 +28,6 @@ type VendorView = {
   kyc: string;
   status: string;
   joinedDate: string;
-  onDuty: number;
-  inHand: number;
   reviewHold: number;
 };
 
@@ -66,9 +64,10 @@ export function Vendors() {
           kyc: v.kyc_status,
           status: v.suspended ? "Blocked" : "Active",
           joinedDate: joinedLabel(v.created_at),
-          onDuty: 0,
-          inHand: 0,
-          reviewHold: 0,
+          // Phase 6 S6.3: live review_hold from the vendors list join
+          // (was hardcoded 0 — Release-hold never showed). Duty/in-hand
+          // render live from the custody join below.
+          reviewHold: Number(v.review_hold ?? 0),
         }),
       ),
     [data],

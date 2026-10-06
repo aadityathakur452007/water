@@ -7,6 +7,7 @@ import { Ban, CirclePause, CirclePlay, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -70,7 +71,18 @@ export function VendorDetail() {
       </Card>
     );
   }
-  if (!data) return null;
+  if (!data) {
+    // Phase 6 S6.4: skeleton while loading — never a blank page.
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const v = data.vendor;
   const blocked = v.suspended === 1;

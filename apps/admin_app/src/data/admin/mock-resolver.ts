@@ -80,7 +80,12 @@ export function resolveFixture(
     return vendorDetailFixture;
   }
   if (path.startsWith("/v1/admin/vendors")) return vendorsFixture;
-  if (path.startsWith("/v1/admin/users")) return { data: usersRows };
+  // Phase 6 S6.3: mirror the live role counts (GROUP BY role shape).
+  if (path.startsWith("/v1/admin/users")) {
+    const counts: Record<string, number> = { total: usersRows.length };
+    for (const u of usersRows) counts[u.role] = (counts[u.role] ?? 0) + 1;
+    return { data: usersRows, counts };
+  }
   if (path.startsWith("/v1/admin/payments")) {
     // Mirror the live server-driven search (ref/order/phone), not page filters.
     const query = new URLSearchParams(path.split("?")[1] ?? "").get("query")?.toLowerCase() ?? "";

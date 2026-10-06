@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-088 | 2026-10-05 | Phase 6 admin truth notes: users counts ride list read; vendors reviewHold live; dispatch from reco aggregates; KPI wired; skeletons replace null blanks; shared 429/offline copies | Accepted | workers/api admin/tests, admin_app dashboard screens/hooks/types/fixtures, branch 029-remediation |
 | ADR-087 | 2026-10-05 | Phase 5 vendor ops notes: additive paid_sum/on_duty; silent-refresh-once + cap banner; duty via profile; 60s on-duty discovery; per-order accept; copied 5-status predicates + gating + Hindi labels; web parity owner-verified | Accepted | workers/api vendor_service/tests, vendor_app auth/api/client/duty/route/shell/stops/sync/main/tests, admin_app vendor subtree/server/fixtures, branch 029-remediation |
 | ADR-086 | 2026-10-05 | Phase 4 Flutter notes: purge proven-dead deps (keep razorpay/animate/calendar); copy-vendor client parity; live catalog zero-backend; launch-primary help; gradle keystore-wired + R8 | Accepted | apps/user_app api_client/main/booking/support/home/pubspec/manifest/gradle/tests + apps/vendor_app pubspec/manifest/gradle, branch 029-remediation |
 | ADR-085 | 2026-10-05 | Phase 3 Split B UI notes: ops deleted as fully redundant; invented user fields removed; ledger badge matches HOLD_BLOCK_LIMIT; cursor hook shared by 4 screens | Accepted | apps/admin_app recon/custody/trust/payments/users/ledger/audit/orders/config + vendor_app stops/route, branch 029-remediation |
@@ -142,6 +143,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-088: Phase 6 admin truth notes
+- **Date**: 2026-10-05
+- **Status**: Accepted
+- **Context**: Phase 6 spec (`Feature_docs/platform-audit/specs/phase-06-admin-truth.md`) on branch `029-remediation`. Owner answered the design-gate question = approval granted (backend totals over card removal).
+- **Options considered**: (1) KPI card remove vs backend counts (chosen counts — one GROUP BY riding the list read, trust-consistent; mock computes from fixtures). (2) Dispatch funnel: page-1 caption vs aggregates (chosen aggregates from reco.orders_by_state + placed-only table query; dropped a whole page-1 request). (3) Vendors reviewHold: custody join vs list field (chosen list field — /v1/admin/vendors already joins profile; custody join stays for duty/in-hand).
+- **Decision**: Users counts + test; vendors reviewHold live (dead onDuty/inHand mapping deleted); dispatch full-book funnel/pool + scope captions; KPI wired; leaderboard caption; 4 loading skeletons + audit secondary-error surfacing; shared 429/offline copies. Verify: backend 290 green; web owner-runs check/build (barred here).
+- **Why**: Every §6.1–§6.4 item proven against current code first — most was already done (Phase 3 + verifications); only verified gaps touched, zero new endpoints, no new packages.
+- **Consequences**: Owner owes admin check/build + all prior carry items + device walks.
+- **Affects**: workers/api admin/tests, admin_app dashboard screens/hooks/types/fixtures, branch 029-remediation
 
 ### ADR-087: Phase 5 vendor operations notes
 - **Date**: 2026-10-05

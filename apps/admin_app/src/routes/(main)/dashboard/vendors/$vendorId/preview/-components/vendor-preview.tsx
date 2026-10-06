@@ -1,7 +1,9 @@
 import { useParams } from "@tanstack/react-router";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { errorMessage, useAdminQuery } from "@/hooks/use-admin-api";
 import type { AuditRow, Page } from "@/lib/admin-types";
@@ -15,17 +17,36 @@ import type { VendorPreview } from "@/lib/vendor-types";
  */
 export function VendorPreview() {
   const { vendorId } = useParams({ strict: false }) as { vendorId: string };
-  const { data, isError, error } = useAdminQuery<VendorPreview>(`/v1/admin/vendors/${vendorId}/preview`);
-  const { data: audit } = useAdminQuery<Page<AuditRow>>(`/v1/admin/audit?actor_id=${vendorId}`);
+  const { data, isError, error, refetch } = useAdminQuery<VendorPreview>(`/v1/admin/vendors/${vendorId}/preview`);
+  // Secondary query: errors surface inline (never silent undefined).
+  const { data: audit, isError: auditError } = useAdminQuery<Page<AuditRow>>(
+    `/v1/admin/audit?actor_id=${vendorId}`,
+  );
 
   if (isError) {
     return (
       <Card>
-        <CardContent className="py-16 text-center text-destructive text-sm">{errorMessage(error)}</CardContent>
+        <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+          <p className="text-destructive text-sm">{errorMessage(error)}</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </CardContent>
       </Card>
     );
   }
-  if (!data) return null;
+  // Phase 6 S6.4: skeleton while loading — never a blank page.
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const v = data.vendor;
   const today = data.route;
@@ -146,7 +167,13 @@ export function VendorPreview() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {trail.length ? (
+              {auditError ? (
+                <TableRow>
+                  <TableCell colSpan={3} className="h-16 text-center text-destructive text-sm">
+                    Trail failed to load — main preview above is unaffected.
+                  </TableCell>
+                </TableRow>
+              ) : trail.length ? (
                 trail.map((r) => (
                   <TableRow key={r.id} className="border-border/60">
                     <TableCell className="px-3 py-3 font-medium text-sm">{r.action}</TableCell>

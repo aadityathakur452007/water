@@ -5,6 +5,7 @@ import { useParams } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
@@ -30,7 +31,18 @@ export function AccessCodesTable() {
       </Card>
     );
   }
-  if (!data) return null;
+  if (!data) {
+    // Phase 6 S6.4: skeleton while loading — never a blank card.
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-6">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
   const rows = Array.isArray((data as Page<AccessCodeRow>).data)
     ? (data as Page<AccessCodeRow>).data
     : ((data as { codes: AccessCodeRow[] }).codes ?? []);

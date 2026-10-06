@@ -1209,7 +1209,12 @@ async def admin_users(query: str | None = Query(default=None, max_length=80),
     data, next_cursor = await AdminReadRepo(conn).users_page(
         query=(query or "").strip(), role=role or "", suspended=suspended,
         limit=limit, cursor=_cursor(cursor))
-    return {"data": data, "next_cursor": next_cursor}
+    # Phase 6 S6.3: directory totals for the analytics Customers card
+    # (trust-style counts ride the list read — one GROUP BY, no new route).
+    by_role = {str(r["role"]): int(r["c"]) for r in (await conn.execute(
+        "SELECT role, COUNT(*) c FROM users GROUP BY role")).fetchall()}
+    return {"data": data, "next_cursor": next_cursor,
+            "counts": {"total": sum(by_role.values()), **by_role}}
 
 
 @router.get("/admin/users/{user_id}/detail")

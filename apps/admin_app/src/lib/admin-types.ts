@@ -55,6 +55,10 @@ export type UserRow = {
   suspended_reason: string | null;
   suspended_at: string | null;
   created_at: string;
+  /** Live vendor-profile join — present on /v1/admin/vendors rows only. */
+  on_duty?: number | null;
+  in_hand?: number | null;
+  review_hold?: number | null;
 };
 
 export type ZoneRow = {

@@ -36,8 +36,10 @@ const FUNNEL: Array<{ state: string; label: string }> = [
 /** FR-26 dispatch board — funnel, unassigned pool, route board, custody (F2). */
 export function Dispatch() {
   const navigate = useNavigate();
-  const { data: orders } = useAdminQuery<Page<OrderRow>>("/v1/admin/orders");
   const { data: reco } = useAdminQuery<ReconResponse>("/v1/admin/reconciliation");
+  // Pool table reads placed-only (bounded) — the header counts below are
+  // full-book aggregates, never page-1 slices.
+  const { data: placedPage } = useAdminQuery<Page<OrderRow>>("/v1/admin/orders?state=placed&limit=8");
   const { data: custody } = useAdminQuery<Page<CustodyRow>>("/v1/admin/custody");
   const [generating, setGenerating] = React.useState(false);
   const invalidate = useInvalidateAdmin();
@@ -65,12 +67,21 @@ export function Dispatch() {
     }
   }
 
-  const rows = orders?.data ?? [];
+  // Phase 6 S6.1: funnel + pool read the full-book per-state aggregates
+  // (reco orders_by_state {state, c, t}) — page-1 rows under-reported
+  // past the first page with no scope note.
+  const byState = new Map(
+    (reco?.orders_by_state ?? []).map((r) => [
+      String(r.state),
+      { c: Number(r.c ?? 0), t: Number(r.t ?? 0) },
+    ]),
+  );
   const counts = Object.fromEntries(
-    FUNNEL.map(({ state }) => [state, rows.filter((o) => o.state === state).length]),
+    FUNNEL.map(({ state }) => [state, byState.get(state)?.c ?? 0]),
   ) as Record<string, number>;
-  const unassigned = rows.filter((o) => o.state === "placed");
-  const poolGmv = unassigned.reduce((a, o) => a + o.total, 0);
+  const unassignedCount = byState.get("placed")?.c ?? 0;
+  const poolGmv = byState.get("placed")?.t ?? 0;
+  const unassigned = placedPage?.data ?? [];
 
   async function generateRoutes() {
     setGenerating(true);
@@ -88,7 +99,7 @@ export function Dispatch() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Funnel strip */}
+      {/* Funnel strip — full-book counts from reconciliation aggregates. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {FUNNEL.map(({ state, label }) => (
           <button
@@ -111,7 +122,7 @@ export function Dispatch() {
               <PackageOpen className="size-4" aria-hidden />
               Unassigned pool
             </CardTitle>
-            <CardDescription>{`${unassigned.length} placed orders waiting · ${rupees(poolGmv)} in pool (FR-26)`}</CardDescription>
+            <CardDescription>{`${unassignedCount} placed orders waiting · ${rupees(poolGmv)} in pool (full book, FR-26)`}</CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-2">
             <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
@@ -152,6 +163,11 @@ export function Dispatch() {
                 )}
               </TableBody>
             </Table>
+            {unassignedCount > unassigned.length ? (
+              <p className="px-4 py-2 text-muted-foreground text-xs">
+                {`First ${unassigned.length} of ${unassignedCount} — full list in Orders.`}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
