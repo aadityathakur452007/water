@@ -178,11 +178,11 @@ def test_vendor_quality_list_owned_only():
     c.commit()
     assert _vendor(c).get("/v1/vendor/quality").json() == {
         "data": [{"id": "q1", "order_id": "o1", "reason_code": "seal", "status": "open",
-                  "vendor_agree": None, "created_at": now}]}
+                  "vendor_agree": None, "created_at": now}], "next_cursor": None}
     from app.api.v1 import vendor as vendor_mod
 
     other = _client(c, vendor_mod, _canned("v2", "vendor"))
-    assert other.get("/v1/vendor/quality").json() == {"data": []}
+    assert other.get("/v1/vendor/quality").json() == {"data": [], "next_cursor": None}
 
 
 def test_leads_capture_and_validation():

@@ -17,10 +17,11 @@ import secrets
 import sqlite3
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-export for test overrides)
+from app.api.caching import cached
 from app.api.deps import get_db_conn
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
@@ -557,10 +558,11 @@ async def admin_vendor_preview(vendor_id: str, date: str | None = None,
 # -- zones attach/detach (custody-zero guard, §14.2) ----------------------------
 
 @router.get("/admin/zones")
-async def zone_list(conn=Depends(get_db_conn), user=Admin):
+async def zone_list(request: Request, conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute(
         "SELECT id, name, pincodes, active FROM zones ORDER BY name LIMIT 200")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
+    return cached({"data": [dict(r) for r in rows]}, request)
 
 @router.post("/admin/zones/{zone_id}/vendors/attach")
 async def zone_attach(zone_id: str, payload: AttachIn, conn=Depends(get_db_conn), user=Admin):
@@ -1051,13 +1053,14 @@ async def config_patch(payload: ConfigPatchIn, conn=Depends(get_db_conn), user=A
 
 
 @router.get("/admin/config")
-async def config_read(conn=Depends(get_db_conn), user=Admin):
+async def config_read(request: Request, conn=Depends(get_db_conn), user=Admin):
     try:
         rows = (await conn.execute("SELECT key, value, effective_from, updated_by, updated_at"
                             " FROM config ORDER BY key")).fetchall()
     except sqlite3.OperationalError:
         rows = (await conn.execute("SELECT key, value FROM config ORDER BY key")).fetchall()
-    return {"data": [dict(r) for r in rows]}
+    # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
+    return cached({"data": [dict(r) for r in rows]}, request)
 
 
 @router.get("/admin/audit")

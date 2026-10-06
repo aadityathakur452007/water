@@ -5,7 +5,7 @@ app/main.py). Every route is behind ``require_role('vendor')`` (ssdlc: authz on
 every endpoint, actor from the session, never the body).
 """
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
 from typing import Any
 
@@ -68,7 +68,10 @@ class SyncItem(BaseModel):
 
 
 class SyncIn(BaseModel):
-    items: list[dict[str, Any]]
+    # Phase 8 §8.2: hard cap 200 items per flush; clients page at 100
+    # (server processes per-stop txns — one giant batch would hold the
+    # D1 single writer for the whole queue).
+    items: list[dict[str, Any]] = Field(max_length=200)
 
 
 class VerifyIn(BaseModel):
@@ -106,7 +109,8 @@ async def routes_today(date: str | None = None, conn=Depends(get_db_conn), user=
 # 015: placed pool for the Pull button (simple, no geo/auto-assign).
 # 016: zone-scoped — vendor sees only their zones' placed orders.
 @router.get("/vendor/placed")
-async def placed_orders(limit: int = 20, conn=Depends(get_db_conn), user=Depends(_vendor)):
+async def placed_orders(limit: int = Query(default=20, ge=1, le=50),
+                 conn=Depends(get_db_conn), user=Depends(_vendor)):
     return await _svc(conn).placed_pool(_uid(user), limit)
 
 
@@ -188,13 +192,17 @@ async def vendor_customers(date: str | None = None,
 
 
 @router.get("/vendor/complaints")
-async def vendor_complaints(conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return await _svc(conn).vendor_complaints(_uid(user))
+async def vendor_complaints(limit: int = Query(default=100, ge=1, le=200),
+                     cursor: str = Query(default=""),
+                     conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).vendor_complaints(_uid(user), limit, cursor)
 
 
 @router.get("/vendor/quality")
-async def vendor_quality(conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return await _svc(conn).vendor_quality(_uid(user))
+async def vendor_quality(limit: int = Query(default=100, ge=1, le=200),
+                  cursor: str = Query(default=""),
+                  conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).vendor_quality(_uid(user), limit, cursor)
 
 
 @router.post("/complaints/{complaint_id}/verify")
@@ -212,5 +220,7 @@ async def vendor_check_quality(incident_id: str, payload: QualityCheckIn,
 
 # 027 RBAC: read-only own payouts + custody (approve stays admin-only).
 @router.get("/vendor/payouts")
-async def vendor_payouts(conn=Depends(get_db_conn), user=Depends(_vendor)):
-    return await _svc(conn).payouts_for_vendor(_uid(user))
+async def vendor_payouts(limit: int = Query(default=200, ge=1, le=200),
+                  cursor: str = Query(default=""),
+                  conn=Depends(get_db_conn), user=Depends(_vendor)):
+    return await _svc(conn).payouts_for_vendor(_uid(user), limit, cursor)

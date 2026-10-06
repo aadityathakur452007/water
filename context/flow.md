@@ -329,33 +329,33 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | POST | `/v1/auth/user/register` | `auth.py:user_register` → `auth_service.user_register` | Name+number onboarding (028, NEW): upsert role=user unverified + capped session + verified:false; staff → 422; 5/phone/hr + 20/IP/hr |
 | GET/POST | `/v1/admin/users/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `AccessCodeRepo` | Generalized codes (028, NEW): masked list / issue plaintext-once (1h–180d, default 90d) / timestamp-revoke; user role → 422, ghost → 404 |
 | POST | `/v1/auth/vendor/login` | `auth.py:vendor_login` → `auth_service.vendor_login` → `VendorAccessRepo.find_valid` + `_issue_session` | Vendor access-code login (027): flag + valid/unexpired/unrevoked code + role=vendor → 200 session; else generic 401; 10/device/hr |
-| GET | `/v1/vendor/payouts` | `vendor.py` → `VendorService.payouts_for_vendor` | Own payouts + in_hand (read-only; approve stays admin) |
+| GET | `/v1/vendor/payouts` | `vendor.py` → `VendorService.payouts_for_vendor` | Own payouts + in_hand (read-only; approve stays admin); Phase 8: 200-cap + created_at\|id cursor → `next_cursor` |
 | GET/POST | `/v1/admin/vendors/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `VendorAccessRepo` | Masked list / issue (plaintext once, 201) / timestamp-revoke; non-vendor → 422, ghost → 404 |
 | GET | `/v1/admin/vendors/{id}/preview` | `admin.py` (Admin) → `AdminReadRepo.vendor_detail` + `VendorService.today_route/earnings/today_customers/vendor_complaints` | Read-only view-as-vendor, no writes |
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
 | GET | `/health` | `app/main.py` | Liveness probe |
-| GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings |
-| GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture |
-| GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` | Pincode regex + prefix allowlist (empty=open) |
+| GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` → `api/caching.py:cached` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings; Phase 8: `Cache-Control: public, max-age=300` + ETag + 304 |
+| GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` → `cached` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture; Phase 8: cached 300s + ETag + 304 |
+| GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` → `cached` | Pincode regex + prefix allowlist (empty=open); Phase 8: cached 300s + ETag + 304 |
 | POST | `/v1/quotes` | `app/api/v1/quotes.py:create_quote` → `services/pricing.py:compute_quote` | Server-computed quote (paise) + sha256 quote_hash + 15-min TTL; N>10 → 422 OVER_LIMIT |
 | POST | `/v1/auth/otp/start|verify` | `app/api/v1/auth.py` → `services/auth_service.py` → `adapters/firebase.py` + `user_repo`/`session_repo` | Firebase OTP → D1 session (30m + rotating 7d, family kill on reuse); suspend → restricted session |
 | POST | `/v1/orders` | `app/api/v1/orders.py` → `services/order_service.py` → `order_repo`/`ledger_repo` | Idempotent create (scoped key), quote re-check, OVER_LIMIT/HOLD_BLOCKED, placed + deposit event, one txn |
 | POST | `/v1/payments/upi-intent` + `/webhooks/upi` | `payments.py` → `payment_service` → `payment_repo` + `adapters/upi.py` | Fake/real provider; HMAC + replay-cache; payee lock; dues reconcile |
 | POST | `/v1/vendor/stops/{id}/triple|pod` | `vendor.py` → `vendor_service.py` | Atomic triple (version fence), PoD OTP + GPS soft-flag, offline sync (pod items ride sync with done-check-first replay) |
-| GET | `/v1/vendor/placed` | `vendor.py` → `VendorService.placed_pool(vendor_id, limit)` | Zone-scoped placed pool (016: vendor's zones only via zones/vendor_zones pincode match; unzoned admin-only) |
+| GET | `/v1/vendor/placed` | `vendor.py` → `VendorService.placed_pool(vendor_id, limit)` | Zone-scoped placed pool (016: vendor's zones only via zones/vendor_zones pincode match; unzoned admin-only); Phase 8: router `limit` validated 1–50 |
 | POST | `/v1/vendor/placed/{order_id}/accept` | `vendor.py` → `dispatch_service.vendor_accept_order` | Pull made real: placed→accepted→picked→packed→assigned + route/stop + OTP mint; zone/capacity pre-checked (fail-cheap); replay returns existing stop |
 | POST | `/v1/admin/orders/{id}/accept|reject|pack` | `admin.py` → `OrderRepo.transition` + `_audit` | Dispatcher pipeline: accept (placed→accepted), reject (→rejected terminal), pack (accepted→picked→packed one action) |
 | POST | `/v1/admin/routes/{id}/dispatch` | `admin.py` → per-stop `transition` to dispatched + per-stop audit | All pending assigned stops dispatched; non-assigned honestly skipped |
 | POST | `/v1/payments/dues-intent` | `payments.py` → `PaymentService.dues_intent` → `PaymentRepo.create_dues_intent` | Full-dues UPI intent (no order row; scoped idem key); signed webhook settles via dues branch (ledger dues cleared, no order flip) |
 | GET | `/orders/{id}/tracking` | `orders.py` → `OrderService.tracking` (subset of detail: no bill/ledger) | Owner-scoped status resource: state + tracker + rider + window + code + events |
 | PATCH | `/orders/{id}/instructions` | `orders.py` → `OrderService.set_instructions` → `OrderRepo.update_instructions` | Owner delivery note ≤500, pre-dispatch states only, event logged |
-| GET | `/v1/vendor/quality` | `vendor.py` → `VendorService.vendor_quality` | Incidents on vendor's route orders (replaces manual-id crutch) |
+| GET | `/v1/vendor/quality` | `vendor.py` → `VendorService.vendor_quality` | Incidents on vendor's route orders (replaces manual-id crutch); Phase 8: 200-cap + cursor → `next_cursor` |
 | POST | `/leads` | `catalog.py` (public: phone + pincode validated) | Unserved-pincode lead capture into `leads` (human-triaged) |
 | GET | `/v1/admin/audit/export` | `admin.py` (same filters as viewer) | Filtered audit as CSV (header follows live table shape) |
 | GET | `/v1/admin/reconciliation?date=` | `admin.py` → per-route rows + footer | Route/vendor/stops/delivered/cash/upi/jars/empties per route; ledger footer kept |
 | GET | `/v1/admin/custody` | `admin.py` → users ⋈ profile | All vendors with name/phone/on_duty/in_hand + zero flag (no more invisibility) |
 | POST | `/v1/admin/reconciliation/close` | `admin.py` → payments aggregates + triple cross-check | Day-close reads `payments` (paid/partial by method); triple sums kept as non-blocking mismatch flags |
-| POST | `/v1/vendor/stops/{id}/cash` | `vendor.py` → `VendorService.cash_post` → `PaymentRepo.mark_paid_cash` | Doorstep cash → payment row + paid_cash/partial_dues + dues reconcile + in_hand (017; deterministic stop+amount dedupe, 409=already-jama) |
+| POST | `/v1/vendor/stops/{id}/cash` | `vendor.py` → `VendorService.cash_post` → `PaymentRepo.mark_paid_cash_locked` | Doorstep cash → payment row + paid_cash/partial_dues + dues reconcile + in_hand (017; deterministic stop+amount dedupe, 409=already-jama); Phase 8: ONE lock+commit for payment writes + in_hand (was two txns) |
 | POST | `/v1/returns/{id}/pickup` | `returns.py` (role=vendor, owned-stop join) | Empty-jar pickup: held−, caps×Rs3→dues, stop done, return picked (017) |
 | POST | `/v1/subscriptions/estimate` | `subscriptions.py` → `SubscriptionService.estimate_first_cycle` | First-cycle server amount (water + once-only deposit, wallet-aware); pure read for the sheet Pay label (Phase 7) |
 | POST | `/v1/admin/returns/{id}/assign` | `admin.py` → `route_for_vendor` | Pickup stop queued on vendor's route (017; dup → 409) |
@@ -363,14 +363,15 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | GET/POST | `/v1/admin/payouts`, `/generate`, `/{id}/approve` | `admin.py` (per_stop_fee accrual) | Payout lifecycle: pending → approved (017) |
 | POST | `/v1/admin/custody/confirm` | `admin.py` (in_hand decrement + audit) | Cash handover receipt (017) |
 | POST | `/v1/admin/reconciliation/close` | `admin.py` (snapshot + audit row) | Day-close marker, no new table (017) |
-| GET | `/v1/admin/zones` | `admin.py` | Zone list for attach UI (017) |
+| GET | `/v1/admin/zones` | `admin.py` → `cached` | Zone list for attach UI (017); Phase 8: cached 300s + ETag + 304 (auth still required) |
 | PATCH | `/v1/admin/vendors/{id}/capacity` | `admin.py` (BFF PATCH helper) | Capacity + per-stop-fee edit (017 UI wired) |
 | GET/PATCH | `/v1/vendor/profile` | `vendor.py` → `VendorService.profile_get/save` → `vendor_profile` (011) | Server vendor profile (partial merge, ≤500/field); blank until first save — NEW (ADR-055) |
 | GET/PUT | `/v1/vendor/slots` | `vendor.py` → `VendorService.slots_get/set` → `vendor_slots` (011) | Slot toggles, 50-key cap — NEW (ADR-055) |
 | GET | `/v1/vendor/customers` | `vendor.py` → `VendorService.today_customers` (stops ⋈ users) | Today route grouped by customer + totals + held/dues ledger fields (016 additive) — NEW (ADR-055) |
-| GET | `/v1/vendor/complaints` | `vendor.py` → `VendorService.vendor_complaints` (complaints ⋈ stops) | Vendor ticket queue (reads; verify writes) — NEW (ADR-055) |
+| GET | `/v1/vendor/complaints` | `vendor.py` → `VendorService.vendor_complaints` (complaints ⋈ stops) | Vendor ticket queue (reads; verify writes) — NEW (ADR-055); Phase 8: 200-cap + cursor → `next_cursor` |
+| POST | `/v1/vendor/sync` | `vendor.py` → `VendorService.sync_batch` | Offline queue flush (applied/replayed/rejected per-stop); Phase 8: `items` hard-capped at 200 (clients page at 100) |
 | POST | `/v1/admin/orders/{id}/assign` | `admin.py` → `dispatch_service.py` | Transactional zone assign, reassign with version fence, routes-generate |
-| POST | `/v1/auth/otp/start` | `app/api/v1/auth.py:otp_start` → `services/auth_service.py:otp_start` | +91 validate + phone/IP rate-limit → 202 {sent_to_masked, resend_after_s} (Firebase SMS client-side) |
+| POST | `/v1/auth/otp/start` | `app/api/v1/auth.py:otp_start` → `services/auth_service.py:otp_start` | +91 validate + phone/IP rate-limit → 202 {sent_to_masked, resend_after_s} (Firebase SMS client-side); Phase 8: L1 + D1 rate_counters truth, 429s carry Retry-After |
 | POST | `/v1/auth/otp/verify` | `auth.py:otp_verify` → `auth_service.otp_verify` → `adapters/firebase.py:RealVerifier.verify_id_token` → `repositories/user_repo.py:upsert_firebase_user` + `session_repo.py:create` | 200 {access_token (30m), refresh_token (7d rotating), role, restrictions?, new_device_alert?, details.integrity}; device-cap → 409 DEVICE_CAP |
 | POST | `/v1/auth/otp/verify` (DEV_AUTH=1 only) | `auth_service.otp_verify` dev branch → `find_by_phone` → `_issue_session` (shared with Firebase path) | Raw code `dev\|<phone>\|<any>` logs in the EXISTING account for that phone — no Firebase round-trip; never enable in prod; admin panel dev login uses it when `NEXT_PUBLIC_FIREBASE_API_KEY` is unset |
 | POST | `/v1/auth/refresh` | `auth.py:refresh` → `auth_service.refresh` → `session_repo.rotate` | 200 new pair; burned-token reuse → revoke family + 401 |

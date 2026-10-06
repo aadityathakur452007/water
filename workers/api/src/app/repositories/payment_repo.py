@@ -286,47 +286,62 @@ class PaymentRepo:
     # -- vendor cash (paid_cash / partial_dues + ledger dues event) ------
 
     async def mark_paid_cash(self, order_id: str, amount: int, actor: str) -> dict:
+        """Phase 8 §8.3: this wrapper owns the lock+commit for standalone
+        callers (admin mark_cash). Vendor cash_post holds the lock itself so
+        the payment writes and the in_hand bump commit together — use
+        mark_paid_cash_locked there."""
+        with WRITE_LOCK:
+            try:
+                out = await self.mark_paid_cash_locked(order_id, amount, actor)
+                self._conn.commit()
+                return out
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    async def mark_paid_cash_locked(self, order_id: str, amount: int, actor: str) -> dict:
+        """Lock-free core: payment row + paid_cash/partial_dues + dues
+        reconcile. Caller holds WRITE_LOCK and commits (single txn with any
+        sibling writes, e.g. vendor in_hand — never two txns on D1)."""
         if int(amount) < 0:
             raise ValidationError(message="Invalid cash amount.", details={})
-        with WRITE_LOCK:
-            order = await self._order(order_id)
-            if order["payment_status"] in ("paid_upi", "paid_cash"):
-                raise ConflictError(message="Order is already paid.", details={"id": order_id})
-            paid_before = await self.paid_sum_for_order(order_id)
-            remaining = int(order["total"]) - paid_before
-            if int(amount) > remaining:
-                raise OverpayError(message="Cash exceeds the remaining bill.",
-                                   details={"remaining": remaining})
-            total_paid = paid_before + int(amount)
-            full = total_paid >= int(order["total"])
-            status = "paid_cash" if full else "partial_dues"
-            led = LedgerRepo(self._conn)
-            dues = int((await led.get(order["user_id"]))["dues"])
-            if await self._dues_posted(order_id) and dues > 0:
-                await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
-                                ref=f"cash:{order_id}", actor=actor,
-                                reason="cash collected", commit=False)
-            elif not await self._dues_posted(order_id) and dues == 0 and not full:
-                # cash without a prior COD-confirm: carry the remainder as dues (VR-08)
-                await led.apply_event(order["user_id"], d_dues=int(order["total"]) - total_paid,
-                                ref=f"order:{order_id}", actor=actor,
-                                reason="cod remainder carried", commit=False)
-            pid = uuid.uuid4().hex
-            await self._conn.execute(
-                "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
-                " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, ?)",
-                (pid, order_id, order["user_id"], int(amount), "cod",
-                 f"cash:{order_id}:{uuid.uuid4().hex[:8]}",
-                 "paid" if full else "partial", _now(), _now()),
-            )
-            await self._conn.execute("UPDATE orders SET payment_status=? WHERE id=?", (status, order_id))
-            self._conn.commit()
-            payment = dict((
-                await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
-            ).fetchone())
-            fresh = await self._order(order_id)
-            return {"payment": payment, "order": fresh,
-                    "ledger": await led.get(order["user_id"])}
+        order = await self._order(order_id)
+        if order["payment_status"] in ("paid_upi", "paid_cash"):
+            raise ConflictError(message="Order is already paid.", details={"id": order_id})
+        paid_before = await self.paid_sum_for_order(order_id)
+        remaining = int(order["total"]) - paid_before
+        if int(amount) > remaining:
+            raise OverpayError(message="Cash exceeds the remaining bill.",
+                               details={"remaining": remaining})
+        total_paid = paid_before + int(amount)
+        full = total_paid >= int(order["total"])
+        status = "paid_cash" if full else "partial_dues"
+        led = LedgerRepo(self._conn)
+        dues = int((await led.get(order["user_id"]))["dues"])
+        if await self._dues_posted(order_id) and dues > 0:
+            await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
+                            ref=f"cash:{order_id}", actor=actor,
+                            reason="cash collected", commit=False)
+        elif not await self._dues_posted(order_id) and dues == 0 and not full:
+            # cash without a prior COD-confirm: carry the remainder as dues (VR-08)
+            await led.apply_event(order["user_id"], d_dues=int(order["total"]) - total_paid,
+                            ref=f"order:{order_id}", actor=actor,
+                            reason="cod remainder carried", commit=False)
+        pid = uuid.uuid4().hex
+        await self._conn.execute(
+            "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+            " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, ?)",
+            (pid, order_id, order["user_id"], int(amount), "cod",
+             f"cash:{order_id}:{uuid.uuid4().hex[:8]}",
+             "paid" if full else "partial", _now(), _now()),
+        )
+        await self._conn.execute("UPDATE orders SET payment_status=? WHERE id=?", (status, order_id))
+        payment = dict((
+            await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
+        ).fetchone())
+        fresh = await self._order(order_id)
+        return {"payment": payment, "order": fresh,
+                "ledger": await led.get(order["user_id"])}
 
     # -- refunds (C15: single claimant) ----------------------------------
 

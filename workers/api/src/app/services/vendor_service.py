@@ -68,6 +68,28 @@ def _today() -> str:
     return _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 
 
+def _decode_cursor(cursor: str) -> tuple[str, str] | None:
+    """Phase 8 §8.2: base64url created_at|id cursor (same shape as order
+    list_by_user). Bad cursor → 400, never a silent full re-read."""
+    if not cursor:
+        return None
+    import base64
+
+    try:
+        ts, _, oid = base64.urlsafe_b64decode(cursor.encode()).decode().rpartition("|")
+        if not ts or not oid:
+            raise ValueError
+    except (ValueError, UnicodeDecodeError):
+        raise ValidationError(message="Bad cursor.", details={}) from None
+    return ts, oid
+
+
+def _encode_cursor(created_at: str, row_id: str) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(f"{created_at}|{row_id}".encode()).decode()
+
+
 def pod_otp(order_id: str, route_date: str) -> str:
     """Legacy deterministic PoD code — fallback for pre-015 stops only.
 
@@ -379,24 +401,23 @@ class VendorService:
         """Post doorstep cash to money truth (F2: closes the COD loop).
 
         Vendor-scoped via _owned_stop (cross-vendor → 404, zero writes).
-        Delegates to PaymentRepo.mark_paid_cash: payment row + paid_cash /
-        partial_dues + dues reconcile, all in its own txn. Already-paid
-        replays propagate as 409 (app treats as "pehle se jama").
+        Phase 8 §8.3: ONE lock + ONE commit covers the payment writes AND
+        the in_hand bump (was two txns: mark_paid_cash's own + the bump's).
+        On sqlite that is one atomic txn; on D1 (per-statement commits) the
+        statements are adjacent under the single-writer so no other write
+        interleaves, and the deterministic (stop, amount) dedupe makes any
+        retry or replay safe — never a double-post.
 
         Dedupe is deterministic on (stop, amount): same-stop same-amount
         retries replay the stored outcome; a different amount (partial
         top-up) is a new scope and posts the remainder. No client key
         needed — the dedupe dimension is fully server-known.
-        in_hand custody bump lands with F5 (column shape reconciled there).
         """
         if amount is None or int(amount) <= 0:
             raise ValidationError(message="Cash amount must be > 0.", details={"stop_id": stop_id})
         core = {"stop_id": stop_id, "amount": int(amount)}
         scoped = f"{CASH_ENDPOINT}:{stop_id}:{int(amount)}"
         phash = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
-        # No outer WRITE_LOCK: mark_paid_cash takes it itself (non-reentrant).
-        # Correctness rests on its already-paid guard; the idem row is replay
-        # fast-path only (concurrent duplicate → honest 409, never double-post).
         stop = await self._owned_stop(vendor_id, stop_id)
         if not stop["order_id"]:
             raise ValidationError(message="Stop has no order to post cash against.",
@@ -410,16 +431,16 @@ class VendorService:
                 )
             return {**json.loads(stored["result"]), "replay": True}
         from app.repositories.payment_repo import PaymentRepo
-
-        out = await PaymentRepo(self._conn).mark_paid_cash(
-            stop["order_id"], int(amount), vendor_id)
-        # F5: custody truth — agency cash in the vendor's pocket (own txn;
-        # day-close reconciles from payments if this ever lags).
         from app.services.dispatch_service import ensure_profile, write_audit
 
-        await ensure_profile(self._conn, vendor_id)
         with WRITE_LOCK:
             try:
+                # Reads above are pre-lock (fail-cheap, zero writes); the
+                # already-paid guard inside re-checks under the lock so a
+                # concurrent duplicate still 409s instead of double-posting.
+                out = await PaymentRepo(self._conn).mark_paid_cash_locked(
+                    stop["order_id"], int(amount), vendor_id)
+                await ensure_profile(self._conn, vendor_id)
                 await self._conn.execute(
                     "UPDATE vendor_profile SET in_hand = in_hand + ? WHERE user_id = ?",
                     (int(amount), vendor_id),
@@ -527,7 +548,9 @@ class VendorService:
 
     async def sync_batch(self, vendor_id: str, items: list[dict]) -> dict:
         """Offline queue flush. Per-stop txns (server-wins ledger); stale entries
-        are rejected individually, never fail the batch. Replays are no-ops."""
+        are rejected individually, never fail the batch. Replays are no-ops.
+        Phase 8 §8.2: at most 200 items per call (router-enforced); clients
+        page the outbox at 100."""
         applied, rejected, replayed = [], [], []
         for it in items:
             sid = it.get("stop_id", "")
@@ -586,15 +609,26 @@ class VendorService:
 
     # -- payouts (027 RBAC: READ-ONLY own payouts + custody) --------------------
 
-    async def payouts_for_vendor(self, vendor_id: str) -> dict:
+    async def payouts_for_vendor(self, vendor_id: str, limit: int = 200,
+                               cursor: str | None = None) -> dict:
         """Own payouts + in_hand custody. Owner-scoped by construction
-        (``payouts WHERE vendor_id=?``); approve stays admin-only."""
+        (``payouts WHERE vendor_id=?``); approve stays admin-only.
+        Phase 8 §8.2: 200-cap + created_at|id cursor (same shape as orders)."""
+        limit = max(1, min(int(limit), 200))
+        args: list[object] = [vendor_id]
+        cursor_sql = ""
+        decoded = _decode_cursor(cursor or "")
+        if decoded is not None:
+            cursor_sql = " AND (created_at < ? OR (created_at = ? AND id < ?))"
+            args += [decoded[0], decoded[0], decoded[1]]
         rows = (await self._conn.execute(
             "SELECT id, period, stops_done, gross_fee, deductions, net, status,"
-            " approved_by, created_at FROM payouts WHERE vendor_id = ?"
-            " ORDER BY created_at DESC LIMIT 200",
-            (vendor_id,),
+            f" approved_by, created_at FROM payouts WHERE vendor_id = ?{cursor_sql}"  # noqa: S608
+            " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (*args, limit + 1),
         )).fetchall()
+        page = rows[:limit]
+        next_cursor = _encode_cursor(page[-1]["created_at"], page[-1]["id"]) if len(rows) > limit else None
         try:
             prof = (await self._conn.execute(
                 "SELECT in_hand FROM vendor_profile WHERE user_id = ?", (vendor_id,))).fetchone()
@@ -602,8 +636,9 @@ class VendorService:
         except Exception:
             in_hand = 0  # pre-007 DBs: honest 0, never 500
         return {
-            "payouts": [dict(r) for r in rows],
+            "payouts": [dict(r) for r in page],
             "in_hand": in_hand,
+            "next_cursor": next_cursor,
             "note": "Payouts are approved by the agency; this view is read-only.",
         }
 
@@ -727,29 +762,51 @@ class VendorService:
 
     # -- vendor complaint queue (011_port: ticket thread reads, verify writes) ---
 
-    async def vendor_complaints(self, vendor_id: str) -> dict:
+    async def vendor_complaints(self, vendor_id: str, limit: int = 100,
+                                cursor: str | None = None) -> dict:
+        """Phase 8 §8.2: 200-cap + created_at|id cursor (was fixed LIMIT 100)."""
+        limit = max(1, min(int(limit), 200))
+        args: list[object] = [vendor_id]
+        cursor_sql = ""
+        decoded = _decode_cursor(cursor or "")
+        if decoded is not None:
+            cursor_sql = " AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))"
+            args += [decoded[0], decoded[0], decoded[1]]
         rows = (await self._conn.execute(
             "SELECT c.id, c.order_id, c.reason_code, c.text, c.status,"
             " c.vendor_agree, c.created_at FROM complaints c"
             " JOIN stops s ON s.order_id = c.order_id"
-            " JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?"
-            " ORDER BY c.created_at DESC, c.id DESC LIMIT 100",
-            (vendor_id,),
+            f" JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?{cursor_sql}"  # noqa: S608
+            " ORDER BY c.created_at DESC, c.id DESC LIMIT ?",
+            (*args, limit + 1),
         )).fetchall()
-        return {"data": [dict(r) for r in rows]}
+        page = rows[:limit]
+        next_cursor = _encode_cursor(page[-1]["created_at"], page[-1]["id"]) if len(rows) > limit else None
+        return {"data": [dict(r) for r in page], "next_cursor": next_cursor}
 
-    async def vendor_quality(self, vendor_id: str) -> dict:
+    async def vendor_quality(self, vendor_id: str, limit: int = 100,
+                             cursor: str | None = None) -> dict:
         """Quality incidents on this vendor's route orders (replaces the
-        manual-id crutch): owned by the same stop join as complaints."""
+        manual-id crutch): owned by the same stop join as complaints.
+        Phase 8 §8.2: 200-cap + created_at|id cursor (was fixed LIMIT 100)."""
+        limit = max(1, min(int(limit), 200))
+        args: list[object] = [vendor_id]
+        cursor_sql = ""
+        decoded = _decode_cursor(cursor or "")
+        if decoded is not None:
+            cursor_sql = " AND (q.created_at < ? OR (q.created_at = ? AND q.id < ?))"
+            args += [decoded[0], decoded[0], decoded[1]]
         rows = (await self._conn.execute(
             "SELECT q.id, q.order_id, q.reason_code, q.status,"
             " q.vendor_agree, q.created_at FROM quality_incidents q"
             " JOIN stops s ON s.order_id = q.order_id"
-            " JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?"
-            " ORDER BY q.created_at DESC, q.id DESC LIMIT 100",
-            (vendor_id,),
+            f" JOIN routes r ON r.id = s.route_id AND r.vendor_id = ?{cursor_sql}"  # noqa: S608
+            " ORDER BY q.created_at DESC, q.id DESC LIMIT ?",
+            (*args, limit + 1),
         )).fetchall()
-        return {"data": [dict(r) for r in rows]}
+        page = rows[:limit]
+        next_cursor = _encode_cursor(page[-1]["created_at"], page[-1]["id"]) if len(rows) > limit else None
+        return {"data": [dict(r) for r in page], "next_cursor": next_cursor}
 
     # -- complaint + quality verification (§14.3) ---------------------------------------
 

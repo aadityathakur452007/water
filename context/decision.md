@@ -35,6 +35,7 @@
 
 | ID | Date | Decision | Status | Affects |
 |----|------|----------|--------|---------|
+| ADR-090 | 2026-10-06 | Phase 8 backend performance notes: 017/018 split indexes + 019 counters; spike→(c) + single-txn cash; L1+D1 limits + Retry-After; cached() 300s+ETag on 5 GETs | Accepted | workers/api migrations/vendor/scheduler/payment_repo/auth/errors/caching/tests, branch 029-remediation |
 | ADR-089 | 2026-10-05 | Phase 7 customer UX notes: clipboard kept; full bilingual; schedule allowlist + estimate endpoint; Address→Pay collapse + recap; confirm breakup/UPI; identity revalidation; slots LOUD; a11y full sweep | Accepted | workers/api subs/tests, user_app booking/orders/support/subs/profile/addresses/auth/shell/tests, admin_app revoke dialog, branch 029-remediation |
 | ADR-088 | 2026-10-05 | Phase 6 admin truth notes: users counts ride list read; vendors reviewHold live; dispatch from reco aggregates; KPI wired; skeletons replace null blanks; shared 429/offline copies | Accepted | workers/api admin/tests, admin_app dashboard screens/hooks/types/fixtures, branch 029-remediation |
 | ADR-087 | 2026-10-05 | Phase 5 vendor ops notes: additive paid_sum/on_duty; silent-refresh-once + cap banner; duty via profile; 60s on-duty discovery; per-order accept; copied 5-status predicates + gating + Hindi labels; web parity owner-verified | Accepted | workers/api vendor_service/tests, vendor_app auth/api/client/duty/route/shell/stops/sync/main/tests, admin_app vendor subtree/server/fixtures, branch 029-remediation |
@@ -144,6 +145,16 @@
 ---
 
 ## Decision Entries
+
+### ADR-090: Phase 8 backend performance notes
+- **Date**: 2026-10-06
+- **Status**: Accepted
+- **Context**: Phase 8 spec (`Feature_docs/platform-audit/specs/phase-08-performance.md`) on branch `029-remediation`. Owner answers locked: spike-then-best-option, L1+D1 truth, backend-headers-only cache, all bounds as spec. Design approved before implementation.
+- **Options considered**: (1) §8.3 spike: D1 batch() preferred by spec — repo-wide grep finds zero batch usage and `db.py` documents the binding as prepare/bind/all/run only; no local pywrangler to introspect, and batch() is round-trip batching (not atomic) anyway → chose (c) narrow sections + deterministic dedupe (already partly true for cash/triple) + the spec minimum. No saga: day-close triple cross-check flags (Phase 2B) already detect partials; a reconciler job would duplicate them. (2) Two index migrations vs one (chosen two — 017 core lands/measures first per the D1 single-writer note). (3) UNIQUE payouts_vendor_period kept spec-literal; duplicate (vendor,period) rows fail loudly at owner-apply, never silently — pre-check query documented in 018 header. (4) `public` cache on admin config/zones kept spec-literal with auth still required + BFF untouched (flagged: edge varies on Authorization).
+- **Decision**: 017/018/019 (ship unapplied, owner D1-applies); SyncIn 200 + placed 1–50 + vendor 200-caps/cursors (orders cursor shape reused); purge 500-chunks (also dodges the 999-variable cap); scheduler keyset paging + batch logs; cash_post one lock/commit via `mark_paid_cash_locked` (admin mark_cash keeps the locking wrapper); L1 fast-deny + D1 `rate_counters` truth (fail-open on counting only, keys server-derived); Retry-After on all auth 429s via errors.py; `log.warning` on every limit hit (both paths); `cached()` on the 5 GETs. Verify: 304 pytest green (291 + 13 new in `tests/test_phase08_performance.py`); 1 pre-existing assertion updated to the new truth (quality `next_cursor`).
+- **Why**: Diagnose-before-fix throughout — every index column verified in migration schemas, every bound proven missing (unbounded SyncIn, unvalidated placed limit, unchunked purge IN-lists, full-ledger reminder scans, two-txn cash, headerless 429s, zero cache headers). Smallest diffs on existing seams; no new services/layers/packages; money paths keep exact paise math.
+- **Consequences**: Owner owes 017→measure→018/019 D1 applies + before/after query counts (today_route, preview, money_totals, dunning) + all prior carry items. Torn-write windows documented here: triple (ledger event → stop row, one txn under lock), cash (payment writes + in_hand, one txn under lock since this phase), webhook (payment verify → ledger/dues, repo txn), payout approve (payout row → audit, admin txn).
+- **Affects**: workers/api migrations 017/018/019, vendor router/service, scheduler, payment_repo, auth_service, errors, middleware, catalog, admin, api/caching.py, tests/test_phase08_performance.py + test_phase03_splita.py, branch 029-remediation
 
 ### ADR-089: Phase 7 customer UX notes (splits A/B/C)
 - **Date**: 2026-10-05

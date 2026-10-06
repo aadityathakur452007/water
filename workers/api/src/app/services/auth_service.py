@@ -120,10 +120,13 @@ def integrity_status(device: dict | None) -> str:
 
 
 class RateLimiter:
-    """Sliding-window limiter."""
+    """Sliding-window limiter (L1 fast-path per isolate).
 
-    # TODO slice-3: D1-backed counters (multi-isolate). This dict is slice-2-local:
-    # each Worker isolate counts on its own, so global limits are approximate.
+    Phase 8 §8.4: D1 (rate_counters, migration 019) is the cross-isolate
+    source of truth — see AuthService._limit_check. This dict stays as the
+    instant per-isolate deny so a D1 outage never weakens enforcement.
+    """
+
     def __init__(self) -> None:
         self._hits: dict[str, list[float]] = {}
         self._lock = threading.Lock()
@@ -134,6 +137,7 @@ class RateLimiter:
             hits = [t for t in self._hits.get(key, []) if t > now - window_s]
             if len(hits) >= limit:
                 retry = int(max(1, window_s - (now - hits[0])))
+                log.warning("rate_limit l1_hit key=%s limit=%d retry_after_s=%d", key, limit, retry)
                 raise RateLimitedError("Too many requests.", {"retry_after_s": retry})
             hits.append(now)
             self._hits[key] = hits
@@ -163,12 +167,43 @@ class AuthService:
         self._sessions = SessionRepo(conn)
         self._verifier = verifier  # duck-typed verify_id_token(); None = only local ops
 
+    async def _limit_check(self, key: str, limit: int, window_s: int) -> None:
+        """Phase 8 §8.4: L1 fast-deny + D1 authoritative count.
+
+        L1 raises first (per-isolate, instant). D1 (rate_counters keyed by
+        key:window-bucket) then denies abuse spread across isolates. D1
+        outage or pre-019 table → debug-logged, L1 still enforced (fail-open
+        on counting only — counter writes never fail the auth call itself).
+        Keys are server-derived (normalized phone, socket IP, session
+        device_fp) — never client-supplied identity (ssdlc).
+        """
+        _LIMITER.check(key, limit, window_s)  # raises RateLimitedError when over
+        try:
+            bucket = int(time.time() // window_s) * window_s
+            dkey = f"{key}:{bucket}"
+            await self._conn.execute(
+                "INSERT INTO rate_counters(key, window_start, count) VALUES (?, ?, 1)"
+                " ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1",
+                (dkey, _now().isoformat()),
+            )
+            row = (await self._conn.execute(
+                "SELECT count FROM rate_counters WHERE key = ?", (dkey,))).fetchone()
+            self._conn.commit()
+            if row is not None and int(row["count"]) > limit:
+                retry = int(window_s - (time.time() % window_s)) or 1
+                log.warning("rate_limit d1_hit key=%s count=%d limit=%d", key, int(row["count"]), limit)
+                raise RateLimitedError("Too many requests.", {"retry_after_s": retry})
+        except RateLimitedError:
+            raise
+        except Exception:  # pre-019 DBs / D1 hiccups: L1 already enforced above
+            log.debug("rate_limit d1_unavailable key=%s", key)
+
     # -- OTP ---------------------------------------------------------------
 
     async def otp_start(self, phone: str, ip: str) -> dict:
         phone = normalize_phone(phone)
-        _LIMITER.check(f"otp-start:phone:{phone}", *OTP_START_PHONE_LIMIT)
-        _LIMITER.check(f"otp-start:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
+        await self._limit_check(f"otp-start:phone:{phone}", *OTP_START_PHONE_LIMIT)
+        await self._limit_check(f"otp-start:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
         # firebase (default): Firebase sends the SMS client-side; the server
         # only gates abuse (SEC-A02). fast2sms/textbee: the server mints a
         # single-use code, stores only its hash, and sends it via the provider
@@ -198,7 +233,7 @@ class AuthService:
         device_id = (device or {}).get("id") or ""
         if not device_id.strip():
             raise ValidationError("Device id required.", {"device": "id"})
-        _LIMITER.check(f"otp-verify:device:{device_id}", *OTP_VERIFY_DEVICE_LIMIT)
+        await self._limit_check(f"otp-verify:device:{device_id}", *OTP_VERIFY_DEVICE_LIMIT)
         # Server-code path (fast2sms): phone + 6-digit code, no Firebase round-trip.
         if code:
             from app.repositories.otp_repo import OtpRepo  # noqa: PLC0415 (lazy seam)
@@ -265,7 +300,7 @@ class AuthService:
             flag = None
         if (flag or "0").strip() != "1":
             raise UnauthError("Demo login is off.", {})
-        _LIMITER.check(f"demo-login:device:{device_id}", *self.DEMO_LOGIN_DEVICE_LIMIT)
+        await self._limit_check(f"demo-login:device:{device_id}", *self.DEMO_LOGIN_DEVICE_LIMIT)
         phone_n = normalize_phone(phone or "")
         row = (
             await self._conn.execute(
@@ -303,7 +338,7 @@ class AuthService:
             flag = None
         if (flag or "0").strip() != "1":
             raise UnauthError("Vendor login is off.", {})
-        _LIMITER.check(f"vendor-login:device:{device_id}", *self.VENDOR_LOGIN_DEVICE_LIMIT)
+        await self._limit_check(f"vendor-login:device:{device_id}", *self.VENDOR_LOGIN_DEVICE_LIMIT)
         phone_n = normalize_phone(phone or "")
         user = await self._users.find_by_phone(phone_n)
         want = hash_token((code or "").strip())
@@ -371,7 +406,7 @@ class AuthService:
             legacy_flag_on = (legacy or "0").strip() == "1"
         if not (new_flag_on or legacy_flag_on):
             raise UnauthError("Invalid credentials.", {})
-        _LIMITER.check(f"access-code-login:device:{device_id}", *ACCESS_CODE_DEVICE_LIMIT)
+        await self._limit_check(f"access-code-login:device:{device_id}", *ACCESS_CODE_DEVICE_LIMIT)
         phone_n = normalize_phone(phone or "")
         user = await self._users.find_by_phone(phone_n)
         want = hash_token((code or "").strip())
@@ -441,8 +476,8 @@ class AuthService:
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
         phone_n = normalize_phone(phone or "")
-        _LIMITER.check(f"register:phone:{phone_n}", *OTP_START_PHONE_LIMIT)
-        _LIMITER.check(f"register:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
+        await self._limit_check(f"register:phone:{phone_n}", *OTP_START_PHONE_LIMIT)
+        await self._limit_check(f"register:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
         existing = await self._users.find_by_phone(phone_n)
         if existing is not None and existing.get("role") != "user":
             raise RoleReservedError(
@@ -526,7 +561,7 @@ class AuthService:
                 await self._sessions.set_session_cap(row["id"], cap)
         if cap is not None and _expired(cap):
             raise UnauthError("Session expired. Please log in again.", {})
-        _LIMITER.check(f"refresh:user:{row['user_id']}", *REFRESH_USER_LIMIT)
+        await self._limit_check(f"refresh:user:{row['user_id']}", *REFRESH_USER_LIMIT)
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         rotated = await self._sessions.rotate(
             old_refresh_hash=h,

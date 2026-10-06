@@ -2,9 +2,10 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
+from app.api.caching import cached
 from app.api.deps import get_db_conn, get_settings
 from app.schemas.catalog import CatalogOut, SkuOut
 
@@ -30,10 +31,12 @@ def _is_serviceable(pincode: str) -> bool:
     return not prefixes or any(pincode.startswith(p) for p in prefixes)
 
 
-@router.get("/catalog", response_model=CatalogOut)
-def get_catalog() -> CatalogOut:
+@router.get("/catalog")
+def get_catalog(request: Request) -> object:
+    # Phase 8 §8.5: cached 5 min + ETag (rates change via deploy/config,
+    # not per request). Shape identical to the former response_model.
     s = get_settings()
-    return CatalogOut(
+    return cached(CatalogOut(
         skus=[
             SkuOut(id="refill", price_paise=s.rate_refill_paise),
             SkuOut(id="container", price_paise=s.rate_container_paise),
@@ -42,7 +45,7 @@ def get_catalog() -> CatalogOut:
         cap_charge=s.cap_charge_paise,
         hours=str(getattr(s, "business_hours", _HOURS_DEFAULT)),
         holidays=list(getattr(s, "holidays", None) or []),
-    )
+    ).model_dump(mode="json"), request)
 
 
 # 014: all-days delivery — Sundays serviceable, holidays still skip.
@@ -55,21 +58,23 @@ def _next_serviceable_day(day: dt.date | None) -> dt.date:
 
 
 @router.get("/windows")
-def get_windows(date: dt.date | None = None, pincode: str | None = Query(default=None, pattern=_PINCODE_RE)):
+def get_windows(request: Request, date: dt.date | None = None,
+                pincode: str | None = Query(default=None, pattern=_PINCODE_RE)):
     day = _next_serviceable_day(date)
     if pincode is not None and not _is_serviceable(pincode):
-        return {"date": day.isoformat(), "windows": [], "serviceable": False, "lead_capture": True}
+        return cached({"date": day.isoformat(), "windows": [], "serviceable": False,
+                       "lead_capture": True}, request)
     slots = []
     for h in range(8, 20):
         for m in (0, 30):
             eh, em = (h, 30) if m == 0 else (h + 1, 0)
             slots.append({"start": f"{h:02d}:{m:02d}", "end": f"{eh:02d}:{em:02d}", "capacity_left": None})
-    return {"date": day.isoformat(), "windows": slots, "serviceable": True}
+    return cached({"date": day.isoformat(), "windows": slots, "serviceable": True}, request)
 
 
 @router.get("/serviceability")
-def check_serviceability(pincode: str = Query(pattern=_PINCODE_RE)):
-    return {"serviceable": _is_serviceable(pincode), "pincode": pincode}
+def check_serviceability(request: Request, pincode: str = Query(pattern=_PINCODE_RE)):
+    return cached({"serviceable": _is_serviceable(pincode), "pincode": pincode}, request)
 
 
 class LeadIn(BaseModel):
