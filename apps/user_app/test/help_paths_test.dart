@@ -16,6 +16,37 @@ ApiClient _quietApi() => ApiClient(
 );
 
 void main() {
+  group('support complaints error branch', () {
+    testWidgets('load failure shows message + retry (never silent none)',
+        (tester) async {
+      final controller = SupportController(
+        // 400 (not retryable) keeps the failure deterministic — the
+        // error branch is identical for any ApiException.
+        api: ApiClient(
+          client: MockClient((req) async => http.Response('bad', 400)),
+          deviceId: 't',
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: SupportScreen(controller: controller)),
+      );
+      await tester.pump();
+      // Drive the failure after mount (reactive path: notify → rebuild).
+      await controller.load();
+      expect(controller.status, ComplaintStatus.error);
+      await tester.pump();
+      // The complaints section sits below the fold in the test viewport —
+      // scroll it into view (finders skip offstage sliver children).
+      await tester.scrollUntilVisible(
+        find.text('Meri shikayatein'),
+        300,
+      );
+      await tester.pump();
+      expect(find.text('Dobara try karein'), findsOneWidget);
+      controller.dispose();
+    });
+  });
+
   group('support WhatsApp', () {
     testWidgets('Kholein attempts wa.me launch (no fallback when it works)', (
       tester,

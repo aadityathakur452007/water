@@ -244,9 +244,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
           listenable: widget.controller,
           builder: (context, _) {
             final order = widget.controller.findById(widget.orderId);
-            // Detail missing (not found or load failed) — message +
-            // retry instead of a bare line. Refresh re-reads the order.
+            // Detail missing: spinner while the list is still loading,
+            // otherwise message + retry instead of a bare line. Refresh
+            // re-reads the order.
             if (order == null) {
+              if (widget.controller.status ==
+                  OrdersListStatus.loading) {
+                return const Center(child: CircularProgressIndicator());
+              }
               return Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
