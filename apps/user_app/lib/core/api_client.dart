@@ -411,6 +411,18 @@ class ApiClient {
         'window_start': windowStart,
       })) as Map<String, dynamic>;
 
+  /// POST /subscriptions/estimate {qty, sku_mix} → first-cycle server
+  /// amount (water + once-only deposit). Pure read — the sheet shows
+  /// this on Pay instead of client math (Phase 7 F5).
+  Future<Map<String, dynamic>> subscriptionEstimate({
+    required int qty,
+    required String skuMix,
+  }) async =>
+      (await send('POST', '/subscriptions/estimate', body: {
+        'qty': qty,
+        'sku_mix': skuMix,
+      })) as Map<String, dynamic>;
+
   /// POST /orders {items, e, address_id, window_start, quote_hash,
   /// quote_total, quote_rate_version, quote_expires_at, payment_mode}
   /// + Idempotency-Key → 201 server-minted order.

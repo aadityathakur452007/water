@@ -57,6 +57,20 @@ async def create_subscription(payload: SubCreateIn, user=Depends(_user),
         _uid(user), payload.model_dump(mode="json"), (idem or "").strip())
 
 
+class SubEstimateIn(BaseModel):
+    qty: int = Field(ge=1, le=30)
+    sku_mix: str = Field(default="refill", max_length=32)
+
+
+@router.post("/subscriptions/estimate")
+async def estimate_subscription(payload: SubEstimateIn, user=Depends(_user),
+                          conn=Depends(get_db_conn)):
+    """Phase 7 F5: pure first-cycle amount (water + once-only deposit) —
+    no write. The sheet shows this on Pay instead of client math."""
+    return await SubscriptionService(conn).estimate_first_cycle(
+        _uid(user), payload.qty, payload.sku_mix)
+
+
 @router.get("/subscriptions")
 async def list_subscriptions(user=Depends(get_current_user), conn=Depends(get_db_conn)):
     return {"data": await SubscriptionService(conn).list(_uid(user))}

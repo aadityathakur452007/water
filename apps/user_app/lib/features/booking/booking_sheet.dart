@@ -89,6 +89,15 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   int _slotIdx = 0;
   String _slotDate = '';
   bool _unserviceable = false;
+  // F3: slots fetch failed (not empty — error). Pay/Aage stay blocked
+  // with a LOUD banner + retry; the 08:00 fallback never fires silently.
+  bool _slotsFailed = false;
+  // F5: server first-cycle amount for subscriptions (Pay shows this,
+  // never client math). Null until loaded; failure falls back to the
+  // client estimate marked lagbhag.
+  int? _serverTotal;
+  bool _estimateLoading = false;
+  bool _estimateFailed = false;
   Razorpay? _gateway;
   CheckoutResult? _pendingUpi;
 
@@ -105,6 +114,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     super.initState();
     c.addListener(_onChange);
     _loadSlots();
+    if (!_isOnce) _fetchEstimate();
   }
 
   @override
@@ -141,16 +151,19 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       _slotDate = (res['date'] as String?) ?? date;
       _unserviceable = (res['serviceable'] as bool?) == false;
       _slotIdx = 0;
+      _slotsFailed = false;
       setState(() => _phase = _Phase.form);
     } on ApiException {
       setState(() {
         _phase = _Phase.form;
         _slots = [];
+        _slotsFailed = true;
       });
     } catch (_) {
       setState(() {
         _phase = _Phase.form;
         _slots = [];
+        _slotsFailed = true;
       });
     }
   }
@@ -178,6 +191,43 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return deliveryTypeLabels[c.deliveryType]!;
   }
 
+  /// F5: first-cycle server amount (one fetch per sheet-open; retries
+  /// on demand). Client math stays only as the marked fallback.
+  Future<void> _fetchEstimate() async {
+    if (_isOnce || _estimateLoading || _serverTotal != null) return;
+    setState(() {
+      _estimateLoading = true;
+      _estimateFailed = false;
+    });
+    try {
+      final res = await widget.api.subscriptionEstimate(
+        qty: c.totalJars,
+        skuMix: skuMixOf(refill: c.refillQty, container: c.containerQty),
+      );
+      if (!mounted) return;
+      setState(() {
+        _serverTotal = (res['total'] as num?)?.toInt();
+        _estimateLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _estimateLoading = false;
+        _estimateFailed = true;
+      });
+    }
+  }
+
+  String _subPayLabel() {
+    final server = _serverTotal;
+    if (server != null) return 'Subscription • ${rupeesLabel(server)}';
+    if (_estimateLoading) return 'Subscription shuru karein…';
+    if (_estimateFailed) {
+      return 'Subscription • lagbhag ${rupeesLabel(c.quoteTotalPaise)}';
+    }
+    return 'Subscription shuru karein';
+  }
+
   String get _recurrence {
     if (!_isCustom) return '';
     final days = _customDays.toList()..sort();
@@ -191,6 +241,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       case 1:
         // 014: fixed 8-12 needs no slot payload — address is the only gate.
         if (_isCustom) return _customDays.isNotEmpty;
+        // F3: failed slots fetch blocks forward motion until retry wins.
+        if (_isOnce && _slotsFailed) return false;
         return true;
       default:
         return true;
@@ -201,6 +253,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     if (!_stepValid || _step >= 2) return;
     if (_step == 0 && _isOnce && _phase != _Phase.loadingSlots) _loadSlots();
     setState(() => _step++);
+    if (_step == 2 && !_isOnce) _fetchEstimate();
   }
 
   void _back() {
@@ -208,6 +261,16 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   String _errorFor(ApiException e) {
+    // 403 (role/suspended) and 429 (rate limit) get their own guidance —
+    // never the generic wall (a11y: distinct, actionable copy).
+    if (e.statusCode == 403) {
+      return e.message.isNotEmpty
+          ? e.message
+          : 'Ye action allowed nahi — support se baat karein';
+    }
+    if (e.statusCode == 429 || e.code == 'RATE_LIMITED') {
+      return 'Bahut koshish ho gayi — thodi der me retry karein';
+    }
     switch (e.code) {
       case 'NETWORK':
         return 'Internet nahi — dobara try karein';
@@ -232,6 +295,22 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       _phase = _Phase.paying;
       _error = '';
     });
+    // F6: re-resolve identity — the address may have been edited or
+    // deleted while the sheet was open. Fetch failure passes through
+    // (offline never blocks; the server revalidates at create).
+    try {
+      final listed = await widget.api.listAddresses();
+      if (!addressStillListed(listed, addr.id)) {
+        if (!mounted) return;
+        setState(() {
+          _phase = _Phase.error;
+          _error = 'Address badal gaya — peeche jakar dobara chunein';
+        });
+        return;
+      }
+    } catch (_) {
+      // fall through to checkout (server is the enforcer)
+    }
     try {
       final result = await placeCheckout(
         api: widget.api,
@@ -240,6 +319,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         windowStart: _isOnce ? _windowStart : _windowLabel,
         windowLabel: _windowLabel,
         recurrence: _recurrence,
+        addressLabel: '${addr.label} • ${addr.addressLine}',
       );
       if (!mounted) return;
       if (result.isSubscription || c.paymentMode == PaymentMode.cod) {
@@ -334,6 +414,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             note.isEmpty ? pending.windowLabel : '${pending.windowLabel} • $note',
         isSubscription: false,
         providerRef: pending.providerRef,
+        waterPaise: pending.waterPaise,
+        depositPaise: pending.depositPaise,
+        capsPaise: pending.capsPaise,
+        addressLabel: pending.addressLabel,
       ),
     );
   }
@@ -399,7 +483,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             child: Text(
                               c.deliveryType == DeliveryType.once
                                   ? 'Pay • ${rupeesLabel(c.quoteTotalPaise)}'
-                                  : 'Subscription shuru karein',
+                                  : _subPayLabel(),
                             ),
                           ),
                   ),
@@ -435,7 +519,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               ),
               label: Text(deliveryTypeLabels[t]!),
               selected: selected,
-              onSelected: (_) => setState(() => c.deliveryType = t),
+              onSelected: (_) {
+                setState(() => c.deliveryType = t);
+                if (t != DeliveryType.once) _fetchEstimate();
+              },
               selectedColor: ShodashaTheme.ink,
               labelStyle: TextStyle(
                 color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
@@ -471,6 +558,24 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               padding: EdgeInsets.only(top: 8),
               child: Text('Is pincode par delivery nahi — address badlein',
                   style: TextStyle(color: ShodashaTheme.danger)),
+            ),
+          // F3: slots fetch failure is LOUD — banner + retry, and Aage
+          // stays disabled until the reload wins (no silent 08:00).
+          if (_slotsFailed)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('Slots load nahi hue — time pakka nahi hua',
+                        style: TextStyle(color: ShodashaTheme.danger)),
+                  ),
+                  TextButton(
+                    onPressed: _loadSlots,
+                    child: const Text('Dobara try karein'),
+                  ),
+                ],
+              ),
             ),
         ] else if (_isCustom) ...[
           TableCalendar<DateTime>(
@@ -530,6 +635,20 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           '${rupeesLabel(c.quoteTotalPaise)}',
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
+        // F5: server amount failed → marked client estimate + retry.
+        if (!_isOnce && _estimateFailed)
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Server daam nahi aaya — anumanit rashi',
+                    style: TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+              ),
+              TextButton(
+                onPressed: _fetchEstimate,
+                child: const Text('Dobara try karein'),
+              ),
+            ],
+          ),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -581,6 +700,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               Expanded(
                 child: Text(_error,
                     style: const TextStyle(color: ShodashaTheme.danger)),
+              ),
+              TextButton(
+                onPressed: busy ? null : _pay,
+                child: const Text('Retry karein'),
               ),
             ],
           ),

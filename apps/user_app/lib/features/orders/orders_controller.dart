@@ -55,6 +55,8 @@ const Map<String, String> ordersStringsHi = {
   'callRider': 'Rider ko call karein',
   'deliveredBanner': 'Order deliver ho gaya',
   'cancelledBanner': 'Order cancel ho gaya',
+  'failedBanner': 'Delivery fail ho gayi — support se baat karein',
+  'rejectedBanner': 'Order reject ho gaya — paise wapas honge',
   'refundPending': 'Refund pending — rashi frozen, badlegi nahi',
   'duesNote': 'Baki rashi agle bill me jud jayegi',
   'rateTitle': 'Delivery kaisi rahi?',
@@ -174,14 +176,11 @@ class RescheduleSlot {
   int get hashCode => Object.hash(start, end);
 }
 
-/// Next serviceable day slots: tomorrow onward, skipping Sunday (ex-Sun),
-/// 30-min slots 08:00–20:00 (approved answer 4).
+/// Next serviceable day slots: tomorrow onward, 30-min slots 08:00–20:00.
+/// 014: all days water (no Sunday skip — matches booking + GET /windows).
 List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
   var day = (from ?? DateTime.now()).add(const Duration(days: 1));
   day = DateTime(day.year, day.month, day.day);
-  while (day.weekday == DateTime.sunday) {
-    day = day.add(const Duration(days: 1));
-  }
   final slots = <RescheduleSlot>[];
   for (var h = 8; h < 20; h++) {
     for (final m in [0, 30]) {

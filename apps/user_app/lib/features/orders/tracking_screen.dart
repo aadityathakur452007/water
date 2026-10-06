@@ -249,11 +249,29 @@ class _TrackingScreenState extends State<TrackingScreen> {
           builder: (context, _) {
             final order =
                 widget.controller.findById(widget.orderId);
+            // Detail missing (not found or load failed) — message +
+            // retry instead of a bare line. Refresh re-reads the order.
             if (order == null) {
               return Center(
-                child: Text(
-                  ordersStringsHi['errorTitle']!,
-                  style: const TextStyle(color: OrdersTokens.muted),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        ordersStringsHi['errorTitle']!,
+                        textAlign: TextAlign.center,
+                        style:
+                            const TextStyle(color: OrdersTokens.muted),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () =>
+                            widget.controller.refresh(),
+                        child: const Text('Dobara try karein'),
+                      ),
+                    ],
+                  ),
                 ),
               );
             }
@@ -267,6 +285,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   if (order.state == OrderState.cancelled)
                     _FlatBanner(
                       text: ordersStringsHi['cancelledBanner']!,
+                    )
+                  else if (order.state == OrderState.failed)
+                    _FlatBanner(
+                      text: ordersStringsHi['failedBanner']!,
+                    )
+                  else if (order.state == OrderState.rejected)
+                    _FlatBanner(
+                      text: ordersStringsHi['rejectedBanner']!,
                     )
                   else if (trackerStep(order.state) >= 0)
                     _FourStepTracker(step: trackerStep(order.state))
@@ -421,13 +447,17 @@ class _FourStepTracker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: OrdersTokens.white,
-        border: Border.all(color: OrdersTokens.border),
-        borderRadius: BorderRadius.circular(OrdersTokens.radius),
-      ),
+    // a11y-2: progress announced as one node (step X of 4 + label).
+    return Semantics(
+      container: true,
+      label: 'Order progress: step ${step + 1} of 4, ${_labels[step]}',
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: OrdersTokens.white,
+          border: Border.all(color: OrdersTokens.border),
+          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        ),
       child: Column(
         children: [
           Row(
@@ -463,6 +493,7 @@ class _FourStepTracker extends StatelessWidget {
             ],
           ),
         ],
+      ),
       ),
     );
   }
@@ -536,6 +567,15 @@ class _WindowCard extends StatelessWidget {
               children: [
                 Text(
                   ordersStringsHi['windowLabel']!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: OrdersTokens.blue,
+                  ),
+                ),
+                // F10: date rides with the time — a bare HH:MM hides
+                // which day (kal/parson confusion at midnight).
+                Text(
+                  '${two(s.day)}/${two(s.month)}',
                   style: const TextStyle(
                     fontSize: 12,
                     color: OrdersTokens.blue,

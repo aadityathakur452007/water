@@ -326,7 +326,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 child: CircularProgressIndicator(),
                               ),
                             )
-                          : Column(
+                          // Error branch (was: silent zero ledger) —
+                          // message + retry, never fake Rs 0.
+                          : _c.status == LedgerStatus.error
+                              ? Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _c.errorMessage ?? 'Load nahi hua',
+                                        style: const TextStyle(
+                                            color: ShodashaTheme.muted),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: _c.load,
+                                      child:
+                                          const Text('Dobara try karein'),
+                                    ),
+                                  ],
+                                )
+                              : Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(

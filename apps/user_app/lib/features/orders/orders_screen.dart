@@ -371,7 +371,8 @@ class _OrderCard extends StatelessWidget {
     String two(int n) => n.toString().padLeft(2, '0');
     final s = o.windowStart;
     final e = o.windowEnd ?? s.add(const Duration(minutes: 30));
-    return '${two(s.hour)}:${two(s.minute)} - '
+    // F10: date rides with the time (same rule as the tracking card).
+    return '${two(s.day)}/${two(s.month)} • ${two(s.hour)}:${two(s.minute)} - '
         '${two(e.hour)}:${two(e.minute)}';
   }
 }

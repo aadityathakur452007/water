@@ -274,7 +274,10 @@ class AuthController extends ChangeNotifier {
         _fail(authStringsHi['staffNumber']!, AuthStatus.error);
       } else if (e.statusCode == 429) {
         _fail(authStringsHi['rateLimited']!, AuthStatus.error);
-      } else if (e.statusCode == 400 && e.message.isNotEmpty) {
+      } else if ((e.statusCode == 400 || e.statusCode == 403) &&
+          e.message.isNotEmpty) {
+        // 400 validation + 403 role/suspended detail ride the server
+        // message (generic, no oracle); anything else stays generic.
         _fail(e.message, AuthStatus.error);
       } else {
         _fail(authStringsHi['serverError']!, AuthStatus.error);

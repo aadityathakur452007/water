@@ -387,6 +387,23 @@ class _SupportScreenState extends State<SupportScreen> {
                   ),
                 );
               }
+              // Error branch (was: silent 'none') — message + retry.
+              if (_c.status == ComplaintStatus.error && _c.items.isEmpty) {
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _c.errorMessage ?? supportStringsHi['errServer']!,
+                        style: const TextStyle(color: ShodashaTheme.muted),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _c.load,
+                      child: const Text('Dobara try karein'),
+                    ),
+                  ],
+                );
+              }
               if (_c.items.isEmpty) {
                 return Text(
                   supportStringsHi['none']!,

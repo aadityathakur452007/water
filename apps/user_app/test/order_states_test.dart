@@ -110,7 +110,7 @@ void main() {
     });
   });
 
-  group('reschedule slots (next-day 30-min 8–20 ex-Sun)', () {
+  group('reschedule slots (next-day 30-min 8–20, 014 all-days)', () {
     test('24 half-hour slots inside 8–20', () {
       // 2026-09-29 is a Tuesday → next day Wed, no skip.
       final slots = nextServiceSlots(from: DateTime(2026, 9, 29, 12));
@@ -127,11 +127,11 @@ void main() {
       }
     });
 
-    test('skips Sunday', () {
-      // 2026-10-03 is a Saturday → next day Sun → skip to Monday 10-05.
+    test('no Sunday skip (014 all-days water)', () {
+      // 2026-10-03 is a Saturday → next day Sun stays serviceable.
       final slots = nextServiceSlots(from: DateTime(2026, 10, 3, 12));
-      expect(slots.first.start.weekday, DateTime.monday);
-      expect(slots.first.start.day, 5);
+      expect(slots.first.start.weekday, DateTime.sunday);
+      expect(slots.first.start.day, 4);
     });
   });
 
