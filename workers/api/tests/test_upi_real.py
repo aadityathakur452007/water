@@ -1,10 +1,11 @@
-"""RealUpiProvider Razorpay-Orders tests — no real network, ever.
+"""RealUpiProvider tests — live Razorpay protocol, no real network, ever.
 
-``httpx.post`` is monkeypatched, so no HTTP leaves the process; the fake
-asserts URL, basic auth, and body. Dummy key values only — never real keys.
+``httpx.post`` is monkeypatched (Orders API) and webhook bodies are
+Razorpay-shaped ``payment.*`` events HMAC-signed like Razorpay signs them
+(see _rzp.py). Dummy key values only — never real keys.
 """
-import os
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -14,16 +15,22 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-os.environ.setdefault("AGENCY_UPI_VPA", "shodasha@upi")
-
+from _rzp import (  # noqa: E402
+    DUMMY_KEYS,
+    ORDERS_URL,
+    real_provider,
+    signed_event,
+    stub_orders_api,
+    use_dummy_keys,
+)
 from app.adapters.upi import (  # noqa: E402
-    FakeUpiProvider,
+    IgnoredWebhook,
     RealUpiProvider,
+    UnauthError,
     UpstreamError,
     get_provider,
 )
 
-ORDERS_URL = "https://api.razorpay.com/v1/orders"
 ORDER = {"id": "ord_1", "total": 5600}
 
 
@@ -40,33 +47,25 @@ class _Resp:
         return self._payload
 
 
-def _keys(monkeypatch):
-    monkeypatch.setenv("UPI_KEY_ID", "kid_123")
-    monkeypatch.setenv("UPI_KEY_SECRET", "ksec_456")
+def test_factory_always_real():
+    assert isinstance(get_provider(), RealUpiProvider)
 
 
-def test_real_success_posts_orders_api(monkeypatch):
-    _keys(monkeypatch)
-    seen = {}
-
-    def fake_post(url, *, auth=None, json=None, timeout=None):
-        seen.update(url=url, auth=auth, json=json, timeout=timeout)
-        return _Resp({"id": "order_ABC"})
-
-    monkeypatch.setattr(httpx, "post", fake_post)
+def test_intent_posts_orders_api(monkeypatch):
+    use_dummy_keys(monkeypatch)
+    seen = stub_orders_api(monkeypatch)
     out = RealUpiProvider().create_intent(ORDER)
     assert seen["url"] == ORDERS_URL
-    assert seen["auth"] == ("kid_123", "ksec_456")
+    assert seen["auth"] == (DUMMY_KEYS["UPI_KEY_ID"], DUMMY_KEYS["UPI_KEY_SECRET"])
     assert seen["json"] == {"amount": 5600, "currency": "INR", "receipt": "ord_1",
                             "notes": {"order_id": "ord_1"}}
-    assert out["provider_ref"] == "order_ABC"
-    assert "tr=order_ABC" in out["link"] and "am=56.00" in out["link"]
-    assert out["link"].startswith("upi://pay?") and out["link"].endswith("&cu=INR")
+    assert out["provider_ref"] == "order_TEST1"
+    assert "tr=order_TEST1" in out["link"] and "am=56.00" in out["link"]
     assert out["payload"] == {"order_id": "ord_1", "amount": 5600}
 
 
-def test_real_http_error_retryable(monkeypatch):
-    _keys(monkeypatch)
+def test_intent_http_error_retryable(monkeypatch):
+    use_dummy_keys(monkeypatch)
 
     def fake_post(url, *, auth=None, json=None, timeout=None):
         assert url == ORDERS_URL  # error path still hits the Orders API
@@ -79,7 +78,7 @@ def test_real_http_error_retryable(monkeypatch):
     assert e.value.details == {"retryable": True}
 
 
-def test_real_missing_keys_configure(monkeypatch):
+def test_intent_missing_keys_fail_closed(monkeypatch):
     # Hermetic vs local .env (real test keys wired per ADR-024): blanking wins
     # over the .env file in both os.environ and pydantic-settings precedence.
     monkeypatch.setenv("UPI_KEY_ID", "")
@@ -90,18 +89,48 @@ def test_real_missing_keys_configure(monkeypatch):
     assert e.value.details == {"retryable": False}
 
 
-def test_fake_default_untouched(monkeypatch):
-    monkeypatch.delenv("UPI_PROVIDER", raising=False)
-    assert isinstance(get_provider(), FakeUpiProvider)
-    monkeypatch.setenv("UPI_PROVIDER", "fake")
-    assert isinstance(get_provider(), FakeUpiProvider)
-    out = FakeUpiProvider().create_intent(ORDER)
-    assert out["provider_ref"].startswith("FAKE-APPROVE-")
-    assert out["link"].startswith("upi://pay?")
+def test_webhook_captured_approved(monkeypatch):
+    p = real_provider(monkeypatch)
+    raw, sig = signed_event("order_ABC", 5600, order_id="ord_1")
+    out = p.verify_webhook(raw, sig)
+    assert out == {"order_id": "ord_1", "provider_ref": "order_ABC",
+                   "amount": 5600, "payee": DUMMY_KEYS["AGENCY_UPI_VPA"],
+                   "status": "approved"}
 
 
-def test_factory_gate_razorpay(monkeypatch):
-    monkeypatch.setenv("UPI_PROVIDER", "razorpay")
-    assert isinstance(get_provider(), RealUpiProvider)
-    monkeypatch.setenv("UPI_PROVIDER", "real")  # old alias no longer real
-    assert isinstance(get_provider(), FakeUpiProvider)
+def test_webhook_failed_declined(monkeypatch):
+    p = real_provider(monkeypatch)
+    raw, sig = signed_event("order_ABC", 5600, event="payment.failed", status="failed")
+    assert p.verify_webhook(raw, sig)["status"] == "declined"
+
+
+def test_webhook_authorized_ignored(monkeypatch):
+    # Auto-capture sends authorized first, captured settles. Authorized alone
+    # must not mint money — the captured event does that.
+    p = real_provider(monkeypatch)
+    raw, sig = signed_event("order_ABC", 5600, event="payment.authorized",
+                            status="authorized")
+    with pytest.raises(IgnoredWebhook):
+        p.verify_webhook(raw, sig)
+
+
+def test_webhook_rejects_bad_signature_and_stale(monkeypatch):
+    p = real_provider(monkeypatch)
+    raw, _ = signed_event("order_ABC", 5600)
+    with pytest.raises(UnauthError):
+        p.verify_webhook(raw, "wrong")
+    with pytest.raises(UnauthError):
+        p.verify_webhook(raw, None)
+    stale, stale_sig = signed_event("order_ABC", 5600,
+                                    created_at=int(time.time()) - 9999)
+    with pytest.raises(UnauthError):
+        p.verify_webhook(stale, stale_sig)
+
+
+def test_webhook_missing_secret_fail_closed(monkeypatch):
+    use_dummy_keys(monkeypatch)
+    monkeypatch.setenv("UPI_WEBHOOK_SECRET", "")
+    raw, sig = signed_event("order_ABC", 5600)
+    with pytest.raises(UpstreamError) as e:
+        RealUpiProvider().verify_webhook(raw, sig)
+    assert e.value.status_code == 502

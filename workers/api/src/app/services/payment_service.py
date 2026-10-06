@@ -47,12 +47,12 @@ class PaymentService:
     # -- webhook ingest (verify → reconcile → best-effort FCM note) ------
 
     async def webhook_ingest(self, raw_body: bytes, signature: str | None) -> dict:
-        from app.adapters.upi import DuplicateWebhookError  # noqa: PLC0415 (avoid cycle)
+        from app.adapters.upi import IgnoredWebhook  # noqa: PLC0415 (avoid cycle)
 
         try:
             event = self.provider.verify_webhook(raw_body, signature)
-        except DuplicateWebhookError as e:
-            return {"ok": True, "duplicate": True, "details": e.details}
+        except IgnoredWebhook as e:
+            return {"ok": True, "ignored": True, "details": e.details}
         if event.get("status") == "declined":
             return {"ok": True, "declined": True, "provider_ref": event.get("provider_ref")}
         payment = await self.payments.apply_webhook(

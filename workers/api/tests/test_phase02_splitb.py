@@ -13,15 +13,20 @@ import pytest
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(API_ROOT / "src"))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import datetime as _dt  # noqa: E402
-import json  # noqa: E402
-import os  # noqa: E402
 
-os.environ.setdefault("AGENCY_UPI_VPA", "shodasha@upi")
-
+from _rzp import signed_event, stub_orders_api, use_dummy_keys  # noqa: E402
 from app.db import get_connection, init_schema  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _rzp(monkeypatch):
+    use_dummy_keys(monkeypatch)
+    stub_orders_api(monkeypatch)
 
 MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql", "007_ops.sql"]
 
@@ -60,14 +65,14 @@ def _order(c, oid="o1", mode="cod", total=5600, state="placed", status="unpaid")
 
 
 def _svc(c, provider=None):
-    from app.adapters.upi import FakeUpiProvider
+    from app.adapters.upi import RealUpiProvider
     from app.repositories.ledger_repo import LedgerRepo
     from app.repositories.order_repo import OrderRepo
     from app.repositories.payment_repo import PaymentRepo
     from app.services.payment_service import PaymentService
 
     return PaymentService(PaymentRepo(_w(c)), OrderRepo(_w(c)), LedgerRepo(_w(c)),
-                          provider or FakeUpiProvider())
+                          provider or RealUpiProvider())
 
 
 def _count(c, table):
@@ -86,9 +91,8 @@ async def test_dues_link_intent_webhook_clears():
     assert out["link"].startswith("upi://pay?") and out["payment"]["status"] == "link_sent"
     again = await s.dues_intent("u1", "dk1")  # same key replays the row
     assert again["payment"]["id"] == out["payment"]["id"]
-    raw = json.dumps({"order_id": None, "provider_ref": out["provider_ref"],
-                      "amount": 5600, "payee": "shodasha@upi"}).encode()
-    res = await s.webhook_ingest(raw, None)
+    raw, sig = signed_event(out["provider_ref"], 5600, order_id=None)
+    res = await s.webhook_ingest(raw, sig)
     assert res["ok"] and res["payment"]["status"] == "paid"
     assert (await s.get_dues("u1"))["dues"] == 0
 
@@ -101,15 +105,12 @@ async def test_dues_intent_no_dues_422():
 
 
 async def test_unknown_ref_webhook_404():
-    import json as _json
-
     from app.core.errors import NotFoundError
 
     c = _conn()
-    raw = _json.dumps({"order_id": "o1", "provider_ref": "NOPE-1",
-                       "amount": 100, "payee": "shodasha@upi"}).encode()
+    raw, sig = signed_event("order_NOPE", 100, order_id="o1")
     with pytest.raises(NotFoundError):
-        await _svc(c).webhook_ingest(raw, None)
+        await _svc(c).webhook_ingest(raw, sig)
 
 
 # -- §2.3 overpay / partial refunds / maker-checker --------------------------------

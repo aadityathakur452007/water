@@ -1,7 +1,7 @@
 """Phase 1 Split 2 (§1.5 + §1.6 + §1.7): webhook fail-closed, PoD OTP, adjudication.
 
-- §1.5: fake money doors refuse in prod (502, zero rows); dev fake untouched
-  (covered by the existing fake-approve suite).
+- §1.5: unconfigured money doors refuse (502, zero rows) — no fake provider
+  exists anymore; without keys/secrets every money door fails closed.
 - §1.6: stored random OTP accepted + non-derivable; NULL rows fall back to the
   legacy deterministic code; wrong codes read as not-found with a DB-backed
   attempt counter; the 6th attempt after 5 fails locks (429); dispatch mints
@@ -18,6 +18,8 @@ import pytest
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(API_ROOT / "src"))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import datetime as _dt  # noqa: E402
 
@@ -75,33 +77,33 @@ def _count(c, table):
     return c.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
 
 
-# -- §1.5 webhook fail-closed --------------------------------------------------
+# -- §1.5 unconfigured money doors fail closed ----------------------------------
 
-def test_prod_fake_intent_refused(monkeypatch):
-    from app.adapters.upi import FakeUpiProvider, UpstreamError
+def test_unconfigured_intent_refused(monkeypatch):
+    from app.adapters.upi import RealUpiProvider, UpstreamError
 
-    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("UPI_KEY_ID", "")
+    monkeypatch.setenv("UPI_KEY_SECRET", "")
     with pytest.raises(UpstreamError) as e:
-        FakeUpiProvider().create_intent({"id": "o1", "total": 5600})
+        RealUpiProvider().create_intent({"id": "o1", "total": 5600})
     assert e.value.status_code == 502
 
 
-async def test_prod_fake_webhook_no_ledger_write(monkeypatch):
-    import json
-
-    from app.adapters.upi import FakeUpiProvider, UpstreamError
+async def test_unconfigured_webhook_no_ledger_write(monkeypatch):
+    from _rzp import signed_event
+    from app.adapters.upi import RealUpiProvider, UpstreamError
     from app.repositories.ledger_repo import LedgerRepo
     from app.repositories.order_repo import OrderRepo
     from app.repositories.payment_repo import PaymentRepo
     from app.services.payment_service import PaymentService
 
-    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("UPI_WEBHOOK_SECRET", "")
     c = _conn()
-    svc = PaymentService(PaymentRepo(_w(c)), OrderRepo(_w(c)), LedgerRepo(_w(c)), FakeUpiProvider())
-    raw = json.dumps({"order_id": "o1", "provider_ref": "FAKE-APPROVE-x",
-                      "amount": 20600, "payee": "shodasha@upi"}).encode()
+    svc = PaymentService(PaymentRepo(_w(c)), OrderRepo(_w(c)), LedgerRepo(_w(c)),
+                         RealUpiProvider())
+    raw, _ = signed_event("order_x", 20600, order_id="o1")
     with pytest.raises(UpstreamError) as e:
-        await svc.webhook_ingest(raw, None)
+        await svc.webhook_ingest(raw, "whatever")
     assert e.value.status_code == 502
     assert _count(c, "payments") == 0
     assert c.execute("SELECT payment_status FROM orders WHERE id = 'o1'").fetchone()["payment_status"] == "unpaid"

@@ -7,15 +7,16 @@ ledger/dues/reconcile consistency, second order -> cancel (void + reversal),
 plus ssdlc abuse cases (cross-user 404, tampered total, double-cancel).
 
 Patterns reused from test_auth.py (FakeVerifier), test_orders.py (quote-bound
-payload builder), test_payments.py (FakeUpiProvider), test_vendor.py (session
+payload builder), test_payments.py (_rzp kit), test_vendor.py (session
 seed shape). Only new file: this one.
 
 Deviations (no HTTP path exists in v1, driven direct-DB and noted):
 - placed->accepted->picked->packed and assigned->dispatched go through
   OrderRepo.transition: no API endpoint exposes accept/pick/pack/dispatch.
 - payments router calls module-global get_provider() directly (not Depends),
-  so the fake is patched at app.api.v1.payments.get_provider; auth uses
-  Depends(get_verifier) so dependency_overrides applies there.
+  so the live provider is patched at app.api.v1.payments.get_provider with
+  dummy keys + stubbed Orders API; auth uses Depends(get_verifier) so
+  dependency_overrides applies there.
 """
 
 import hashlib
@@ -28,6 +29,8 @@ import pytest
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.adapters.firebase import UnauthError  # noqa: E402
 from app.db import get_connection, init_schema  # noqa: E402
@@ -67,8 +70,8 @@ class FakeVerifier:
 def client(monkeypatch):
     from fastapi.testclient import TestClient
 
+    from _rzp import real_provider
     from app.adapters.firebase import get_verifier
-    from app.adapters.upi import FakeUpiProvider
     from app.api import deps as deps_mod
     from app.api.v1 import payments as payments_mod
     from app.main import create_app
@@ -80,7 +83,8 @@ def client(monkeypatch):
     c.commit()
 
     deps_mod.set_test_connection(c)  # belt-and-braces alongside the override
-    monkeypatch.setattr(payments_mod, "get_provider", lambda: FakeUpiProvider())
+    provider = real_provider(monkeypatch)
+    monkeypatch.setattr(payments_mod, "get_provider", lambda: provider)
 
     app = create_app()
     app.dependency_overrides[deps_mod.get_db] = lambda: c

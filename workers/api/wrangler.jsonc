@@ -22,9 +22,11 @@
 		// `wrangler secret put` — never here. FIREBASE_PROJECT_ID is public
 		// (it ships inside every client-side firebaseConfig) so it belongs
 		// here, not in secrets.
-		// §1.5: APP_ENV=prod refuses the fake UPI money doors (502) — real
-		// money needs UPI_PROVIDER=razorpay plus secrets UPI_KEY_ID,
-		// UPI_KEY_SECRET, UPI_WEBHOOK_SECRET, AGENCY_UPI_VPA.
+		// UPI money is Razorpay-only (no fake exists): money doors need secrets
+		// UPI_KEY_ID, UPI_KEY_SECRET, UPI_WEBHOOK_SECRET, AGENCY_UPI_VPA
+		// (`wrangler secret put`). Razorpay dashboard → Settings → Webhooks:
+		// POST https://water.<account>.workers.dev/v1/webhooks/upi with
+		// payment.captured + payment.failed events.
 		"APP_ENV": "prod",
 		"FIREBASE_PROJECT_ID": "water-delivery-system-26"
 	},

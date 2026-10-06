@@ -54,7 +54,9 @@ async def upi_intent(payload: UpiIntentIn, conn=Depends(get_db_conn),
 @router.post("/webhooks/upi")
 async def upi_webhook(request: Request, conn=Depends(get_db_conn)):
     raw = await request.body()
-    sig = request.headers.get("X-UPI-Signature", request.headers.get("X-Signature"))
+    sig = (request.headers.get("X-Razorpay-Signature")
+           or request.headers.get("X-UPI-Signature")
+           or request.headers.get("X-Signature"))
     return await _service(conn).webhook_ingest(raw, sig)
 
 

@@ -1,8 +1,13 @@
-"""UPI provider adapter (Adapter + Strategy pattern) — D1 payments slice.
+"""UPI provider adapter (Adapter + Strategy pattern) — Razorpay only.
 
-Mirrors ``adapters/firebase.py``: same factory shape (``get_provider``), same
-error contract (``AppError`` subclasses → central envelope). Fake is the test
-double (approve/decline by ref prefix); Real creates Razorpay Orders.
+Single production provider: Razorpay Orders for intents + Razorpay webhook
+events for settlement. There is no fake/test double in this module — tests
+stub the HTTP boundary (``httpx.post``) and sign real-shaped webhook bodies
+(see tests/_rzp.py), so this file only ever speaks the live protocol.
+
+Secrets (all via ``wrangler secret put``, never in code): UPI_KEY_ID,
+UPI_KEY_SECRET (Orders API basic auth), UPI_WEBHOOK_SECRET (webhook HMAC),
+AGENCY_UPI_VPA (display + link payee).
 
 Strategy note: UPI-vs-COD is a Strategy — ``PaymentService`` picks the path by
 ``order.payment_mode``; this adapter is only the UPI leg.
@@ -14,7 +19,6 @@ import hashlib
 import hmac
 import json
 import time
-import uuid
 
 import httpx
 
@@ -33,10 +37,14 @@ class UpstreamError(AppError):
     status_code = 502
 
 
-class DuplicateWebhookError(AppError):
-    """Nonce/provider_ref already seen — caller maps to 200 no-op (C16)."""
+class IgnoredWebhook(AppError):
+    """Verified-but-not-actionable event (e.g. payment.authorized under
+    auto-capture, or non-payment events) — caller maps to 200 no-op so
+    Razorpay stops retrying. Replay safety for real money comes from the
+    payments table itself (UNIQUE provider_ref + paid→duplicate no-op in
+    ``apply_webhook``), which holds across Worker isolates unlike memory."""
 
-    code = "DUPLICATE_WEBHOOK"
+    code = "IGNORED_WEBHOOK"
     status_code = 200
 
 
@@ -44,7 +52,9 @@ WEBHOOK_TOLERANCE_S = 300  # ±5 min (contract §4.6)
 
 RAZORPAY_ORDERS_URL = "https://api.razorpay.com/v1/orders"
 
-_seen_nonces: set[str] = set()  # TODO(D1): persist nonces (multi-instance replay)
+# Razorpay event names we act on. Everything else verified-but-ignored.
+_EVENT_CAPTURED = "payment.captured"
+_EVENT_FAILED = "payment.failed"
 
 
 def _setting(env_name: str, default=None):
@@ -81,43 +91,14 @@ class UpiProvider:
         raise NotImplementedError
 
 
-class FakeUpiProvider(UpiProvider):
-    """Test double: APPROVE* refs approve, DECLINE* refs decline (by prefix).
-
-    Local/dev only: both money doors refuse to operate when APP_ENV=prod
-    (fail-closed — an unsigned callback must never mint paid_upi). Reads
-    (dues/invoice) never touch the provider, so they keep working.
-    """
-
-    def create_intent(self, order: dict) -> dict:
-        _refuse_fake_in_prod()
-        ref = f"FAKE-APPROVE-{str(order.get('id', 'o'))[:8]}-{uuid.uuid4().hex[:4]}"
-        amt = f"{int(order.get('total', 0)) / 100:.2f}"
-        return {
-            "provider_ref": ref,
-            "link": f"upi://pay?pa={agency_vpa()}&pn=Shodasha&am={amt}&tr={ref}&cu=INR",
-            "payload": {"order_id": order.get("id"), "amount": int(order.get("total", 0))},
-        }
-
-    def verify_webhook(self, raw_body: bytes, signature: str | None = None) -> dict:
-        _refuse_fake_in_prod()
-        try:
-            body = json.loads(raw_body.decode() or "{}")
-        except (ValueError, UnicodeDecodeError) as e:
-            raise UnauthError("Invalid webhook.", {}) from e
-        ref = str(body.get("provider_ref", ""))
-        status = "declined" if ref.upper().startswith(("DECLINE", "FAKE-DECLINE")) else "approved"
-        return {
-            "order_id": body.get("order_id"),
-            "provider_ref": ref,
-            "amount": int(body.get("amount", 0)),
-            "payee": body.get("payee", ""),
-            "status": status,
-        }
-
-
 class RealUpiProvider(UpiProvider):
-    """Razorpay Orders-backed intents; HMAC-SHA256 webhook verify (unchanged)."""
+    """Razorpay Orders-backed intents; Razorpay-shaped webhook verify.
+
+    Create: POST api.razorpay.com/v1/orders (basic auth key_id:secret,
+    amount in paise, receipt = our order id, notes.order_id echoed back).
+    Missing keys → UPSTREAM_FAIL 502 (fail-closed; reads like dues/invoice/
+    cod-confirm never touch the provider so they keep working).
+    """
 
     def create_intent(self, order: dict) -> dict:
         key_id = _setting("UPI_KEY_ID")
@@ -148,6 +129,15 @@ class RealUpiProvider(UpiProvider):
         }
 
     def verify_webhook(self, raw_body: bytes, signature: str | None) -> dict:
+        """Verify a Razorpay webhook event and normalize it for settlement.
+
+        Authenticity = HMAC-SHA256(raw_body, UPI_WEBHOOK_SECRET) matching the
+        signature header (only Razorpay + us know the secret), plus
+        ``created_at`` freshness. The returned ``payee`` is the agency VPA by
+        construction: a verified event for an order minted under our key can
+        only settle into our account (documented, not re-derived — Razorpay
+        payloads carry the payer VPA, never the payee).
+        """
         secret = _setting("UPI_WEBHOOK_SECRET")
         if not secret:
             raise UpstreamError("UPI provider not configured.", {"retryable": True})
@@ -161,38 +151,43 @@ class RealUpiProvider(UpiProvider):
             body = json.loads(raw_body.decode() or "{}")
         except (ValueError, UnicodeDecodeError) as e:
             raise UnauthError("Invalid webhook.", {}) from e
-        ts = body.get("timestamp", body.get("ts"))
-        if ts is None or abs(time.time() - float(ts)) > WEBHOOK_TOLERANCE_S:
+        created = body.get("created_at")
+        try:
+            age = abs(time.time() - float(created))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            raise UnauthError("Stale webhook.", {}) from None
+        if age > WEBHOOK_TOLERANCE_S:
             raise UnauthError("Stale webhook.", {})
-        nonce = str(body.get("nonce", body.get("event_id", body.get("provider_ref", ""))))
-        if nonce and nonce in _seen_nonces:
-            raise DuplicateWebhookError("Duplicate delivery.", {"provider_ref": body.get("provider_ref")})
-        if nonce:
-            _seen_nonces.add(nonce)
+        event = str(body.get("event") or "")
+        entity = ((body.get("payload") or {}).get("payment") or {}).get("entity") or {}
+        ref = str(entity.get("order_id") or "")
+        if not ref:
+            raise UnauthError("Invalid webhook.", {})
+        status = str(entity.get("status") or "")
+        if event == _EVENT_FAILED or status == "failed":
+            status = "declined"
+        elif event == _EVENT_CAPTURED and status in ("captured", "authorized"):
+            status = "approved"
+        else:
+            # Verified but not actionable (e.g. payment.authorized under
+            # auto-capture — the captured event settles it; anything
+            # non-payment). 200 no-op so Razorpay stops retrying.
+            raise IgnoredWebhook("Event ignored.", {"event": event})
+        notes = entity.get("notes") or {}
         return {
-            "order_id": body.get("order_id"),
-            "provider_ref": str(body.get("provider_ref", "")),
-            "amount": int(body.get("amount", 0)),
-            "payee": str(body.get("payee", "")),
-            "status": str(body.get("status", "approved")),
+            "order_id": notes.get("order_id"),
+            "provider_ref": ref,
+            "amount": int(entity.get("amount", 0)),
+            "payee": agency_vpa(),
+            "status": status,
         }
 
 
-def _refuse_fake_in_prod() -> None:
-    """Default-deny for the fake money doors (§1.5).
-
-    Placed on FakeUpiProvider.create_intent/verify_webhook rather than the
-    get_provider factory on purpose: payments._service() resolves a provider
-    for every payments route including reads (dues/invoice/cod-confirm never
-    touch it), and prod reads must keep working. The two forgery-relevant
-    doors fail closed with UPSTREAM_FAIL (502) until real secrets land.
-    """
-    if str(_setting("APP_ENV", "dev")).lower() == "prod":
-        raise UpstreamError("Fake UPI provider is disabled in production.", {"retryable": False})
-
-
 def get_provider() -> UpiProvider:
-    """DI factory — tests inject FakeUpiProvider directly (mirrors get_verifier)."""
-    if str(_setting("UPI_PROVIDER", "fake")).lower() == "razorpay":
-        return RealUpiProvider()
-    return FakeUpiProvider()
+    """DI factory — always the live Razorpay provider.
+
+    Keys are checked lazily per call (missing → UPSTREAM_FAIL 502), so
+    provider-free reads (dues/invoice/cod-confirm) keep working with zero
+    secrets configured. Tests stub the HTTP boundary, never this factory.
+    """
+    return RealUpiProvider()

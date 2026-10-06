@@ -1,15 +1,14 @@
 """D1 payments slice tests: adapter + repo + service + router (contract §4.6/§10/§11).
 
 Layers (python card: unit -> service -> API):
-- adapter unit: Fake approve/decline by ref prefix; Real rejects bad HMAC/stale.
+- adapter unit: live Razorpay protocol — signed payment.captured/failed
+  events, bad-HMAC/stale rejection (see test_upi_real.py for the full matrix).
 - service/repo: :memory: sqlite + 004_orders.sql + 005_payments.sql applied,
-  FakeUpiProvider injected (no network, no secrets).
+  RealUpiProvider with dummy keys + stubbed Orders API (no network, no secrets).
 - router: TestClient with get_db + get_current_user overridden (integrator mounts
   the bare router under /v1; main.py wiring is NOT touched here).
 """
-import json
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,12 +17,11 @@ import pytest
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import os  # noqa: E402
-
-os.environ.setdefault("AGENCY_UPI_VPA", "shodasha@upi")
-
-from app.adapters.upi import FakeUpiProvider, RealUpiProvider, UnauthError, agency_vpa  # noqa: E402
+from _rzp import signed_event, stub_orders_api, use_dummy_keys  # noqa: E402
+from app.adapters.upi import RealUpiProvider, UnauthError  # noqa: E402
 from app.core.errors import AppError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
@@ -31,7 +29,6 @@ from app.repositories.ledger_repo import LedgerRepo  # noqa: E402
 from app.repositories.order_repo import OrderRepo  # noqa: E402
 from app.repositories.payment_repo import (  # noqa: E402
     AmountMismatchError,
-    PayeeMismatchError,
     PaymentRepo,
     RefundClaimError,
 )
@@ -41,7 +38,6 @@ from app.services.payment_service import PaymentService  # noqa: E402
 
 MIG4 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 MIG5 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
-VPA = agency_vpa()
 WINDOW = "2026-10-01T08:00:00+00:00"
 
 
@@ -60,8 +56,16 @@ def _conn():
     return c
 
 
+@pytest.fixture(autouse=True)
+def _rzp(monkeypatch):
+    """Every test runs against the live Razorpay protocol: dummy keys plus a
+    stubbed Orders API (unique order_TESTn refs, no network)."""
+    use_dummy_keys(monkeypatch)
+    stub_orders_api(monkeypatch)
+
+
 def _svc(c, provider=None) -> PaymentService:
-    provider = provider if provider is not None else FakeUpiProvider()
+    provider = provider if provider is not None else RealUpiProvider()
     ac = AsyncSqliteConn(c)
     return PaymentService(PaymentRepo(ac), OrderRepo(ac), LedgerRepo(ac), provider)
 
@@ -90,20 +94,16 @@ async def _order(c, user="u1", mode="upi", key="k1") -> dict:
     return await _osvc(c).create(user, _payload(mode=mode), key)
 
 
-def _webhook_raw(order_id, ref, amount, payee=None) -> bytes:
-    return json.dumps({"order_id": order_id, "provider_ref": ref,
-                       "amount": amount, "payee": payee or VPA}).encode()
+# -- captured event → paid_upi + dues zeroed ---------------------------------
 
-
-# -- fake approve → paid_upi + dues zeroed ---------------------------------
-
-async def test_fake_approve_paid_upi_dues_zeroed():
+async def test_captured_paid_upi_dues_zeroed():
     c = _conn()
     s = _svc(c)
     o = await _order(c, mode="upi")
     out = await s.intent("u1", o["id"], "idem-1")
     assert out["payment"]["status"] == "link_sent" and out["link"].startswith("upi://pay?")
-    res = await s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"]), None)
+    raw, sig = signed_event(out["provider_ref"], o["total"], order_id=o["id"])
+    res = await s.webhook_ingest(raw, sig)
     assert res["ok"] and res["payment"]["status"] == "paid"
     row = c.execute("SELECT payment_status FROM orders WHERE id=?", (o["id"],)).fetchone()
     assert row["payment_status"] == "paid_upi"
@@ -119,26 +119,26 @@ async def test_webhook_replay_single_credit():
     s = _svc(c)
     o = await _order(c, mode="upi")
     out = await s.intent("u1", o["id"], "idem-1")
-    raw = _webhook_raw(o["id"], out["provider_ref"], o["total"])
-    r1 = await s.webhook_ingest(raw, None)
-    r2 = await s.webhook_ingest(raw, None)
+    raw, sig = signed_event(out["provider_ref"], o["total"], order_id=o["id"])
+    r1 = await s.webhook_ingest(raw, sig)
+    r2 = await s.webhook_ingest(raw, sig)
     assert r1["ok"] and r2.get("duplicate") is True
     assert c.execute("SELECT COUNT(*) c FROM payments").fetchone()["c"] == 1
     assert await PaymentRepo(AsyncSqliteConn(c)).paid_sum_for_order(o["id"]) == o["total"]
     assert (await s.get_dues("u1"))["dues"] == 0
 
 
-# -- wrong payee / wrong amount → rejected -----------------------------------
+# -- forged signature / wrong amount → rejected ------------------------------
 
-async def test_webhook_wrong_payee_rejected():
+async def test_webhook_bad_signature_rejected():
     c = _conn()
     s = _svc(c)
     o = await _order(c, mode="upi")
     out = await s.intent("u1", o["id"], "idem-1")
-    with pytest.raises(PayeeMismatchError) as e:
-        await s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"],
-                                      payee="attacker@upi"), None)
-    assert e.value.code == "PAYEE_MISMATCH" and e.value.status_code == 422
+    raw, _ = signed_event(out["provider_ref"], o["total"], order_id=o["id"])
+    with pytest.raises(UnauthError) as e:
+        await s.webhook_ingest(raw, "forged")
+    assert e.value.code == "UNAUTH" and e.value.status_code == 401
 
 
 async def test_webhook_wrong_amount_rejected():
@@ -146,8 +146,9 @@ async def test_webhook_wrong_amount_rejected():
     s = _svc(c)
     o = await _order(c, mode="upi")
     out = await s.intent("u1", o["id"], "idem-1")
+    raw, sig = signed_event(out["provider_ref"], o["total"] - 100, order_id=o["id"])
     with pytest.raises(AmountMismatchError) as e:
-        await s.webhook_ingest(_webhook_raw(o["id"], out["provider_ref"], o["total"] - 100), None)
+        await s.webhook_ingest(raw, sig)
     assert e.value.code == "AMOUNT_MISMATCH" and e.value.status_code == 422
 
 
@@ -200,34 +201,19 @@ async def test_cod_partial_cash_carried():
     assert (await s.get_dues("u1"))["dues"] == o["total"] - half  # partials carried, never zeroed
 
 
-# -- adapter unit: fake decline + real HMAC skeleton --------------------------
+# -- adapter unit: failed event declines without settling -------------------
 
-def test_fake_decline_by_prefix():
-    fake = FakeUpiProvider()
-    raw = json.dumps({"order_id": "o", "provider_ref": "FAKE-DECLINE-x",
-                      "amount": 100, "payee": VPA}).encode()
-    assert fake.verify_webhook(raw, None)["status"] == "declined"
-
-
-def test_real_rejects_bad_signature_and_stale():
-    os.environ["UPI_WEBHOOK_SECRET"] = "s3cret"
-    try:
-        real = RealUpiProvider()
-        body = json.dumps({"order_id": "o", "provider_ref": "r1", "amount": 100,
-                           "payee": VPA, "timestamp": time.time(), "nonce": "n-bad-sig"}).encode()
-        with pytest.raises(UnauthError):
-            real.verify_webhook(body, "wrong")
-        stale = json.dumps({"order_id": "o", "provider_ref": "r2", "amount": 100,
-                            "payee": VPA, "timestamp": time.time() - 9999,
-                            "nonce": "n-stale"}).encode()
-        import hashlib as _h
-        import hmac as _hm
-
-        sig = _hm.new(b"s3cret", stale, _h.sha256).hexdigest()
-        with pytest.raises(UnauthError):
-            real.verify_webhook(stale, sig)
-    finally:
-        del os.environ["UPI_WEBHOOK_SECRET"]
+async def test_failed_event_declined_no_settlement():
+    c = _conn()
+    s = _svc(c)
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "idem-1")
+    raw, sig = signed_event(out["provider_ref"], o["total"], order_id=o["id"],
+                            event="payment.failed", status="failed")
+    res = await s.webhook_ingest(raw, sig)
+    assert res["ok"] and res["declined"] is True
+    row = c.execute("SELECT payment_status FROM orders WHERE id=?", (o["id"],)).fetchone()
+    assert row["payment_status"] == "link_sent"
 
 
 # -- router ------------------------------------------------------------------
@@ -274,12 +260,15 @@ async def test_router_webhook_no_auth_and_admin_claim():
     o = await _order(c, mode="upi", key="wk1")
     out = await s.intent("u1", o["id"], "wk-idem")
     client = _client(c)  # webhook needs no session
-    raw = {"order_id": o["id"], "provider_ref": out["provider_ref"],
-           "amount": o["total"], "payee": VPA}
-    r = client.post("/v1/webhooks/upi", json=raw)
+    raw, sig = signed_event(out["provider_ref"], o["total"], order_id=o["id"])
+    r = client.post("/v1/webhooks/upi", content=raw,
+                    headers={"X-Razorpay-Signature": sig})
     assert r.status_code == 200 and r.json()["ok"] is True
-    r2 = client.post("/v1/webhooks/upi", json=raw)  # duplicate → 200 no-op
+    r2 = client.post("/v1/webhooks/upi", content=raw,
+                     headers={"X-Razorpay-Signature": sig})  # duplicate → 200 no-op
     assert r2.status_code == 200 and r2.json().get("duplicate") is True
+    r3 = client.post("/v1/webhooks/upi", content=raw)  # unsigned → 401
+    assert r3.status_code == 401
     # refund claim needs admin: user role → 403, admin → 200
     c.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?", (o["id"],))
     c.commit()
