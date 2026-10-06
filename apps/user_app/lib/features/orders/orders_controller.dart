@@ -67,7 +67,7 @@ const Map<String, String> ordersStringsHi = {
   'complaintStub': 'Shikayat screen jald aa rahi hai (order juda rahega)',
   'viewBill': 'Bill dekhein',
   'autoRefresh': 'Auto-refresh',
-  'windowLabel': 'Delivery window',
+  'windowLabel': 'Delivery ka samay',
   'riderLabel': 'Rider',
 };
 

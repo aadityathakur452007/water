@@ -427,7 +427,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               Uri.parse(c.duesPayLink!),
                               mode: LaunchMode.externalApplication,
                             ),
-                            child: const Text('Pay dues'),
+                            child: const Text('Dues chukayein'),
                           ),
                       ],
                     ),

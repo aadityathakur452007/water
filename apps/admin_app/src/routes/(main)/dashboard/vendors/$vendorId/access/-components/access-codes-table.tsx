@@ -98,7 +98,18 @@ export function AccessCodesTable() {
                   </TableCell>
                   <TableCell className="px-3 py-3 text-right text-sm">
                     {c.revoked_at ? null : confirmId === c.id ? (
-                      <span className="flex justify-end gap-2">
+                      {/* a11y-9: inline confirm announces as an alert dialog
+                          with its consequence (revoke blocks new logins;
+                          live sessions run to expiry). */}
+                      <span
+                        className="flex justify-end gap-2"
+                        role="alertdialog"
+                        aria-describedby={`revoke-help-${c.id}`}
+                      >
+                        <span id={`revoke-help-${c.id}`} className="sr-only">
+                          Revoking stops this code working for new logins immediately. Live
+                          sessions run to expiry — this cannot be undone.
+                        </span>
                         <Button variant="ghost" size="sm" className="h-7" onClick={() => setConfirmId(null)}>
                           Keep
                         </Button>

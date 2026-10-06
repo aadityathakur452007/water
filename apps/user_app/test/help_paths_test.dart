@@ -11,14 +11,15 @@ import 'package:shodasha_app/features/support/support_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 ApiClient _quietApi() => ApiClient(
-      client: MockClient((req) async => http.Response('[]', 200)),
-      deviceId: 't',
-    );
+  client: MockClient((req) async => http.Response('[]', 200)),
+  deviceId: 't',
+);
 
 void main() {
   group('support WhatsApp', () {
-    testWidgets('Open attempts wa.me launch (no fallback when it works)',
-        (tester) async {
+    testWidgets('Kholein attempts wa.me launch (no fallback when it works)', (
+      tester,
+    ) async {
       final opened = <Uri>[];
       await tester.pumpWidget(
         MaterialApp(
@@ -31,7 +32,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('Open'));
+      await tester.tap(find.text('Kholein'));
       await tester.pump();
       expect(opened, hasLength(1));
       expect(opened.single.host, 'wa.me');
@@ -50,7 +51,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('Open'));
+      await tester.tap(find.text('Kholein'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.text(supportStringsHi['waFail']!), findsOneWidget);
@@ -72,9 +73,9 @@ void main() {
                     ctx,
                     openUrl:
                         (url, {mode = LaunchMode.externalApplication}) async {
-                      opened.add(url);
-                      return true;
-                    },
+                          opened.add(url);
+                          return true;
+                        },
                   );
                 });
                 return const SizedBox();

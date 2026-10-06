@@ -40,7 +40,8 @@ const Map<String, String> profileStringsHi = {
   'errLedger': 'Hisaab load nahi hua',
   'offline': 'Internet nahi — dobara try karein',
   'errReturn': 'Request nahi gayi — dobara try karein',
-  'suspendedBanner': 'Account suspended — dues chukane ya appeal ke alawa '
+  'suspendedBanner':
+      'Account suspended — dues chukane ya appeal ke alawa '
       'actions band hain. WhatsApp par appeal karein.',
 };
 
@@ -71,15 +72,16 @@ const Map<String, String> profileStringsEn = {
   'errLedger': 'Could not load ledger',
   'offline': 'No internet — try again',
   'errReturn': 'Request failed — try again',
-  'suspendedBanner': 'Account suspended — only dues payment and appeal '
+  'suspendedBanner':
+      'Account suspended — only dues payment and appeal '
       'remain available. Appeal via WhatsApp.',
 };
 
 /// v1 language toggle: Hindi default, English fallback (spec screen 11).
 /// Merge order: Hindi wins when present, English fills gaps — never blank.
-String profileText(String key, bool hindi) =>
-    hindi ? (profileStringsHi[key] ?? profileStringsEn[key] ?? key)
-        : (profileStringsEn[key] ?? profileStringsHi[key] ?? key);
+String profileText(String key, bool hindi) => hindi
+    ? (profileStringsHi[key] ?? profileStringsEn[key] ?? key)
+    : (profileStringsEn[key] ?? profileStringsHi[key] ?? key);
 
 enum LedgerStatus { initial, loading, loaded, error }
 
@@ -98,11 +100,11 @@ class LedgerSnapshot {
   final bool suspended;
 
   static LedgerSnapshot fromApi(Map<String, dynamic> j) => LedgerSnapshot(
-        heldJars: (j['held_jars'] ?? j['d_held'] ?? 0) as int,
-        depositPaise: (j['deposit_paise'] ?? j['d_deposit'] ?? 0) as int,
-        duesPaise: (j['dues_paise'] ?? j['d_dues'] ?? 0) as int,
-        suspended: (j['suspended'] ?? false) as bool,
-      );
+    heldJars: (j['held_jars'] ?? j['d_held'] ?? 0) as int,
+    depositPaise: (j['deposit_paise'] ?? j['d_deposit'] ?? 0) as int,
+    duesPaise: (j['dues_paise'] ?? j['d_dues'] ?? 0) as int,
+    suspended: (j['suspended'] ?? false) as bool,
+  );
 }
 
 class ProfileController extends ChangeNotifier {
@@ -231,13 +233,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (!mounted) return;
     if (err == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_c.t('returnSent'))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_c.t('returnSent'))));
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_c.t(err))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_c.t(err))));
     }
   }
 
@@ -282,7 +284,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: widget.onLoginRequired,
-                    child: const Text('Login'),
+                    child: const Text('Login karein'),
                   ),
                 ],
               ),
@@ -300,8 +302,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           border: Border.all(color: ShodashaTheme.danger),
-                          borderRadius:
-                              BorderRadius.circular(ShodashaTheme.radius),
+                          borderRadius: BorderRadius.circular(
+                            ShodashaTheme.radius,
+                          ),
                         ),
                         child: Text(
                           _c.t('suspendedBanner'),
@@ -316,8 +319,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         border: Border.all(color: ShodashaTheme.border),
-                        borderRadius:
-                            BorderRadius.circular(ShodashaTheme.radius),
+                        borderRadius: BorderRadius.circular(
+                          ShodashaTheme.radius,
+                        ),
                       ),
                       child: _c.status == LedgerStatus.loading
                           ? const Center(
@@ -329,23 +333,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           // Error branch (was: silent zero ledger) —
                           // message + retry, never fake Rs 0.
                           : _c.status == LedgerStatus.error
-                              ? Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        _c.errorMessage ?? 'Load nahi hua',
-                                        style: const TextStyle(
-                                            color: ShodashaTheme.muted),
-                                      ),
+                          ? Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _c.errorMessage ?? 'Load nahi hua',
+                                    style: const TextStyle(
+                                      color: ShodashaTheme.muted,
                                     ),
-                                    TextButton(
-                                      onPressed: _c.load,
-                                      child:
-                                          const Text('Dobara try karein'),
-                                    ),
-                                  ],
-                                )
-                              : Column(
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _c.load,
+                                  child: const Text('Dobara try karein'),
+                                ),
+                              ],
+                            )
+                          : Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
@@ -378,8 +382,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         border: Border.all(color: ShodashaTheme.border),
-                        borderRadius:
-                            BorderRadius.circular(ShodashaTheme.radius),
+                        borderRadius: BorderRadius.circular(
+                          ShodashaTheme.radius,
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -410,7 +415,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           TextButton(
                             onPressed: _openReturnSheet,
-                            child: const Text('Request'),
+                            child: const Text('Request bhejein'),
                           ),
                         ],
                       ),
@@ -465,8 +470,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         await prefs.remove('selected_address_id');
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Cache saaf ho gaya')));
+                            const SnackBar(content: Text('Cache saaf ho gaya')),
+                          );
                         }
                       },
                     ),
@@ -511,10 +516,7 @@ class _LedgerRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: ShodashaTheme.muted,
-                fontSize: 14,
-              ),
+              style: const TextStyle(color: ShodashaTheme.muted, fontSize: 14),
             ),
           ),
           Text(
@@ -622,6 +624,8 @@ class _ReturnSheetState extends State<_ReturnSheet> {
               TextField(
                 controller: _address,
                 onChanged: (_) => setState(() {}),
+                // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                style: const TextStyle(fontSize: 16),
                 decoration: InputDecoration(
                   labelText: c.t('returnPick'),
                   hintText: 'address id ya Home/Office',

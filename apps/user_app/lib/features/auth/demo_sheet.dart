@@ -45,33 +45,41 @@ class _UserDemoSheetState extends State<UserDemoSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(authStringsHi['demoTitle']!,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w700)),
-            Text(authStringsHi['demoHint']!,
-                style: const TextStyle(color: ShodashaTheme.muted)),
+            Text(
+              authStringsHi['demoTitle']!,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            Text(
+              authStringsHi['demoHint']!,
+              style: const TextStyle(color: ShodashaTheme.muted),
+            ),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: busy
                   ? null
                   : () => setState(() {
-                        _phone.text = '+919000000001';
-                        _code.text = '111111';
-                      }),
+                      _phone.text = '+919000000001';
+                      _code.text = '111111';
+                    }),
               child: Text(authStringsHi['demoCustomer']!),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _phone,
+              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+              style: const TextStyle(fontSize: 16),
               keyboardType: TextInputType.phone,
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]'))
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
               ],
               decoration: InputDecoration(
-                  labelText: authStringsHi['phoneLabel']),
+                labelText: authStringsHi['phoneLabel'],
+              ),
             ),
             TextField(
               controller: _code,
+              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+              style: const TextStyle(fontSize: 16),
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(labelText: 'Demo code'),
@@ -80,13 +88,17 @@ class _UserDemoSheetState extends State<UserDemoSheet> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.error_outline,
-                      size: 16, color: ShodashaTheme.danger),
+                  const Icon(
+                    Icons.error_outline,
+                    size: 16,
+                    color: ShodashaTheme.danger,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(c.errorMessage!,
-                        style: const TextStyle(
-                            color: ShodashaTheme.danger)),
+                    child: Text(
+                      c.errorMessage!,
+                      style: const TextStyle(color: ShodashaTheme.danger),
+                    ),
                   ),
                 ],
               ),
@@ -104,8 +116,7 @@ class _UserDemoSheetState extends State<UserDemoSheet> {
                         setState(() => _busy = false);
                       }
                     },
-              child: Text(
-                  _busy ? 'Login ho raha…' : authStringsHi['demoGo']!),
+              child: Text(_busy ? 'Login ho raha…' : authStringsHi['demoGo']!),
             ),
           ],
         ),

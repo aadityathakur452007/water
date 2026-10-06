@@ -17,20 +17,20 @@ import 'package:shodasha_app/features/orders/orders_controller.dart';
 import 'package:shodasha_app/features/orders/tracking_screen.dart';
 
 Order _order(String id, OrderState state) => Order(
-      id: id,
-      state: state,
-      windowStart: DateTime(2026, 10, 6, 8),
-      windowEnd: DateTime(2026, 10, 6, 8, 30),
-    );
+  id: id,
+  state: state,
+  windowStart: DateTime(2026, 10, 6, 8),
+  windowEnd: DateTime(2026, 10, 6, 8, 30),
+);
 
 AddressEntry _addr() => const AddressEntry(
-      id: 'a1',
-      label: 'Home',
-      type: AddrType.home,
-      phone: '+919302190067',
-      pincode: '110001',
-      addressLine: 'H1, Street',
-    );
+  id: 'a1',
+  label: 'Home',
+  type: AddrType.home,
+  phone: '+919302190067',
+  pincode: '110001',
+  addressLine: 'H1, Street',
+);
 
 ApiClient _api(Future<http.Response> Function(http.BaseRequest) fn) =>
     ApiClient(client: MockClient(fn), deviceId: 't');
@@ -69,14 +69,30 @@ void main() {
   group('addressStillListed', () {
     test('listed / missing / malformed / empty / non-list', () {
       expect(
-          addressStillListed([
-            {'id': 'a1'},
-            {'id': 'a2'}
-          ], 'a1'),
-          isTrue);
-      expect(addressStillListed([{'id': 'a1'}], 'a9'), isFalse);
-      expect(addressStillListed([{'nope': 1}], 'a1'), isFalse);
-      expect(addressStillListed([{'id': 'a1'}], ''), isFalse);
+        addressStillListed([
+          {'id': 'a1'},
+          {'id': 'a2'},
+        ], 'a1'),
+        isTrue,
+      );
+      expect(
+        addressStillListed([
+          {'id': 'a1'},
+        ], 'a9'),
+        isFalse,
+      );
+      expect(
+        addressStillListed([
+          {'nope': 1},
+        ], 'a1'),
+        isFalse,
+      );
+      expect(
+        addressStillListed([
+          {'id': 'a1'},
+        ], ''),
+        isFalse,
+      );
       expect(addressStillListed('nope', 'a1'), isFalse);
       expect(addressStillListed(null, 'a1'), isFalse);
     });
@@ -107,8 +123,9 @@ void main() {
       });
     }
 
-    testWidgets('delivered shows the full tracker, not a banner',
-        (tester) async {
+    testWidgets('delivered shows the full tracker, not a banner', (
+      tester,
+    ) async {
       final c = OrdersController(
         repo: StubOrdersRepository([_order('o1', OrderState.delivered)]),
       );
@@ -119,7 +136,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Delivered'), findsOneWidget);
+      expect(find.text('Mil gaya'), findsOneWidget);
       expect(find.text('Order deliver ho gaya'), findsNothing);
       c.stopTracking();
       c.dispose();
@@ -127,7 +144,7 @@ void main() {
   });
 
   group('slots failure LOUD', () {
-    testWidgets('fetch error blocks Aage with banner + retry', (tester) async {
+    testWidgets('fetch error blocks Pay with banner + retry', (tester) async {
       // 400 (not retryable) keeps the failure deterministic — the banner
       // path is identical for any ApiException.
       final api = _api((req) async {
@@ -138,19 +155,57 @@ void main() {
       });
       final c = BookingController();
       await _pumpSheet(tester, controller: c, api: api);
-      // Step 0 → step 1 (schedule) with a valid address.
+      // Once-orders collapse to Address → Pay: one Aage lands on Pay.
       await tester.tap(find.text('Aage badhein'));
       await tester.pump();
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
+      // Schedule recap renders (read-only prefill, no re-ask) …
+      expect(find.textContaining('Ek baar'), findsOneWidget);
+      // … plus the LOUD banner, and Pay stays disabled until retry wins.
       expect(find.textContaining('Slots load nahi hue'), findsOneWidget);
-      final next = tester.widget<ElevatedButton>(find.ancestor(
-        of: find.text('Aage badhein'),
-        matching: find.byType(ElevatedButton),
-      ));
-      expect(next.onPressed, isNull);
-      // Retry exists.
+      final pay = tester.widget<ElevatedButton>(
+        find.ancestor(
+          of: find.textContaining('Bhugtan •'),
+          matching: find.byType(ElevatedButton),
+        ),
+      );
+      expect(pay.onPressed, isNull);
       expect(find.text('Dobara try karein'), findsOneWidget);
+      c.dispose();
+    });
+  });
+
+  group('schedule ask-once', () {
+    testWidgets('once pay recaps readonly, chips only on Badlein', (
+      tester,
+    ) async {
+      final api = _api((req) async {
+        if (req.url.path.endsWith('/windows')) {
+          return http.Response(
+            jsonEncode({
+              'windows': [
+                {'start': '08:00', 'end': '08:30'},
+              ],
+              'date': '2026-10-07',
+              'serviceable': true,
+            }),
+            200,
+          );
+        }
+        return http.Response('not found', 404);
+      });
+      final c = BookingController();
+      await _pumpSheet(tester, controller: c, api: api);
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      // Recap, no chips re-asked …
+      expect(find.textContaining('Ek baar'), findsWidgets);
+      expect(find.text('Roz'), findsNothing);
+      // … until Badlein opens the editor.
+      await tester.tap(find.text('Badlein').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Roz'), findsOneWidget);
       c.dispose();
     });
   });
@@ -160,13 +215,14 @@ void main() {
       final api = _api((req) async {
         if (req.url.path.endsWith('/subscriptions/estimate')) {
           return http.Response(
-              jsonEncode({
-                'water_bill': 5600,
-                'deposit_due': 0,
-                'total': 5600,
-                'rate_version': 'v1'
-              }),
-              200);
+            jsonEncode({
+              'water_bill': 5600,
+              'deposit_due': 0,
+              'total': 5600,
+              'rate_version': 'v1',
+            }),
+            200,
+          );
         }
         return http.Response('not found', 404);
       });
@@ -183,16 +239,19 @@ void main() {
     });
 
     test('sub checkout total comes from the server estimate', () async {
-      final api = _api((req) async => http.Response(
+      final api = _api(
+        (req) async => http.Response(
           jsonEncode({
             'id': 's1',
             'first_cycle_estimate': {
               'water_bill': 5600,
               'deposit_due': 300,
-              'total': 5900
+              'total': 5900,
             },
           }),
-          201));
+          201,
+        ),
+      );
       final c = BookingController()
         ..setRefill(2)
         ..deliveryType = DeliveryType.daily;

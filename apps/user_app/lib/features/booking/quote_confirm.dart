@@ -14,10 +14,10 @@ import 'checkout_service.dart';
 /// Shows the confirmation sheet for a placed [CheckoutResult].
 void showOrderConfirm(
   BuildContext context, {
-    required CheckoutResult result,
-    required VoidCallback onTrackOrder,
-    required VoidCallback onOpenSubscriptions,
-  }) {
+  required CheckoutResult result,
+  required VoidCallback onTrackOrder,
+  required VoidCallback onOpenSubscriptions,
+}) {
   showModalBottomSheet<void>(
     context: context,
     shape: const RoundedRectangleBorder(
@@ -62,10 +62,7 @@ class _ConfirmSheet extends StatelessWidget {
                 SizedBox(width: 8),
                 Text(
                   'Order confirm ho gaya',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
                 ),
               ],
             ),
@@ -83,7 +80,7 @@ class _ConfirmSheet extends StatelessWidget {
                     Text('ID: ${r.orderId}')
                   else
                     Text('Subscription: ${r.subscriptionId}'),
-                  Text('Window: ${r.windowLabel}'),
+                  Text('Samay: ${r.windowLabel}'),
                   // F8: quoted breakup (server water/deposit; caps counted
                   // at handover) + address recap — no lump-sum mystery.
                   if (r.waterPaise > 0 || r.depositPaise > 0)
@@ -106,10 +103,7 @@ class _ConfirmSheet extends StatelessWidget {
                     ),
                   const Text(
                     'Rider assign hote hi naam + call button ayega',
-                    style: TextStyle(
-                      color: ShodashaTheme.muted,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
                   ),
                 ],
               ),
@@ -150,13 +144,18 @@ class _ConfirmSheet extends StatelessWidget {
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.shield_outlined,
-                      size: 18, color: ShodashaTheme.blue),
+                  Icon(
+                    Icons.shield_outlined,
+                    size: 18,
+                    color: ShodashaTheme.blue,
+                  ),
                   SizedBox(width: 8),
                   Expanded(
-                      child: Text(
-                          'Safety deposit app me safe hai — Profile me Wallet me dekhein',
-                          style: TextStyle(fontSize: 13))),
+                    child: Text(
+                      'Safety deposit app me safe hai — Profile me Wallet me dekhein',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -169,7 +168,9 @@ class _ConfirmSheet extends StatelessWidget {
                   onTrackOrder();
                 },
                 child: Text(
-                  r.isSubscription ? 'Subscriptions dekhein' : 'Track order',
+                  r.isSubscription
+                      ? 'Subscriptions dekhein'
+                      : 'Order track karein',
                 ),
               ),
             ),

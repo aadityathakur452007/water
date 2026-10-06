@@ -37,18 +37,22 @@ class _PressScaleState extends State<PressScale> {
 
   @override
   Widget build(BuildContext context) {
+    // a11y-10: instant press state when the OS asks for reduced motion.
+    final body = MediaQuery.disableAnimationsOf(context)
+        ? widget.child
+        : AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+            transform: Matrix4.identity()..scaleByDouble(_scale, _scale, 1, 1),
+            transformAlignment: Alignment.center,
+            child: widget.child,
+          );
     return GestureDetector(
       onTapDown: widget.onTap == null ? null : _down,
       onTapUp: widget.onTap == null ? null : (_) => _up(),
       onTapCancel: _up,
       onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
-        transform: Matrix4.identity()..scaleByDouble(_scale, _scale, 1, 1),
-        transformAlignment: Alignment.center,
-        child: widget.child,
-      ),
+      child: body,
     );
   }
 }
@@ -148,11 +152,14 @@ class _StepButton extends StatelessWidget {
       child: enabled
           ? PressScale(
               onTap: onTap,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 150),
-                opacity: enabled ? 1 : 0.5,
-                child: box,
-              ),
+              // a11y-10: no fade when the OS asks for reduced motion.
+              child: MediaQuery.disableAnimationsOf(context)
+                  ? Opacity(opacity: enabled ? 1 : 0.5, child: box)
+                  : AnimatedOpacity(
+                      duration: const Duration(milliseconds: 150),
+                      opacity: enabled ? 1 : 0.5,
+                      child: box,
+                    ),
             )
           : Opacity(opacity: 0.5, child: box),
     );

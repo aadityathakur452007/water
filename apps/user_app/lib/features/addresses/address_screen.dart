@@ -44,7 +44,8 @@ const Map<String, String> addressStringsHi = {
   'errLabel': 'Naam likhein',
   'errOfficeBulk': 'Office address par bulk rules lagenge (monthly bill)',
   'editBlockedTitle': 'Abhi edit nahi ho sakta',
-  'editBlockedBody': 'Is address par undispatched order hai — pehle use '
+  'editBlockedBody':
+      'Is address par undispatched order hai — pehle use '
       'deliver hone dein ya WhatsApp par baat karein',
   'loadFailed': 'Address load nahi hue',
   'offline': 'Internet nahi — dobara try karein',
@@ -57,6 +58,18 @@ const Map<String, String> addressStringsHi = {
 bool isValidPincode(String v) => RegExp(r'^[1-9][0-9]{5}$').hasMatch(v);
 
 enum AddrType { home, office }
+
+/// F7: two-line bar detail — house/street/area when present, else the
+/// saved address line. One helper, both bars (home + sheet) stay honest.
+String addressDetailLine(AddressEntry a) {
+  final parts = [a.house, a.street, a.area]
+      .whereType<String>()
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+  if (parts.isNotEmpty) return parts.join(', ');
+  return a.addressLine;
+}
 
 @immutable
 class AddressEntry {
@@ -101,36 +114,36 @@ class AddressEntry {
   /// so the typed line MUST ride on `formatted` or saved addresses come
   /// back with empty text (the "can't change address" bug).
   Map<String, dynamic> toApi() => {
-        'label': label,
-        'type': type == AddrType.home ? 'home' : 'office',
-        'formatted': addressLine,
-        'pincode': pincode,
-        'landmark': landmark,
-        'lift_flag': lift,
-        'lat': lat,
-        'lng': lng,
-        'house': house,
-        'street': street,
-        'area': area,
-        'phone': phone.isEmpty ? null : phone,
-      };
+    'label': label,
+    'type': type == AddrType.home ? 'home' : 'office',
+    'formatted': addressLine,
+    'pincode': pincode,
+    'landmark': landmark,
+    'lift_flag': lift,
+    'lat': lat,
+    'lng': lng,
+    'house': house,
+    'street': street,
+    'area': area,
+    'phone': phone.isEmpty ? null : phone,
+  };
 
   static AddressEntry fromApi(Map<String, dynamic> j) => AddressEntry(
-        id: (j['id'] ?? '') as String,
-        label: (j['label'] ?? '') as String,
-        type: j['type'] == 'office' ? AddrType.office : AddrType.home,
-        phone: (j['phone'] ?? '') as String,
-        pincode: (j['pincode'] ?? '') as String,
-        addressLine: (j['address_line'] ?? j['formatted'] ?? '') as String,
-        landmark: j['landmark'] as String?,
-        lift: (j['lift_flag'] ?? false) as bool,
-        isDefault: (j['is_default'] ?? false) as bool,
-        lat: ((j['lat'] ?? 0) as num).toDouble(),
-        lng: ((j['lng'] ?? 0) as num).toDouble(),
-        house: j['house'] as String?,
-        street: j['street'] as String?,
-        area: j['area'] as String?,
-      );
+    id: (j['id'] ?? '') as String,
+    label: (j['label'] ?? '') as String,
+    type: j['type'] == 'office' ? AddrType.office : AddrType.home,
+    phone: (j['phone'] ?? '') as String,
+    pincode: (j['pincode'] ?? '') as String,
+    addressLine: (j['address_line'] ?? j['formatted'] ?? '') as String,
+    landmark: j['landmark'] as String?,
+    lift: (j['lift_flag'] ?? false) as bool,
+    isDefault: (j['is_default'] ?? false) as bool,
+    lat: ((j['lat'] ?? 0) as num).toDouble(),
+    lng: ((j['lng'] ?? 0) as num).toDouble(),
+    house: j['house'] as String?,
+    street: j['street'] as String?,
+    area: j['area'] as String?,
+  );
 }
 
 enum AddrStatus { initial, loading, loaded, error }
@@ -323,15 +336,13 @@ class _AddressScreenState extends State<AddressScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
       ),
-      builder: (_) => _AddressFormSheet(
-        controller: widget.controller,
-        existing: existing,
-      ),
+      builder: (_) =>
+          _AddressFormSheet(controller: widget.controller, existing: existing),
     );
     if (saved == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(addressStringsHi['saved']!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(addressStringsHi['saved']!)));
     }
   }
 
@@ -363,7 +374,7 @@ class _AddressScreenState extends State<AddressScreen> {
               done
                   ? addressStringsHi['deleted']!
                   : (widget.controller.errorMessage ??
-                      addressStringsHi['offline']!),
+                        addressStringsHi['offline']!),
             ),
           ),
         );
@@ -440,95 +451,100 @@ class _AddressScreenState extends State<AddressScreen> {
                   );
                 }
                 final a = c.items[i];
-                final selected = c.selectedId == a.id || (c.selectedId == null && c.resolve()?.id == a.id);
+                final selected =
+                    c.selectedId == a.id ||
+                    (c.selectedId == null && c.resolve()?.id == a.id);
                 return InkWell(
                   onTap: () => c.select(a.id),
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: selected ? ShodashaTheme.blue : ShodashaTheme.border,
-                      width: selected ? 2 : 1,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: selected
+                            ? ShodashaTheme.blue
+                            : ShodashaTheme.border,
+                        width: selected ? 2 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                     ),
-                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          RadioGroup<String>(
-                            groupValue: c.resolve()?.id,
-                            onChanged: (v) => c.select(v),
-                            child: Radio<String>(value: a.id),
-                          ),
-                          Expanded(
-                            child: Text(
-                              a.label,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: ShodashaTheme.ink,
-                              ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            RadioGroup<String>(
+                              groupValue: c.resolve()?.id,
+                              onChanged: (v) => c.select(v),
+                              child: Radio<String>(value: a.id),
                             ),
-                          ),
-                          if (a.isDefault)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: ShodashaTheme.blueTint,
-                                borderRadius:
-                                    BorderRadius.circular(ShodashaTheme.radius),
-                              ),
+                            Expanded(
                               child: Text(
-                                addressStringsHi['defaultTick']!,
+                                a.label,
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  color: ShodashaTheme.blue,
+                                  fontWeight: FontWeight.w700,
+                                  color: ShodashaTheme.ink,
                                 ),
                               ),
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${a.addressLine}, ${a.pincode}',
-                        style: const TextStyle(
-                          color: ShodashaTheme.muted,
-                          fontSize: 13,
+                            if (a.isDefault)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: ShodashaTheme.blueTint,
+                                  borderRadius: BorderRadius.circular(
+                                    ShodashaTheme.radius,
+                                  ),
+                                ),
+                                child: Text(
+                                  addressStringsHi['defaultTick']!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: ShodashaTheme.blue,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                      ),
-                      if (a.landmark != null && a.landmark!.isNotEmpty)
+                        const SizedBox(height: 4),
                         Text(
-                          a.landmark!,
+                          '${a.addressLine}, ${a.pincode}',
                           style: const TextStyle(
                             color: ShodashaTheme.muted,
                             fontSize: 13,
                           ),
                         ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          TextButton(
-                            onPressed: () => _openForm(existing: a),
-                            child: const Text('Edit'),
-                          ),
-                          TextButton(
-                            onPressed: () => _confirmDelete(a),
-                            child: Text(
-                              addressStringsHi['delete']!,
-                              style: const TextStyle(
-                                color: ShodashaTheme.danger,
-                              ),
+                        if (a.landmark != null && a.landmark!.isNotEmpty)
+                          Text(
+                            a.landmark!,
+                            style: const TextStyle(
+                              color: ShodashaTheme.muted,
+                              fontSize: 13,
                             ),
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: () => _openForm(existing: a),
+                              child: const Text('Badlein'),
+                            ),
+                            TextButton(
+                              onPressed: () => _confirmDelete(a),
+                              child: Text(
+                                addressStringsHi['delete']!,
+                                style: const TextStyle(
+                                  color: ShodashaTheme.danger,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -565,6 +581,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool _touched = false;
   bool _locating = false;
   String? _locateError;
+
+  /// a11y-6: focus lands on the first invalid field at submit.
+  final _labelFocus = FocusNode();
+  final _pincodeFocus = FocusNode();
+  final _lineFocus = FocusNode();
 
   /// Stepper state (Wave 1 polish): 0 Naam → 1 Pata → 2 Location.
   int _step = 0;
@@ -603,6 +624,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     _label.dispose();
     _phone.dispose();
     _pincode.dispose();
+    _labelFocus.dispose();
+    _pincodeFocus.dispose();
+    _lineFocus.dispose();
     _line.dispose();
     _landmark.dispose();
     _house.dispose();
@@ -622,6 +646,20 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       _touched = true;
       _saveError = null;
     });
+    // a11y-6: focus lands on the first invalid field (map-pin misses
+    // keep the inline map prompt — no field to focus).
+    if (!_labelOk) {
+      _labelFocus.requestFocus();
+      return;
+    }
+    if (!_pinOk) {
+      _pincodeFocus.requestFocus();
+      return;
+    }
+    if (!_lineOk) {
+      _lineFocus.requestFocus();
+      return;
+    }
     if (!_valid) return;
     FocusScope.of(context).unfocus();
     String? clean(TextEditingController t) {
@@ -653,8 +691,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       Navigator.of(context).pop(true);
     } else {
       // S3: stay open — inline error + retry instead of a silent dismiss.
-      setState(() => _saveError =
-          widget.controller.errorMessage ?? addressStringsHi['offline']);
+      setState(
+        () => _saveError =
+            widget.controller.errorMessage ?? addressStringsHi['offline'],
+      );
     }
   }
 
@@ -755,8 +795,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                   builder: (context, _) => Stepper(
                     type: StepperType.vertical,
                     currentStep: _step,
-                    onStepTapped: (i) =>
-                        setState(() => _step = i),
+                    onStepTapped: (i) => setState(() => _step = i),
                     onStepContinue: _onContinue,
                     onStepCancel: () {
                       if (_step > 0) setState(() => _step--);
@@ -775,7 +814,8 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: (c.busy ||
+                                onPressed:
+                                    (c.busy ||
                                         (!_stepOk(_step) &&
                                             _step < 2 &&
                                             _touched) ||
@@ -787,11 +827,14 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                         width: 20,
                                         height: 20,
                                         child: CircularProgressIndicator(
-                                            strokeWidth: 2),
+                                          strokeWidth: 2,
+                                        ),
                                       )
-                                    : Text(last
-                                        ? addressStringsHi['save']!
-                                        : 'Aage'),
+                                    : Text(
+                                        last
+                                            ? addressStringsHi['save']!
+                                            : 'Aage',
+                                      ),
                               ),
                             ),
                           ],
@@ -809,12 +852,14 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                           children: [
                             TextField(
                               controller: _label,
+                              focusNode: _labelFocus,
+                              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                              style: const TextStyle(fontSize: 16),
                               keyboardType: TextInputType.name,
                               textInputAction: TextInputAction.next,
                               onChanged: (_) => setState(() {}),
                               decoration: InputDecoration(
-                                labelText:
-                                    addressStringsHi['labelField'],
+                                labelText: addressStringsHi['labelField'],
                                 errorText: _touched && !_labelOk
                                     ? addressStringsHi['errLabel']
                                     : null,
@@ -825,13 +870,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                               segments: [
                                 ButtonSegment(
                                   value: AddrType.home,
-                                  label: Text(
-                                      addressStringsHi['typeHome']!),
+                                  label: Text(addressStringsHi['typeHome']!),
                                 ),
                                 ButtonSegment(
                                   value: AddrType.office,
-                                  label: Text(
-                                      addressStringsHi['typeOffice']!),
+                                  label: Text(addressStringsHi['typeOffice']!),
                                 ),
                               ],
                               selected: {_type},
@@ -841,6 +884,8 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                             const SizedBox(height: 10),
                             TextField(
                               controller: _phone,
+                              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                              style: const TextStyle(fontSize: 16),
                               keyboardType: TextInputType.phone,
                               textInputAction: TextInputAction.next,
                               maxLength: 15,
@@ -863,6 +908,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                           children: [
                             TextField(
                               controller: _pincode,
+                              focusNode: _pincodeFocus,
+                              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                              style: const TextStyle(fontSize: 16),
                               keyboardType: TextInputType.number,
                               textInputAction: TextInputAction.next,
                               maxLength: 6,
@@ -878,13 +926,15 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                             const SizedBox(height: 10),
                             TextField(
                               controller: _line,
+                              focusNode: _lineFocus,
+                              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                              style: const TextStyle(fontSize: 16),
                               minLines: 2,
                               maxLines: 3,
                               textInputAction: TextInputAction.next,
                               onChanged: (_) => setState(() {}),
                               decoration: InputDecoration(
-                                labelText:
-                                    addressStringsHi['addressLine'],
+                                labelText: addressStringsHi['addressLine'],
                                 errorText: _touched && !_lineOk
                                     ? addressStringsHi['errLine']
                                     : null,
@@ -896,8 +946,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                 Expanded(
                                   child: TextField(
                                     controller: _house,
-                                    textInputAction:
-                                        TextInputAction.next,
+                                    // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                                    style: const TextStyle(fontSize: 16),
+                                    textInputAction: TextInputAction.next,
                                     maxLength: 500,
                                     decoration: const InputDecoration(
                                       labelText: 'Makan / House no.',
@@ -909,8 +960,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                 Expanded(
                                   child: TextField(
                                     controller: _street,
-                                    textInputAction:
-                                        TextInputAction.next,
+                                    // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                                    style: const TextStyle(fontSize: 16),
+                                    textInputAction: TextInputAction.next,
                                     maxLength: 500,
                                     decoration: const InputDecoration(
                                       labelText: 'Gali / Street',
@@ -923,6 +975,8 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                             const SizedBox(height: 10),
                             TextField(
                               controller: _area,
+                              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                              style: const TextStyle(fontSize: 16),
                               textInputAction: TextInputAction.next,
                               maxLength: 500,
                               decoration: const InputDecoration(
@@ -933,50 +987,45 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                             const SizedBox(height: 10),
                             TextField(
                               controller: _landmark,
+                              // WHY: 16px stops iOS auto-zoom (mobile-native A4).
+                              style: const TextStyle(fontSize: 16),
                               textInputAction: TextInputAction.done,
                               decoration: InputDecoration(
-                                labelText:
-                                    addressStringsHi['landmark'],
+                                labelText: addressStringsHi['landmark'],
                               ),
                             ),
                           ],
                         ),
                       ),
                       Step(
-                        title: const Text('Location'),
+                        title: const Text('Sthan'),
                         isActive: _step >= 2,
                         content: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.stretch,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             SwitchListTile(
                               contentPadding: EdgeInsets.zero,
-                              title:
-                                  Text(addressStringsHi['lift']!),
+                              title: Text(addressStringsHi['lift']!),
                               value: _lift,
-                              onChanged: (v) =>
-                                  setState(() => _lift = v),
+                              onChanged: (v) => setState(() => _lift = v),
                             ),
                             const SizedBox(height: 6),
                             OutlinedButton.icon(
-                              onPressed:
-                                  _locating ? null : _useCurrentLocation,
+                              onPressed: _locating ? null : _useCurrentLocation,
                               icon: _locating
                                   ? const SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child:
-                                          CircularProgressIndicator(
-                                              strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Icon(Icons.my_location),
-                              label: const Text(
-                                  'Current location use karein'),
+                              label: const Text('Current location use karein'),
                             ),
                             if (_locateError != null)
                               Padding(
-                                padding:
-                                    const EdgeInsets.only(top: 6),
+                                padding: const EdgeInsets.only(top: 6),
                                 child: Text(
                                   _locateError!,
                                   style: const TextStyle(
@@ -990,9 +1039,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                               onPressed: () async {
                                 final pin = await pickMapPin(
                                   context,
-                                  initial: _mapOk
-                                      ? LatLng(_lat!, _lng!)
-                                      : null,
+                                  initial: _mapOk ? LatLng(_lat!, _lng!) : null,
                                 );
                                 if (pin != null) {
                                   setState(() {
@@ -1021,8 +1068,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                               ),
                             if (_saveError != null)
                               Padding(
-                                padding:
-                                    const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.only(top: 8),
                                 child: Text(
                                   _saveError!,
                                   style: const TextStyle(

@@ -178,9 +178,9 @@ void main() {
 
   group('rating once + auto-popup', () {
     test('shouldAutoPrompt fires once per delivered view', () async {
-      final repo = StubOrdersRepository(
-        [_order(id: 'D1', state: OrderState.delivered)],
-      );
+      final repo = StubOrdersRepository([
+        _order(id: 'D1', state: OrderState.delivered),
+      ]);
       final c = OrdersController(repo: repo);
       await c.load();
       final o = c.findById('D1')!;
@@ -191,9 +191,9 @@ void main() {
     });
 
     test('rate succeeds once, second rate fails', () async {
-      final repo = StubOrdersRepository(
-        [_order(id: 'D2', state: OrderState.delivered)],
-      );
+      final repo = StubOrdersRepository([
+        _order(id: 'D2', state: OrderState.delivered),
+      ]);
       final c = OrdersController(repo: repo);
       await c.load();
       expect(await c.rate('D2', 5), isTrue);
@@ -217,8 +217,9 @@ void main() {
   });
 
   group('payment badge — tracking header UPI/COD + Paid/due (015)', () {
-    testWidgets('header shows UPI Paid + tappable bill note → bill Mode line',
-        (tester) async {
+    testWidgets('header shows UPI Paid + tappable bill note → bill Mode line', (
+      tester,
+    ) async {
       final order = Order(
         id: 'T1',
         state: OrderState.placed,
@@ -234,7 +235,9 @@ void main() {
       final c = OrdersController(repo: StubOrdersRepository([order]));
       await c.load();
       await tester.pumpWidget(
-        MaterialApp(home: TrackingScreen(controller: c, orderId: 'T1')),
+        MaterialApp(
+          home: TrackingScreen(controller: c, orderId: 'T1'),
+        ),
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
