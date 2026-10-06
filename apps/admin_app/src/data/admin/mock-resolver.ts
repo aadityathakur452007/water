@@ -40,7 +40,13 @@ export function resolveFixture(
     // Phase 5 S5.5: placed accept echoes the live accept shape.
     if (path.includes("/placed/") && path.endsWith("/accept")) {
       const orderId = path.split("/").at(-2) ?? "";
-      return { order_id: orderId, vendor_id: "mock-vendor", route_id: "mock-route", stop_id: "mock-stop-1", version: 1 };
+      return {
+        order_id: orderId,
+        vendor_id: "mock-vendor",
+        route_id: "mock-route",
+        stop_id: "mock-stop-1",
+        version: 1,
+      };
     }
     if (path.includes("/suspend") || path.includes("/unsuspend")) return { ok: true, revoked_sessions: 2 };
     if (path.includes("/generate")) return { ok: true, routes: 2 };

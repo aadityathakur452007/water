@@ -15,7 +15,12 @@ import { vendorPostServer } from "@/server/vendor-api";
  */
 export function QualityCheck() {
   const invalidate = useInvalidateVendor();
-  const { data: incidents } = useVendorQuery<{ data: VendorQualityIncident[] }>("/v1/vendor/quality");
+  // Phase 6 S6.4: query errors surface inline (never silent undefined).
+  const {
+    data: incidents,
+    isError: listError,
+    refetch: refetchList,
+  } = useVendorQuery<{ data: VendorQualityIncident[] }>("/v1/vendor/quality");
   const open = (incidents?.data ?? []).filter((q) => q.status === "open");
   const [incidentId, setIncidentId] = React.useState("");
   const [check, setCheck] = React.useState("");
@@ -58,6 +63,15 @@ export function QualityCheck() {
       <CardContent className="flex flex-col gap-3">
         {doneId ? (
           <p role="status" className="text-muted-foreground text-xs">{`Last check: ${doneId} bhej diya.`}</p>
+        ) : null}
+        {listError ? (
+          <p role="alert" className="text-destructive text-xs">
+            List nahi aayi —{" "}
+            <button type="button" className="underline" onClick={() => void refetchList()}>
+              retry karein
+            </button>{" "}
+            ya id haath se likhein.
+          </p>
         ) : null}
         {open.length ? (
           <div className="flex flex-wrap gap-2">

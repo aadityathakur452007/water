@@ -10,6 +10,8 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+PHASE 6 RE-VERIFY (2026-10-05, branch 029-remediation, uncommitted): line-by-line pass over §6.1–§6.5 — backend 290 green; 4 fixes: over-120-col wraps, leaderboard caption corrected (custody is unpaged → top-5 by load), QualityCheck query-error state, funnel pack-pipeline states included. Next: commit fixes → Phase 7 design gate.
+
 PHASE 6 DONE (2026-10-05, branch 029-remediation, uncommitted): admin truth — backend users role counts ride the list read (trust pattern, +1 test) + vendors reviewHold mapped live (was hardcoded 0) + dispatch funnel/pool from full-book reco.orders_by_state (placed-only table query, scope captions, dropped a page-1 request) + KPI Customers wired + leaderboard scope caption + preview/access/user/vendor detail loading skeletons + audit secondary-error surfacing + shared 429/offline copies — backend 290 green. Owed owner: admin `npm run check/build` (web validation barred here). Next: commit Phase 6 → Phase 7 design gate.
 
 PHASE 5 RE-VERIFY (2026-10-05, branch 029-remediation, committed 1c8229d): item-by-item pass over §5.1–§5.5 + exit criteria — all suites still green; 3 gaps closed: (1) widget matrix for all 5 payment badges (route cards render remainder/link/paid honestly) + duty-off repool display assert; (2) 10-digit callable-phone guard on app call button + web call/navigate (was non-empty only); (3) §5.1 web refresh device-id verified pinned (VENDOR_WEB_DEVICE). Vendor 69 green + analyze clean. Next: commit fixes → Phase 6 design gate.

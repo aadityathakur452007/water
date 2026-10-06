@@ -26,6 +26,11 @@ import { adminPostServer } from "@/server/admin-api";
 
 const FUNNEL: Array<{ state: string; label: string }> = [
   { state: "placed", label: "Placed (unassigned)" },
+  // Phase 6 S6.1: pack-pipeline states included — every server state has
+  // a column, so nothing hides between placed and assigned.
+  { state: "accepted", label: "Accepted" },
+  { state: "picked", label: "Picked" },
+  { state: "packed", label: "Packed" },
   { state: "assigned", label: "Assigned" },
   { state: "dispatched", label: "Dispatched" },
   { state: "delivered", label: "Delivered" },
@@ -122,7 +127,7 @@ export function Dispatch() {
               <PackageOpen className="size-4" aria-hidden />
               Unassigned pool
             </CardTitle>
-            <CardDescription>{`${unassignedCount} placed orders waiting · ${rupees(poolGmv)} in pool (full book, FR-26)`}</CardDescription>
+            <CardDescription>{`${unassignedCount} placed orders waiting · ${rupees(poolGmv)} in pool (full book)`}</CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-2">
             <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">

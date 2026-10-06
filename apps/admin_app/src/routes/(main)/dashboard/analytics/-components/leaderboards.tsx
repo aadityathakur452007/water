@@ -27,7 +27,7 @@ export function Leaderboards() {
             <Award className="size-4" aria-hidden />
             Vendor load — today
           </CardTitle>
-          <CardDescription>On-duty stops and jars in hand (first page, capacity balance, F2)</CardDescription>
+          <CardDescription>On-duty first, then jars in hand — top 5 (capacity balance, F2)</CardDescription>
         </CardHeader>
         <CardContent className="px-0 pb-2">
           <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
