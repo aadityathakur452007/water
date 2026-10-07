@@ -3,8 +3,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
-import '../../core/api_client.dart' show kSupportPhone;
 import '../../core/theme.dart';
 import 'auth_controller.dart';
 import 'demo_sheet.dart';
@@ -106,13 +106,14 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                 controller: _phone,
                 focusNode: _phoneFocus,
                 keyboardType: TextInputType.phone,
-                maxLength: 13,
+                maxLength: 10,
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
                 ],
                 decoration: InputDecoration(
                   labelText: vendorStringsHi['phoneLabel'],
-                  hintText: vendorStringsHi['phoneHint'],
+                  hintText: '10-digit number',
                   prefixText: '+91 ',
                   errorText: _phoneError,
                   counterText: '',
@@ -148,19 +149,61 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                 },
               ),
               if (c.errorMessage != null) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.error_outline,
-                        size: 16, color: ShodashaTheme.danger),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        c.errorMessage!,
-                        style: const TextStyle(color: ShodashaTheme.danger),
-                      ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.danger.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: ShodashaTheme.danger.withValues(alpha: 0.3),
                     ),
-                  ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 16, color: ShodashaTheme.danger),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              c.errorMessage!,
+                              style: const TextStyle(
+                                color: ShodashaTheme.danger,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: () {
+                          launchUrlString(
+                            'https://wa.me/917828442476?text=Namaste%20Admin%2C%20mujhe%20login%20me%20problem%20aa%20rahi%20hai',
+                            mode: LaunchMode.externalApplication,
+                          );
+                        },
+                        child: const Row(
+                          children: [
+                            Icon(Icons.chat, size: 14, color: ShodashaTheme.ink),
+                            SizedBox(width: 4),
+                            Text(
+                              'Admin WhatsApp: 7828442476 par sampark karein',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
               const SizedBox(height: 24),
@@ -184,6 +227,20 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                     : vendorStringsHi['loginGo']!),
               ),
               const SizedBox(height: 12),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                ),
+                icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                label: const Text('Admin WhatsApp Support: 7828442476'),
+                onPressed: () {
+                  launchUrlString(
+                    'https://wa.me/917828442476?text=Namaste%20Admin%2C%20mujhe%20Vendor%20app%20me%20madad%20chahiye',
+                    mode: LaunchMode.externalApplication,
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
               TextButton(
                 style: TextButton.styleFrom(
                   minimumSize: const Size(0, 48),
@@ -197,13 +254,6 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                               DemoSheet(controller: widget.controller),
                         ),
                 child: Text(vendorStringsHi['demoLogin']!),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Madad chahiye? $kSupportPhone',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: ShodashaTheme.muted, fontSize: 12),
               ),
             ],
           ),

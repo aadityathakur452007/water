@@ -130,22 +130,25 @@ void main() {
   });
 
   group('isValidUserEmail', () {
-    test('accepts normal addresses', () {
-      expect(isValidUserEmail('aap@example.com'), isTrue);
-      expect(isValidUserEmail('  AAP@Example.IN  '), isTrue);
-      expect(isValidUserEmail('a.b+tag@sub.domain.co'), isTrue);
+    test('accepts valid @gmail.com addresses', () {
+      expect(isValidUserEmail('aap@gmail.com'), isTrue);
+      expect(isValidUserEmail('  AAP@GMAIL.COM  '), isTrue);
+      expect(isValidUserEmail('a.b+tag@gmail.com'), isTrue);
     });
 
-    test('rejects blank and malformed', () {
+    test('rejects non-gmail and malformed addresses', () {
       for (final bad in [
         '',
         '   ',
         'nope',
         'a@b',
         'a@b.',
-        '@x.in',
-        'a b@c.in',
-        'a' * 250 + '@x.in', // over 254 chars
+        '@gmail.com',
+        'user@yahoo.com',
+        'user@outlook.com',
+        'user@example.in',
+        'a b@gmail.com',
+        'a' * 250 + '@gmail.com', // over 254 chars
       ]) {
         expect(isValidUserEmail(bad), isFalse, reason: bad);
       }
@@ -160,7 +163,7 @@ void main() {
       expect(
         await c.registerNameNumber(
           'Naya User',
-          'naya@example.in',
+          'naya@gmail.com',
           '98765 43210',
         ),
         isTrue,
@@ -171,7 +174,7 @@ void main() {
       expect(c.session?.verified, isFalse);
       expect(api.lastRegisterArgs, {
         'name': 'Naya User',
-        'email': 'naya@example.in',
+        'email': 'naya@gmail.com',
         'phone': '+919876543210',
         'deviceId': 'test-device',
       });
@@ -182,7 +185,7 @@ void main() {
       final api = _FakeApi();
       final c = _controller(api: api);
       expect(
-        await c.registerNameNumber('Naya User', 'naya@example.in', '12345'),
+        await c.registerNameNumber('Naya User', 'naya@gmail.com', '12345'),
         isFalse,
       );
       expect(api.registerCalls, 0);
@@ -195,7 +198,7 @@ void main() {
       final api = _FakeApi();
       final c = _controller(api: api);
       expect(
-        await c.registerNameNumber('   ', 'naya@example.in', '9876543210'),
+        await c.registerNameNumber('   ', 'naya@gmail.com', '9876543210'),
         isFalse,
       );
       expect(api.registerCalls, 0);
@@ -222,7 +225,7 @@ void main() {
       expect(
         await c.registerNameNumber(
           'Naya User',
-          'naya@example.in',
+          'naya@gmail.com',
           '9876543210',
         ),
         isFalse,
@@ -239,7 +242,7 @@ void main() {
       expect(
         await c.registerNameNumber(
           'Intruder',
-          'intruder@example.in',
+          'intruder@gmail.com',
           '9876543210',
         ),
         isFalse,
@@ -254,7 +257,7 @@ void main() {
       expect(
         await c.registerNameNumber(
           'Naya User',
-          'naya@example.in',
+          'naya@gmail.com',
           '9876543210',
         ),
         isFalse,
@@ -270,7 +273,7 @@ void main() {
       expect(
         await c.registerNameNumber(
           'Naya User',
-          'naya@example.in',
+          'naya@gmail.com',
           '9876543210',
         ),
         isFalse,
@@ -288,7 +291,7 @@ void main() {
       );
       await c.registerNameNumber(
         'Naya User',
-        'naya@example.in',
+        'naya@gmail.com',
         '9876543210',
       );
       expect(c.isAuthenticated, isTrue);

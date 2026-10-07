@@ -51,8 +51,32 @@ export function UserDetail() {
 
   if (isError) {
     return (
-      <Card>
-        <CardContent className="py-16 text-center text-destructive text-sm">{errorMessage(error)}</CardContent>
+      <Card className="border-destructive/20 bg-destructive/5">
+        <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <p className="max-w-md font-medium text-destructive text-sm">{errorMessage(error)}</p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => invalidate(`/v1/admin/users/${userId}/detail`)}
+            >
+              Dobara koshish karein (Retry)
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              asChild
+            >
+              <a
+                href="https://wa.me/917828442476?text=Namaste%20Admin%2C%20user%20detail%20load%20karne%20me%20problem%20aa%20rahi%20hai"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Admin WhatsApp: +91 7828442476
+              </a>
+            </Button>
+          </div>
+        </CardContent>
       </Card>
     );
   }

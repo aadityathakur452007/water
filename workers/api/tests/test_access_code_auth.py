@@ -121,36 +121,36 @@ def _audit(raw):
 async def test_register_new_user_unverified_plus_session():
     reset_rate_limits()
     raw = _conn()
-    out = await _svc(raw).user_register("Naya User", PHONE_N, "naya@example.in",
+    out = await _svc(raw).user_register("Naya User", PHONE_N, "naya@gmail.com",
                                         "reg-dev-1", ip="10.0.0.1")
     assert out["role"] == "user" and out["access_token"] and out["refresh_token"]
     assert out["verified"] is False
     row = raw.execute("SELECT role, kyc_status, name, email FROM users WHERE phone = ?",
                       (PHONE_N,)).fetchone()
     assert row["role"] == "user" and row["kyc_status"] == "unverified"
-    assert row["name"] == "Naya User" and row["email"] == "naya@example.in"
+    assert row["name"] == "Naya User" and row["email"] == "naya@gmail.com"
 
 
 async def test_register_blank_name_filled_once_never_overwritten():
     reset_rate_limits()
     raw = _conn()
-    out1 = await _svc(raw).user_register("First Name", PHONE_B, "first@example.in",
+    out1 = await _svc(raw).user_register("First Name", PHONE_B, "first@gmail.com",
                                         "reg-dev-2", ip="10.0.0.2")
     assert out1["role"] == "user"
     row = raw.execute("SELECT name, email FROM users WHERE id = 'ub'").fetchone()
-    assert row["name"] == "First Name" and row["email"] == "first@example.in"
-    out2 = await _svc(raw).user_register("Second Name", PHONE_B, "second@example.in",
+    assert row["name"] == "First Name" and row["email"] == "first@gmail.com"
+    out2 = await _svc(raw).user_register("Second Name", PHONE_B, "second@gmail.com",
                                         "reg-dev-3", ip="10.0.0.3")
     assert out2["role"] == "user"
     row = raw.execute("SELECT name, email FROM users WHERE id = 'ub'").fetchone()
-    assert row["name"] == "First Name" and row["email"] == "first@example.in"
+    assert row["name"] == "First Name" and row["email"] == "first@gmail.com"
 
 
 async def test_register_staff_number_422():
     reset_rate_limits()
     for phone in (PHONE_V, PHONE_A):
         with pytest.raises(AppError) as e:
-            await _svc(_conn()).user_register("Intruder", phone, "i@example.in",
+            await _svc(_conn()).user_register("Intruder", phone, "i@gmail.com",
                                               "reg-dev-4", ip="10.0.0.4")
         assert e.value.status_code == 422
         assert e.value.code == "ROLE_RESERVED"
@@ -159,14 +159,14 @@ async def test_register_staff_number_422():
 async def test_register_bad_phone_400():
     reset_rate_limits()
     with pytest.raises(AppError) as e:
-        await _svc(_conn()).user_register("Bad", "123", "b@example.in",
+        await _svc(_conn()).user_register("Bad", "123", "b@gmail.com",
                                           "reg-dev-5", ip="10.0.0.5")
     assert e.value.status_code == 400
 
 
 async def test_register_bad_email_400():
     reset_rate_limits()
-    for bad in ("nope", "a@b", "a@b.", "@x.in", "a b@c.in"):
+    for bad in ("nope", "a@b", "a@b.", "@x.in", "a b@c.in", "other@yahoo.com"):
         with pytest.raises(AppError) as e:
             await _svc(_conn()).user_register("Bad", PHONE_N, bad,
                                               "reg-dev-6", ip="10.0.0.6")
@@ -177,10 +177,10 @@ async def test_register_rate_limit_phone():
     reset_rate_limits()
     raw = _conn()
     for i in range(5):
-        await _svc(raw).user_register(f"Rate {i}", PHONE_N, f"r{i}@example.in",
+        await _svc(raw).user_register(f"Rate {i}", PHONE_N, f"r{i}@gmail.com",
                                       f"reg-dev-rl-{i}", ip=f"10.9.9.{i}")
     with pytest.raises(AppError) as e:
-        await _svc(raw).user_register("Rate 5", PHONE_N, "r5@example.in",
+        await _svc(raw).user_register("Rate 5", PHONE_N, "r5@gmail.com",
                                       "reg-dev-rl-5", ip="10.9.9.99")
     assert e.value.status_code == 429
 
@@ -189,13 +189,17 @@ def test_register_router_end_to_end():
     reset_rate_limits()
     client = _client(_conn())
     r = client.post("/v1/auth/user/register",
-                    json={"name": "Router User", "email": "router@example.in",
+                    json={"name": "Router User", "email": "router@gmail.com",
                           "phone": PHONE_N, "device": {"id": "reg-dev-9"}})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["role"] == "user" and body["verified"] is False and body["access_token"]
+    non_gmail = client.post("/v1/auth/user/register",
+                            json={"name": "Non Gmail", "email": "user@yahoo.com",
+                                  "phone": PHONE_N, "device": {"id": "reg-dev-9"}})
+    assert non_gmail.status_code == 400
     bad = client.post("/v1/auth/user/register",
-                      json={"name": "X", "email": "x@example.in",
+                      json={"name": "X", "email": "x@gmail.com",
                             "phone": PHONE_V, "device": {"id": "reg-dev-9"}})
     assert bad.status_code == 422
     no_email = client.post("/v1/auth/user/register",

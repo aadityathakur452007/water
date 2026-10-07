@@ -34,12 +34,12 @@ const Map<String, String> authStringsHi = {
   'nameHint': 'Aapka naam',
   'nameError': 'Sahi naam likhein (1–100 akshar)',
   'emailLabel': 'Email',
-  'emailHint': 'aap@example.com',
-  'emailError': 'Sahi email likhein (jaise aap@example.com)',
+  'emailHint': 'aap@gmail.com',
+  'emailError': 'Sirf @gmail.com email chalega (jaise aap@gmail.com)',
   'phoneLabel': 'Mobile number',
   'phoneHint': '93021 90067',
-  'phoneHelper': '10 ank, 6–9 se shuru ho',
-  'phoneError': 'Sahi 10-digit mobile number likhein (6–9 se shuru)',
+  'phoneHelper': 'Sirf 10 ank, 6–9 se shuru',
+  'phoneError': 'Sahi 10-digit mobile number likhein (sirf ank, 6–9 se shuru)',
   'registerGo': 'Shuru karein',
   'registering': 'Account ban raha hai…',
   'staffNumber':
@@ -83,12 +83,12 @@ bool isValidUserName(String raw) {
   return name.isNotEmpty && name.length <= 100;
 }
 
-/// True when [raw] looks like an email address (backend: ≤254 chars,
-/// `local@domain.tld` — format check only, never verified).
+/// True when [raw] is a valid @gmail.com address (backend: ≤254 chars,
+/// ending with @gmail.com).
 bool isValidUserEmail(String raw) {
-  final email = raw.trim();
+  final email = raw.trim().toLowerCase();
   if (email.isEmpty || email.length > 254) return false;
-  return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+  return RegExp(r'^[a-zA-Z0-9._%+-]+@gmail\.com$').hasMatch(email);
 }
 
 /// `9876543210` → `+91 ••••• 43210` (never show full digits on screen).

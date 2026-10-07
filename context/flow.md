@@ -247,8 +247,9 @@ Browser (TanStack Start SSR + client components)                    apps/admin_a
             ├─ API_MODE=mock → data/admin/mock-resolver.ts (fixtures, same shapes)
             └─ API_MODE=live → fetch(API_URL) Bearer sh_session (cookie read server-side)
                  ├─ 401 → refreshSessionServer (/v1/auth/refresh) → retry once → else redirect /auth/v1/login?next=
-                 └─ Workers /v1/admin/* (require_role('admin')) → D1
-Login: /auth/v1/login → admin-login-form.tsx → loginCodeServer (028 ADR-076: phone+code → POST /v1/auth/admin/login; OTP/dev/demo doors deleted)
+                 └─ 5xx/transient → workerFetch auto-retries up to 3x with backoff (ADR-104)
+                 └─ Workers /v1/admin/* (require_role('admin')) → D1 (user_detail optimized with consolidated scalar subquery)
+Login: /auth/v1/login → admin-login-form.tsx → loginCodeServer (028 ADR-076: phone+code → POST /v1/auth/admin/login; OTP/dev/demo doors deleted; ADR-103 verified live with phone +917828442476)
   └─ Workers /v1/auth/admin/login (role=admin gate) → HttpOnly sh_session(30m)+sh_refresh(7d) set in server fn
 Guard: dashboard/route.tsx loader → hasSessionServer → redirect /auth/v1/login?next=…
 Surfaces (sidebar-items.ts = nav source of truth; 4 nav groups Monitor/Money/People/Operate):

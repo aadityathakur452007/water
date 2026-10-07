@@ -481,8 +481,8 @@ class AuthService:
         if not clean_name or len(clean_name) > 100:
             raise ValidationError("Enter your name (1–100 characters).", {"name": name})
         clean_email = (email or "").strip().lower()
-        if (len(clean_email) > 254 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", clean_email)):
-            raise ValidationError("Enter a valid email address.", {"email": "invalid"})
+        if len(clean_email) > 254 or not re.match(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", clean_email):
+            raise ValidationError("Enter a valid @gmail.com address.", {"email": "invalid"})
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
         phone_n = normalize_phone(phone or "")

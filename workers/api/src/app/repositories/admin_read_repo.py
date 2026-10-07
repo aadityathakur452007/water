@@ -160,37 +160,23 @@ class AdminReadRepo:
         ).fetchone()
         if user is None:
             return None
-        orders_agg = (
+        # Consolidated query: reduces 6 D1/Pyodide round-trips to 1, preventing CPU timeout.
+        agg = (
             await self._conn.execute(
-                "SELECT COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS spend_paise,"
-                " MAX(created_at) AS last_order_at FROM orders WHERE user_id = ?",
-                (user_id,),
+                "SELECT "
+                "  (SELECT COUNT(*) FROM orders WHERE user_id = ?) AS orders_count,"
+                "  (SELECT COALESCE(SUM(total), 0) FROM orders WHERE user_id = ?) AS spend_paise,"
+                "  (SELECT MAX(created_at) FROM orders WHERE user_id = ?) AS last_order_at,"
+                "  (SELECT held FROM ledger WHERE customer_id = ?) AS held,"
+                "  (SELECT deposit_paid FROM ledger WHERE customer_id = ?) AS deposit_paid,"
+                "  (SELECT deposit_refunded FROM ledger WHERE customer_id = ?) AS deposit_refunded,"
+                "  (SELECT dues FROM ledger WHERE customer_id = ?) AS dues,"
+                "  (SELECT COUNT(*) FROM sessions WHERE user_id = ? AND revoked_at IS NULL) AS active_sessions,"
+                "  (SELECT COUNT(*) FROM device_tokens WHERE user_id = ?) AS devices,"
+                "  (SELECT COUNT(*) FROM strikes WHERE subject_id = ? AND cleared_at IS NULL) AS open_strikes",
+                (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id),
             )
-        ).fetchone()
-        ledger = (
-            await self._conn.execute(
-                "SELECT held, deposit_paid, deposit_refunded, dues FROM ledger WHERE customer_id = ?",
-                (user_id,),
-            )
-        ).fetchone()
-        sessions = (
-            await self._conn.execute(
-                "SELECT COUNT(*) AS c FROM sessions WHERE user_id = ? AND revoked_at IS NULL",
-                (user_id,),
-            )
-        ).fetchone()
-        devices = (
-            await self._conn.execute(
-                "SELECT COUNT(*) AS c FROM device_tokens WHERE user_id = ?",
-                (user_id,),
-            )
-        ).fetchone()
-        strikes = (
-            await self._conn.execute(
-                "SELECT COUNT(*) AS c FROM strikes WHERE subject_id = ? AND cleared_at IS NULL",
-                (user_id,),
-            )
-        ).fetchone()
+        ).fetchone() or {}
         recent = (
             await self._conn.execute(
                 "SELECT id, total, state, payment_status, created_at FROM orders"
@@ -198,16 +184,22 @@ class AdminReadRepo:
                 (user_id,),
             )
         ).fetchall()
+        held = agg.get("held")
+        ledger_present = held is not None
         return {
             "user": dict(user),
-            "orders_count": int(orders_agg["orders_count"]),
-            "spend_paise": int(orders_agg["spend_paise"]),
-            "last_order_at": orders_agg["last_order_at"],
-            "ledger": dict(ledger) if ledger
-            else {"held": 0, "deposit_paid": 0, "deposit_refunded": 0, "dues": 0},
-            "active_sessions": int(sessions["c"]),
-            "devices": int(devices["c"]),
-            "open_strikes": int(strikes["c"]),
+            "orders_count": int(agg.get("orders_count") or 0),
+            "spend_paise": int(agg.get("spend_paise") or 0),
+            "last_order_at": agg.get("last_order_at"),
+            "ledger": {
+                "held": int(agg.get("held") or 0),
+                "deposit_paid": int(agg.get("deposit_paid") or 0),
+                "deposit_refunded": int(agg.get("deposit_refunded") or 0),
+                "dues": int(agg.get("dues") or 0),
+            } if ledger_present else {"held": 0, "deposit_paid": 0, "deposit_refunded": 0, "dues": 0},
+            "active_sessions": int(agg.get("active_sessions") or 0),
+            "devices": int(agg.get("devices") or 0),
+            "open_strikes": int(agg.get("open_strikes") or 0),
             "recent_orders": [dict(r) for r in recent],
         }
 

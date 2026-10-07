@@ -91,13 +91,18 @@ export function AdminLoginForm() {
           <Input
             id="admin-phone"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            inputMode="tel"
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, "");
+              const clean = digits.startsWith("91") && digits.length > 2 ? digits.slice(2) : digits;
+              const limited = clean.slice(0, 10);
+              setPhone(limited ? `+91 ${limited}` : "+91 ");
+            }}
+            inputMode="numeric"
             autoComplete="tel"
             placeholder="+91 93021 90067"
             className="tabular-nums"
           />
-          <FieldDescription>Your admin number, then the one-time access code.</FieldDescription>
+          <FieldDescription>Your 10-digit Indian admin number, then access code.</FieldDescription>
         </Field>
         <Field className="gap-1.5">
           <FieldLabel htmlFor="admin-access-code">Access code</FieldLabel>

@@ -43,13 +43,15 @@ class DemoLoginIn(BaseModel):
 
 
 class VendorLoginIn(BaseModel):
-    phone: str = Field(min_length=10, max_length=16)
+    phone: str = Field(min_length=10, max_length=16,
+                       pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
     code: str = Field(min_length=4, max_length=32)
     device: DeviceIn
 
 
 class AdminLoginIn(BaseModel):
-    phone: str = Field(min_length=10, max_length=16)
+    phone: str = Field(min_length=10, max_length=16,
+                       pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
     code: str = Field(min_length=4, max_length=32)
     device: DeviceIn
 
@@ -57,8 +59,9 @@ class AdminLoginIn(BaseModel):
 class UserRegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str = Field(min_length=3, max_length=254,
-                       pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    phone: str = Field(min_length=10, max_length=16)
+                       pattern=r"^[a-zA-Z0-9._%+-]+@[gG][mM][aA][iI][lL]\.[cC][oO][mM]$")
+    phone: str = Field(min_length=10, max_length=16,
+                       pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
     device: DeviceIn
 
 

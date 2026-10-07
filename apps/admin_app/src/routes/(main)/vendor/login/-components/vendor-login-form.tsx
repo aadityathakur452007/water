@@ -66,13 +66,18 @@ export function VendorLoginForm() {
           <Input
             id="vendor-phone"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            inputMode="tel"
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, "");
+              const clean = digits.startsWith("91") && digits.length > 2 ? digits.slice(2) : digits;
+              const limited = clean.slice(0, 10);
+              setPhone(limited ? `+91 ${limited}` : "+91 ");
+            }}
+            inputMode="numeric"
             autoComplete="tel"
             placeholder="+91 98XXX XXXXX"
             className="tabular-nums"
           />
-          <FieldDescription>Wohi number jo admin ne vendor banate waqt dala tha.</FieldDescription>
+          <FieldDescription>Wohi 10-digit number jo admin ne vendor banate waqt dala tha.</FieldDescription>
         </Field>
         <Field className="gap-1.5">
           <FieldLabel htmlFor="vendor-code">Access code</FieldLabel>
@@ -87,8 +92,16 @@ export function VendorLoginForm() {
           <FieldDescription>Code bhool gaye? Admin se naya code lein.</FieldDescription>
         </Field>
         {error ? (
-          <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2">
+          <div role="alert" className="flex flex-col gap-1.5 rounded-md bg-destructive/10 px-3 py-2">
             <p className="font-medium text-destructive text-xs">{error}</p>
+            <a
+              href="https://wa.me/917828442476?text=Namaste%20Admin%2C%20vendor%20login%20me%20problem%20aa%20rahi%20hai"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-destructive text-xs underline hover:opacity-80"
+            >
+              Admin WhatsApp (+91 7828442476) par madad lein
+            </a>
           </div>
         ) : null}
       </FieldGroup>
@@ -97,10 +110,20 @@ export function VendorLoginForm() {
         {busy ? "Checking…" : "Sign in"}
         <ArrowRight aria-hidden />
       </Button>
-      <p className="flex items-center justify-center gap-1.5 text-muted-foreground text-xs">
-        <ShieldCheck className="size-3.5" aria-hidden />
-        Sessions are HttpOnly · sirf aapka data dikhega
-      </p>
+      <div className="flex flex-col items-center justify-center gap-1.5 text-center text-muted-foreground text-xs">
+        <a
+          href="https://wa.me/917828442476?text=Namaste%20Admin%2C%20mujhe%20vendor%20support%20chahiye"
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline hover:opacity-80"
+        >
+          Pareshani aane par Admin WhatsApp (+91 7828442476) par sampark karein
+        </a>
+        <p className="flex items-center gap-1">
+          <ShieldCheck className="size-3.5" aria-hidden />
+          Sessions are HttpOnly · sirf aapka data dikhega
+        </p>
+      </div>
     </form>
   );
 }

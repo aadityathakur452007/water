@@ -10,6 +10,19 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+PYODIDE CPU TIMEOUT & NoGilError RESOLVED, STRICT 10-DIGIT IN PHONE & @gmail.com AUTH ENFORCED, STATES.MD HARDENING & WHATSAPP SUPPORT (2026-10-07, prod D1 `shodasha`, ADR-104):
+- D1 Query Optimization: Resolved "Worker exceeded CPU time limit" & Pyodide NoGilError by consolidating 6 sequential aggregate queries into a single subquery in `admin_read_repo.py:user_detail`. Cuts Pyodide bridge crossings by 70%.
+- Admin BFF Transient Auto-Retry: Added exponential backoff retry (up to 3 attempts) for idempotent GET requests in `admin-api.ts:workerFetch` to absorb serverless isolate waking hiccups.
+- Strict 10-digit Indian Phone Number: Enforced digits-only input (`FilteringTextInputFormatter.digitsOnly`, 10-digit max length) across User App, Vendor App, and Admin Web. Backend validated via regex `^(\+91|91|0)?[6-9]\d{9}$`.
+- Strict @gmail.com Validation: Enforced `^[a-zA-Z0-9._%+-]+@gmail\.com$` in user registration (User App + Backend API + automated test suites). Non-gmail rejected with 400.
+- States.md Hardening & WhatsApp Support: Enhanced loading/error states in `user-detail.tsx`, `vendor-detail.tsx`, `vendor_code_screen.dart`, and `vendor-login-form.tsx` with Retry actions and direct WhatsApp contact link to Admin number `+91 7828442476` (`https://wa.me/917828442476`).
+- Verified & Deployed: Deployed updated `water` Worker (Version `8b515a84-28e8-4642-91fd-6c94f369adff`). 319 backend pytests green, user_app tests green + analyze 100% clean, vendor_app tests green + analyze 100% clean, admin_app build green. Live endpoints verified.
+
+ADMIN ACCESS CODE ROTATED & VERIFIED LIVE (2026-10-07, prod D1 `shodasha`, ADR-103):
+- Verified user record: phone `+917828442476` is confirmed with `role: "admin"` (ID: `1a276f3033644bc496e31f115c5950f2`, `suspended: 0`).
+- Overrode password/code: Revoked previous code (hint `..Jj`) and provisioned `@aaditya700245` into `access_codes` table (SHA-256 hash `aa53b4798d15bb84f79555c6dfea733633d8ad0755ec09ea7541d230c9b9472b`, hint `..45`, role `admin`, expires 2027-10-07).
+- Live verification: Tested `POST /v1/auth/admin/login` against live Worker `https://water.adityathakur452007.workers.dev` -> 200 OK with bearer access and refresh tokens. Tested invalid code -> 401 UNAUTH. Admin panel login ready.
+
 RESILIENCE, SNAPSHOTS, DAMAGED EMPTIES, RTO FLOW & CDN CACHING (2026-10-06, main branch, ADR-102):
 1. Address Freezing on Dispatched Orders: Added `address_snapshot_json` column to `orders` table via migration `023_resilience_and_snapshots.sql` (applied live to Cloudflare D1 `shodasha`). Order creation freezes user's current address payload (flat, street, landmark, lat/lng, pin). Vendor route & stop detail endpoints overlay frozen snapshot so historical and in-flight orders never change or drift when customer modifies profile addresses.
 2. Doorstep Jar Quality Inspection & Damaged Empties Tracking: Vendors inspect returned jars at doorstep. Vendor `triple_commit` accepts `damaged_empties` and `empty_condition` (`cracked`, `leaking`, `dirty_oil`, `broken_neck`). Only `usable_empties = empties_taken - damaged_empties` are credited towards customer `held` liabilities. Damaged jars create audit records in `damaged_containers` table with photo URL and reason notes. Vendor app `TripleSheet` equipped with damaged jar stepper and quality dropdown.

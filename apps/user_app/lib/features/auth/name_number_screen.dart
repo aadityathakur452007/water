@@ -292,7 +292,8 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                 keyboardType: TextInputType.phone,
                 style: const TextStyle(fontSize: 16, color: AuthTokens.text),
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
                 ],
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),

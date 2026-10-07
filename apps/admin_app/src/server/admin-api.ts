@@ -74,7 +74,7 @@ export async function bindingFetch(path: string, init: RequestInit): Promise<Res
   }
 }
 
-async function workerFetch(
+async function executeWorkerFetch(
   path: string,
   method: "GET" | "POST" | "PATCH",
   body?: unknown,
@@ -96,6 +96,33 @@ async function workerFetch(
     return viaBinding;
   }
   return fetch(`${apiUrl()}${path}`, init);
+}
+
+async function workerFetch(
+  path: string,
+  method: "GET" | "POST" | "PATCH",
+  body?: unknown,
+): Promise<Response> {
+  const maxAttempts = method === "GET" ? 3 : 1;
+  let attempt = 0;
+  let lastRes: Response | null = null;
+  while (attempt < maxAttempts) {
+    attempt++;
+    try {
+      const res = await executeWorkerFetch(path, method, body);
+      if (res.status >= 500 && attempt < maxAttempts) {
+        console.warn(`[admin-api] ${method} ${path} returned ${res.status}, retrying (${attempt}/${maxAttempts})...`);
+        await new Promise((r) => setTimeout(r, attempt * 200));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (attempt >= maxAttempts) throw err;
+      console.warn(`[admin-api] ${method} ${path} network error, retrying (${attempt}/${maxAttempts}):`, err);
+      await new Promise((r) => setTimeout(r, attempt * 200));
+    }
+  }
+  return lastRes!;
 }
 
 /**
