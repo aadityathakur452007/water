@@ -66,6 +66,7 @@ export type ZoneRow = {
   name: string;
   pincodes: string;
   active: number;
+  vendor_count?: number;
 };
 
 export type UserDetail = {

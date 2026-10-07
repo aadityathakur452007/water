@@ -161,6 +161,30 @@
 
 ## Decision Entries
 
+### ADR-108: Operating Zones Management Endpoints (POST /v1/admin/zones, PATCH /v1/admin/zones/{zone_id}), Admin Operating Zones Page (/dashboard/zones), and Inline Zone Provisioning on Vendor Onboarding Dialog
+- **Date**: 2026-10-07
+- **Status**: Accepted
+- **Context**:
+  1. *Missing Operating Zones Creation Functionality*: While the `zones` table existed in D1 schema (`003_addresses.sql`) and `GET /v1/admin/zones` was exposed as a read endpoint, there were no write endpoints (`POST /v1/admin/zones` or `PATCH /v1/admin/zones/{zone_id}`).
+  2. *Vendor Onboarding Dependency*: Vendor onboarding strictly requires an operating zone (`zone_id` foreign key). In fresh deployments or when expanding into new postal clusters, admins could not onboard vendors without running raw SQL queries via Wrangler CLI.
+  3. *Admin Web Missing Zones Surface*: Admin UI lacked an Operating Zones navigation item, page, or dialog to inspect, add, or edit delivery zones and their serviced pincodes.
+- **Decision**:
+  1. *Backend (`workers/api`)*:
+     - Added `ZoneCreateIn` (name, pincodes, active) and `ZonePatchIn` (optional fields) Pydantic schemas.
+     - Added `POST /v1/admin/zones` creating active zone with generated UUID, trimmed name, and comma-separated pincodes.
+     - Added `PATCH /v1/admin/zones/{zone_id}` for modifying zone name, pincode coverage, and active status.
+     - Enriched `GET /v1/admin/zones` with `COUNT(vz.vendor_id) AS vendor_count` to surface assigned agency density per zone.
+     - Added regression unit tests in `workers/api/tests/test_dispatch_admin.py` (318 pytest passed).
+  2. *Admin Web (`apps/admin_app`)*:
+     - Updated `ZoneRow` type in `apps/admin_app/src/lib/admin-types.ts` with `vendor_count?: number`.
+     - Built `AddZoneDialog` with form validation, submitting via `adminPostServer` and invalidating React Query cache.
+     - Built `ZonesTable` and `/dashboard/zones` page route with quick search, status filtering, pincode chips, and vendor count badges.
+     - Added Operating Zones (`/dashboard/zones`) to sidebar under "Operate" group with solid `MapPin` Lucide icon.
+     - Added inline `+ New Zone` shortcut trigger inside `AddVendorDialog` adjacent to the Operating Zone selector, automatically selecting the newly created zone on completion without breaking the vendor onboarding flow.
+- **Why**: Eliminates another manual SQL bottleneck for operations, unblocks seamless vendor onboarding in new territories, and preserves a unified, zero-emoji, agency-grade design language across Admin Web.
+- **Consequences**: Admins can configure, manage, and expand delivery territories entirely through the UI; vendor onboarding can create new zones on-the-fly.
+- **Affects**: `workers/api` (`app/api/v1/admin.py`, `tests/test_dispatch_admin.py`), `apps/admin_app` (`admin-types.ts`, `sidebar-items.ts`, `routeTree.gen.ts`, `add-vendor-dialog.tsx`, `routes/(main)/dashboard/zones/*`).
+
 ### ADR-107: Frontend Architecture & Redesign: COD Idempotency Key Lifecycle Fix, Admin Vendor Onboarding & Access Code Issuance Dialog, Vendor Agency Rider Dispatching
 - **Date**: 2026-10-07
 - **Status**: Accepted

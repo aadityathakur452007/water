@@ -10,6 +10,12 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+ADMIN OPERATING ZONES MANAGEMENT & INLINE VENDOR CREATION (2026-10-07, branch feat-admin-operating-zones, ADR-108):
+- Backend Endpoints (`workers/api`): Added `ZoneCreateIn` and `ZonePatchIn` DTOs, `POST /v1/admin/zones` (201 Created), `PATCH /v1/admin/zones/{zone_id}`, and enriched `GET /v1/admin/zones` with `COUNT(vz.vendor_id) AS vendor_count`. Automated tests verified in `test_dispatch_admin.py` (318 pytests passed 100% green).
+- Admin Web Zones Page (`apps/admin_app`): Built dedicated `/dashboard/zones` page route with quick search, status filtering, pincode chips, and vendor count badges. Added to sidebar under "Operate" navigation group with solid `MapPin` Lucide icon.
+- Inline Zone Provisioning: Integrated `AddZoneDialog` directly inside `AddVendorDialog` next to the Operating Zone selector with instant selection of created zones, enabling zero-SQL vendor onboarding even in brand-new service territories.
+- Build Verification: `apps/admin_app` build verified with zero errors (TanStack Router route tree regenerated, Vite/Nitro build exit code 0).
+
 FRONTEND REDESIGN, COD IDEMPOTENCY FIX & VENDOR RIDER FLEET ONBOARDING (2026-10-07, branch frontend-redesign-and-fixes, ADR-107):
 - Switched to new git branch `frontend-redesign-and-fixes`.
 - COD Idempotency Bug RESOLVED in `apps/user_app`: Added `refreshIdempotencyKey()` and `resetBookingSession()` to `BookingController`. Updated `showCheckoutSheet` to mint fresh session keys on open, reset controller state upon order completion, and auto-refresh keys when re-quoting stale quotes in `checkout_service.dart`. Tested in `booking_rules_test.dart` (26/26 passed) and full user_app suite (134/134 tests green).

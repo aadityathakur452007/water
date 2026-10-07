@@ -92,6 +92,19 @@ class CapacityPatchIn(BaseModel):
     per_stop_fee: int | None = Field(default=None, ge=0)
 
 
+class ZoneCreateIn(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    pincodes: str = Field(default="", max_length=500)
+    polygon: str | None = Field(default=None, max_length=5000)
+    id: str | None = Field(default=None, max_length=50)
+
+
+class ZonePatchIn(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    pincodes: str | None = Field(default=None, max_length=500)
+    active: int | None = Field(default=None, ge=0, le=1)
+
+
 class LedgerAdjustIn(BaseModel):
     d_held: int = 0
     d_deposit: int = 0
@@ -560,9 +573,65 @@ async def admin_vendor_preview(vendor_id: str, date: str | None = None,
 @router.get("/admin/zones")
 async def zone_list(request: Request, conn=Depends(get_db_conn), user=Admin):
     rows = (await conn.execute(
-        "SELECT id, name, pincodes, active FROM zones ORDER BY name LIMIT 200")).fetchall()
+        """SELECT z.id, z.name, z.pincodes, z.polygon, z.active,
+                  COUNT(vz.vendor_id) AS vendor_count
+           FROM zones z
+           LEFT JOIN vendor_zones vz ON z.id = vz.zone_id
+           GROUP BY z.id
+           ORDER BY z.name
+           LIMIT 200"""
+    )).fetchall()
     # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
     return cached({"data": [dict(r) for r in rows]}, request)
+
+
+@router.post("/admin/zones", status_code=201)
+async def zone_create(payload: ZoneCreateIn, conn=Depends(get_db_conn), user=Admin):
+    import re
+    name = payload.name.strip()
+    zid = (payload.id.strip() if payload.id and payload.id.strip() else None)
+    if not zid:
+        slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+        zid = f"zone_{slug}" if slug else f"zone_{uuid.uuid4().hex[:8]}"
+
+    pins = ", ".join(p.strip() for p in payload.pincodes.split(",") if p.strip())
+
+    with WRITE_LOCK:
+        existing = (await conn.execute("SELECT id FROM zones WHERE id = ?", (zid,))).fetchone()
+        if existing:
+            zid = f"{zid}_{uuid.uuid4().hex[:4]}"
+        await conn.execute(
+            "INSERT INTO zones(id, name, pincodes, polygon, active) VALUES (?, ?, ?, ?, 1)",
+            (zid, name, pins, payload.polygon),
+        )
+        await _audit(conn, user, "zone.create", "zones", zid, "", {"name": name, "pincodes": pins})
+        conn.commit()
+    return {"id": zid, "name": name, "pincodes": pins, "polygon": payload.polygon, "active": 1, "vendor_count": 0}
+
+
+@router.patch("/admin/zones/{zone_id}")
+async def zone_patch(zone_id: str, payload: ZonePatchIn, conn=Depends(get_db_conn), user=Admin):
+    with WRITE_LOCK:
+        row = (await conn.execute("SELECT id, name, pincodes, polygon, active FROM zones WHERE id = ?", (zone_id,))).fetchone()
+        if row is None:
+            raise NotFoundError(message="Zone not found.", details={"id": zone_id})
+        before = dict(row)
+        name = payload.name.strip() if payload.name is not None else row["name"]
+        pins = (
+            ", ".join(p.strip() for p in payload.pincodes.split(",") if p.strip())
+            if payload.pincodes is not None
+            else row["pincodes"]
+        )
+        active = payload.active if payload.active is not None else row["active"]
+        await conn.execute(
+            "UPDATE zones SET name = ?, pincodes = ?, active = ? WHERE id = ?",
+            (name, pins, active, zone_id),
+        )
+        after = {"name": name, "pincodes": pins, "active": active}
+        await _audit(conn, user, "zone.patch", "zones", zone_id, before, after)
+        conn.commit()
+    return {"id": zone_id, "name": name, "pincodes": pins, "active": active}
+
 
 @router.post("/admin/zones/{zone_id}/vendors/attach")
 async def zone_attach(zone_id: str, payload: AttachIn, conn=Depends(get_db_conn), user=Admin):

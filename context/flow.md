@@ -65,7 +65,10 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
 - ADR-107 Frontend Redesign, COD Idempotency & Vendor Onboarding (2026-10-07):
   1. Customer Checkout Idempotency Lifecycle: `showCheckoutSheet` calls `controller.refreshIdempotencyKey()` to mint a fresh key per checkout session. On checkout success (`onDone`), `resetBookingSession()` clears `idempotencyKey = null` and resets booking counters so subsequent orders or mode changes never trigger HTTP 422 `PAYLOAD_MISMATCH`.
   2. Admin Web Vendor Onboarding & Access Code Wizard: Admin navigates to `/dashboard/vendors` -> clicks "+ Add New Vendor" -> enters Name, Phone, Zone, KYC note -> frontend chains `POST /v1/admin/vendors` -> `POST /v1/admin/vendors/{id}/verify` -> `POST /v1/admin/vendors/{id}/access-codes` -> renders Plaintext Access Code with copy & direct WhatsApp onboarding message.
-  3. Vendor Agency Rider Delegation: Orders assigned to Agency Vendor can be sub-assigned to local delivery riders (`POST /v1/vendor/stops/{id}/assign-rider`).
+- ADR-108 Operating Zones Management & Inline Vendor Provisioning (2026-10-07):
+  1. Operating Zones Endpoints: `POST /v1/admin/zones` creates a new zone with `name` and comma-separated `pincodes`. `PATCH /v1/admin/zones/{zone_id}` updates zone status/name/pincodes. `GET /v1/admin/zones` aggregates `COUNT(vz.vendor_id) AS vendor_count`.
+  2. Admin Web Zones Route: `/dashboard/zones` (`ZonesTable`) allows searching by name/pincode, filtering active/inactive status, and inspecting assigned vendor agencies per zone.
+  3. Inline Zone Provisioning on Vendor Onboarding: `AddVendorDialog` includes an inline `+ New Zone` trigger that opens `AddZoneDialog`. When created, the newly minted zone is immediately selected in the dropdown without discarding in-progress vendor input.
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]

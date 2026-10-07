@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Layers,
   type LucideIcon,
+  MapPin,
   Route,
   ScrollText,
   Settings2,
@@ -146,6 +147,13 @@ export const sidebarItems: NavGroup[] = [
         title: "Dispatch",
         url: "/dashboard/dispatch",
         icon: Route,
+        badge: "new",
+      },
+      {
+        id: "zones",
+        title: "Operating zones",
+        url: "/dashboard/zones" as AppPath,
+        icon: MapPin,
         badge: "new",
       },
       {

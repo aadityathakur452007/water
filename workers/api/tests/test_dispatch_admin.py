@@ -332,3 +332,34 @@ def test_admin_authz_and_vendor_lifecycle_and_metrics():
     assert c.execute("SELECT role FROM users WHERE id = ?", (v["id"],)).fetchone()["role"] == "vendor"
     m = client.get("/v1/admin/metrics").json()
     assert m["orders_by_state"].get("packed", 0) >= 1
+
+
+def test_admin_zone_create_and_patch():
+    c = _conn()
+    client = _client(c)
+    # Create zone
+    res = client.post(
+        "/v1/admin/zones",
+        json={"name": "Vijay Nagar & Scheme 54", "pincodes": "452010, 452011"},
+    )
+    assert res.status_code == 201
+    zone = res.json()
+    assert zone["name"] == "Vijay Nagar & Scheme 54"
+    assert zone["pincodes"] == "452010, 452011"
+    assert zone["active"] == 1
+    assert "zone_" in zone["id"]
+
+    # Verify listed in GET /v1/admin/zones with vendor_count
+    listed = client.get("/v1/admin/zones").json()["data"]
+    match = [z for z in listed if z["id"] == zone["id"]]
+    assert len(match) == 1
+    assert match[0]["vendor_count"] == 0
+
+    # Patch zone
+    patched = client.patch(
+        f"/v1/admin/zones/{zone['id']}",
+        json={"name": "Vijay Nagar Main", "pincodes": "452010", "active": 1},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["name"] == "Vijay Nagar Main"
+    assert patched.json()["pincodes"] == "452010"

@@ -19,6 +19,7 @@ import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { Page, ZoneRow } from "@/lib/admin-types";
 import { adminPostServer } from "@/server/admin-api";
+import { AddZoneDialog } from "../../zones/-components/add-zone-dialog";
 
 type CreatedResult = {
   vendorId: string;
@@ -231,7 +232,25 @@ export function AddVendorDialog() {
               </div>
 
               <div className="grid gap-1.5">
-                <Label htmlFor="vendor-zone">Operating Zone</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="vendor-zone">Operating Zone</Label>
+                  <AddZoneDialog
+                    trigger={
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-primary hover:underline gap-1 font-medium"
+                      >
+                        <Plus className="size-3" />
+                        New Zone
+                      </Button>
+                    }
+                    onCreated={(newZone) => {
+                      setZoneId(newZone.id);
+                    }}
+                  />
+                </div>
                 <NativeSelect
                   id="vendor-zone"
                   value={zoneId}
@@ -239,6 +258,9 @@ export function AddVendorDialog() {
                   disabled={submitting}
                   className="w-full"
                 >
+                  {zones.length === 0 && (
+                    <NativeSelectOption value="">No zones configured (Click &quot;New Zone&quot; above)</NativeSelectOption>
+                  )}
                   {zones.map((z) => (
                     <NativeSelectOption key={z.id} value={z.id}>
                       {z.name} ({z.pincodes || "All Area"})

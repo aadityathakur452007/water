@@ -22,6 +22,7 @@ import { Route as mainDashboardPaymentsRouteRouteImport } from './routes/(main)/
 import { Route as mainDashboardTrustRouteRouteImport } from './routes/(main)/dashboard/trust/route'
 import { Route as mainDashboardUsersRouteRouteImport } from './routes/(main)/dashboard/users/route'
 import { Route as mainDashboardVendorsRouteRouteImport } from './routes/(main)/dashboard/vendors/route'
+import { Route as mainDashboardZonesRouteRouteImport } from './routes/(main)/dashboard/zones/route'
 import { Route as mainVendorguardRouteRouteImport } from './routes/(main)/vendor/(guard)/route'
 import { Route as mainAuthV1LoginRouteRouteImport } from './routes/(main)/auth/v1/login/route'
 import { Route as mainDashboardAnalyticsIndexRouteImport } from './routes/(main)/dashboard/analytics/index'
@@ -33,6 +34,7 @@ import { Route as mainDashboardUsersIndexRouteImport } from './routes/(main)/das
 import { Route as mainDashboardUsersUserIdRouteRouteImport } from './routes/(main)/dashboard/users/$userId/route'
 import { Route as mainDashboardVendorsIndexRouteImport } from './routes/(main)/dashboard/vendors/index'
 import { Route as mainDashboardVendorsVendorIdRouteRouteImport } from './routes/(main)/dashboard/vendors/$vendorId/route'
+import { Route as mainDashboardZonesIndexRouteImport } from './routes/(main)/dashboard/zones/index'
 import { Route as mainVendorguardIndexRouteImport } from './routes/(main)/vendor/(guard)/index'
 import { Route as mainVendorLoginIndexRouteImport } from './routes/(main)/vendor/login/index'
 import { Route as mainDashboardVendorsVendorIdIndexRouteImport } from './routes/(main)/dashboard/vendors/$vendorId/index'
@@ -117,6 +119,11 @@ const mainDashboardVendorsRouteRoute =
     path: '/vendors',
     getParentRoute: () => mainDashboardRouteRoute,
   } as any)
+const mainDashboardZonesRouteRoute = mainDashboardZonesRouteRouteImport.update({
+  id: '/zones',
+  path: '/zones',
+  getParentRoute: () => mainDashboardRouteRoute,
+} as any)
 const mainVendorguardRouteRoute = mainVendorguardRouteRouteImport.update({
   id: '/(main)/vendor/(guard)',
   path: '/vendor',
@@ -180,6 +187,11 @@ const mainDashboardVendorsVendorIdRouteRoute =
     path: '/$vendorId',
     getParentRoute: () => mainDashboardVendorsRouteRoute,
   } as any)
+const mainDashboardZonesIndexRoute = mainDashboardZonesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => mainDashboardZonesRouteRoute,
+} as any)
 const mainVendorguardIndexRoute = mainVendorguardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -263,6 +275,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/trust': typeof mainDashboardTrustRouteRoute
   '/dashboard/users': typeof mainDashboardUsersRouteRouteWithChildren
   '/dashboard/vendors': typeof mainDashboardVendorsRouteRouteWithChildren
+  '/dashboard/zones': typeof mainDashboardZonesRouteRouteWithChildren
   '/vendor': typeof mainVendorguardRouteRouteWithChildren
   '/dashboard/$': typeof mainDashboardSplatRoute
   '/dashboard/': typeof mainDashboardIndexRoute
@@ -276,6 +289,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/orders/': typeof mainDashboardOrdersIndexRoute
   '/dashboard/users/': typeof mainDashboardUsersIndexRoute
   '/dashboard/vendors/': typeof mainDashboardVendorsIndexRoute
+  '/dashboard/zones/': typeof mainDashboardZonesIndexRoute
   '/vendor/': typeof mainVendorguardIndexRoute
   '/vendor/login/': typeof mainVendorLoginIndexRoute
   '/dashboard/vendors/$vendorId/': typeof mainDashboardVendorsVendorIdIndexRoute
@@ -308,6 +322,7 @@ export interface FileRoutesByTo {
   '/dashboard/orders': typeof mainDashboardOrdersIndexRoute
   '/dashboard/users': typeof mainDashboardUsersIndexRoute
   '/dashboard/vendors': typeof mainDashboardVendorsIndexRoute
+  '/dashboard/zones': typeof mainDashboardZonesIndexRoute
   '/vendor': typeof mainVendorguardIndexRoute
   '/vendor/login': typeof mainVendorLoginIndexRoute
   '/dashboard/vendors/$vendorId': typeof mainDashboardVendorsVendorIdIndexRoute
@@ -334,6 +349,7 @@ export interface FileRoutesById {
   '/(main)/dashboard/trust': typeof mainDashboardTrustRouteRoute
   '/(main)/dashboard/users': typeof mainDashboardUsersRouteRouteWithChildren
   '/(main)/dashboard/vendors': typeof mainDashboardVendorsRouteRouteWithChildren
+  '/(main)/dashboard/zones': typeof mainDashboardZonesRouteRouteWithChildren
   '/(main)/vendor/(guard)': typeof mainVendorguardRouteRouteWithChildren
   '/(main)/dashboard/$': typeof mainDashboardSplatRoute
   '/(main)/dashboard/': typeof mainDashboardIndexRoute
@@ -347,6 +363,7 @@ export interface FileRoutesById {
   '/(main)/dashboard/orders/': typeof mainDashboardOrdersIndexRoute
   '/(main)/dashboard/users/': typeof mainDashboardUsersIndexRoute
   '/(main)/dashboard/vendors/': typeof mainDashboardVendorsIndexRoute
+  '/(main)/dashboard/zones/': typeof mainDashboardZonesIndexRoute
   '/(main)/vendor/(guard)/': typeof mainVendorguardIndexRoute
   '/(main)/vendor/login/': typeof mainVendorLoginIndexRoute
   '/(main)/dashboard/vendors/$vendorId/': typeof mainDashboardVendorsVendorIdIndexRoute
@@ -374,6 +391,7 @@ export interface FileRouteTypes {
     | '/dashboard/trust'
     | '/dashboard/users'
     | '/dashboard/vendors'
+    | '/dashboard/zones'
     | '/vendor'
     | '/dashboard/$'
     | '/dashboard/'
@@ -387,6 +405,7 @@ export interface FileRouteTypes {
     | '/dashboard/orders/'
     | '/dashboard/users/'
     | '/dashboard/vendors/'
+    | '/dashboard/zones/'
     | '/vendor/'
     | '/vendor/login/'
     | '/dashboard/vendors/$vendorId/'
@@ -419,6 +438,7 @@ export interface FileRouteTypes {
     | '/dashboard/orders'
     | '/dashboard/users'
     | '/dashboard/vendors'
+    | '/dashboard/zones'
     | '/vendor'
     | '/vendor/login'
     | '/dashboard/vendors/$vendorId'
@@ -444,6 +464,7 @@ export interface FileRouteTypes {
     | '/(main)/dashboard/trust'
     | '/(main)/dashboard/users'
     | '/(main)/dashboard/vendors'
+    | '/(main)/dashboard/zones'
     | '/(main)/vendor/(guard)'
     | '/(main)/dashboard/$'
     | '/(main)/dashboard/'
@@ -457,6 +478,7 @@ export interface FileRouteTypes {
     | '/(main)/dashboard/orders/'
     | '/(main)/dashboard/users/'
     | '/(main)/dashboard/vendors/'
+    | '/(main)/dashboard/zones/'
     | '/(main)/vendor/(guard)/'
     | '/(main)/vendor/login/'
     | '/(main)/dashboard/vendors/$vendorId/'
@@ -572,6 +594,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof mainDashboardVendorsRouteRouteImport
       parentRoute: typeof mainDashboardRouteRoute
     }
+    '/(main)/dashboard/zones': {
+      id: '/(main)/dashboard/zones'
+      path: '/zones'
+      fullPath: '/dashboard/zones'
+      preLoaderRoute: typeof mainDashboardZonesRouteRouteImport
+      parentRoute: typeof mainDashboardRouteRoute
+    }
     '/(main)/vendor/(guard)': {
       id: '/(main)/vendor/(guard)'
       path: '/vendor'
@@ -648,6 +677,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/vendors/$vendorId'
       preLoaderRoute: typeof mainDashboardVendorsVendorIdRouteRouteImport
       parentRoute: typeof mainDashboardVendorsRouteRoute
+    }
+    '/(main)/dashboard/zones/': {
+      id: '/(main)/dashboard/zones/'
+      path: '/'
+      fullPath: '/dashboard/zones/'
+      preLoaderRoute: typeof mainDashboardZonesIndexRouteImport
+      parentRoute: typeof mainDashboardZonesRouteRoute
     }
     '/(main)/vendor/(guard)/': {
       id: '/(main)/vendor/(guard)/'
@@ -806,6 +842,20 @@ const mainDashboardVendorsRouteRouteWithChildren =
     mainDashboardVendorsRouteRouteChildren,
   )
 
+interface mainDashboardZonesRouteRouteChildren {
+  mainDashboardZonesIndexRoute: typeof mainDashboardZonesIndexRoute
+}
+
+const mainDashboardZonesRouteRouteChildren: mainDashboardZonesRouteRouteChildren =
+  {
+    mainDashboardZonesIndexRoute: mainDashboardZonesIndexRoute,
+  }
+
+const mainDashboardZonesRouteRouteWithChildren =
+  mainDashboardZonesRouteRoute._addFileChildren(
+    mainDashboardZonesRouteRouteChildren,
+  )
+
 interface mainDashboardRouteRouteChildren {
   mainDashboardAuditRouteRoute: typeof mainDashboardAuditRouteRoute
   mainDashboardConfigRouteRoute: typeof mainDashboardConfigRouteRoute
@@ -816,6 +866,7 @@ interface mainDashboardRouteRouteChildren {
   mainDashboardTrustRouteRoute: typeof mainDashboardTrustRouteRoute
   mainDashboardUsersRouteRoute: typeof mainDashboardUsersRouteRouteWithChildren
   mainDashboardVendorsRouteRoute: typeof mainDashboardVendorsRouteRouteWithChildren
+  mainDashboardZonesRouteRoute: typeof mainDashboardZonesRouteRouteWithChildren
   mainDashboardSplatRoute: typeof mainDashboardSplatRoute
   mainDashboardIndexRoute: typeof mainDashboardIndexRoute
   mainDashboardAnalyticsIndexRoute: typeof mainDashboardAnalyticsIndexRoute
@@ -833,6 +884,7 @@ const mainDashboardRouteRouteChildren: mainDashboardRouteRouteChildren = {
   mainDashboardTrustRouteRoute: mainDashboardTrustRouteRoute,
   mainDashboardUsersRouteRoute: mainDashboardUsersRouteRouteWithChildren,
   mainDashboardVendorsRouteRoute: mainDashboardVendorsRouteRouteWithChildren,
+  mainDashboardZonesRouteRoute: mainDashboardZonesRouteRouteWithChildren,
   mainDashboardSplatRoute: mainDashboardSplatRoute,
   mainDashboardIndexRoute: mainDashboardIndexRoute,
   mainDashboardAnalyticsIndexRoute: mainDashboardAnalyticsIndexRoute,
