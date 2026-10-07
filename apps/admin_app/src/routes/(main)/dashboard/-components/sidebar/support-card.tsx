@@ -1,34 +1,25 @@
-import { siX } from "simple-icons";
+import { MessageCircle } from "lucide-react";
 
-import { SimpleIcon } from "@/components/simple-icon";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function SupportCard() {
   return (
-    <Card size="sm" className="overflow-hidden shadow-none group-data-[collapsible=icon]:hidden">
-      <CardHeader className="min-w-0 px-4">
-        <CardTitle className="truncate text-sm">Have something in mind?</CardTitle>
-        <CardDescription className="line-clamp-3">
-          Suggest a feature or discuss custom work with me on&nbsp;
+    <Card size="sm" className="overflow-hidden shadow-none group-data-[collapsible=icon]:hidden border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20">
+      <CardHeader className="min-w-0 px-4 py-3">
+        <CardTitle className="truncate text-xs font-semibold flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
+          <MessageCircle className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+          <span>Need Help or Facing Issues?</span>
+        </CardTitle>
+        <CardDescription className="text-xs text-muted-foreground pt-1">
+          Contact admin directly via WhatsApp:{" "}
           <a
-            href="https://x.com/arhamkhnz"
+            href="https://wa.me/917828442476"
             target="_blank"
             rel="noreferrer"
-            aria-label="Reach out on X"
-            className="inline-flex items-center text-foreground"
+            className="font-medium text-emerald-600 dark:text-emerald-400 underline underline-offset-2 hover:opacity-80 inline-flex items-center gap-1"
           >
-            <SimpleIcon icon={siX} aria-hidden className="size-3 fill-foreground" />
+            +91 7828442476
           </a>
-          &nbsp;or by{" "}
-          <a
-            href="https://github.com/arhamkhnz#want-to-connect"
-            target="_blank"
-            rel="noreferrer"
-            className="text-foreground hover:underline"
-          >
-            email
-          </a>
-          .
         </CardDescription>
       </CardHeader>
     </Card>

@@ -33,6 +33,7 @@
 
 ## Decision Index
 
+| ADR-105 | 2026-10-07 | Admin Panel Dummy Data Purge, Live User Profile from /v1/auth/me, Session & Cookie Hardening (Namespaced sh_admin_* / sh_vendor_*, Deduplicated Refresh, 24h/30d TTL), and D1 migrations_dir Configuration | Accepted | apps/admin_app (server, routes, components), workers/api (wrangler.jsonc) |
 | ADR-104 | 2026-10-07 | D1 Pyodide CPU Timeout & NoGilError Elimination, Strict 10-Digit Indian Phone & @gmail.com Auth Filtering, States.md Hardening & WhatsApp Admin Support (7828442476) | Accepted | workers/api (admin_read_repo, auth, auth_service), user_app, vendor_app, admin_app |
 | ADR-103 | 2026-10-07 | Production Cloudflare D1 Admin Access Code Provisioning & Override (+917828442476) | Accepted | Cloudflare D1 shodasha, access_codes, auth_service |
 | ADR-102 | 2026-10-06 | Address Freeze Snapshotting on Dispatched Orders, Doorstep Empty Jar Quality Inspection & Damaged Bottle Accounting, Stop RTO Failure Flow, Serverless Concurrency / CDN Edge Caching | Accepted | workers/api (order_repo/order_service/vendor_service/023), vendor_app (triple_sheet/stop_detail/stops_controller/api_client), user_app (tracking_screen) |
@@ -157,6 +158,40 @@
 ---
 
 ## Decision Entries
+
+### ADR-105: Admin Panel Dummy Data Purge, Live User Profile from /v1/auth/me, Session & Cookie Hardening (Namespaced sh_admin_* / sh_vendor_*, Deduplicated Refresh, 24h/30d TTL), and D1 migrations_dir Configuration
+- **Date**: 2026-10-07
+- **Status**: Accepted
+- **Context**:
+  1. *Template Dummy Data & Marketing Links*: Admin dashboard header and sidebar contained hardcoded dummy data from a third-party template: Arham Khan (`hello@arhamkhnz.com`), Ammar Khan, links to personal GitHub repos, and non-functional "Log out" buttons.
+  2. *Frequent Logouts & Re-login Loop*: Users were forced to re-login repeatedly on panel updates or page refresh. Root causes:
+     - Short 30-minute access cookie TTL.
+     - `secure: process.env.NODE_ENV === "production"` evaluated to `false` in Cloudflare Worker runtime isolates, causing browsers to drop cookies on HTTPS.
+     - Cookie collision: Both Admin (`/dashboard/*`) and Vendor (`/vendor/*`) shared the exact same cookie names (`sh_session`, `sh_refresh`), stomping on each other and triggering device-id mismatch.
+     - Parallel refresh race condition: Multiple concurrent loaders on page load sent simultaneous refresh calls with the same single-use refresh token. The second request triggered backend burned-token reuse detection (`revoke_family`), revoking the whole session family.
+  3. *Cloudflare D1 Migrations Missing Directory*: `wrangler.jsonc` had no `migrations_dir` set on the `shodasha` database binding, causing Wrangler to look at `./migrations` (which didn't exist) and fail.
+- **Options considered**:
+  (1) Single shared cookie vs namespaced cookies (chosen namespaced: `sh_admin_*` and `sh_vendor_*` completely decouple Admin and Vendor sessions so logins never collide).
+  (2) Client-side refresh lock vs server BFF in-flight promise deduplication (chosen server BFF memoization: guarantees that multiple parallel route loaders in TanStack Start share a single refresh call, preventing burned token reuse and accidental family revocations).
+  (3) Retaining template placeholders vs full live profile wiring (chosen full live wiring: fetch `/v1/auth/me` directly, wire live user name, phone, role badge, functioning logout, and WhatsApp support CTA).
+- **Decision**:
+  1. *Wrangler Migrations*: Added `"migrations_dir": "src/app/db/migrations"` to `wrangler.jsonc` under `d1_databases[0]`.
+  2. *Cookie Namespacing & Hardening*:
+     - Separated cookies: `sh_admin_session` / `sh_admin_refresh` for Admin, and `sh_vendor_session` / `sh_vendor_refresh` for Vendor (with fallback to legacy `sh_session` for backwards compatibility).
+     - Hardened `COOKIE_FLAGS`: `secure: !isDevHttp` (enforcing secure on production HTTPS and Cloudflare Workers), `sameSite: "lax"`, `httpOnly: true`, `path: "/"`.
+     - Extended TTLs: 24 hours for access cookie (`ACCESS_COOKIE_MAX_AGE = 86400`), 30 days for refresh cookie (`REFRESH_COOKIE_MAX_AGE = 2592000`).
+  3. *Concurrent Refresh Deduplication*:
+     - Implemented in-flight Promise memoization (`activeRefreshPromise` / `activeVendorRefreshPromise`) so parallel route loaders share the same refresh call, eliminating race conditions and family burn revocations.
+     - Directly persisted refreshed cookies inside the refresh handlers.
+  4. *Live Authenticated User Profile*:
+     - Implemented `adminMeServer` in `admin-api.ts` calling `/v1/auth/me`.
+     - Replaced `AccountSwitcher` and `NavUser` hardcoded lists with the authenticated user profile (`name`, `phone`, `role`).
+     - Wired real `logoutServer()` and `logoutVendorServer()` to clear all cookies and redirect to login.
+     - Replaced third-party marketing card with official WhatsApp Admin Support card (`+91 7828442476` via `https://wa.me/917828442476`).
+     - Replaced header repository dropdown with `WhatsAppAdminButton`.
+- **Why**: Eliminates annoying re-login cycles, removes all third-party placeholder branding and personal emails, cleanly isolates admin and vendor sessions, and connects users and vendors to admin support.
+- **Consequences**: Consistent, rock-solid session persistence across page reloads and panel updates; clean UI showing real authenticated identities with working logout and WhatsApp help.
+- **Affects**: `apps/admin_app` (`admin-session.ts`, `vendor-session.ts`, `admin-api.ts`, `vendor-api.ts`, `route.tsx`, `account-switcher.tsx`, `nav-user.tsx`, `support-card.tsx`), `workers/api/wrangler.jsonc`.
 
 ### ADR-104: D1 Pyodide CPU Timeout & NoGilError Elimination, Strict 10-Digit Indian Phone & @gmail.com Auth Filtering, States.md Hardening & WhatsApp Admin Support (7828442476)
 - **Date**: 2026-10-07

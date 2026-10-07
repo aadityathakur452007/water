@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
 import { bindingFetch } from "./admin-api";
-import { apiUrl, SESSION_COOKIE, storeRotatedSessionServer } from "./admin-session";
+import { apiUrl, storeRotatedSessionServer } from "./admin-session";
 import { refreshVendorSessionServer } from "./vendor-session";
 
 /**
@@ -47,7 +47,7 @@ async function vendorWorkerFetch(
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const access = getCookie(SESSION_COOKIE) ?? "";
+  const access = getCookie("sh_vendor_session") || getCookie("sh_session") || "";
   const init: RequestInit = {
     method,
     headers: {

@@ -737,6 +737,44 @@ _MapPickerState.initState → post-frame _locate() (pin-first, Delhi fallback)
 AddressController.load() → re-adopts store.selectedId when still unresolved
 ```
 
+## Admin & Vendor Web Auth and Session Flow — ADR-105
+
+```
+Admin Web (/auth/v1/login):
+  AdminLoginForm: 10-digit Indian number + admin access code
+    └─ loginCodeServer (admin-session.ts)
+         └─ callWorkerPublic → POST /v1/auth/admin/login
+              └─ Assert role == "admin"
+              └─ setCookie("sh_admin_session", access_token, { maxAge: 24h, httpOnly: true, secure: true, sameSite: "lax" })
+              └─ setCookie("sh_admin_refresh", refresh_token, { maxAge: 30d, httpOnly: true, secure: true, sameSite: "lax" })
+  Dashboard Guard (dashboard/route.tsx):
+    └─ hasSessionServer()
+         ├─ false → refreshSessionServer() (deduplicated in-flight via activeRefreshPromise)
+         │           ├─ success → auto-set sh_admin_session + sh_admin_refresh → proceed
+         │           └─ fail → redirect /auth/v1/login?next=/dashboard
+         └─ true → adminMeServer() → GET /v1/auth/me (real user: id, phone, name, role)
+                     ├─ non-admin → redirect /auth/v1/login?reason=denied
+                     └─ admin → DashboardLayout (passes user to AppSidebar & Header)
+                          ├─ AppSidebar: NavUser (shows real user name, phone, role, WhatsApp link, working logoutServer)
+                          ├─ SupportCard: Official WhatsApp Admin Support (+91 7828442476)
+                          ├─ Header WhatsAppAdminButton: Direct link to WhatsApp Admin
+                          └─ Header AccountSwitcher: Live user profile dropdown with logout
+
+Vendor Web (/vendor/login):
+  VendorLoginForm: 10-digit Indian number + vendor access code
+    └─ loginVendorVerifyServer (vendor-session.ts)
+         └─ callWorkerPublic → POST /v1/auth/vendor/login
+              └─ Assert role == "vendor"
+              └─ setCookie("sh_vendor_session", access_token, { maxAge: 24h, httpOnly: true, secure: true, sameSite: "lax" })
+              └─ setCookie("sh_vendor_refresh", refresh_token, { maxAge: 30d, httpOnly: true, secure: true, sameSite: "lax" })
+  Vendor Guard (vendor/(guard)/route.tsx):
+    └─ hasVendorSessionServer()
+         ├─ false → refreshVendorSessionServer() (deduplicated in-flight via activeVendorRefreshPromise)
+         │           ├─ success → auto-set sh_vendor_session + sh_vendor_refresh → proceed
+         │           └─ fail → redirect /vendor/login
+         └─ true → VendorLayout (Header WhatsApp CTA, Logout CTA, sub-routes: overview, route, collections, etc.)
+```
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:

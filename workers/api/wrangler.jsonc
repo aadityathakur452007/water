@@ -14,7 +14,8 @@
 			"database_name": "shodasha",
 			// From `npx wrangler d1 create shodasha` — paste the real id here.
 			// Deploy fails fast with a clear error until this is replaced.
-			"database_id": "da762aad-1d5c-46eb-992e-acc79505cc95"
+			"database_id": "da762aad-1d5c-46eb-992e-acc79505cc95",
+			"migrations_dir": "src/app/db/migrations"
 		}
 	],
 	"vars": {

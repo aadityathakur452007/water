@@ -2,18 +2,23 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie, setCookie } from "@tanstack/react-start/server";
 
 import { callWorkerPublic } from "./admin-api";
-import { COOKIE_FLAGS, REFRESH_COOKIE, SESSION_COOKIE } from "./admin-session";
+import { ACCESS_COOKIE_MAX_AGE, COOKIE_FLAGS, REFRESH_COOKIE_MAX_AGE } from "./admin-session";
 
 /**
- * Vendor session (BFF for /vendor/*). Same HttpOnly cookie names/flags/TTLs
- * as the admin session (30m access + 7d refresh) — one session per browser
- * by construction. The access token never reaches browser code.
- *
- * Role truth lives in the worker: POST /v1/auth/vendor/login asserts
- * users.role == "vendor", and every /v1/vendor/* route re-checks
- * require_role("vendor") per request. The `role === "vendor"` assert below
- * is a second gate, never the only one.
+ * Vendor session (BFF for /vendor/*). Namespaced HttpOnly cookies
+ * (sh_vendor_session + sh_vendor_refresh) to prevent collisions with the admin session.
  */
+
+export const VENDOR_SESSION_COOKIE = "sh_vendor_session";
+export const VENDOR_REFRESH_COOKIE = "sh_vendor_refresh";
+
+function getVendorSessionToken(): string | undefined {
+  return getCookie(VENDOR_SESSION_COOKIE) || getCookie("sh_session");
+}
+
+function getVendorRefreshToken(): string | undefined {
+  return getCookie(VENDOR_REFRESH_COOKIE) || getCookie("sh_refresh");
+}
 
 export type VendorLoginResult =
   | { ok: true; role: string }
@@ -57,47 +62,66 @@ export const loginVendorVerifyServer = createServerFn({ method: "POST" })
         ok: false,
         status: res.status,
         code,
-        // Generic copy — the worker must not oracle valid phones vs codes.
         message: body.error?.message ?? "Invalid phone or code.",
       };
     }
     if (body.role !== "vendor") {
       return { ok: false, status: 403, code: "FORBIDDEN", message: "This number is not a vendor." };
     }
-    setCookie(SESSION_COOKIE, body.access_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 30 });
-    setCookie(REFRESH_COOKIE, body.refresh_token ?? "", { ...COOKIE_FLAGS, maxAge: 60 * 60 * 24 * 7 });
+    setCookie(VENDOR_SESSION_COOKIE, body.access_token ?? "", { ...COOKIE_FLAGS, maxAge: ACCESS_COOKIE_MAX_AGE });
+    setCookie(VENDOR_REFRESH_COOKIE, body.refresh_token ?? "", { ...COOKIE_FLAGS, maxAge: REFRESH_COOKIE_MAX_AGE });
     return { ok: true, role: body.role };
   });
 
 export const hasVendorSessionServer = createServerFn({ method: "GET" }).handler((): { authed: boolean } => ({
-  // Cookie presence only — the worker enforces require_role("vendor") on
-  // every call, and vendorGet/PostServer bounce 401/403 to /vendor/login.
-  authed: Boolean(getCookie(SESSION_COOKIE)),
+  authed: Boolean(getVendorSessionToken()),
 }));
 
-/** Vendor silent renewal: same contract as refreshSessionServer but pinned
- * to the vendor device id (the worker rejects cross-device refresh). */
+let activeVendorRefreshPromise: Promise<{ access: string; refresh: string } | null> | null = null;
+
+/** Vendor silent renewal: deduplicated in-flight to prevent burned-token reuse revocation */
 export const refreshVendorSessionServer = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ access: string; refresh: string } | null> => {
-    const refresh_token = getCookie(REFRESH_COOKIE);
+    if (activeVendorRefreshPromise) {
+      return activeVendorRefreshPromise;
+    }
+
+    const refresh_token = getVendorRefreshToken();
     if (!refresh_token) return null;
-    const res = await callWorkerPublic("/v1/auth/refresh", {
-      refresh_token,
-      device: { id: VENDOR_WEB_DEVICE },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json().catch(() => null)) as { access_token?: string; refresh_token?: string } | null;
-    if (!data?.access_token || !data?.refresh_token) return null;
-    return { access: data.access_token, refresh: data.refresh_token };
+
+    activeVendorRefreshPromise = (async () => {
+      try {
+        const res = await callWorkerPublic("/v1/auth/refresh", {
+          refresh_token,
+          device: { id: VENDOR_WEB_DEVICE },
+        });
+        if (!res.ok) return null;
+        const data = (await res.json().catch(() => null)) as { access_token?: string; refresh_token?: string } | null;
+        if (!data?.access_token || !data?.refresh_token) return null;
+
+        setCookie(VENDOR_SESSION_COOKIE, data.access_token, { ...COOKIE_FLAGS, maxAge: ACCESS_COOKIE_MAX_AGE });
+        setCookie(VENDOR_REFRESH_COOKIE, data.refresh_token, { ...COOKIE_FLAGS, maxAge: REFRESH_COOKIE_MAX_AGE });
+
+        return { access: data.access_token, refresh: data.refresh_token };
+      } catch (err) {
+        console.error("[vendor-auth] silent refresh failed:", err);
+        return null;
+      } finally {
+        activeVendorRefreshPromise = null;
+      }
+    })();
+
+    return activeVendorRefreshPromise;
   },
 );
 
 export const logoutVendorServer = createServerFn({ method: "POST" }).handler(async () => {
-  const access = getCookie(SESSION_COOKIE);
+  const access = getVendorSessionToken();
   if (access) {
-    // Best-effort worker-side revocation; cookie clearing always wins.
     await callWorkerPublic("/v1/auth/logout", {}, { authorization: `Bearer ${access}` }).catch(() => undefined);
   }
-  setCookie(SESSION_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
-  setCookie(REFRESH_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
+  setCookie(VENDOR_SESSION_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
+  setCookie(VENDOR_REFRESH_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
+  setCookie("sh_session", "", { ...COOKIE_FLAGS, maxAge: 0 });
+  setCookie("sh_refresh", "", { ...COOKIE_FLAGS, maxAge: 0 });
 });

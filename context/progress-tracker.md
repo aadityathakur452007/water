@@ -10,6 +10,14 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+ADMIN PANEL HARDENING, DUMMY DATA PURGE & PERSISTENT SESSION (2026-10-07, ADR-105):
+- Dummy Data Purge & Live Profile: Cleaned out all hardcoded third-party template data (Arham Khan, Ammar Khan, hello@arhamkhnz.com, external GitHub repository links). Integrated live authenticated profile from `GET /v1/auth/me` (`adminMeServer`) into dashboard header and sidebar footer.
+- Real Logout & Direct WhatsApp Support: Replaced non-functional logout with active `logoutServer()` / `logoutVendorServer()` route handlers. Replaced template support cards with official WhatsApp Admin Support link (`+91 7828442476` via `https://wa.me/917828442476`) on both Admin and Vendor headers and sidebars.
+- Session Persistence & Cookie Hardening: Fixed repeated logout issue by namespacing cookies (`sh_admin_session` / `sh_admin_refresh` vs `sh_vendor_session` / `sh_vendor_refresh`), eliminating session collision between admin and vendor. Enforced `secure: !isDevHttp`, `sameSite: "lax"`, and extended TTLs (24h access, 30d refresh).
+- Deduplicated Refresh Race Elimination: Implemented server-side in-flight Promise memoization for token refresh to prevent concurrent route loader calls from triggering backend burned-token family revocations.
+- Cloudflare D1 Migrations: Configured `"migrations_dir": "src/app/db/migrations"` in `workers/api/wrangler.jsonc` so `wrangler d1 migrations` detects and lists database migrations directly.
+- Build & Verification: `apps/admin_app` build passes cleanly (`vite build`, exit code 0); 313 backend pytests pass.
+
 PYODIDE CPU TIMEOUT & NoGilError RESOLVED, STRICT 10-DIGIT IN PHONE & @gmail.com AUTH ENFORCED, STATES.MD HARDENING & WHATSAPP SUPPORT (2026-10-07, prod D1 `shodasha`, ADR-104):
 - D1 Query Optimization: Resolved "Worker exceeded CPU time limit" & Pyodide NoGilError by consolidating 6 sequential aggregate queries into a single subquery in `admin_read_repo.py:user_detail`. Cuts Pyodide bridge crossings by 70%.
 - Admin BFF Transient Auto-Retry: Added exponential backoff retry (up to 3 attempts) for idempotent GET requests in `admin-api.ts:workerFetch` to absorb serverless isolate waking hiccups.

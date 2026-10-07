@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
-import { apiUrl, refreshSessionServer, SESSION_COOKIE, storeRotatedSessionServer } from "./admin-session";
+import { apiUrl, refreshSessionServer, storeRotatedSessionServer } from "./admin-session";
 
 /**
  * Admin read/write proxy (the TanStack-Start equivalent of the old admin's
@@ -79,7 +79,7 @@ async function executeWorkerFetch(
   method: "GET" | "POST" | "PATCH",
   body?: unknown,
 ): Promise<Response> {
-  const access = getCookie(SESSION_COOKIE) ?? "";
+  const access = getCookie("sh_admin_session") || getCookie("sh_session") || "";
   const init: RequestInit = {
     method,
     headers: {
@@ -179,6 +179,44 @@ export const adminRoleServer = createServerFn({ method: "GET" }).handler(
     const body = (await res.json().catch(() => null)) as { user?: { role?: unknown } } | null;
     const role = body?.user?.role;
     return typeof role === "string" ? { role } : null;
+  },
+);
+
+export type CurrentAdminUser = {
+  id: string;
+  phone: string;
+  name: string;
+  role: string;
+  avatar?: string;
+};
+
+/**
+ * Returns the currently authenticated admin user profile from /v1/auth/me.
+ */
+export const adminMeServer = createServerFn({ method: "GET" }).handler(
+  async (): Promise<CurrentAdminUser | null> => {
+    if (apiMode() === "mock") {
+      return { id: "admin-root", phone: "+917828442476", name: "Admin", role: "admin" };
+    }
+    let res = await workerFetch("/v1/auth/me", "GET");
+    if (res.status === 401) {
+      const pair = await refreshSessionServer();
+      if (pair) {
+        await storeRotatedSessionServer({ data: pair });
+        res = await workerFetch("/v1/auth/me", "GET");
+      }
+    }
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as {
+      user?: { id?: string; phone?: string; name?: string; role?: string };
+    } | null;
+    if (!body?.user?.id) return null;
+    return {
+      id: body.user.id,
+      phone: body.user.phone ?? "",
+      name: body.user.name || "Admin",
+      role: body.user.role || "admin",
+    };
   },
 );
 
