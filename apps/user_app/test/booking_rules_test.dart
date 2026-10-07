@@ -206,5 +206,28 @@ void main() {
       final b = _c()..ensureIdempotencyKey();
       expect(a.idempotencyKey, isNot(b.idempotencyKey));
     });
+
+    test('refreshIdempotencyKey forces a brand new key', () {
+      final c = _c();
+      final first = c.ensureIdempotencyKey();
+      final second = c.refreshIdempotencyKey();
+      expect(second, isNot(first));
+      expect(c.idempotencyKey, second);
+    });
+
+    test('resetBookingSession clears key and resets quantities', () {
+      final c = _c();
+      c.setRefill(2);
+      c.setContainer(1);
+      c.ensureIdempotencyKey();
+      expect(c.idempotencyKey, isNotNull);
+      expect(c.totalJars, 3);
+
+      c.resetBookingSession();
+      expect(c.idempotencyKey, isNull);
+      expect(c.totalJars, 0);
+      expect(c.refillQty, 0);
+      expect(c.containerQty, 0);
+    });
   });
 }

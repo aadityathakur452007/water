@@ -155,6 +155,7 @@ Future<CheckoutResult> placeCheckout({
       addressId: addressId,
       windowStart: windowStart,
     );
+    controller.refreshIdempotencyKey();
     order = await createOnce(quote);
   }
   final data = (order['order'] as Map<String, dynamic>?) ?? order;

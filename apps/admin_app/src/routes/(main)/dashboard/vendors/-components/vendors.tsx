@@ -20,6 +20,7 @@ import { dataTableFeatures } from "@/lib/data-table-features";
 import { num, phoneMasked } from "@/lib/money";
 import { getInitials } from "@/lib/utils";
 import { adminPostServer } from "@/server/admin-api";
+import { AddVendorDialog } from "./add-vendor-dialog";
 
 type VendorView = {
   id: string;
@@ -185,11 +186,14 @@ export function Vendors() {
 
   return (
     <Card>
-      <CardHeader className="border-b">
-        <CardTitle className="text-xl leading-none">Vendors</CardTitle>
-        <CardDescription>
-          Delivery partners — capacity, custody and review holds. Open a vendor for the full picture.
-        </CardDescription>
+      <CardHeader className="flex flex-row items-center justify-between border-b">
+        <div>
+          <CardTitle className="text-xl leading-none">Vendors</CardTitle>
+          <CardDescription className="mt-1">
+            Delivery partners — capacity, custody and review holds. Open a vendor for the full picture.
+          </CardDescription>
+        </div>
+        <AddVendorDialog />
       </CardHeader>
       <CardContent className="flex flex-col gap-4 px-0">
         {isError ? <p className="px-4 text-destructive text-sm">{errorMessage(error)}</p> : null}

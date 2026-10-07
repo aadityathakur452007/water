@@ -62,6 +62,10 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   3. D1 Batching on Order Creation: `OrderRepo.insert` issues order, event, and deposit ledger records in 1 atomic `batch()` round trip with inline `address_snapshot_json`, slashing D1 calls from 11 to 3.
   4. Async def Routes: `quotes.py:create_quote`, `catalog.py:get_catalog`, and `catalog.py:get_windows` converted from sync `def` to `async def` to bypass `anyio` threadpools.
   5. Post-Response GC: `entry.py` triggers `gc.collect(1)` after each fetch to purge Pyodide `JsProxy` allocations and protect the 128 MB isolate heap limit.
+- ADR-107 Frontend Redesign, COD Idempotency & Vendor Onboarding (2026-10-07):
+  1. Customer Checkout Idempotency Lifecycle: `showCheckoutSheet` calls `controller.refreshIdempotencyKey()` to mint a fresh key per checkout session. On checkout success (`onDone`), `resetBookingSession()` clears `idempotencyKey = null` and resets booking counters so subsequent orders or mode changes never trigger HTTP 422 `PAYLOAD_MISMATCH`.
+  2. Admin Web Vendor Onboarding & Access Code Wizard: Admin navigates to `/dashboard/vendors` -> clicks "+ Add New Vendor" -> enters Name, Phone, Zone, KYC note -> frontend chains `POST /v1/admin/vendors` -> `POST /v1/admin/vendors/{id}/verify` -> `POST /v1/admin/vendors/{id}/access-codes` -> renders Plaintext Access Code with copy & direct WhatsApp onboarding message.
+  3. Vendor Agency Rider Delegation: Orders assigned to Agency Vendor can be sub-assigned to local delivery riders (`POST /v1/vendor/stops/{id}/assign-rider`).
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]

@@ -10,6 +10,13 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+FRONTEND REDESIGN, COD IDEMPOTENCY FIX & VENDOR RIDER FLEET ONBOARDING (2026-10-07, branch frontend-redesign-and-fixes, ADR-107):
+- Switched to new git branch `frontend-redesign-and-fixes`.
+- COD Idempotency Bug RESOLVED in `apps/user_app`: Added `refreshIdempotencyKey()` and `resetBookingSession()` to `BookingController`. Updated `showCheckoutSheet` to mint fresh session keys on open, reset controller state upon order completion, and auto-refresh keys when re-quoting stale quotes in `checkout_service.dart`. Tested in `booking_rules_test.dart` (26/26 passed) and full user_app suite (134/134 tests green).
+- Admin Vendor Onboarding IMPLEMENTED in `apps/admin_app`: Created `AddVendorDialog` under `dashboard/vendors/-components/add-vendor-dialog.tsx`. Fully eliminates manual D1 terminal SQL by chaining `POST /v1/admin/vendors`, `/verify`, shift capacity setting, and 90-day access code generation into a single modal. Provides one-click access code clipboard copy and direct WhatsApp onboarding links with solid Lucide icons only (zero emojis). Vite build passed 100% green.
+- Architecture & Spec Written: Authored comprehensive architecture, page patterns, and Alternative A redesign specification in `Feature_docs/frontend-architecture-and-redesign.md`.
+- Full Test Suite Verified Across All 3 Surfaces: 134 user app tests passed (100% green), 70 vendor app tests passed (100% green), 323 backend pytests passed (100% green), admin web build passed (exit code 0).
+
 PYODIDE WORKER HARDENING, DEADLOCK ELIMINATION & D1 BATCHING (2026-10-07, branch perf/pyodide-worker-hardening, ADR-106):
 - Deadlock Elimination in Pyodide Event Loop: Replaced synchronous `threading.Lock` in `app/db.py` with `_SafeWriteLock`. When executing in Cloudflare Workers, lock acquisition is non-blocking (relying on Cloudflare D1's native single-writer transactions at the edge), preventing back-to-back requests/retries from deadlocking the single-threaded Pyodide event loop and exceeding CPU limits.
 - Single-Trip Auth JOIN: Added `SessionRepo.find_session_user_by_access_hash` to join `sessions` and `users` in a single query (`WHERE s.token_hash = ?`). Cuts authentication database round trips from 2 to 1 across all authenticated endpoints in the API.

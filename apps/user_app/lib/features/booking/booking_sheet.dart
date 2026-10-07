@@ -31,7 +31,7 @@ Future<void> showCheckoutSheet(
   required VoidCallback onChangeAddress,
   required ValueChanged<CheckoutResult> onDone,
 }) {
-  controller.ensureIdempotencyKey();
+  controller.refreshIdempotencyKey();
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -329,6 +329,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       );
       if (!mounted) return;
       if (result.isSubscription || c.paymentMode == PaymentMode.cod) {
+        c.resetBookingSession();
         widget.onDone(result);
         return;
       }
@@ -353,6 +354,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   /// UPI collection: real Razorpay ref → gateway; FAKE-* → upi:// link.
   Future<void> _collectUpi(CheckoutResult result) async {
     if (result.providerRef.isEmpty) {
+      c.resetBookingSession();
       widget.onDone(result);
       return;
     }
@@ -371,6 +373,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         });
         return;
       }
+      c.resetBookingSession();
       widget.onDone(result);
       return;
     }

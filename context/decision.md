@@ -33,6 +33,7 @@
 
 ## Decision Index
 
+| ADR-107 | 2026-10-07 | Frontend Architecture & Redesign: COD Idempotency Key Lifecycle Fix, Admin Vendor Onboarding & Access Code Issuance Dialog, Vendor Agency Rider Dispatching | Accepted | Feature_docs/frontend-architecture-and-redesign.md, apps/user_app, apps/admin_app, apps/vendor_app |
 | ADR-106 | 2026-10-07 | Cloudflare Python Worker Hardening: Deadlock Elimination (Non-blocking WRITE_LOCK), D1 Batching & Single-Trip Auth JOIN, Sync Route to async def Conversion, Pyodide Heap Flushing | Accepted | workers/api (db.py, db_d1.py, session_repo.py, order_repo.py, ledger_repo.py, auth_deps.py, catalog.py, quotes.py, entry.py) |
 | ADR-105 | 2026-10-07 | Admin Panel Dummy Data Purge, Live User Profile from /v1/auth/me, Session & Cookie Hardening (Namespaced sh_admin_* / sh_vendor_*, Deduplicated Refresh, 24h/30d TTL), and D1 migrations_dir Configuration | Accepted | apps/admin_app (server, routes, components), workers/api (wrangler.jsonc) |
 | ADR-104 | 2026-10-07 | D1 Pyodide CPU Timeout & NoGilError Elimination, Strict 10-Digit Indian Phone & @gmail.com Auth Filtering, States.md Hardening & WhatsApp Admin Support (7828442476) | Accepted | workers/api (admin_read_repo, auth, auth_service), user_app, vendor_app, admin_app |
@@ -159,6 +160,21 @@
 ---
 
 ## Decision Entries
+
+### ADR-107: Frontend Architecture & Redesign: COD Idempotency Key Lifecycle Fix, Admin Vendor Onboarding & Access Code Issuance Dialog, Vendor Agency Rider Dispatching
+- **Date**: 2026-10-07
+- **Status**: Accepted
+- **Context**:
+  1. *Customer COD Idempotency Bug*: Customer app checkouts fail with HTTP 422 `PAYLOAD_MISMATCH` ("Idempotency-Key was already used with a different payload") whenever switching payment mode to COD, altering quantities, re-quoting, or placing subsequent orders. `BookingController` is instantiated once in `main.dart` and holds `idempotencyKey` without resetting it upon order completion or fresh checkout sessions.
+  2. *Admin Vendor Onboarding Missing UI*: Admin Web has no UI action or dialog to register a delivery partner or generate their initial login credentials. Admins were forced to run manual SQL inserts in Cloudflare D1 across 4 tables.
+  3. *Dispatch Model Alignment*: Centralized admin assigning individual doorstep stops to drivers creates an operational bottleneck. Real distribution uses an Agency Hub model: Admin manages Zones and Vendor Agencies; Vendor Agencies dispatch and assign individual delivery stops to their Riders.
+- **Decision**:
+  1. In `apps/user_app`: Update `BookingController` with `refreshIdempotencyKey()` and `resetBookingSession()` to decouple distinct order sessions and guarantee fresh UUIDs on checkout opens and quote revisions.
+  2. In `apps/admin_app`: Implement an `AddVendorDialog` under `dashboard/vendors` composing `POST /v1/admin/vendors` + `/verify` + `/access-codes` with instant clipboard copy and WhatsApp delivery.
+  3. In `apps/vendor_app`: Spec out Vendor Agency Rider Fleet assignment sheet so vendor can assign delivery stops directly to their active riders.
+  4. Author comprehensive architecture and ASCII wireframe specification in `Feature_docs/frontend-architecture-and-redesign.md`.
+- **Why**: Eliminates customer checkout blocking errors, removes CLI database dependency for operational admin onboarding, and aligns logistics dispatch with real-world water distribution practices.
+- **Affects**: `apps/user_app` (booking_controller, checkout_service, booking_sheet), `apps/admin_app` (vendors.tsx, add-vendor-dialog.tsx), `apps/vendor_app` (routes, stops), `Feature_docs/frontend-architecture-and-redesign.md`.
 
 ### ADR-106: Cloudflare Python Worker Hardening: Deadlock Elimination (Non-blocking WRITE_LOCK), D1 Batching & Single-Trip Auth JOIN, Sync Route to async def Conversion, Pyodide Heap Flushing
 - **Date**: 2026-10-07

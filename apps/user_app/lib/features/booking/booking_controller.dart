@@ -418,6 +418,23 @@ class BookingController extends ChangeNotifier {
   /// Mint once per sheet-open; retries reuse the same key.
   String ensureIdempotencyKey() => idempotencyKey ??= newIdempotencyKey();
 
+  /// Force-mint a fresh key for a new checkout session.
+  String refreshIdempotencyKey() => idempotencyKey = newIdempotencyKey();
+
+  /// Reset booking state and idempotency key after order completion.
+  void resetBookingSession() {
+    idempotencyKey = null;
+    refillQty = 0;
+    containerQty = 0;
+    emptiesQty = 0;
+    capsMissing = 0;
+    serverQuoteHash = '';
+    serverTotalPaise = 0;
+    frozenHash = '';
+    quoteCreatedAtUtc = null;
+    notifyListeners();
+  }
+
   /// Freeze a fresh quote (sheet-open + silent re-quote path).
   void freezeQuote(DateTime nowUtc) {
     quoteCreatedAtUtc = nowUtc;
