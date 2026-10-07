@@ -32,7 +32,7 @@ def _is_serviceable(pincode: str) -> bool:
 
 
 @router.get("/catalog")
-def get_catalog(request: Request) -> object:
+async def get_catalog(request: Request) -> object:
     # Phase 8 §8.5: cached 5 min + ETag (rates change via deploy/config,
     # not per request). Shape identical to the former response_model.
     s = get_settings()
@@ -58,7 +58,7 @@ def _next_serviceable_day(day: dt.date | None) -> dt.date:
 
 
 @router.get("/windows")
-def get_windows(request: Request, date: dt.date | None = None,
+async def get_windows(request: Request, date: dt.date | None = None,
                 pincode: str | None = Query(default=None, pattern=_PINCODE_RE)):
     day = _next_serviceable_day(date)
     if pincode is not None and not _is_serviceable(pincode):

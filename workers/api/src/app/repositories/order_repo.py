@@ -196,7 +196,7 @@ class OrderRepo:
     # -- writes (each = exactly one transaction) --------------------------
 
     async def insert(self, order: dict, deposit_event: dict | None = None) -> dict:
-        """Insert order + placed event + deposit ledger entry in ONE transaction."""
+        """Insert order + placed event + deposit ledger entry in ONE transaction/roundtrip."""
         order = {
             "id": order.get("id") or uuid.uuid4().hex,
             "m": 0,
@@ -208,50 +208,122 @@ class OrderRepo:
             **{k: v for k, v in order.items() if v is not None},
         }
         items_json = order["items"] if isinstance(order["items"], str) else json.dumps(order["items"])
+
+        stmts: list[tuple[str, tuple]] = []
+        has_snapshot = bool(order.get("address_snapshot_json"))
+
+        if has_snapshot:
+            stmts.append((
+                "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
+                " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
+                " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
+                " quote_rate_version, created_at, address_snapshot_json)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    order["id"], order["user_id"], order["address_id"], items_json,
+                    order["n"], order["e"], order["m"], order["water_bill"],
+                    order["deposit_due"], order["cap_charge"], order["total"],
+                    order["payment_mode"], order["payment_status"], "placed",
+                    order["window_start"], order["window_end"], order["idempotency_key"],
+                    order.get("payload_hash", ""), order.get("quote_hash", ""),
+                    order.get("quote_rate_version", "v1"), order["created_at"],
+                    order["address_snapshot_json"],
+                ),
+            ))
+        else:
+            stmts.append((
+                "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
+                " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
+                " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
+                " quote_rate_version, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    order["id"], order["user_id"], order["address_id"], items_json,
+                    order["n"], order["e"], order["m"], order["water_bill"],
+                    order["deposit_due"], order["cap_charge"], order["total"],
+                    order["payment_mode"], order["payment_status"], "placed",
+                    order["window_start"], order["window_end"], order["idempotency_key"],
+                    order.get("payload_hash", ""), order.get("quote_hash", ""),
+                    order.get("quote_rate_version", "v1"), order["created_at"],
+                ),
+            ))
+
+        stmts.append((
+            "INSERT INTO order_events(id, order_id, from_state, to_state, actor_id, actor_role, reason, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                uuid.uuid4().hex, order["id"], None, "placed",
+                order.get("_actor", "system"), "user", "order placed", _now(),
+            ),
+        ))
+
+        if deposit_event and int(order["deposit_due"]) > 0:
+            stmts.extend(LedgerRepo(self._conn).build_event_stmts(
+                deposit_event["customer_id"],
+                d_deposit=int(order["deposit_due"]),
+                ref=f"order:{order['id']}",
+                actor=deposit_event.get("actor", "system"),
+                reason=deposit_event.get("reason", "order deposit"),
+            ))
+
         try:
             with WRITE_LOCK:
-                await self._conn.execute(
-                    "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
-                    " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
-                    " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
-                    " quote_rate_version, created_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        order["id"], order["user_id"], order["address_id"], items_json,
-                        order["n"], order["e"], order["m"], order["water_bill"],
-                        order["deposit_due"], order["cap_charge"], order["total"],
-                        order["payment_mode"], order["payment_status"], "placed",
-                        order["window_start"], order["window_end"], order["idempotency_key"],
-                        order.get("payload_hash", ""), order.get("quote_hash", ""),
-                        order.get("quote_rate_version", "v1"), order["created_at"],
-                    ),
-                )
-                await self._event(order["id"], None, "placed", order.get("_actor", "system"), "user", "order placed")
-                if deposit_event and int(order["deposit_due"]) > 0:
-                    await LedgerRepo(self._conn).apply_event(
-                        deposit_event["customer_id"],
-                        d_deposit=int(order["deposit_due"]),
-                        ref=f"order:{order['id']}",
-                        actor=deposit_event.get("actor", "system"),
-                        reason=deposit_event.get("reason", "order deposit"),
-                        commit=False,
-                    )
-                if order.get("address_snapshot_json"):
-                    try:
-                        await self._conn.execute(
-                            "UPDATE orders SET address_snapshot_json = ? WHERE id = ?",
-                            (order["address_snapshot_json"], order["id"]),
+                try:
+                    await self._conn.batch(stmts)
+                except Exception as e:
+                    msg = str(e).lower()
+                    if has_snapshot and ("no such column" in msg or "has no column" in msg):
+                        # Pre-023 fallback: run standard insert without address_snapshot_json
+                        fallback_stmts = list(stmts)
+                        fallback_stmts[0] = (
+                            "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
+                            " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
+                            " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
+                            " quote_rate_version, created_at)"
+                            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                order["id"], order["user_id"], order["address_id"], items_json,
+                                order["n"], order["e"], order["m"], order["water_bill"],
+                                order["deposit_due"], order["cap_charge"], order["total"],
+                                order["payment_mode"], order["payment_status"], "placed",
+                                order["window_start"], order["window_end"], order["idempotency_key"],
+                                order.get("payload_hash", ""), order.get("quote_hash", ""),
+                                order.get("quote_rate_version", "v1"), order["created_at"],
+                            ),
                         )
-                    except Exception:
-                        pass
+                        await self._conn.batch(fallback_stmts)
+                    else:
+                        raise
                 self._conn.commit()
         except sqlite3.IntegrityError as e:
             self._conn.rollback()
             raise ConflictError(message="Order already exists.", details={"scoped_key": order["idempotency_key"]}) from e
-        row = (
-            await self._conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],))
-        ).fetchone()
-        return _row(row)
+
+        # Construct and return the order representation directly (eliminates redundant SELECT roundtrip)
+        return {
+            "id": order["id"],
+            "user_id": order["user_id"],
+            "address_id": order["address_id"],
+            "items": json.loads(items_json) if isinstance(items_json, str) else items_json,
+            "n": order["n"],
+            "e": order["e"],
+            "m": order.get("m", 0),
+            "water_bill": order["water_bill"],
+            "deposit_due": order["deposit_due"],
+            "cap_charge": order.get("cap_charge", 0),
+            "total": order["total"],
+            "payment_mode": order["payment_mode"],
+            "payment_status": order.get("payment_status", "unpaid"),
+            "state": "placed",
+            "window_start": order["window_start"],
+            "window_end": order["window_end"],
+            "idempotency_key": order["idempotency_key"],
+            "payload_hash": order.get("payload_hash", ""),
+            "quote_hash": order.get("quote_hash", ""),
+            "quote_rate_version": order.get("quote_rate_version", "v1"),
+            "created_at": order["created_at"],
+            "address_snapshot_json": order.get("address_snapshot_json"),
+        }
 
     async def transition(self, order_id: str, to_state: str, actor: object, reason: str = "") -> dict:
         """Enforce the machine; illegal -> 409; override-gated cancels -> 409."""

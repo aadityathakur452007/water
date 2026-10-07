@@ -56,7 +56,12 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   1. Address Freeze Snapshotting: `OrderService.create` captures immutable JSON address snapshot (`address_snapshot_json`) stored in `orders`. `today_route` and `_owned_stop` overlay snapshot values onto route stops, isolating in-flight deliveries from subsequent profile address mutations.
   2. Doorstep Jar Quality Inspection & Damaged Bottle Accounting: `triple_commit` accepts `damaged_empties` and `empty_condition`. Calculates usable empties (`empties_back - damaged_empties`) so damaged bottles are not credited against customer `held` liabilities (`d_held = fulls_given - usable_empties`), and logs incident into `damaged_containers` table. `TripleSheet` in `vendor_app` provides stepper and reason dropdown.
   3. Delivery Failure / RTO Flow: `POST /v1/vendor/stops/{stop_id}/fail` transitions stop and underlying order to `failed` state with reason codes (`DOOR_LOCKED`, `CUSTOMER_UNREACHABLE`, `CUSTOMER_REFUSED`, `INCORRECT_ADDRESS`, `RESCHEDULE_REQUESTED`) and writes audit log. `stop_detail_screen` adds RTO dialog; `tracking_screen` in `user_app` displays RTO banner and WhatsApp support re-attempt action.
-  4. Serverless Concurrency & CDN Edge Caching: `caching.py` equips cacheable reads with `CDN-Cache-Control` (`stale-while-revalidate`), protecting SQLite Cloudflare D1 single-writer throughput from read stampedes across global edge isolates.
+- ADR-106 Pyodide Worker hardening & D1 batching (2026-10-07):
+  1. Non-Deadlocking Lock: `_SafeWriteLock` in `app/db.py` replaces blocking `threading.Lock`, preventing concurrent HTTP requests from deadlocking single-threaded Pyodide event loop across `await` points.
+  2. Single-Trip Auth JOIN: `SessionRepo.find_session_user_by_access_hash` combines session and user verification into 1 SQL round trip across all Bearer token endpoints.
+  3. D1 Batching on Order Creation: `OrderRepo.insert` issues order, event, and deposit ledger records in 1 atomic `batch()` round trip with inline `address_snapshot_json`, slashing D1 calls from 11 to 3.
+  4. Async def Routes: `quotes.py:create_quote`, `catalog.py:get_catalog`, and `catalog.py:get_windows` converted from sync `def` to `async def` to bypass `anyio` threadpools.
+  5. Post-Response GC: `entry.py` triggers `gc.collect(1)` after each fetch to purge Pyodide `JsProxy` allocations and protect the 128 MB isolate heap limit.
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]

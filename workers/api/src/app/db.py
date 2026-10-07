@@ -20,9 +20,45 @@ import os
 import sqlite3
 import threading
 
-# Module-level write lock: sqlite3 connections are shared across FastAPI
-# worker threads (check_same_thread=False), so DDL + writes serialize here.
-WRITE_LOCK = threading.Lock()
+class _SafeWriteLock:
+    """Safe write lock that never deadlocks the Pyodide event loop across `await`.
+
+    On Cloudflare Workers (Pyodide), D1 handles edge SQLite concurrency and single-writer
+    semantics. Blocking the single-threaded Pyodide event loop with a synchronous
+    threading.Lock while another coroutine awaits D1 causes instant deadlocks.
+    In local dev and tests, it falls back to a re-entrant threading.RLock.
+    """
+
+    def __init__(self):
+        self._lock = threading.RLock()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        from app.core.worker_env import current_env
+
+        if current_env() is not None or os.environ.get("APP_ENV") == "prod":
+            return True
+        return self._lock.acquire(blocking, timeout)
+
+    def release(self) -> None:
+        from app.core.worker_env import current_env
+
+        if current_env() is not None or os.environ.get("APP_ENV") == "prod":
+            return
+        try:
+            self._lock.release()
+        except RuntimeError:
+            pass
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+        return False
+
+
+WRITE_LOCK = _SafeWriteLock()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS config (

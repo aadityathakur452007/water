@@ -21,12 +21,19 @@ import sqlite3
 
 def _row_to_dict(row) -> dict:
     if isinstance(row, dict):
-        return dict(row)
+        return row
     to_py = getattr(row, "to_py", None)
     if callable(to_py):
         try:
-            value = to_py()
+            # depth=1 performs a fast shallow conversion rather than recursive deep traversal
+            value = to_py(depth=1)
             return dict(value) if isinstance(value, dict) else {"value": value}
+        except TypeError:
+            try:
+                value = to_py()
+                return dict(value) if isinstance(value, dict) else {"value": value}
+            except Exception:
+                pass
         except Exception:
             pass
     try:
@@ -78,6 +85,29 @@ class D1Conn:
         changes = getattr(meta, "changes", None) if meta is not None else None
         return Rows([], rowcount=int(changes) if isinstance(changes, int) else 0)
 
+    async def batch(self, statements: list[tuple[str, tuple]]) -> list[Rows]:
+        """Execute multiple SQL statements in a single network round trip via D1 batch."""
+        if not statements:
+            return []
+        stmts = []
+        for sql, params in statements:
+            stmt = self._db.prepare(sql)
+            if params:
+                stmt = stmt.bind(*params)
+            stmts.append(stmt)
+        res_list = await self._db.batch(stmts)
+        out = []
+        for (sql, _), res in zip(statements, res_list):
+            first = sql.strip().split(None, 1)
+            if first and first[0].lower() in _READ_PREFIXES:
+                results = list(getattr(res, "results", None) or [])
+                out.append(Rows([_row_to_dict(r) for r in results], rowcount=len(results)))
+            else:
+                meta = getattr(res, "meta", None)
+                changes = getattr(meta, "changes", None) if meta is not None else None
+                out.append(Rows([], rowcount=int(changes) if isinstance(changes, int) else 0))
+        return out
+
     def commit(self) -> None:
         """No-op: D1 auto-commits every statement (see ADR T2 caveat)."""
 
@@ -96,6 +126,13 @@ class AsyncSqliteConn:
         rows = [dict(r) for r in cur.fetchall()]
         count = cur.rowcount if cur.rowcount and cur.rowcount >= 0 else len(rows)
         return Rows(rows, rowcount=count)
+
+    async def batch(self, statements: list[tuple[str, tuple]]) -> list[Rows]:
+        """Async-shaped batch fallback for sqlite (executes statements in sequence)."""
+        out = []
+        for sql, params in statements:
+            out.append(await self.execute(sql, params))
+        return out
 
     def executescript(self, sql: str) -> None:
         """Setup escape hatch (migrations in tests); never used by repos."""

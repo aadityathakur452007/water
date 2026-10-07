@@ -100,6 +100,16 @@ class SessionRepo:
     async def find_by_access_hash(self, h: str) -> dict | None:
         return await _select_session(self._conn, "token_hash = ?", h)
 
+    async def find_session_user_by_access_hash(self, h: str) -> dict | None:
+        """Fetch session joined with user in ONE database round trip."""
+        sql = (
+            "SELECT s.id AS session_id, s.user_id, s.family_id, s.device_fp, s.revoked_at, s.expires_at,"
+            " u.phone, u.name, u.role, u.suspended, u.suspended_reason"
+            " FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?"
+        )
+        row = (await self._conn.execute(sql, (h,))).fetchone()
+        return dict(row) if row is not None else None
+
     async def find_by_refresh_hash(self, h: str) -> dict | None:
         return await _select_session(self._conn, "refresh_hash = ?", h)
 

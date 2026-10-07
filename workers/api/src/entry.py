@@ -8,6 +8,7 @@ worker env (D1 binding, vars, secrets) passed through so request handlers
 can reach it at ``request.scope["env"]``.
 """
 
+import gc
 from workers import WorkerEntrypoint
 
 from app.core.worker_env import set_worker_env
@@ -24,7 +25,14 @@ class Default(WorkerEntrypoint):
         set_worker_env(self.env)
         from workers import asgi
 
-        return await asgi.fetch(app, request.js_object, self.env)
+        try:
+            return await asgi.fetch(app, request.js_object, self.env)
+        finally:
+            # Memory flushing: Pyodide creates JsProxy objects for incoming requests and
+            # D1 query results. Explicit generational collection ensures circular references
+            # between Python and V8 heap are freed, preventing the 128 MB isolate heap limit
+            # from being exhausted under sustained traffic.
+            gc.collect(1)
 
     async def scheduled(self, controller, env, ctx):
         set_worker_env(env)

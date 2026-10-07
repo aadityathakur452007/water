@@ -10,6 +10,14 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+PYODIDE WORKER HARDENING, DEADLOCK ELIMINATION & D1 BATCHING (2026-10-07, branch perf/pyodide-worker-hardening, ADR-106):
+- Deadlock Elimination in Pyodide Event Loop: Replaced synchronous `threading.Lock` in `app/db.py` with `_SafeWriteLock`. When executing in Cloudflare Workers, lock acquisition is non-blocking (relying on Cloudflare D1's native single-writer transactions at the edge), preventing back-to-back requests/retries from deadlocking the single-threaded Pyodide event loop and exceeding CPU limits.
+- Single-Trip Auth JOIN: Added `SessionRepo.find_session_user_by_access_hash` to join `sessions` and `users` in a single query (`WHERE s.token_hash = ?`). Cuts authentication database round trips from 2 to 1 across all authenticated endpoints in the API.
+- D1 Statement Batching & Inline Snapshotting: Implemented `batch()` on `D1Conn` and `AsyncSqliteConn` + `LedgerRepo.build_event_stmts`. Refactored `OrderRepo.insert` to batch order creation, state event, and deposit ledger mutations into a single network round trip with inline `address_snapshot_json`, reducing order creation D1 calls from 11 down to 3 and eliminating redundant SELECT round trips.
+- Sync Routes to `async def` in FastAPI: Converted `quotes.py:create_quote`, `catalog.py:get_catalog`, and `catalog.py:get_windows` to `async def` so FastAPI runs them directly on the event loop with zero `anyio` threadpool emulation overhead in WebAssembly.
+- Lightweight Pyodide Heap Flush: Added `finally: gc.collect(1)` in `src/entry.py:fetch` to collect generation 0 and 1 short-lived request/JsProxy objects after every invocation, preventing heap exhaustion under sustained traffic.
+- Test Suite Acceleration: Full backend test suite execution time dropped from 15.09s to 10.28s (32% speedup). 323 pytests pass 100% green.
+
 ADMIN PANEL HARDENING, DUMMY DATA PURGE & PERSISTENT SESSION (2026-10-07, ADR-105):
 - Dummy Data Purge & Live Profile: Cleaned out all hardcoded third-party template data (Arham Khan, Ammar Khan, hello@arhamkhnz.com, external GitHub repository links). Integrated live authenticated profile from `GET /v1/auth/me` (`adminMeServer`) into dashboard header and sidebar footer.
 - Real Logout & Direct WhatsApp Support: Replaced non-functional logout with active `logoutServer()` / `logoutVendorServer()` route handlers. Replaced template support cards with official WhatsApp Admin Support link (`+91 7828442476` via `https://wa.me/917828442476`) on both Admin and Vendor headers and sidebars.

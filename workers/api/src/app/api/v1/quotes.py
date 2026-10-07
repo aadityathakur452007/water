@@ -24,7 +24,7 @@ class OverLimitError(AppError):
 
 
 @router.post("/quotes", response_model=QuoteOut, status_code=200)
-def create_quote(payload: QuoteIn) -> QuoteOut:
+async def create_quote(payload: QuoteIn) -> QuoteOut:
     s = get_settings()
     q = pricing.compute_quote(
         [{"sku": i.sku, "qty": i.qty} for i in payload.items],
