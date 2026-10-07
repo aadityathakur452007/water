@@ -10,6 +10,11 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+ACCESS CODE EXPIRY RESILIENCE & VENDOR DETAIL D1 BATCHING (2026-10-07, ADR-109):
+- Access Code 400 Validation Error Fixed (`workers/api`): Implemented `_parse_iso_or_days` helper in `app/api/v1/admin.py` to gracefully accept numeric duration strings (e.g. "30", "90"), simple dates ("YYYY-MM-DD"), trailing "Z" ISO strings, and empty/whitespace inputs defaulting to 90 days. Added `test_access_code_flexible_expiry_inputs` in `test_access_code_auth.py` (319 tests green).
+- Vendor Detail Worker Hang Fixed (`workers/api`): Refactored `AdminReadRepo.vendor_detail` to batch all 6 sequential queries into a single `self._conn.batch(stmts)` round trip over the Pyodide WebAssembly FFI bridge to Cloudflare D1. Replaced unindexed table join with indexed subquery `route_id IN (SELECT id FROM routes WHERE vendor_id = ?)`, eliminating isolate CPU exhaustion and worker cancellation errors.
+- Issue Code UI Upgraded (`apps/admin_app`): Redesigned `IssueCodeDialog` under `/dashboard/vendors/$vendorId/access` to provide clean duration preset selector (90d, 30d, 60d, 180d, Custom Date) with automatic client-side ISO formatting, completely eliminating manual text input errors. Build passed clean (exit code 0).
+
 ADMIN OPERATING ZONES MANAGEMENT & INLINE VENDOR CREATION (2026-10-07, branch feat-admin-operating-zones, ADR-108):
 - Backend Endpoints (`workers/api`): Added `ZoneCreateIn` and `ZonePatchIn` DTOs, `POST /v1/admin/zones` (201 Created), `PATCH /v1/admin/zones/{zone_id}`, and enriched `GET /v1/admin/zones` with `COUNT(vz.vendor_id) AS vendor_count`. Automated tests verified in `test_dispatch_admin.py` (318 pytests passed 100% green).
 - Admin Web Zones Page (`apps/admin_app`): Built dedicated `/dashboard/zones` page route with quick search, status filtering, pincode chips, and vendor count badges. Added to sidebar under "Operate" navigation group with solid `MapPin` Lucide icon.

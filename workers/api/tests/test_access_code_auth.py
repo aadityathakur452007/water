@@ -427,3 +427,38 @@ def test_admin_codes_require_admin_role():
     hv = {"Authorization": "Bearer tok-vv"}
     assert client.get("/v1/admin/users/vv/access-codes", headers=hv).status_code == 403
     assert client.post("/v1/admin/users/vv/access-codes", json={}, headers=hv).status_code == 403
+
+
+def test_access_code_flexible_expiry_inputs():
+    reset_rate_limits()
+    raw = _conn()
+    _session(raw, "aa", "admin", "tok-admin")
+    client = _client(raw)
+    ha = {"Authorization": "Bearer tok-admin"}
+
+    # 1. Numeric days string: "30"
+    res_days = client.post("/v1/admin/users/aa/access-codes", json={"expires_at": "30"}, headers=ha)
+    assert res_days.status_code == 201
+    dt_days = _dt.datetime.fromisoformat(res_days.json()["expires_at"])
+    if dt_days.tzinfo is None:
+        dt_days = dt_days.replace(tzinfo=_dt.timezone.utc)
+    assert 28 <= (dt_days - NOW).days <= 32
+
+    # 2. Date only: YYYY-MM-DD
+    target_date = (NOW + _dt.timedelta(days=45)).strftime("%Y-%m-%d")
+    res_date = client.post("/v1/admin/users/aa/access-codes", json={"expires_at": target_date}, headers=ha)
+    assert res_date.status_code == 201
+
+    # 3. Trailing Z ISO format
+    iso_z = (NOW + _dt.timedelta(days=60)).strftime("%Y-%m-%dT12:00:00Z")
+    res_z = client.post("/v1/admin/users/aa/access-codes", json={"expires_at": iso_z}, headers=ha)
+    assert res_z.status_code == 201
+
+    # 4. Whitespace or empty string defaults to 90 days
+    res_empty = client.post("/v1/admin/users/aa/access-codes", json={"expires_at": "   "}, headers=ha)
+    assert res_empty.status_code == 201
+
+    # 5. Invalid string rejected with 400
+    res_bad = client.post("/v1/admin/users/aa/access-codes", json={"expires_at": "not-a-date"}, headers=ha)
+    assert res_bad.status_code == 400
+    assert "expires_at must be ISO-8601" in res_bad.json()["error"]["message"]

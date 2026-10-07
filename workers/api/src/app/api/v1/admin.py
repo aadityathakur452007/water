@@ -407,16 +407,33 @@ class RoleRefusedError(AppError):
     status_code = 422
 
 
-def _code_expiry(raw: str | None) -> str:
-    if raw:
+def _parse_iso_or_days(raw: str | None, default_days: int = 90) -> _dt.datetime:
+    now = _dt.datetime.now(_dt.timezone.utc)
+    if not raw or not raw.strip() or raw.strip().lower() in ("null", "none", "undefined"):
+        return now + _dt.timedelta(days=default_days)
+    val = raw.strip()
+    if val.isdigit():
+        days = int(val)
+        return now + _dt.timedelta(days=max(1, days))
+    normalized = val.replace("Z", "+00:00")
+    if len(normalized) == 10 and normalized.count("-") == 2:
         try:
-            dt = _dt.datetime.fromisoformat(raw.strip())
+            dt = _dt.datetime.strptime(normalized, "%Y-%m-%d").replace(tzinfo=_dt.timezone.utc)
+            return dt + _dt.timedelta(hours=23, minutes=59, seconds=59)
         except ValueError:
-            raise ValidationError(message="expires_at must be ISO-8601.", details={})
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=_dt.timezone.utc)
-        return dt.isoformat()
-    return (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=90)).isoformat()
+            pass
+    try:
+        dt = _dt.datetime.fromisoformat(normalized)
+    except (ValueError, TypeError):
+        raise ValidationError(message="expires_at must be ISO-8601.", details={"received": val})
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return dt
+
+
+def _code_expiry(raw: str | None) -> str:
+    dt = _parse_iso_or_days(raw, default_days=90)
+    return dt.isoformat()
 
 
 async def _require_vendor(conn, vendor_id: str) -> dict:
@@ -478,19 +495,11 @@ async def vendor_access_revoke(vendor_id: str, code_id: str,
 
 def _general_code_expiry(raw: str | None) -> str:
     now = _dt.datetime.now(_dt.timezone.utc)
-    if raw:
-        try:
-            dt = _dt.datetime.fromisoformat(raw.strip())
-        except ValueError:
-            raise ValidationError(message="expires_at must be ISO-8601.", details={})
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=_dt.timezone.utc)
-    else:
-        dt = now + _dt.timedelta(days=90)
+    dt = _parse_iso_or_days(raw, default_days=90)
     if dt < now + _dt.timedelta(hours=1) or dt > now + _dt.timedelta(days=180):
         raise ValidationError(
             message="expires_at must be between 1 hour and 180 days from now.",
-            details={},
+            details={"received": str(raw)},
         )
     return dt.isoformat()
 

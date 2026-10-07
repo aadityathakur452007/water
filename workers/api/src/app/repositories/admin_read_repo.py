@@ -204,56 +204,53 @@ class AdminReadRepo:
         }
 
     async def vendor_detail(self, vendor_id: str) -> dict | None:
-        user = (
-            await self._conn.execute(
+        stmts = [
+            (
                 "SELECT id, phone, name, role, kyc_status, suspended, suspended_reason,"
                 " suspended_at, created_at FROM users WHERE id = ?",
                 (vendor_id,),
-            )
-        ).fetchone()
-        if user is None:
-            return None
-        profile = (
-            await self._conn.execute(
-                "SELECT * FROM vendor_profile WHERE user_id = ?", (vendor_id,)
-            )
-        ).fetchone()
-        zones = (
-            await self._conn.execute(
+            ),
+            (
+                "SELECT * FROM vendor_profile WHERE user_id = ?",
+                (vendor_id,),
+            ),
+            (
                 "SELECT z.id, z.name, vz.priority FROM vendor_zones vz"
                 " JOIN zones z ON z.id = vz.zone_id WHERE vz.vendor_id = ?",
                 (vendor_id,),
-            )
-        ).fetchall()
-        stops = (
-            await self._conn.execute(
-                "SELECT COUNT(*) AS stops_done,"
-                " COALESCE(SUM(fulls_exp), 0) AS jars_out"
-                " FROM stops s JOIN routes r ON r.id = s.route_id"
-                " WHERE r.vendor_id = ? AND s.status = 'done'",
+            ),
+            (
+                "SELECT COUNT(*) AS stops_done, COALESCE(SUM(fulls_exp), 0) AS jars_out"
+                " FROM stops WHERE status = 'done' AND route_id IN"
+                " (SELECT id FROM routes WHERE vendor_id = ?)",
                 (vendor_id,),
-            )
-        ).fetchone()
-        payouts = (
-            await self._conn.execute(
+            ),
+            (
                 "SELECT id, period, stops_done, gross_fee, deductions, net, status, created_at"
                 " FROM payouts WHERE vendor_id = ? ORDER BY created_at DESC LIMIT 10",
                 (vendor_id,),
-            )
-        ).fetchall()
-        strikes = (
-            await self._conn.execute(
+            ),
+            (
                 "SELECT id, kind, severity, note, created_at FROM strikes"
                 " WHERE subject_id = ? ORDER BY created_at DESC LIMIT 10",
                 (vendor_id,),
-            )
-        ).fetchall()
+            ),
+        ]
+        results = await self._conn.batch(stmts)
+        user = results[0].fetchone()
+        if user is None:
+            return None
+        profile = results[1].fetchone()
+        zones = results[2].fetchall()
+        stops = results[3].fetchone() or {"stops_done": 0, "jars_out": 0}
+        payouts = results[4].fetchall()
+        strikes = results[5].fetchall()
         return {
             "vendor": dict(user),
             "profile": dict(profile) if profile else None,
             "zones": [dict(z) for z in zones],
-            "stops_done": int(stops["stops_done"]),
-            "jars_delivered": int(stops["jars_out"]),
+            "stops_done": int(stops.get("stops_done") or 0),
+            "jars_delivered": int(stops.get("jars_out") or 0),
             "payouts": [dict(p) for p in payouts],
             "strikes": [dict(s) for s in strikes],
         }

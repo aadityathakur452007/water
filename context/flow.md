@@ -69,6 +69,9 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   1. Operating Zones Endpoints: `POST /v1/admin/zones` creates a new zone with `name` and comma-separated `pincodes`. `PATCH /v1/admin/zones/{zone_id}` updates zone status/name/pincodes. `GET /v1/admin/zones` aggregates `COUNT(vz.vendor_id) AS vendor_count`.
   2. Admin Web Zones Route: `/dashboard/zones` (`ZonesTable`) allows searching by name/pincode, filtering active/inactive status, and inspecting assigned vendor agencies per zone.
   3. Inline Zone Provisioning on Vendor Onboarding: `AddVendorDialog` includes an inline `+ New Zone` trigger that opens `AddZoneDialog`. When created, the newly minted zone is immediately selected in the dropdown without discarding in-progress vendor input.
+- ADR-109 Access Code Expiry Flexibility & Vendor Detail D1 Batching (2026-10-07):
+  1. Vendor Detail Single Round Trip: `GET /v1/admin/vendors/{vendor_id}/detail` executes 6 queries concurrently via `conn.batch(stmts)` across the Pyodide bridge to Cloudflare D1 with indexed subquery for stops, preventing isolate hangs.
+  2. Access Code Issue Dialog UX: `IssueCodeDialog` presents duration presets (30d, 60d, 90d, 180d, Custom Date) and serializes to ISO format automatically; backend `_parse_iso_or_days` accepts numeric days, simple dates, and ISO timestamps.
 ```
 
 [2–3 sentences: what the app does, the main loop, the key actors.]

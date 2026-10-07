@@ -161,6 +161,24 @@
 
 ## Decision Entries
 
+### ADR-109: Vendor Access Code Expiry Flexibility & Admin Issue UX, and Pyodide D1 Batching on GET /v1/admin/vendors/{vendor_id}/detail
+- **Date**: 2026-10-07
+- **Status**: Accepted
+- **Context**:
+  1. *Access Code 400 VALIDATION ("expires_at must be ISO-8601.")*: When admins issued access codes via `/dashboard/vendors/{vendorId}/access`, typing duration numbers (e.g. `90`, `30`), simple dates (`YYYY-MM-DD`), timestamps with trailing `Z`, or leaving inputs with spaces triggered `ValidationError("expires_at must be ISO-8601.")`. The admin UI presented a raw, error-prone text box requiring manual ISO string typing.
+  2. *Worker Request Canceled / Hung on Vendor Detail*: In Cloudflare Python Worker runtime, calling `GET /v1/admin/vendors/{vendor_id}/detail` triggered "The Workers runtime canceled this request because it detected that your Worker's code had hung and would never generate a response" followed by cascading 401s. Root cause: `AdminReadRepo.vendor_detail` executed 6 sequential `execute()` queries across the Pyodide WebAssembly FFI bridge to Cloudflare D1, including an unindexed join on stops and routes across large tables.
+- **Decision**:
+  1. *Backend (`workers/api`)*:
+     - Implemented `_parse_iso_or_days` helper in `app/api/v1/admin.py`: supports numeric days (`"30"`, `"90"`, `"180"`), simple dates (`YYYY-MM-DD`), trailing `Z` normalization, and whitespace/empty default fallback to 90 days, with 1h to 180d validation bounds.
+     - Batch query optimization in `AdminReadRepo.vendor_detail`: consolidated the 6 sequential round trips into a single `await self._conn.batch(stmts)` network round trip to Cloudflare D1. Replaced cross-table stops join with indexed subquery `route_id IN (SELECT id FROM routes WHERE vendor_id = ?)`.
+     - Added unit test `test_access_code_flexible_expiry_inputs` in `test_access_code_auth.py` (319 pytest passed).
+  2. *Admin Web (`apps/admin_app`)*:
+     - Overhauled `IssueCodeDialog` in `dashboard/vendors/$vendorId/access/-components/issue-code-dialog.tsx`: replaced the raw ISO text box with a duration preset select (90 Days, 30 Days, 60 Days, 180 Days, Custom Date).
+     - Automated ISO-8601 serialization on client side: custom date selector automatically formats to UTC end-of-day ISO string.
+- **Why**: Eliminates edge Pyodide isolate timeouts and hangs on vendor profile views, removes human error during credential provisioning, and provides a polished, agency-grade experience with zero emojis.
+- **Consequences**: Vendor detail loads in a single D1 round trip; access codes can be issued reliably with zero input validation failures.
+- **Affects**: `workers/api` (`app/api/v1/admin.py`, `app/repositories/admin_read_repo.py`, `tests/test_access_code_auth.py`), `apps/admin_app` (`issue-code-dialog.tsx`).
+
 ### ADR-108: Operating Zones Management Endpoints (POST /v1/admin/zones, PATCH /v1/admin/zones/{zone_id}), Admin Operating Zones Page (/dashboard/zones), and Inline Zone Provisioning on Vendor Onboarding Dialog
 - **Date**: 2026-10-07
 - **Status**: Accepted
