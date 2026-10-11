@@ -30,6 +30,7 @@ class UserShell extends StatefulWidget {
     required this.bookingController,
     required this.ordersController,
     required this.isAuthenticated,
+    this.profileController,
     this.api,
     this.addresses,
     this.razorpayKeyId = '',
@@ -40,6 +41,7 @@ class UserShell extends StatefulWidget {
 
   final BookingController bookingController;
   final OrdersController ordersController;
+  final ProfileController? profileController;
 
   /// Live auth check for tab-level gates (profile requires login content).
   final bool Function() isAuthenticated;
@@ -62,6 +64,7 @@ class UserShell extends StatefulWidget {
 
 class _UserShellState extends State<UserShell> {
   UserTab _tab = UserTab.home;
+  late final Set<UserTab> _visitedTabs = {_tab};
 
   @override
   void initState() {
@@ -133,7 +136,10 @@ class _UserShellState extends State<UserShell> {
     c.setRefill(order.refillQty);
     c.setContainer(order.containerQty);
     if (!mounted) return;
-    setState(() => _tab = UserTab.home);
+    setState(() {
+      _tab = UserTab.home;
+      _visitedTabs.add(UserTab.home);
+    });
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (!mounted) return;
     await _openCheckout();
@@ -164,7 +170,10 @@ class _UserShellState extends State<UserShell> {
             if (result.isSubscription) {
               widget.onOpenSubscriptions?.call();
             } else {
-              setState(() => _tab = UserTab.orders);
+              setState(() {
+                _tab = UserTab.orders;
+                _visitedTabs.add(UserTab.orders);
+              });
             }
           },
           onOpenSubscriptions: () =>
@@ -183,17 +192,27 @@ class _UserShellState extends State<UserShell> {
         onOpenAddresses: widget.onOpenAddresses,
         onBuy: _openCheckout,
       ),
-      UserTab.orders: OrdersScreen(
-        controller: widget.ordersController,
-        onReorder: _reorder,
-      ),
-      UserTab.support: const SupportScreen(),
-      UserTab.profile: ProfileScreen(
-        isAuthenticated: widget.isAuthenticated(),
-        onOpenAddresses: widget.onOpenAddresses,
-        onOpenSubscriptions: widget.onOpenSubscriptions,
-        onLogout: widget.onLogout,
-      ),
+      UserTab.orders: _visitedTabs.contains(UserTab.orders)
+          ? OrdersScreen(
+              controller: widget.ordersController,
+              api: widget.api,
+              isAuthenticated: widget.isAuthenticated,
+              onReorder: _reorder,
+            )
+          : const SizedBox.shrink(),
+      UserTab.support: _visitedTabs.contains(UserTab.support)
+          ? const SupportScreen()
+          : const SizedBox.shrink(),
+      UserTab.profile: _visitedTabs.contains(UserTab.profile)
+          ? ProfileScreen(
+              isAuthenticated: widget.isAuthenticated(),
+              controller: widget.profileController,
+              api: widget.api,
+              onOpenAddresses: widget.onOpenAddresses,
+              onOpenSubscriptions: widget.onOpenSubscriptions,
+              onLogout: widget.onLogout,
+            )
+          : const SizedBox.shrink(),
     };
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
@@ -203,7 +222,13 @@ class _UserShellState extends State<UserShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab.index,
-        onDestinationSelected: (i) => setState(() => _tab = UserTab.values[i]),
+        onDestinationSelected: (i) {
+          final next = UserTab.values[i];
+          setState(() {
+            _tab = next;
+            _visitedTabs.add(next);
+          });
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.water_drop_outlined),

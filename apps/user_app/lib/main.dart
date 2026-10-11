@@ -180,6 +180,7 @@ class _ShellPage extends StatelessWidget {
     return UserShell(
       bookingController: app._booking,
       ordersController: app._orders,
+      profileController: app._profile,
       isAuthenticated: () => authed,
       api: app._api,
       addresses: app._addresses,

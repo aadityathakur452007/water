@@ -33,6 +33,7 @@
 
 ## Decision Index
 
+| ADR-112 | 2026-10-11 | Background Query Optimization, Lazy Tab Rendering, Payment History Auth Injection & Cloudflare D1 Payments Composite Index | Accepted | apps/user_app, workers/api, context/ |
 | ADR-111 | 2026-10-11 | Doorstep COD Auto-Reconciliation on PoD, Multi-Jar Mixed Cart Settlement, Repeat Subscription Deposit Waiving, and Vendor Custody Visibility | Accepted | workers/api, apps/vendor_app, context/ |
 | ADR-110 | 2026-10-11 | Core Flow Fixes: UPI Deep-Link Verification & Polling, COD Idempotency Auto-Refresh, Customer Profile Editing (Name/Phone/Gmail), Security Deposit Visibility, Customer-Vendor Binding Auto-Routing, and Subscription Activation | Accepted | workers/api, apps/user_app, apps/admin_app |
 | ADR-107 | 2026-10-07 | Frontend Architecture & Redesign: COD Idempotency Key Lifecycle Fix, Admin Vendor Onboarding & Access Code Issuance Dialog, Vendor Agency Rider Dispatching | Accepted | Feature_docs/frontend-architecture-and-redesign.md, apps/user_app, apps/admin_app, apps/vendor_app |
@@ -162,6 +163,41 @@
 ---
 
 ## Decision Entries
+
+### ADR-112: Background Query Optimization, Lazy Tab Rendering, Payment History Auth Injection & Cloudflare D1 Payments Composite Index
+- **Date**: 2026-10-11
+- **Status**: Accepted
+- **Context**:
+  1. *Payment History 401 Loop & Error Loads*: When users clicked "Mere Payments / Hisaab" in `ProfileScreen` or `OrdersScreen`, `PaymentHistoryScreen` was instantiated without an `api` instance (`const PaymentHistoryScreen()`). It fell back to `ApiClient()`, which lacked a session token getter. Consequently, `GET /v1/payments/me?limit=50` was sent with no `Authorization: Bearer` header, failing with 401 UNAUTH on the server. The screen rendered "Payments load nahi hue" with a "Dobara try karein" button, causing repeated rapid unauthenticated requests in seconds.
+  2. *Background Query Storm on User App Boot*: `UserShell` utilized an eager `IndexedStack` that mounted all four tabs (Home, Orders, Support, Profile) simultaneously on boot. This fired 5-6 concurrent network queries on app launch (`/catalog`, `/addresses`, `/ledger/me`, `/orders`, `/auth/me`), causing request storms on serverless workers and executing unauthenticated background queries in guest mode.
+  3. *Unindexed D1 Table Scans on Payments*: `PaymentRepo.list_user_payments` queries `payments` filtered by `user_id` and ordered by `created_at DESC`. `payments` only had indexes on `order_id` and `status`, forcing full-table scans during payment history lookups.
+- **Decision**:
+  1. *Authenticated Dependency Injection in User App (`apps/user_app`)*:
+     - Injected `api: widget.api` from `UserShell` into `OrdersScreen` and `ProfileScreen`.
+     - Forwarded `api: widget.api ?? _c.api` to `PaymentHistoryScreen` from both `ProfileScreen` and `OrdersScreen`.
+     - In `ApiClient`, added public getter `hasToken`.
+     - In `PaymentHistoryScreen`, added an upfront `_api.hasToken` check to display an honest unauthenticated message rather than firing a failing network call, and added clear session-expired messaging on 401/403.
+  2. *Lazy Tab Mounting (`apps/user_app`)*:
+     - Implemented `_visitedTabs` in `UserShell` state. Unvisited tabs render `const SizedBox.shrink()` inside `IndexedStack`, mounting only when the user explicitly navigates to them.
+     - In `OrdersScreen.initState`, guarded `controller.load()` behind `isAuthenticated` to prevent background 401 errors for guests.
+  3. *Cloudflare D1 Composite Index (`workers/api`)*:
+     - Created migration `025_payments_user_index.sql`: `CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments (user_id, created_at DESC)`.
+     - Added `test_payments_me_endpoint_http_auth_and_unauth` in `test_payments_me.py` to ensure endpoint returns 401 unauthenticated and 200 with data for authenticated users.
+- **Consequences**:
+  - Eliminates the 401 error and retry loop when opening "Mere Payments".
+  - Reduces initial app startup network requests from 6 down to 1-2 (Home catalog/address only).
+  - Eliminates full table scans in D1 for user payment history.
+  - All test suites green: 138 user app tests, 70 vendor app tests, 328 backend pytests, clean admin build.
+- **Affects**:
+  - `apps/user_app/lib/main.dart`
+  - `apps/user_app/lib/core/api_client.dart`
+  - `apps/user_app/lib/features/shell/user_shell.dart`
+  - `apps/user_app/lib/features/profile/profile_screen.dart`
+  - `apps/user_app/lib/features/profile/payment_history_screen.dart`
+  - `apps/user_app/lib/features/orders/orders_screen.dart`
+  - `apps/user_app/test/payment_history_test.dart`
+  - `workers/api/src/app/db/migrations/025_payments_user_index.sql`
+  - `workers/api/tests/test_payments_me.py`
 
 ### ADR-111: Doorstep COD Auto-Reconciliation on PoD, Multi-Jar Mixed Cart Settlement, Repeat Subscription Deposit Waiving, and Vendor Custody Visibility
 - **Date**: 2026-10-11

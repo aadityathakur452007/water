@@ -94,6 +94,9 @@ class ApiClient {
 
   String? get _token => accessTokenGetter?.call() ?? accessToken;
 
+  /// Whether a valid non-empty bearer token is available for authenticated calls.
+  bool get hasToken => (_token ?? '').isNotEmpty;
+
   Map<String, String> _headers({required bool authed, String? idempotencyKey}) {
     final h = <String, String>{
       'Content-Type': 'application/json',

@@ -39,3 +39,29 @@ async def test_payments_me_endpoint_returns_user_payments():
     assert history[0]["jars_count"] == 2
     assert history[0]["method"] == "upi"
     assert history[0]["status"] == "paid"
+
+
+def test_payments_me_endpoint_http_auth_and_unauth():
+    from app.main import create_app
+    from app.api.deps import get_db_conn
+    from app.api.v1.payments import _user
+
+    c = _conn()
+    c.executescript(
+        "CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments (user_id, created_at DESC);"
+    )
+    ac = AsyncSqliteConn(c)
+    app = create_app()
+    app.dependency_overrides[get_db_conn] = lambda: ac
+
+    client = TestClient(app)
+    # Unauthenticated request must fail with 401
+    res_unauth = client.get("/v1/payments/me?limit=50")
+    assert res_unauth.status_code == 401
+
+    # Authenticated user request returns 200 and data
+    app.dependency_overrides[_user] = lambda: {"id": "u-test-me", "role": "user"}
+    res_auth = client.get("/v1/payments/me?limit=50")
+    assert res_auth.status_code == 200
+    assert "data" in res_auth.json()
+

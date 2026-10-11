@@ -28,6 +28,13 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   }
 
   Future<void> _fetchPayments() async {
+    if (!_api.hasToken) {
+      setState(() {
+        _loading = false;
+        _error = 'Payments dekhne ke liye login karein';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -43,9 +50,11 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.isNetwork
-              ? 'Internet nahi — dobara koshish karein'
-              : 'Payments load nahi hue';
+          _error = (e.statusCode == 401 || e.statusCode == 403)
+              ? 'Session expire ho gaya — dobara login karein'
+              : (e.isNetwork
+                  ? 'Internet nahi — dobara koshish karein'
+                  : 'Payments load nahi hue');
           _loading = false;
         });
       }

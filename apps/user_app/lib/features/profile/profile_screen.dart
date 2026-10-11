@@ -116,6 +116,7 @@ class ProfileController extends ChangeNotifier {
   ProfileController({required ApiClient api}) : _api = api;
 
   final ApiClient _api;
+  ApiClient get api => _api;
 
   LedgerStatus _status = LedgerStatus.initial;
   LedgerSnapshot _ledger = const LedgerSnapshot();
@@ -229,6 +230,7 @@ class ProfileScreen extends StatefulWidget {
     super.key,
     required this.isAuthenticated,
     this.controller,
+    this.api,
     this.onLoginRequired,
     this.onLogout,
     this.onOpenAddresses,
@@ -237,6 +239,7 @@ class ProfileScreen extends StatefulWidget {
 
   final bool isAuthenticated;
   final ProfileController? controller;
+  final ApiClient? api;
   final VoidCallback? onLoginRequired;
   final VoidCallback? onLogout;
   final VoidCallback? onOpenAddresses;
@@ -248,13 +251,12 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late final ProfileController _c =
-      widget.controller ?? ProfileController(api: ApiClient());
+      widget.controller ?? ProfileController(api: widget.api ?? ApiClient());
 
   @override
   void initState() {
     super.initState();
     if (widget.isAuthenticated &&
-        widget.controller == null &&
         _c.status == LedgerStatus.initial) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _c.load());
     }
@@ -588,7 +590,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => const PaymentHistoryScreen(),
+                            builder: (_) => PaymentHistoryScreen(
+                              api: widget.api ?? _c.api,
+                            ),
                           ),
                         );
                       },

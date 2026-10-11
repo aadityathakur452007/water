@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../profile/payment_history_screen.dart';
 import 'bill_screen.dart';
@@ -15,9 +16,17 @@ import 'tracking_screen.dart';
 
 /// Search + cursor-paged order list (repeat-first: reorder buttons).
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({super.key, required this.controller, this.onReorder});
+  const OrdersScreen({
+    super.key,
+    required this.controller,
+    this.api,
+    this.isAuthenticated,
+    this.onReorder,
+  });
 
   final OrdersController controller;
+  final ApiClient? api;
+  final bool Function()? isAuthenticated;
 
   /// One-tap repeat: fills the booking lines from [order], then opens
   /// checkout (caller). Null = reorder hidden (guest wiring pending).
@@ -34,7 +43,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void initState() {
     super.initState();
     _search.addListener(_onSearch);
-    if (widget.controller.status == OrdersListStatus.initial) {
+    final authed = widget.isAuthenticated?.call() ?? true;
+    if (authed && widget.controller.status == OrdersListStatus.initial) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         widget.controller.load();
       });
@@ -95,7 +105,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const PaymentHistoryScreen(),
+                  builder: (_) => PaymentHistoryScreen(api: widget.api),
                 ),
               );
             },

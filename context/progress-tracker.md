@@ -10,6 +10,13 @@ Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 2
 
 ## Current Goal
 
+BACKGROUND QUERY OPTIMIZATION, LAZY TAB MOUNTING & PAYMENTS AUTH/INDEX FIX (2026-10-11, ADR-112):
+- Payments Unauthenticated Error & Loop Resolved (`apps/user_app`): `PaymentHistoryScreen` now receives the authenticated `ApiClient` instance from `ProfileScreen` and `OrdersScreen`. Added token existence check (`_api.hasToken`) to prevent unauthenticated requests, and contextual error handling on 401/403 session expiry, eliminating rapid 401 retry loops.
+- Lazy Tab Mounting in User Shell (`apps/user_app`): Converted `UserShell` from eager tab mounting in `IndexedStack` to lazy mounting (`_visitedTabs`). Only the active tab (Home) is mounted on startup; Orders, Support, and Profile tabs are only mounted when navigated to, eliminating simultaneous background network storms (catalog + addresses + ledger + orders + profile).
+- Proper Dependency Injection (`apps/user_app`): Injected `app._profile` and `app._api` into `UserShell`, `OrdersScreen`, and `ProfileScreen`. Prevented detached unauthenticated `ApiClient()` instantiations.
+- Cloudflare D1 Payments Composite Index (`workers/api`): Added migration `025_payments_user_index.sql` creating `idx_payments_user_created ON payments (user_id, created_at DESC)`. Replaced full-table scans with O(log N) indexed queries for `GET /v1/payments/me`.
+- Test Suites & Builds: 328/328 backend pytests green, 138/138 user app tests green + analyze clean, 70/70 vendor app tests green, admin app build clean (exit code 0).
+
 DOORSTEP COD AUTO-RECONCILIATION, MULTI-JAR SETTLEMENT, REPEAT SUBSCRIPTION DEPOSIT WAIVING & VENDOR CUSTODY (2026-10-11, branch `030-core-flow-and-subscription`, ADR-111):
 - Doorstep COD Auto-Reconciliation on PoD (`workers/api`): In `vendor_service.py:pod_complete`, under `WRITE_LOCK`, when `cash_paise > 0` is collected on an unpaid order, automatically calls `PaymentRepo.mark_paid_cash_locked(stop["order_id"], cash_paise, vendor_id)` (marking order `paid_cash` or `partial_dues`, inserting into `payments`, reconciling customer dues in `ledger`) and increments `vendor_profile.in_hand += cash_paise` in the same atomic transaction. Completely eliminates the silent unreported COD cash leakage gap.
 - Vendor App PoD Cash Prefill (`apps/vendor_app`): In `PodSheet`, `initState` prefills `_cash.text` with the stop's collect amount in rupees (`collectPaise ~/ 100`) when order is COD, streamlining delivery completion for riders.
