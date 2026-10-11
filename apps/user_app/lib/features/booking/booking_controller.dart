@@ -319,7 +319,15 @@ class BookingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  PaymentMode paymentMode = PaymentMode.upi;
+  PaymentMode _paymentMode = PaymentMode.upi;
+  PaymentMode get paymentMode => _paymentMode;
+  set paymentMode(PaymentMode m) {
+    if (_paymentMode != m) {
+      _paymentMode = m;
+      refreshIdempotencyKey();
+      notifyListeners();
+    }
+  }
 
   /// Buy path chosen in the detail sheet (once → POST /orders,
   /// else → POST /subscriptions with scheduleTypeOf(deliveryType)).

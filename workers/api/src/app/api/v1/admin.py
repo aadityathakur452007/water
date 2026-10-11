@@ -820,6 +820,7 @@ async def payout_generate(payload: PayoutGenerateIn, conn=Depends(get_db_conn), 
             (pid, payload.vendor_id, payload.period, int(n), gross, gross, now),
         )
         row = dict((await conn.execute("SELECT * FROM payouts WHERE id = ?", (pid,))).fetchone())
+        row["in_hand_custody"] = int(prof.get("in_hand", 0))
         await _audit(conn, user, "payout.generate", "payouts", pid, "", row)
         conn.commit()
     return row
@@ -834,9 +835,12 @@ async def payout_approve(payout_id: str, conn=Depends(get_db_conn), user=Admin):
         if row["status"] != "pending":
             raise ConflictError(message="Only pending payouts can be approved.",
                                 details={"id": payout_id, "status": row["status"]})
+        prof = await ensure_profile(conn, row["vendor_id"])
+        in_hand = int(prof.get("in_hand", 0))
         await conn.execute("UPDATE payouts SET status = 'approved', approved_by = ? WHERE id = ?",
                      (_uid(user), payout_id))
         after = dict((await conn.execute("SELECT * FROM payouts WHERE id = ?", (payout_id,))).fetchone())
+        after["in_hand_custody"] = in_hand
         await _audit(conn, user, "payout.approve", "payouts", payout_id, dict(row), after)
         conn.commit()
     return after

@@ -34,8 +34,15 @@ def env_get(name: str, default: str | None = None) -> str | None:
     if env is not None:
         try:
             value = getattr(env, name, None)
+            if value is None and hasattr(env, name.upper()):
+                value = getattr(env, name.upper(), None)
+            if value is None and hasattr(env, name.lower()):
+                value = getattr(env, name.lower(), None)
+            if value is None and hasattr(env, "get"):
+                value = env.get(name) or env.get(name.upper()) or env.get(name.lower())
         except Exception:
             value = None
         if value is not None:
             return str(value)
-    return os.environ.get(name, default)
+    return os.environ.get(name) or os.environ.get(name.upper()) or os.environ.get(name.lower()) or default
+

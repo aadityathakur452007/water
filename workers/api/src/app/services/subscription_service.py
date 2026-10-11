@@ -78,7 +78,7 @@ def _parse_day(v: object) -> str | None:
 
 
 def _advance(day: _dt.date, schedule: str, recurrence: str) -> _dt.date:
-    step = {"daily": 1, "alternate": 2, "weekly": 7}.get((schedule or "").lower(), 0)
+    step = {"daily": 1, "alternate": 2, "weekly": 7, "monthly": 30}.get((schedule or "").lower(), 0)
     if (schedule or "").lower() == "custom":
         try:
             step = int((recurrence or "7").strip() or "7")

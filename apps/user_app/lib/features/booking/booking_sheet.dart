@@ -351,34 +351,40 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     }
   }
 
-  /// UPI collection: real Razorpay ref → gateway; FAKE-* → upi:// link.
+  /// UPI collection: real Razorpay ref → gateway; FAKE-* / direct link → upi:// link.
   Future<void> _collectUpi(CheckoutResult result) async {
-    if (result.providerRef.isEmpty) {
+    if (result.providerRef.isEmpty && result.upiLink.isEmpty) {
       c.resetBookingSession();
       widget.onDone(result);
       return;
     }
     if (!result.needsGateway) {
+      final link = result.upiLink.isNotEmpty
+          ? result.upiLink
+          : 'upi://pay?pn=Shodasha&am=${result.totalPaise / 100}&cu=INR&tr=${result.providerRef}';
       final ok = await launchUrl(
-        Uri.parse(
-          'upi://pay?pa=shodasha@upi&pn=Shodasha&am=${result.totalPaise / 100}&cu=INR&tr=${result.providerRef}',
-        ),
+        Uri.parse(link),
         mode: LaunchMode.externalApplication,
       );
       if (!mounted) return;
       if (!ok) {
+        c.refreshIdempotencyKey();
         setState(() {
           _phase = _Phase.error;
           _error = 'UPI app nahi mila — COD chunein ya retry karein';
         });
         return;
       }
-      c.resetBookingSession();
-      widget.onDone(result);
+      _pendingUpi = result;
+      setState(() {
+        _phase = _Phase.paying;
+      });
+      await _verifyOrPollPayment(result);
       return;
     }
     if (widget.razorpayKeyId.isEmpty) {
       if (mounted) {
+        c.refreshIdempotencyKey();
         setState(() {
           _phase = _Phase.error;
           _error = 'Online payment abhi setup nahi — COD chunein';
@@ -389,7 +395,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _pendingUpi = result;
     _gateway ??= Razorpay()
       ..on(Razorpay.EVENT_PAYMENT_SUCCESS, _onGatewaySuccess)
-      ..on(Razorpay.EVENT_PAYMENT_ERROR, _onGatewayError);
+      ..on(Razorpay.EVENT_PAYMENT_ERROR, _onGatewayError)
+      ..on(Razorpay.EVENT_EXTERNAL_WALLET, _onExternalWallet);
     _gateway!.open({
       'key': widget.razorpayKeyId,
       'order_id': result.providerRef,
@@ -400,40 +407,46 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     });
   }
 
+  Future<void> _verifyOrPollPayment(CheckoutResult pending) async {
+    // Poll the backend to check if webhook has confirmed payment_status == 'paid_upi'.
+    for (int i = 0; i < 5; i++) {
+      if (!mounted) return;
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      try {
+        final fresh = await widget.api.getOrder(pending.orderId);
+        final data = (fresh['order'] as Map<String, dynamic>?) ?? fresh;
+        final status = (data['payment_status'] ?? '') as String;
+        if (status == 'paid_upi') {
+          c.resetBookingSession();
+          widget.onDone(pending);
+          return;
+        }
+      } catch (_) {
+        // transient error, continue poll loop
+      }
+    }
+    if (!mounted) return;
+    // Do NOT complete order when payment is unconfirmed. Refresh key for clean retry or COD.
+    c.refreshIdempotencyKey();
+    setState(() {
+      _phase = _Phase.error;
+      _error = 'Payment confirm nahi hua — dobara try karein ya COD chunein';
+    });
+  }
+
   Future<void> _onGatewaySuccess(PaymentSuccessResponse _) async {
     final pending = _pendingUpi;
     if (pending == null || !mounted) return;
-    String note = '';
-    try {
-      final fresh = await widget.api.getOrder(pending.orderId);
-      final data = (fresh['order'] as Map<String, dynamic>?) ?? fresh;
-      final status = (data['payment_status'] ?? '') as String;
-      if (status != 'paid_upi') {
-        note = 'Payment bheja gaya — confirm ho raha hai';
-      }
-    } catch (_) {
-      note = 'Payment bheja gaya — confirm ho raha hai';
-    }
-    if (!mounted) return;
-    widget.onDone(
-      CheckoutResult(
-        orderId: pending.orderId,
-        totalPaise: pending.totalPaise,
-        windowLabel: note.isEmpty
-            ? pending.windowLabel
-            : '${pending.windowLabel} • $note',
-        isSubscription: false,
-        providerRef: pending.providerRef,
-        waterPaise: pending.waterPaise,
-        depositPaise: pending.depositPaise,
-        capsPaise: pending.capsPaise,
-        addressLabel: pending.addressLabel,
-      ),
-    );
+    setState(() {
+      _phase = _Phase.paying;
+    });
+    await _verifyOrPollPayment(pending);
   }
 
   void _onGatewayError(PaymentFailureResponse resp) {
     if (!mounted) return;
+    c.refreshIdempotencyKey();
     setState(() {
       _phase = _Phase.error;
       _error = resp.message?.isNotEmpty == true
@@ -441,6 +454,16 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           : 'Payment fail ho gaya — retry karein ya COD chunein';
     });
   }
+
+  void _onExternalWallet(ExternalWalletResponse _) {
+    final pending = _pendingUpi;
+    if (pending == null || !mounted) return;
+    setState(() {
+      _phase = _Phase.paying;
+    });
+    _verifyOrPollPayment(pending);
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -748,26 +771,60 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         if (_phase == _Phase.error) ...[
           const SizedBox(height: 12),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
-                Icons.error_outline,
-                size: 18,
-                color: ShodashaTheme.danger,
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.error_outline,
+                  size: 18,
+                  color: ShodashaTheme.danger,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  _error,
-                  style: const TextStyle(color: ShodashaTheme.danger),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _error,
+                      style: const TextStyle(color: ShodashaTheme.danger),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        OutlinedButton(
+                          onPressed: busy
+                              ? null
+                              : () {
+                                  c.refreshIdempotencyKey();
+                                  _pay();
+                                },
+                          child: const Text('Retry karein'),
+                        ),
+                        if (codOk && c.paymentMode == PaymentMode.upi)
+                          ElevatedButton(
+                            onPressed: busy
+                                ? null
+                                : () {
+                                    setState(() {
+                                      c.paymentMode = PaymentMode.cod;
+                                    });
+                                    _pay();
+                                  },
+                            child: const Text('COD chunein'),
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
-              ),
-              TextButton(
-                onPressed: busy ? null : _pay,
-                child: const Text('Retry karein'),
               ),
             ],
           ),
         ],
+
       ],
     );
   }

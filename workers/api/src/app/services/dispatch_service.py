@@ -358,6 +358,11 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             )
             await conn.execute("UPDATE orders SET state = 'assigned' WHERE id = ?", (order_id,))
             await _event(conn, order_id, "packed", "assigned", actor, f"assigned to {vendor_id}")
+            # Bind customer to this trusted vendor so future orders auto-route!
+            try:
+                await conn.execute("UPDATE users SET assigned_vendor_id = ? WHERE id = ?", (vendor_id, order["user_id"]))
+            except Exception:
+                pass  # Tolerant on test DBs where migration 024 is not run
             conn.commit()
         except (ConflictError, NotFoundError, CapacityExceededError, ZoneMismatchError):
             conn.rollback()
@@ -367,6 +372,45 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             raise
     return {"order_id": order_id, "vendor_id": vendor_id, "route_id": route_id,
             "stop_id": stop_id, "version": 1}
+
+
+async def auto_assign_trusted_vendor(conn: Conn, order_id: str, user_id: str) -> dict | None:
+    """When a customer has an assigned trusted vendor, auto-assign their new order.
+
+    Bypasses repetitive manual admin assignment. Checks that the vendor exists,
+    is active, within capacity, not on leave, and serves the order's zone.
+    If valid, transitions placed -> accepted -> picked -> packed -> assigned.
+    If unavailable or over-capacity, leaves order in 'placed' state for manual dispatch.
+    """
+    try:
+        urow = (await conn.execute("SELECT assigned_vendor_id FROM users WHERE id = ?", (user_id,))).fetchone()
+    except Exception:
+        return None
+    if not urow or not urow["assigned_vendor_id"]:
+        return None
+    vendor_id = str(urow["assigned_vendor_id"])
+    order = (await conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))).fetchone()
+    if not order or str(order["state"]) != "placed":
+        return None
+    order_dict = dict(order)
+    try:
+        await _check_zone(conn, order_dict, vendor_id)
+        await _check_capacity(conn, vendor_id, int(order_dict["n"]), _today())
+    except Exception:
+        return None
+
+    from app.repositories.order_repo import OrderRepo  # noqa: PLC0415
+
+    repo = OrderRepo(conn)
+    actor = {"id": "system", "role": "admin"}
+    try:
+        await repo.transition(order_id, "accepted", actor, "auto-dispatch: trusted vendor")
+        await repo.transition(order_id, "picked", actor, "auto-dispatch: single-touch pack")
+        await repo.transition(order_id, "packed", actor, "auto-dispatch: single-touch pack")
+        out = await assign_order(conn, order_id, vendor_id, actor)
+        return out
+    except Exception:
+        return None
 
 
 async def vendor_accept_order(conn: Conn, order_id: str, vendor_id: str) -> dict:

@@ -639,14 +639,31 @@ class VendorService:
             try:
                 fresh = await self._owned_stop(vendor_id, stop_id)
                 current = json.loads(fresh["triple"]) if fresh["triple"] else {}
-                pod = {"empties_count": payload.get("empties_count", 0), "cash": payload.get("cash", 0),
+                cash_paise = int(payload.get("cash", 0) or 0)
+                pod = {"empties_count": payload.get("empties_count", 0), "cash": cash_paise,
                        "seal_ok": payload.get("seal_ok"), "gps": gps or None,
                        "completed_at": _now(), "completed_by": vendor_id}
                 current["pod"] = {k: v for k, v in pod.items() if v is not None}
+                if cash_paise > 0 and not current.get("cash"):
+                    current["cash"] = cash_paise
                 await self._conn.execute(
                     "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE id = ?",
                     (json.dumps(current), _now(), stop_id),
                 )
+                if stop.get("order_id") and cash_paise > 0:
+                    try:
+                        from app.repositories.payment_repo import PaymentRepo, OverpayError
+                        from app.services.dispatch_service import ensure_profile
+                        await PaymentRepo(self._conn).mark_paid_cash_locked(
+                            stop["order_id"], cash_paise, vendor_id
+                        )
+                        await ensure_profile(self._conn, vendor_id)
+                        await self._conn.execute(
+                            "UPDATE vendor_profile SET in_hand = in_hand + ? WHERE user_id = ?",
+                            (cash_paise, vendor_id),
+                        )
+                    except (ConflictError, OverpayError):
+                        pass
                 await write_audit(self._conn, actor=vendor_id, action="vendor.pod",
                                   entity="stops", entity_id=stop_id)
                 self._conn.commit()

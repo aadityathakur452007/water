@@ -260,6 +260,8 @@ async def test_pod_happy_delivers():
                                       "empties_count": 1, "cash": 100, "seal_ok": True})
     assert out["status"] == "done" and out["triple"]["pod"]["seal_ok"] is True
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "delivered"
+    assert c.execute("SELECT in_hand FROM vendor_profile WHERE user_id = 'v1'").fetchone()["in_hand"] == 100
+    assert c.execute("SELECT COUNT(*) n FROM payments WHERE order_id = 'o1'").fetchone()["n"] == 1
 
 
 async def test_pod_wrong_otp_reads_as_not_found():

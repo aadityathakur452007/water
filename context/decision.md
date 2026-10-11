@@ -33,6 +33,8 @@
 
 ## Decision Index
 
+| ADR-111 | 2026-10-11 | Doorstep COD Auto-Reconciliation on PoD, Multi-Jar Mixed Cart Settlement, Repeat Subscription Deposit Waiving, and Vendor Custody Visibility | Accepted | workers/api, apps/vendor_app, context/ |
+| ADR-110 | 2026-10-11 | Core Flow Fixes: UPI Deep-Link Verification & Polling, COD Idempotency Auto-Refresh, Customer Profile Editing (Name/Phone/Gmail), Security Deposit Visibility, Customer-Vendor Binding Auto-Routing, and Subscription Activation | Accepted | workers/api, apps/user_app, apps/admin_app |
 | ADR-107 | 2026-10-07 | Frontend Architecture & Redesign: COD Idempotency Key Lifecycle Fix, Admin Vendor Onboarding & Access Code Issuance Dialog, Vendor Agency Rider Dispatching | Accepted | Feature_docs/frontend-architecture-and-redesign.md, apps/user_app, apps/admin_app, apps/vendor_app |
 | ADR-106 | 2026-10-07 | Cloudflare Python Worker Hardening: Deadlock Elimination (Non-blocking WRITE_LOCK), D1 Batching & Single-Trip Auth JOIN, Sync Route to async def Conversion, Pyodide Heap Flushing | Accepted | workers/api (db.py, db_d1.py, session_repo.py, order_repo.py, ledger_repo.py, auth_deps.py, catalog.py, quotes.py, entry.py) |
 | ADR-105 | 2026-10-07 | Admin Panel Dummy Data Purge, Live User Profile from /v1/auth/me, Session & Cookie Hardening (Namespaced sh_admin_* / sh_vendor_*, Deduplicated Refresh, 24h/30d TTL), and D1 migrations_dir Configuration | Accepted | apps/admin_app (server, routes, components), workers/api (wrangler.jsonc) |
@@ -161,7 +163,59 @@
 
 ## Decision Entries
 
+### ADR-111: Doorstep COD Auto-Reconciliation on PoD, Multi-Jar Mixed Cart Settlement, Repeat Subscription Deposit Waiving, and Vendor Custody Visibility
+- **Date**: 2026-10-11
+- **Status**: Accepted
+- **Context**:
+  1. *Silent Unreported COD Vulnerability*: In `apps/vendor_app`, the rider entered delivery OTP and cash in `PodSheet`. The backend `pod_complete` stored the cash in JSON metadata (`stops.triple['pod']['cash']`) but never called `PaymentRepo.mark_paid_cash_locked()` and never incremented `vendor_profile.in_hand`. Orders remained unpaid, customer ledgers retained dues, and physical cash held by vendors went untracked unless riders separately clicked a separate "Cash" button on the stop card.
+  2. *Multi-Jar Mixed Cart Nuances*: Customers frequently order diverse combinations (e.g. 3-4 containers + 3-4 refills/without containers) or return partial empties. In recurring subscriptions, repeat daily deliveries represent replenishment (refills) rather than purchasing new physical containers every day. In `scheduler.py`, repeat cycle generation needed to pass `deposit_already_paid_paise` so repeat subscriptions are not billed duplicate deposits.
+  3. *Vendor In-Hand Custody vs Labor Payouts*: The system separates Water Order Total (100% agency revenue), Vendor In-Hand Custody (`vendor_profile.in_hand`, physical agency money held by the driver), and Vendor Labor Fee (`payouts` table, `stops_done * per_stop_fee`). Admin payout generation and approval required explicit exposure of `in_hand` custody balance to prevent payout disbursement to vendors with outstanding unreturned agency cash.
+- **Decision**:
+  1. *Auto-Reconcile Doorstep COD on PoD (`workers/api` & `apps/vendor_app`)*:
+     - In `vendor_service.py:pod_complete`, under `WRITE_LOCK`, if an order is unpaid and cash is submitted (`cash_paise > 0`), automatically invoke `PaymentRepo.mark_paid_cash_locked(stop["order_id"], cash_paise, vendor_id)` and increment `vendor_profile.in_hand += cash_paise` in the same atomic transaction.
+     - In `apps/vendor_app/lib/features/stops/pod_sheet.dart`, `initState` prefills `_cash.text` with the order's rupee amount when `collectPaise > 0` and mode is `cod`, reducing friction for delivery drivers while allowing adjustment for partial amounts.
+  2. *Multi-Jar Mixed Cart & Subscription Deposit Waiving (`workers/api`)*:
+     - Confirmed multi-item SKU quote generation handles arbitrary mixed line items (`n_refill * 28 + n_container * 30`) and computes net uncovered container deposits (`max(0, n_container - empties - covered_jars) * 150`). Added comprehensive test in `test_quotes.py`.
+     - In `scheduler.py`, fetch `deposit_paid` from `LedgerRepo` and pass `deposit_already_paid_paise=dep_paid` to `pricing.compute_quote`, ensuring active subscriptions never double-bill security deposits on recurring runs.
+  3. *Admin In-Hand Custody Visibility on Payouts (`workers/api`)*:
+     - In `admin.py:payout_generate` and `payout_approve`, attach `in_hand_custody` to the payout payload and audit log, giving back-office operators immediate visibility into unreturned agency cash before approving payouts.
+- **Why**: Eliminates cash leakage, closes the silent COD gap, guarantees clean multi-jar pricing and subscription repeatability, and provides unified custody reconciliation across the three money dimensions.
+- **Consequences**: Doorstep COD payments immediately clear customer dues and book vendor cash custody upon OTP completion; all 327 backend pytests, 70 vendor app tests, 134 user app tests, and admin web builds pass 100% green.
+- **Affects**: `workers/api` (`vendor_service.py`, `scheduler.py`, `admin.py`, `test_vendor.py`, `test_quotes.py`), `apps/vendor_app` (`pod_sheet.dart`), `context/`
+
+### ADR-110: Core Flow Bug Fixes: UPI Deep-Link Verification & Polling, COD Idempotency Auto-Refresh, Customer Profile Editing (Name/Phone/Gmail), Security Deposit Visibility, Customer-Vendor Binding Auto-Routing, and Subscription Activation
+- **Date**: 2026-10-11
+- **Status**: Accepted
+- **Context**:
+  1. *UPI Intent / Google Pay Bug & Premature Order Completion*: When the user selected UPI, the app opened a hardcoded `shodasha@upi` dummy deep-link instead of backend provider intent. Google Pay threw "account not found or account not configured". When the user returned to the app, `launchUrl` returning true or Razorpay client callbacks immediately triggered `widget.onDone(result)`, falsely declaring the order completed even though payment was unconfirmed or failed.
+  2. *COD Idempotency PayloadMismatchError (422)*: If UPI payment failed and the customer switched to COD (Cash on Delivery), the controller reused the existing idempotency key. The backend checked `idempotency_keys` with the previous payload hash and raised a 422 `PAYLOAD_MISMATCH` conflict.
+  3. *Repetitive Manual Vendor Assignment*: Admins had to manually re-assign the same vendor to recurring orders for the same customer every day.
+  4. *Customer Profile Editing & Security Deposit Display*: Customers lacked in-app editing of Username, 10-digit Phone, and `@gmail.com` Email, and collateral jar/container security deposit accounting (₹150/jar) needed clear visibility.
+  5. *Subscription Activation*: The monthly plan calculator lacked a direct action button to activate selected plans.
+- **Decision**:
+  1. *UPI Deep-Link & Polling Verification (`apps/user_app`)*:
+     - Updated `CheckoutResult` to capture backend `intent['link']` generated from `AGENCY_UPI_VPA`.
+     - Removed hardcoded `shodasha@upi` string from `booking_sheet.dart`.
+     - Replaced premature `widget.onDone` call in `_collectUpi` and `_onGatewaySuccess` with `_verifyOrPollPayment` polling `GET /orders/{order_id}` up to 5 times (every 2s). Order is ONLY marked completed if `payment_status == 'paid_upi'`.
+     - If payment is unconfirmed or fails, displays honest error message with two buttons: "Retry karein" and "COD chunein".
+  2. *Automatic Idempotency Key Refresh on Payment Mode Switch (`apps/user_app`)*:
+     - Encapsulated `paymentMode` in `BookingController`: changing mode from UPI to COD or vice-versa automatically invokes `refreshIdempotencyKey()`. Retrying payment also force-refreshes the key. Completely resolves 422 `PAYLOAD_MISMATCH`.
+  3. *Trusted Partner Customer-Vendor Auto-Routing (`workers/api`)*:
+     - Added migration `024_user_assigned_vendor.sql` (`ALTER TABLE users ADD COLUMN assigned_vendor_id TEXT;`).
+     - In `dispatch_service.py:assign_order`: binds `users.assigned_vendor_id` to the assigned vendor.
+     - Implemented `auto_assign_trusted_vendor`: when a customer places any future repeat or recurring order, checks trusted vendor binding, zone compatibility, vendor shift capacity, and leave status. If valid, automatically advances order through `placed -> accepted -> picked -> packed -> assigned` and adds to vendor route with zero repetitive admin intervention.
+  4. *User Profile Editing & Security Deposit Transparency (`apps/user_app` & `workers/api`)*:
+     - Backend `PATCH /v1/auth/me` extended with strict 10-digit phone and `@gmail.com` validation; tolerance across legacy and new DB schemas via `PRAGMA table_info`.
+     - Added User Profile card in `ProfileScreen` with "Badlein" bottom sheet allowing editing Name, Phone, and Email.
+     - Added explicit Security Deposit collateral notice (₹150/jar refundable deposit) visible inside the ledger card.
+  5. *Subscription Plan Activation (`apps/user_app`)*:
+     - Added "Ye Subscription Shuru Karein" action button inside `_MonthlyPlanCalculatorState`.
+- **Why**: Protects money integrity, prevents false order completion on failed payments, eliminates repetitive manual vendor dispatch overhead, and gives customers full control over profile identity and subscription planning.
+- **Consequences**: Zero premature order completions; clean fallback to COD; repeat orders route automatically to trusted vendors; all 134 user app tests, 70 vendor app tests, and 326 backend tests pass 100% green.
+- **Affects**: `apps/user_app`, `workers/api`, `context/`
+
 ### ADR-109: Vendor Access Code Expiry Flexibility & Admin Issue UX, and Pyodide D1 Batching on GET /v1/admin/vendors/{vendor_id}/detail
+
 - **Date**: 2026-10-07
 - **Status**: Accepted
 - **Context**:

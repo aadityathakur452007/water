@@ -207,10 +207,18 @@ class OrderService:
         if addr_snapshot:
             order["address_snapshot_json"] = addr_snapshot
         try:
-            return await self.orders.insert(
+            created = await self.orders.insert(
                 order,
                 {"customer_id": user_id, "actor": user_id, "reason": "order deposit"},
             )
+            try:
+                from app.services.dispatch_service import auto_assign_trusted_vendor  # noqa: PLC0415
+                auto_res = await auto_assign_trusted_vendor(self.orders._conn, created["id"], user_id)
+                if auto_res is not None:
+                    created["state"] = "assigned"
+            except Exception:
+                pass
+            return created
         except ConflictError:
             # Lost a concurrent insert race: fall back to the replay path.
             existing = await self.orders.find_by_scoped_key(user_id, scoped)

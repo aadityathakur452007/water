@@ -949,9 +949,28 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.flash_on),
+              label: const Text('Ye Subscription Shuru Karein'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '$_jarsPerDelivery jar (${_deliveriesPerMonth == 30 ? "Rozana" : _deliveriesPerMonth == 15 ? "Alternate" : "Weekly"}) plan chuna gaya. Booking sheet se confirm karein.',
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
+
   }
 }
 

@@ -78,6 +78,8 @@ class LogoutIn(BaseModel):
 class MePatchIn(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
+    phone: str | None = Field(default=None, max_length=15)
+    email: str | None = Field(default=None, max_length=120)
 
 
 def _service(conn=Depends(get_db_conn), verifier=Depends(get_verifier)) -> AuthService:
@@ -187,4 +189,10 @@ async def patch_me(
     user: dict = Depends(require_active_user),
     svc: AuthService = Depends(_service),
 ):
-    return await svc.update_me(user["id"], name=payload.name, language=payload.language)
+    return await svc.update_me(
+        user["id"],
+        name=payload.name,
+        language=payload.language,
+        phone=payload.phone,
+        email=payload.email,
+    )

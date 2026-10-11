@@ -46,6 +46,15 @@ def test_mixed_skus_deposit_on_uncovered_only():
     assert q["n_total"] == 3
 
 
+def test_multi_jar_mixed_cart_containers_and_refills_with_partial_empties():
+    # Scenario: 4 refills + 3 containers, customer returns 2 empties
+    q = pricing.compute_quote([{"sku": "refill", "qty": 4}, {"sku": "container", "qty": 3}], 2, RATES)
+    assert q["n_total"] == 7
+    assert q["water_bill"] == (4 * 2800) + (3 * 3000)  # 11200 + 9000 = 20200
+    assert q["deposit_due"] == (3 - 2) * 15000  # 1 uncovered container = 15000
+    assert q["total"] == 20200 + 15000  # 35200 paise = Rs 352
+
+
 def test_over_limit_surfaces_n_total_for_route():
     q = pricing.compute_quote([{"sku": "refill", "qty": 10}, {"sku": "container", "qty": 1}], 0, RATES)
     assert q["n_total"] == 11  # route maps N>10 -> 422 OVER_LIMIT

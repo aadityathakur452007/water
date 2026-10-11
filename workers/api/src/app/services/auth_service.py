@@ -617,15 +617,34 @@ class AuthService:
             out["restrictions"] = restrictions
         return out
 
-    async def update_me(self, user_id: str, *, name: str | None = None,
-                      language: str | None = None) -> dict:
+    async def update_me(
+        self,
+        user_id: str,
+        *,
+        name: str | None = None,
+        language: str | None = None,
+        phone: str | None = None,
+        email: str | None = None,
+    ) -> dict:
         if language is not None and not LANG_RE.fullmatch(language):
             raise ValidationError("Unsupported language.", {"language": language})
         if name is not None:
             name = name.strip()[:80]
             if not name:
                 raise ValidationError("Name cannot be blank.", {"name": name})
-        user = await self._users.update_profile(user_id, name=name, language=language)
+        if phone is not None:
+            phone_clean = phone.strip()
+            if not re.fullmatch(r"^(\+91|91|0)?[6-9]\d{9}$", phone_clean):
+                raise ValidationError("Invalid phone number. Must be a valid 10-digit number.", {"phone": phone})
+            phone = normalize_phone(phone_clean)
+        if email is not None:
+            email_clean = email.strip()
+            if email_clean and not re.fullmatch(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", email_clean):
+                raise ValidationError("Invalid email. Must be a valid @gmail.com address.", {"email": email})
+            email = email_clean.lower()
+        user = await self._users.update_profile(
+            user_id, name=name, language=language, phone=phone, email=email
+        )
         if user is None:
             raise NotFoundError("User not found.", {"id": user_id})
         return {"user": _public_user(user)}
@@ -690,6 +709,8 @@ def _public_user(user: dict) -> dict:
         "role": user["role"],
         "language": user.get("language", "hi"),
         "suspended": bool(user.get("suspended")),
+        "email": user.get("email") or "",
+        "assigned_vendor_id": user.get("assigned_vendor_id") or "",
     }
 
 

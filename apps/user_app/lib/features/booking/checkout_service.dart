@@ -19,6 +19,7 @@ class CheckoutResult {
     required this.windowLabel,
     required this.isSubscription,
     this.providerRef = '',
+    this.upiLink = '',
     this.subscriptionId = '',
     this.waterPaise = 0,
     this.depositPaise = 0,
@@ -35,7 +36,11 @@ class CheckoutResult {
 
   /// Razorpay order id (real refs) or FAKE-* ref (upi:// link path).
   final String providerRef;
+
+  /// Full UPI deep-link from the server (e.g. upi://pay?pa=...&am=...)
+  final String upiLink;
   final String subscriptionId;
+
 
   /// F8 breakup for the confirm screen (server water/deposit when the
   /// quote/estimate carried them; caps counted at handover).
@@ -170,10 +175,12 @@ Future<CheckoutResult> placeCheckout({
   final caps = controller.capsMissing * 300;
 
   var providerRef = '';
+  var upiLink = '';
   var upiPending = false;
   if (controller.paymentMode == PaymentMode.upi && orderId.isNotEmpty) {
     final intent = await api.upiIntent(orderId: orderId, idempotencyKey: key);
     providerRef = (intent['provider_ref'] ?? '') as String;
+    upiLink = (intent['link'] ?? '') as String;
     // FAKE refs open the upi:// link (never the gateway) — the webhook
     // has not confirmed, so the confirm screen says what-next.
     upiPending = providerRef.isNotEmpty &&
@@ -193,10 +200,12 @@ Future<CheckoutResult> placeCheckout({
     windowLabel: windowLabel,
     isSubscription: false,
     providerRef: providerRef,
+    upiLink: upiLink,
     waterPaise: water,
     depositPaise: deposit,
     capsPaise: caps,
     addressLabel: addressLabel,
     upiPending: upiPending,
   );
+
 }

@@ -98,8 +98,12 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
             items = [{"sku": sku if sku in ("refill", "container") else "refill", "qty": int(d["qty"])}]
             window_start = f"{d['date']}T{SUB_WINDOW_START}"
             try:
+                from app.repositories.ledger_repo import LedgerRepo
+                led = await LedgerRepo(conn).get(str(d["user_id"]))
+                dep_paid = int(led.get("deposit_paid", 0) or 0)
                 q = pricing.compute_quote(items, 0, _rates(), address_id=d["address_id"],
-                                          window_start=window_start, rate_version=pricing.RATE_VERSION)
+                                          window_start=window_start, rate_version=pricing.RATE_VERSION,
+                                          deposit_already_paid_paise=dep_paid)
                 payload = {
                     "items": items, "e": 0, "address_id": d["address_id"], "window_start": window_start,
                     "quote_hash": q["quote_hash"], "quote_total": q["total"],

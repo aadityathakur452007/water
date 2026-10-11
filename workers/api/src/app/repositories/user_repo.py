@@ -23,10 +23,10 @@ _USER_COLS = (
     " suspended, suspended_reason, suspended_by, suspended_at, created_at"
 )
 
-# 020 email (contact field, never identity): reads/writes tolerate its absence
-# (pre-020 DBs) mirroring session_repo's pre-014 cap tolerance, so old
-# harnesses keep passing; post-020 rows carry email in the user dict.
+# 020 email + 024 assigned_vendor_id: reads/writes tolerate their absence
+# (pre-020/024 DBs), so old harnesses keep passing.
 _USER_COLS_EMAIL = _USER_COLS + ", email"
+_USER_COLS_FULL = _USER_COLS_EMAIL + ", assigned_vendor_id"
 
 
 def _now() -> str:
@@ -45,26 +45,42 @@ class UserRepo:
         self._conn = conn
 
     async def _select_email_tolerant(self, where: str, arg: str) -> dict | None:
-        """User row with email when the column exists (pre-020 fallback)."""
+        """User row with email and assigned_vendor_id when columns exist."""
         try:
             row = (
                 await self._conn.execute(
-                    f"SELECT {_USER_COLS_EMAIL} FROM users WHERE {where}", (arg,)  # noqa: S608
+                    f"SELECT {_USER_COLS_FULL} FROM users WHERE {where}", (arg,)  # noqa: S608
                 )
             ).fetchone()
-        except Exception as e:  # noqa: BLE001 — pre-020 shape fallback
+            if row is not None:
+                return dict(row)
+        except Exception as e:  # noqa: BLE001 — fallback to partial shapes
             if not _no_such_column(e):
                 raise
-            row = (
-                await self._conn.execute(
-                    f"SELECT {_USER_COLS} FROM users WHERE {where}", (arg,)  # noqa: S608
-                )
-            ).fetchone()
-            if row is None:
-                return None
-            out = dict(row)
-            out["email"] = ""
-            return out
+            try:
+                row = (
+                    await self._conn.execute(
+                        f"SELECT {_USER_COLS_EMAIL} FROM users WHERE {where}", (arg,)  # noqa: S608
+                    )
+                ).fetchone()
+                if row is not None:
+                    out = dict(row)
+                    out["assigned_vendor_id"] = None
+                    return out
+            except Exception as e2:
+                if not _no_such_column(e2):
+                    raise
+                row = (
+                    await self._conn.execute(
+                        f"SELECT {_USER_COLS} FROM users WHERE {where}", (arg,)  # noqa: S608
+                    )
+                ).fetchone()
+                if row is None:
+                    return None
+                out = dict(row)
+                out["email"] = ""
+                out["assigned_vendor_id"] = None
+                return out
         return dict(row) if row is not None else None
 
     async def find_by_id(self, user_id: str) -> dict | None:
@@ -193,7 +209,14 @@ class UserRepo:
         return await self.find_by_id(user_id)
 
     async def update_profile(
-        self, user_id: str, *, name: str | None = None, language: str | None = None
+        self,
+        user_id: str,
+        *,
+        name: str | None = None,
+        language: str | None = None,
+        phone: str | None = None,
+        email: str | None = None,
+        assigned_vendor_id: str | None = None,
     ) -> dict | None:
         """PATCH /auth/me fields only — role/suspend never change here (ssdlc)."""
         sets, args = [], []
@@ -203,11 +226,33 @@ class UserRepo:
         if language is not None:
             sets.append("language = ?")
             args.append(language)
+        if phone is not None:
+            sets.append("phone = ?")
+            args.append(phone)
+        if email is not None:
+            sets.append("email = ?")
+            args.append(email)
+        if assigned_vendor_id is not None:
+            sets.append("assigned_vendor_id = ?")
+            args.append(assigned_vendor_id)
         if not sets:
             return await self.find_by_id(user_id)
         with WRITE_LOCK:
-            await self._conn.execute(
-                f"UPDATE users SET {', '.join(sets)} WHERE id = ?", (*args, user_id)  # noqa: S608
-            )
-            self._conn.commit()
+            try:
+                cols = {r["name"] for r in (await self._conn.execute("PRAGMA table_info(users)")).fetchall()}
+            except Exception:
+                cols = {"id", "phone", "name", "language"}
+            if "email" not in cols and "email = ?" in sets:
+                idx = sets.index("email = ?")
+                sets.pop(idx)
+                args.pop(idx)
+            if "assigned_vendor_id" not in cols and "assigned_vendor_id = ?" in sets:
+                idx = sets.index("assigned_vendor_id = ?")
+                sets.pop(idx)
+                args.pop(idx)
+            if sets:
+                await self._conn.execute(
+                    f"UPDATE users SET {', '.join(sets)} WHERE id = ?", (*args, user_id)  # noqa: S608
+                )
+                self._conn.commit()
         return await self.find_by_id(user_id)

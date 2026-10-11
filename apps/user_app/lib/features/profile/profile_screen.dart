@@ -119,12 +119,14 @@ class ProfileController extends ChangeNotifier {
 
   LedgerStatus _status = LedgerStatus.initial;
   LedgerSnapshot _ledger = const LedgerSnapshot();
+  Map<String, dynamic>? _user;
   String? _errorMessage;
   bool _busy = false;
   bool _hindi = true;
 
   LedgerStatus get status => _status;
   LedgerSnapshot get ledger => _ledger;
+  Map<String, dynamic>? get user => _user;
   String? get errorMessage => _errorMessage;
   bool get busy => _busy;
   bool get hindi => _hindi;
@@ -143,6 +145,12 @@ class ProfileController extends ChangeNotifier {
     _notify();
     try {
       _ledger = LedgerSnapshot.fromApi(await _api.ledgerMe());
+      try {
+        final meRes = await _api.me();
+        _user = (meRes['user'] as Map<String, dynamic>?) ?? meRes;
+      } catch (_) {
+        // me() best-effort
+      }
       _status = LedgerStatus.loaded;
     } on ApiException catch (e) {
       _status = LedgerStatus.error;
@@ -153,6 +161,30 @@ class ProfileController extends ChangeNotifier {
     }
     _notify();
   }
+
+  Future<String?> updateProfile({String? name, String? phone, String? email}) async {
+    _busy = true;
+    _notify();
+    try {
+      final body = <String, dynamic>{
+        if (name != null) 'name': name.trim(),
+        if (phone != null) 'phone': phone.trim(),
+        if (email != null) 'email': email.trim(),
+      };
+      final res = await _api.patchMe(body);
+      final u = (res['user'] as Map<String, dynamic>?) ?? res;
+      _user = u;
+      return null;
+    } on ApiException catch (e) {
+      return e.message.isNotEmpty ? e.message : 'Update fail ho gaya';
+    } catch (_) {
+      return 'Update fail ho gaya';
+    } finally {
+      _busy = false;
+      _notify();
+    }
+  }
+
 
   /// POST /returns → request id + 10-working-day SLA. Returns error key or
   /// null on success (screen toasts + closes the sheet).
@@ -249,6 +281,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _openEditProfileSheet() async {
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      ),
+      builder: (_) => _EditProfileSheet(controller: _c),
+    );
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile update ho gayi')),
+      );
+    }
+  }
+
+
   Future<void> _confirmLogout() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -302,7 +351,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    // Identity & Profile edit card
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: ShodashaTheme.bg,
+                        border: Border.all(color: ShodashaTheme.border),
+                        borderRadius: BorderRadius.circular(
+                          ShodashaTheme.radius,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor: ShodashaTheme.blueTint,
+                            child: const Icon(
+                              Icons.person_outline,
+                              color: ShodashaTheme.blue,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  (_c.user?['name'] as String?)?.isNotEmpty == true
+                                      ? _c.user!['name'] as String
+                                      : 'Customer',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                if ((_c.user?['phone'] as String?)?.isNotEmpty == true)
+                                  Text(
+                                    _c.user!['phone'] as String,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: ShodashaTheme.muted,
+                                    ),
+                                  ),
+                                if ((_c.user?['email'] as String?)?.isNotEmpty == true)
+                                  Text(
+                                    _c.user!['email'] as String,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: ShodashaTheme.muted,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: _openEditProfileSheet,
+                            child: const Text('Badlein'),
+                          ),
+                        ],
+                      ),
+                    ),
                     if (l.suspended)
+
                       Container(
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(12),
@@ -379,9 +491,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   value: 'Rs ${l.duesPaise ~/ 100}',
                                   highlight: l.duesPaise > 0,
                                 ),
+                                const Divider(height: 16),
+                                const Text(
+                                  'Refundable Security Deposit: Rs 150/jar (container/jar wapas karne par turant refund)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: ShodashaTheme.muted,
+                                  ),
+                                ),
                               ],
                             ),
                     ),
+
                     const SizedBox(height: 12),
                     // Return-jar request (10-day SLA text visible pre-tap).
                     Container(
@@ -693,3 +814,156 @@ class _ReturnSheetState extends State<_ReturnSheet> {
     );
   }
 }
+
+class _EditProfileSheet extends StatefulWidget {
+  const _EditProfileSheet({required this.controller});
+  final ProfileController controller;
+
+  @override
+  State<_EditProfileSheet> createState() => _EditProfileSheetState();
+}
+
+class _EditProfileSheetState extends State<_EditProfileSheet> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _phoneCtrl;
+  late final TextEditingController _emailCtrl;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final u = widget.controller.user;
+    _nameCtrl = TextEditingController(text: (u?['name'] ?? '') as String);
+    _phoneCtrl = TextEditingController(text: (u?['phone'] ?? '') as String);
+    _emailCtrl = TextEditingController(text: (u?['email'] ?? '') as String);
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _nameCtrl.text.trim();
+    final phone = _phoneCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+
+    if (phone.isNotEmpty && !RegExp(r'^(\+91|91|0)?[6-9]\d{9}$').hasMatch(phone)) {
+      setState(() => _error = 'Sahi 10-digit mobile number likhein');
+      return;
+    }
+    if (email.isNotEmpty && !email.toLowerCase().endsWith('@gmail.com')) {
+      setState(() => _error = 'Kripya sahi @gmail.com email likhein');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
+    final err = await widget.controller.updateProfile(
+      name: name,
+      phone: phone,
+      email: email,
+    );
+
+    if (!mounted) return;
+    if (err != null) {
+      setState(() {
+        _saving = false;
+        _error = err;
+      });
+    } else {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Profile Badlein',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Aapka Naam (Username)',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phoneCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Mobile Number',
+              hintText: '9876543210',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.phone_outlined),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _emailCtrl,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Gmail Address',
+              hintText: 'example@gmail.com',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.email_outlined),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: const TextStyle(color: ShodashaTheme.danger, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save Karein'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

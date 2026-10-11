@@ -39,6 +39,14 @@ class _PodSheetState extends State<PodSheet> {
   bool _sealOk = true;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.collectPaise > 0 && widget.paymentMode.toLowerCase() == 'cod') {
+      _cash.text = (widget.collectPaise ~/ 100).toString();
+    }
+  }
+
+  @override
   void dispose() {
     _otp.dispose();
     _empties.dispose();

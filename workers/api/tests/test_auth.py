@@ -64,7 +64,16 @@ def _conn():
 
     raw = get_connection(":memory:")
     raw.executescript(MIGRATION)
+    try:
+        raw.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    except Exception:
+        pass
+    try:
+        raw.execute("ALTER TABLE users ADD COLUMN assigned_vendor_id TEXT")
+    except Exception:
+        pass
     return AsyncSqliteConn(raw)
+
 
 
 def _svc(c, verifier=None) -> AuthService:
@@ -353,6 +362,26 @@ def test_router_verify_me_patch():
     assert me.json()["user"]["phone"] == PHONE
     p = client.patch("/v1/auth/me", json={"name": "Asha"}, headers=_auth_headers(token))
     assert p.status_code == 200 and p.json()["user"]["name"] == "Asha"
+
+
+def test_router_patch_me_phone_and_email():
+    c = _conn()
+    client = _client(c)
+    r = client.post("/v1/auth/otp/verify",
+                    json={"firebase_id_token": "good", "device": {"id": "dev-1"}})
+    token = r.json()["access_token"]
+    p = client.patch("/v1/auth/me", json={"name": "Rahul", "phone": "9811122233", "email": "rahul@gmail.com"}, headers=_auth_headers(token))
+    assert p.status_code == 200, p.text
+    user = p.json()["user"]
+    assert user["name"] == "Rahul"
+    assert user["phone"] == "+919811122233"
+    assert user["email"] == "rahul@gmail.com"
+    # Invalid email rejected
+    bad_email = client.patch("/v1/auth/me", json={"email": "notgmail@yahoo.com"}, headers=_auth_headers(token))
+    assert bad_email.status_code == 400
+    # Invalid phone rejected
+    bad_phone = client.patch("/v1/auth/me", json={"phone": "123"}, headers=_auth_headers(token))
+    assert bad_phone.status_code == 400
 
 
 def test_router_verify_missing_device_400():
