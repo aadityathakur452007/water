@@ -36,8 +36,8 @@ void main() {
     expect(find.text('Schedule chunein'), findsOneWidget);
     expect(find.text('Ek Baar'), findsOneWidget);
     expect(find.text('Roz ka Plan'), findsOneWidget);
-    // Section-header row.
-    expect(find.text('Sab samaan'), findsOneWidget);
+    // Section-header row (026 grammar: caps eyebrow).
+    expect(find.text('SAB SAMAAN'), findsOneWidget);
     // Slim 2-col grid: photo cards with name + price + corner add.
     expect(find.byType(GridView), findsOneWidget);
     expect(find.text('Refill (20L)'), findsOneWidget);

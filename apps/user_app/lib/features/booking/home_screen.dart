@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // (Phase 4 §4.6; full WebP re-export is an owner asset step).
               cacheWidth: 32,
               errorBuilder: (_, _, _) =>
-                  const Icon(Icons.water_drop, color: ShodashaTheme.blue),
+                  const Icon(Icons.water_drop, color: ShodashaTheme.teal),
             ),
             const SizedBox(width: 8),
             const Text('Shodasha'),
@@ -158,11 +158,12 @@ class _HomeScreenState extends State<HomeScreen> {
           _WalletStrip(addresses: widget.addresses),
           const SizedBox(height: 4),
           const Text(
-            'Sab samaan',
+            'SAB SAMAAN',
             style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: ShodashaTheme.ink,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+              color: ShodashaTheme.muted,
             ),
           ),
           const SizedBox(height: 8),
@@ -185,7 +186,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: ShodashaTheme.blueTint,
+              // 031: live quote strip in the brand tint — the money truth.
+              color: ShodashaTheme.tealTint,
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
             child: Text(
@@ -195,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(
                 color: ShodashaTheme.ink,
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
@@ -236,7 +238,7 @@ class _AddressBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = addresses?.resolve();
     return ListTile(
-      leading: const Icon(Icons.location_on, color: ShodashaTheme.blue),
+      leading: const Icon(Icons.location_on, color: ShodashaTheme.teal),
       title: const Text(
         'Deliver to',
         style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
@@ -305,14 +307,16 @@ class _ScheduleCards extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             color: ShodashaTheme.muted,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.4,
           ),
         ),
         const Text(
           'Schedule chunein',
           style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.3,
             color: ShodashaTheme.ink,
           ),
         ),
@@ -368,21 +372,34 @@ class _ScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return PressScale(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected ? ShodashaTheme.blueTint : ShodashaTheme.bg,
+          // 031: brand teal rides the whole structure — selection is a teal
+          // tint fill, never blue (blue stays link-only).
+          color: selected ? ShodashaTheme.tealTint : ShodashaTheme.surface,
           border: Border.all(
-            color: selected ? ShodashaTheme.blue : ShodashaTheme.border,
+            color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
+            width: selected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: ShodashaTheme.blue),
+            Icon(
+              icon,
+              color: selected ? ShodashaTheme.teal : ShodashaTheme.muted,
+            ),
             const SizedBox(height: 8),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                color: ShodashaTheme.ink,
+              ),
+            ),
             Text(
               sub,
               style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
@@ -406,12 +423,13 @@ class _WalletStrip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
         border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
       child: const Row(
         children: [
-          Icon(Icons.shield_outlined, size: 18, color: ShodashaTheme.blue),
+          Icon(Icons.shield_outlined, size: 18, color: ShodashaTheme.teal),
           SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -435,14 +453,15 @@ class _GreetingHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
+        // 031: brand mark — teal circle with the water drop, w900 headline.
         Container(
           width: ShodashaTheme.minTarget,
           height: ShodashaTheme.minTarget,
           decoration: const BoxDecoration(
-            color: ShodashaTheme.blueTint,
+            color: ShodashaTheme.tealTint,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.water_drop, color: ShodashaTheme.blue),
+          child: const Icon(Icons.water_drop, color: ShodashaTheme.teal),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -452,15 +471,18 @@ class _GreetingHeader extends StatelessWidget {
               Text(
                 _greeting(),
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
                   color: ShodashaTheme.muted,
                 ),
               ),
               const Text(
                 'Paani book karein',
                 style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
                   color: ShodashaTheme.ink,
                 ),
               ),
@@ -502,10 +524,11 @@ class _GridCard extends StatelessWidget {
           onTap: onOpen,
           child: Container(
             decoration: BoxDecoration(
-              color: ShodashaTheme.bg,
+              color: ShodashaTheme.surface,
               border: Border.all(color: ShodashaTheme.border),
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
+
             child: Stack(
               children: [
                 Column(
@@ -513,8 +536,8 @@ class _GridCard extends StatelessWidget {
                   children: [
                     ClipRRect(
                       borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(8),
-                        topRight: Radius.circular(8),
+                        topLeft: Radius.circular(11),
+                        topRight: Radius.circular(11),
                       ),
                       child: Image.asset(
                         sku.asset,
@@ -524,11 +547,11 @@ class _GridCard extends StatelessWidget {
                         cacheWidth: 448,
                         errorBuilder: (_, _, _) => Container(
                           height: 120,
-                          color: ShodashaTheme.blueTint,
+                          color: ShodashaTheme.tealTint,
                           child: const Icon(
                             Icons.water_drop,
                             size: 40,
-                            color: ShodashaTheme.blue,
+                            color: ShodashaTheme.teal,
                           ),
                         ),
                       ),
@@ -541,7 +564,7 @@ class _GridCard extends StatelessWidget {
                           Text(
                             sku.name,
                             style: const TextStyle(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                               fontSize: 14,
                               color: ShodashaTheme.ink,
                             ),
@@ -552,8 +575,8 @@ class _GridCard extends StatelessWidget {
                           Text(
                             rupeesLabel(sku.pricePaise),
                             style: const TextStyle(
-                              color: ShodashaTheme.blue,
-                              fontWeight: FontWeight.w700,
+                              color: ShodashaTheme.ink,
+                              fontWeight: FontWeight.w900,
                               fontSize: 15,
                             ),
                           ),
@@ -569,10 +592,10 @@ class _GridCard extends StatelessWidget {
                     width: ShodashaTheme.minTarget,
                     height: ShodashaTheme.minTarget,
                     decoration: const BoxDecoration(
-                      color: ShodashaTheme.ink,
+                      color: ShodashaTheme.teal,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.add, color: ShodashaTheme.bg),
+                    child: const Icon(Icons.add, color: ShodashaTheme.surface),
                   ),
                 ),
               ],
