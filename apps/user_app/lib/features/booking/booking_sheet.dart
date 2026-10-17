@@ -8,6 +8,9 @@
 // UPI = Razorpay gateway for real refs, upi:// link for FAKE-* refs.
 // ui-checklist: Submitting-a-Form (button copy matches purpose, loading,
 // success/error) + Making-a-Payment. Locked palette, 48px targets.
+// 031: restyled to the donor checkout grammar — drag handle + close header,
+// tinted address/order cards, bold money rows, sticky green CTA bar.
+// Presentation only: controller/payment/quote/poll logic is untouched.
 
 import 'package:flutter/material.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
@@ -36,8 +39,11 @@ Future<void> showCheckoutSheet(
     context: context,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(ShodashaTheme.radius),
+      ),
     ),
+    clipBehavior: Clip.antiAlias,
     builder: (_) => _CheckoutSheet(
       controller: controller,
       api: api,
@@ -471,29 +477,76 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+          bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _StepHeader(step: _step, titles: _titles),
-              const SizedBox(height: 16),
-              if (_step == 0)
-                _AddressRow(
-                  address: widget.address,
-                  onChange: widget.onChangeAddress,
-                )
-              else if (_step == _payStepIdx)
-                _payStep(busy)
-              else
-                _scheduleStep(busy),
-              const SizedBox(height: 16),
-              Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header treatment (donor grammar): drag handle on top, step
+            // rail + close toggle below. Close is idle-only — money actions
+            // are never dismissed by a stray tap.
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.border,
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 12, 0),
+              child: Row(
+                children: [
+                  Expanded(child: _StepHeader(step: _step, titles: _titles)),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: ShodashaTheme.muted,
+                    ),
+                    onPressed: busy ? null : () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_step == 0)
+                      _AddressRow(
+                        address: widget.address,
+                        onChange: widget.onChangeAddress,
+                      )
+                    else if (_step == _payStepIdx)
+                      _payStep(busy)
+                    else
+                      _scheduleStep(busy),
+                  ],
+                ),
+              ),
+            ),
+            // Money CTA bar (donor grammar): full-bleed surface strip with a
+            // hairline top — actions stay pinned while content scrolls.
+            Container(
+              decoration: const BoxDecoration(
+                color: ShodashaTheme.surface,
+                border: Border(top: BorderSide(color: ShodashaTheme.border)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Row(
                 children: [
                   if (_step > 0)
                     Expanded(
@@ -521,8 +574,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -549,7 +602,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           avatar: Icon(
             deliveryTypeIcons[t],
             size: 18,
-            color: selected ? ShodashaTheme.bg : ShodashaTheme.blue,
+            color: selected ? ShodashaTheme.surface : ShodashaTheme.muted,
           ),
           label: Text(deliveryTypeLabels[t]!),
           selected: selected,
@@ -560,14 +613,18 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             });
             if (t != DeliveryType.once) _fetchEstimate();
           },
-          selectedColor: ShodashaTheme.ink,
+          backgroundColor: ShodashaTheme.surface,
+          selectedColor: ShodashaTheme.teal,
           labelStyle: TextStyle(
-            color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
-            fontWeight: FontWeight.w600,
+            color: selected ? ShodashaTheme.surface : ShodashaTheme.ink,
+            fontWeight: FontWeight.w700,
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: ShodashaTheme.border),
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            side: BorderSide(
+              color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
+            ),
           ),
         );
       }).toList(),
@@ -579,19 +636,32 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   Widget _slotsFailureRow() {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              'Slots load nahi hue — time pakka nahi hua',
-              style: TextStyle(color: ShodashaTheme.danger),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: ShodashaTheme.danger.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.error_outline,
+              size: 16,
+              color: ShodashaTheme.danger,
             ),
-          ),
-          TextButton(
-            onPressed: _loadSlots,
-            child: const Text('Dobara try karein'),
-          ),
-        ],
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Slots load nahi hue — time pakka nahi hua',
+                style: TextStyle(color: ShodashaTheme.danger),
+              ),
+            ),
+            TextButton(
+              onPressed: _loadSlots,
+              child: const Text('Dobara try karein'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -606,17 +676,31 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: ShodashaTheme.blueTint,
+            color: ShodashaTheme.surface,
+            border: Border.all(color: ShodashaTheme.border),
             borderRadius: BorderRadius.circular(ShodashaTheme.radius),
           ),
           child: Row(
             children: [
-              const Icon(Icons.wb_sunny_outlined, color: ShodashaTheme.blue),
-              const SizedBox(width: 8),
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.wb_sunny_outlined,
+                  color: ShodashaTheme.teal,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   '${deliveryTypeLabels[c.deliveryType]} • $when',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
               TextButton(
@@ -630,9 +714,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         if (_unserviceable)
           const Padding(
             padding: EdgeInsets.only(top: 8),
-            child: Text(
-              'Is pincode par delivery nahi — address badlein',
-              style: TextStyle(color: ShodashaTheme.danger),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline, size: 16, color: ShodashaTheme.danger),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Is pincode par delivery nahi — address badlein',
+                    style: TextStyle(color: ShodashaTheme.danger),
+                  ),
+                ),
+              ],
             ),
           ),
         if (_slotsFailed) _slotsFailureRow(),
@@ -672,12 +764,16 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             },
             calendarStyle: CalendarStyle(
               selectedDecoration: const BoxDecoration(
-                color: ShodashaTheme.ink,
+                color: ShodashaTheme.teal,
                 shape: BoxShape.circle,
               ),
-              todayDecoration: BoxDecoration(
-                color: ShodashaTheme.blue.withValues(alpha: 0.25),
+              todayDecoration: const BoxDecoration(
+                color: ShodashaTheme.tealTint,
                 shape: BoxShape.circle,
+              ),
+              todayTextStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: ShodashaTheme.ink,
               ),
             ),
           ),
@@ -688,9 +784,20 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
           ),
         ] else ...[
-          const Text(
-            'Subscription banega — pause/skip kabhi bhi kar sakte hain.',
-            style: TextStyle(fontSize: 13, color: ShodashaTheme.blue),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.tealTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: const Text(
+              'Subscription banega — pause/skip kabhi bhi kar sakte hain.',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ShodashaTheme.ink,
+              ),
+            ),
           ),
         ],
       ],
@@ -705,11 +812,22 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         // Collapsed schedule: once-orders recap here (Badlein edits
         // inline); recurring chose on the schedule step.
         if (_isOnce) ...[_scheduleRecap(), const SizedBox(height: 12)],
-        Text(
-          'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
-          '${rupeesLabel(c.depositDuePaise)} = Kul '
-          '${rupeesLabel(c.quoteTotalPaise)}',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+        // Money row (donor grammar): the breakup lives in its own card with
+        // extra-strong type. String + values untouched — only the emphasis.
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: ShodashaTheme.surface,
+            border: Border.all(color: ShodashaTheme.border),
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          ),
+          child: Text(
+            'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
+            '${rupeesLabel(c.depositDuePaise)} = Kul '
+            '${rupeesLabel(c.quoteTotalPaise)}',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+          ),
         ),
         // F5: server amount failed → marked client estimate + retry.
         if (!_isOnce && _estimateFailed)
@@ -770,61 +888,70 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         ],
         if (_phase == _Phase.error) ...[
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Icon(
-                  Icons.error_outline,
-                  size: 18,
-                  color: ShodashaTheme.danger,
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.danger.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.error_outline,
+                    size: 18,
+                    color: ShodashaTheme.danger,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _error,
-                      style: const TextStyle(color: ShodashaTheme.danger),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        OutlinedButton(
-                          onPressed: busy
-                              ? null
-                              : () {
-                                  c.refreshIdempotencyKey();
-                                  _pay();
-                                },
-                          child: const Text('Retry karein'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _error,
+                        style: const TextStyle(
+                          color: ShodashaTheme.danger,
+                          fontWeight: FontWeight.w600,
                         ),
-                        if (codOk && c.paymentMode == PaymentMode.upi)
-                          ElevatedButton(
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          OutlinedButton(
                             onPressed: busy
                                 ? null
                                 : () {
-                                    setState(() {
-                                      c.paymentMode = PaymentMode.cod;
-                                    });
+                                    c.refreshIdempotencyKey();
                                     _pay();
                                   },
-                            child: const Text('COD chunein'),
+                            child: const Text('Retry karein'),
                           ),
-                      ],
-                    ),
-                  ],
+                          if (codOk && c.paymentMode == PaymentMode.upi)
+                            ElevatedButton(
+                              onPressed: busy
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        c.paymentMode = PaymentMode.cod;
+                                      });
+                                      _pay();
+                                    },
+                              child: const Text('COD chunein'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
-
       ],
     );
   }
@@ -850,9 +977,9 @@ class _StepHeader extends StatelessWidget {
           Text(
             titles[i],
             style: TextStyle(
-              fontWeight: i == step ? FontWeight.w700 : FontWeight.w500,
+              fontWeight: i == step ? FontWeight.w800 : FontWeight.w600,
               color: i <= step ? ShodashaTheme.ink : ShodashaTheme.muted,
-              fontSize: 13,
+              fontSize: i == step ? 14 : 13,
             ),
           ),
           if (i < titles.length - 1) ...[
@@ -883,20 +1010,20 @@ class _Dot extends StatelessWidget {
       height: 24,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: active || done ? ShodashaTheme.ink : ShodashaTheme.bg,
+        color: active || done ? ShodashaTheme.teal : ShodashaTheme.bg,
         border: Border.all(
-          color: active || done ? ShodashaTheme.ink : ShodashaTheme.border,
+          color: active || done ? ShodashaTheme.teal : ShodashaTheme.border,
         ),
         shape: BoxShape.circle,
       ),
       child: done
-          ? const Icon(Icons.check, size: 14, color: ShodashaTheme.bg)
+          ? const Icon(Icons.check, size: 14, color: ShodashaTheme.surface)
           : Text(
               '${index + 1}',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: active ? ShodashaTheme.bg : ShodashaTheme.muted,
+                color: active ? ShodashaTheme.surface : ShodashaTheme.muted,
               ),
             ),
     );
@@ -916,12 +1043,25 @@ class _AddressRow extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: ShodashaTheme.border),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
       child: Row(
         children: [
-          const Icon(Icons.location_on, color: ShodashaTheme.blue),
-          const SizedBox(width: 8),
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: ShodashaTheme.tealTint,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.location_on,
+              color: ShodashaTheme.teal,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             // F7: two lines — label/pincode + house/street/area detail.
             child: a == null
@@ -934,6 +1074,7 @@ class _AddressRow extends StatelessWidget {
                         '${a.label} • ${a.pincode}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       Text(
                         addressDetailLine(a),
@@ -970,19 +1111,21 @@ class _PayChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final box = Container(
+      constraints: const BoxConstraints(minHeight: ShodashaTheme.minTarget),
+      alignment: Alignment.center,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
-        color: selected ? ShodashaTheme.blue : ShodashaTheme.bg,
+        color: selected ? ShodashaTheme.teal : ShodashaTheme.surface,
         border: Border.all(
-          color: selected ? ShodashaTheme.blue : ShodashaTheme.border,
+          color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
         ),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: selected ? ShodashaTheme.bg : ShodashaTheme.ink,
-          fontWeight: FontWeight.w600,
+          color: selected ? ShodashaTheme.surface : ShodashaTheme.ink,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
