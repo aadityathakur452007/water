@@ -41,7 +41,7 @@ Future<void> maybeOfferFirstRun(
     context: context,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(ShodashaTheme.radius)),
     ),
     builder: (_) => _FirstRunSheet(onAddAddress: onAddAddress),
   );
@@ -99,11 +99,16 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
           children: [
             if (_step == _Step.locate) ...[
               const Icon(Icons.location_on,
-                  size: 32, color: ShodashaTheme.blue),
+                  size: 32, color: ShodashaTheme.teal),
               const SizedBox(height: 8),
               const Text(
                 'Delivery ke liye location',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                  color: ShodashaTheme.ink,
+                ),
               ),
               const SizedBox(height: 6),
               const Text(
@@ -126,11 +131,16 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               ),
             ] else ...[
               const Icon(Icons.home_outlined,
-                  size: 32, color: ShodashaTheme.blue),
+                  size: 32, color: ShodashaTheme.teal),
               const SizedBox(height: 8),
               const Text(
                 'Apna address jodein',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                  color: ShodashaTheme.ink,
+                ),
               ),
               const SizedBox(height: 6),
               const Text(
@@ -153,7 +163,7 @@ class _FirstRunSheetState extends State<_FirstRunSheet> {
               const SizedBox(height: 8),
               Text(_note!,
                   style: const TextStyle(
-                      fontSize: 13, color: ShodashaTheme.blue)),
+                      fontSize: 13, color: ShodashaTheme.muted)),
             ],
             Center(
               child: TextButton(
