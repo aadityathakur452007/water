@@ -53,6 +53,9 @@ const Map<String, String> addressStringsHi = {
   'saved': 'Address save ho gaya',
   'deleted': 'Address delete ho gaya',
   'retry': 'Dobara try karein',
+  // 031 donor header grammar ('SAVED DELIVERY ADDRESSES' + 'N saved').
+  'savedHeader': 'Rakhe hue pate',
+  'savedCount': 'pate',
 };
 
 /// Pincode: exactly 6 digits, first non-zero (Indian postal norms).
@@ -442,16 +445,45 @@ class _AddressScreenState extends State<AddressScreen> {
             onRefresh: c.load,
             child: ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-              itemCount: c.items.length + 1,
+              itemCount: c.items.length + 2,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
-                if (i == c.items.length) {
+                // 031 donor grammar: caps section label + live count in
+                // brand color ('N saved').
+                if (i == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          addressStringsHi['savedHeader']!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: ShodashaTheme.muted,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        Text(
+                          '${c.items.length} ${addressStringsHi['savedCount']!}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: ShodashaTheme.teal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                if (i == c.items.length + 1) {
                   return ElevatedButton(
                     onPressed: () => _openForm(),
                     child: Text(addressStringsHi['addFirst']!),
                   );
                 }
-                final a = c.items[i];
+                final a = c.items[i - 1];
                 final selected =
                     c.selectedId == a.id ||
                     (c.selectedId == null && c.resolve()?.id == a.id);
@@ -460,12 +492,18 @@ class _AddressScreenState extends State<AddressScreen> {
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   child: Container(
                     padding: const EdgeInsets.all(14),
+                    // 031 donor DELIVERY-TO card grammar: teal selection
+                    // state (1.5 border + 8% tint + check glyph), leading
+                    // type icon, weight-shift on the label.
                     decoration: BoxDecoration(
+                      color: selected
+                          ? ShodashaTheme.teal.withValues(alpha: 0.08)
+                          : ShodashaTheme.surface,
                       border: Border.all(
                         color: selected
-                            ? ShodashaTheme.blue
+                            ? ShodashaTheme.teal
                             : ShodashaTheme.border,
-                        width: selected ? 2 : 1,
+                        width: selected ? 1.5 : 1,
                       ),
                       borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                     ),
@@ -474,28 +512,51 @@ class _AddressScreenState extends State<AddressScreen> {
                       children: [
                         Row(
                           children: [
-                            RadioGroup<String>(
-                              groupValue: c.resolve()?.id,
-                              onChanged: (v) => c.select(v),
-                              child: Radio<String>(value: a.id),
+                            Icon(
+                              a.type == AddrType.office
+                                  ? Icons.apartment_rounded
+                                  : Icons.home_rounded,
+                              size: 22,
+                              color: selected
+                                  ? ShodashaTheme.teal
+                                  : ShodashaTheme.muted,
                             ),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Text(
                                 a.label,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: selected
+                                      ? FontWeight.w800
+                                      : FontWeight.w700,
                                   color: ShodashaTheme.ink,
                                 ),
                               ),
                             ),
+                            if (selected)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 6),
+                                child: Icon(
+                                  Icons.check_circle,
+                                  size: 20,
+                                  color: ShodashaTheme.teal,
+                                ),
+                              ),
                             if (a.isDefault)
                               Container(
+                                margin: const EdgeInsets.only(left: 6),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: ShodashaTheme.blueTint,
+                                  // White badge keeps contrast on the
+                                  // selected tint; mint-tint badge on white.
+                                  color: selected
+                                      ? ShodashaTheme.surface
+                                      : ShodashaTheme.tealTint,
                                   borderRadius: BorderRadius.circular(
                                     ShodashaTheme.radius,
                                   ),
@@ -504,7 +565,7 @@ class _AddressScreenState extends State<AddressScreen> {
                                   addressStringsHi['defaultTick']!,
                                   style: const TextStyle(
                                     fontSize: 12,
-                                    color: ShodashaTheme.blue,
+                                    color: ShodashaTheme.teal,
                                   ),
                                 ),
                               ),
