@@ -4,11 +4,20 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**USER-APP UI IMPORT AUDIT COMPLETE (2026-10-17, 6 docs in Feature_docs/user-app-ui-import-audit/) — NO CODE WRITTEN**
+
+Owner goal: import a friend's premium-looking Flutter UI (github.com/ayushsingh930/Shodasha-Mineral-water, cloned read-only to `C:\Users\Hp\AppData\Local\Temp\opencode\shodasha-friend-ui`) to restyle the user app. 5 parallel audit agents + 1 synthesis produced: 01 UI inventory, 02 feature parity/gap matrix (0 full / 6 partial / 7 static / 7 missing), 03 backend contract violations (no network layer at all, 5 hardcoded ChangeNotifier singletons, client-minted delivery PIN = trust inversion), 04 engineering/packaging audit (com.example.shodasha package, dead deps, ~1008 lines dead code, default launcher icon, debug-signed release), 05 UX/conversion review (0/7 conversion goals present; good craft: order-card grammar, gradient heroes, status pills), 06 strategy. Owner decisions locked 2026-10-17: **MIX strategy** (a few screens adopt friend skeletons rewired to our controllers: home, login skin, wallet card, address card; rest restyled in place), temp-dir reference only, teal #0D9488 brand + green #16A34A CTA, keep friend's English copy for now. Next: branch `031-user-app-ui-revamp` after cleanup (026-upi-monthly-redesign unmerged; context files uncommitted), then P0 theme lock → P2 screen work.
+
 **Phase-1 Research COMPLETE (2026-09-29) — 35 markdown files in Feature_docs/**
 
 Series-1 setup done (skills 36 dirs + specify 1.0.13.dev0 + Shodasha context + 20-source index). Series-2 6-group deep research done (A/B/C/D/E/F with thorough article reads). Series-3 synthesis done (user/vendor/feature + flows + pricing + MVP).
 
 ## Current Goal
+
+BHOPAL WATER SUPPLY VENDORS FIELD INTELLIGENCE & DIRECTORY (2026-10-12, ADR-113):
+- Verified Local Vendor Research: Executed comprehensive investigation of water suppliers operating strictly within Bhopal municipal & suburban areas (Kolar Road, Arera Colony, MP Nagar, Katara Hills, Govindpura, Indrapuri, Karond, Saket Nagar, Misrod, TT Nagar).
+- Sourced and verified 28 operational water suppliers (20L jar delivery, RO mineral water, chilled water, residential & bulk tankers, and BMC civic emergency helpline) across official government registries (Bhopal Municipal Corporation), local directory authorities (`bhopalhelpline.com`, IndiaMART, Justdial, Webindia123).
+- Structured Artifacts: Generated master directory in table format saved at `bhopal_water_supply_vendors.md` and `context/bhopal_water_supply_vendors.md`.
 
 BACKGROUND QUERY OPTIMIZATION, LAZY TAB MOUNTING & PAYMENTS AUTH/INDEX FIX (2026-10-11, ADR-112):
 - Payments Unauthenticated Error & Loop Resolved (`apps/user_app`): `PaymentHistoryScreen` now receives the authenticated `ApiClient` instance from `ProfileScreen` and `OrdersScreen`. Added token existence check (`_api.hasToken`) to prevent unauthenticated requests, and contextual error handling on 401/403 session expiry, eliminating rapid 401 retry loops.
