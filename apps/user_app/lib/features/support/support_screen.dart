@@ -186,10 +186,12 @@ class SupportScreen extends StatefulWidget {
     this.controller,
     this.orderContext,
     this.openUrl,
+    this.api,
   });
 
   final SupportController? controller;
   final String? orderContext; // prefilled wa.me text when opened from orders
+  final ApiClient? api;
 
   /// Opens [url] externally. Injectable for widget tests (defaults to
   /// url_launcher's external-application launch).
@@ -200,8 +202,11 @@ class SupportScreen extends StatefulWidget {
 }
 
 class _SupportScreenState extends State<SupportScreen> {
+  // Injected transport (ADR-112 DI): UserShell passes the authenticated
+  // ApiClient so complaints carry the real Bearer + persisted X-Device-Id —
+  // never the identity-splitting 'unknown-device' fallback.
   late final SupportController _c =
-      widget.controller ?? SupportController(api: ApiClient(accessToken: null));
+      widget.controller ?? SupportController(api: widget.api!);
 
   @override
   void initState() {

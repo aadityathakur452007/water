@@ -56,17 +56,20 @@ class ApiClient {
     this.deviceId = 'unknown-device',
     this.onUnauthorized,
   }) : _http = client ?? http.Client() {
-    // Fail fast in debug on cleartext prod builds: the release pipeline
-    // always passes an https SHODASHA_API_BASE. Localhost stays allowed.
-    // (Phase 4 §4.6: copied from the vendor client — two small clients
-    // beats one clever shared one.)
-    assert(
-      baseUrl.startsWith('https://') ||
-          baseUrl.contains('localhost') ||
-          baseUrl.contains('127.0.0.1') ||
-          baseUrl.contains('10.0.2.2'),
-      'ApiClient baseUrl must be https (or loopback for dev): $baseUrl',
-    );
+    // Fail fast on cleartext prod builds — hard check, NOT assert(): asserts
+    // are stripped in release, and every shell curl in front proves this file
+    // is the single transport (Phase 4 §4.6 keeps the vendor-copy precedent —
+    // two small clients beats one clever shared one). The release pipeline
+    // must pass an https SHODASHA_API_BASE:
+    //   flutter build apk --release --dart-define=SHODASHA_API_BASE=https://<deploy-domain>/v1
+    // Localhost/127.0.0.1/10.0.2.2 stay allowed for dev runs.
+    final bool loopback = baseUrl.contains('localhost') ||
+        baseUrl.contains('127.0.0.1') ||
+        baseUrl.contains('10.0.2.2');
+    if (!baseUrl.startsWith('https://') && !loopback) {
+      throw ArgumentError.value(baseUrl, 'baseUrl',
+          'ApiClient baseUrl must be https (or a loopback address for dev)');
+    }
   }
 
   final http.Client _http;

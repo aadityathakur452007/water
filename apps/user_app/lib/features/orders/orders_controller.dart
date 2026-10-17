@@ -764,8 +764,9 @@ class OrdersController extends ChangeNotifier {
 
   /// wa.me deep link with prefilled order context; false → SnackBar.
   Future<bool> openWhatsApp(String orderContext) async {
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
     final uri = Uri.parse(
-      'https://wa.me/919302190067?text=${Uri.encodeComponent(orderContext)}',
+      'https://wa.me/$digits?text=${Uri.encodeComponent(orderContext)}',
     );
     try {
       return await launchUrl(uri, mode: LaunchMode.externalApplication);

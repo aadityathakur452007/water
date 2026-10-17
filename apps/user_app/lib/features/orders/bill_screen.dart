@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/api_client.dart' show kSupportPhone;
 import 'orders_controller.dart';
 
 /// Frozen bill view for one [Order].
@@ -18,8 +19,9 @@ class BillScreen extends StatelessWidget {
   /// Bill share = secondary wa.me link (never a post-purchase primary).
   Future<void> _share(BuildContext context, Order o) async {
     final text = 'Shodasha #${o.id} • ${formatRupees(o.totalPaise)}';
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
     final uri = Uri.parse(
-      'https://wa.me/919302190067?text=${Uri.encodeComponent(text)}',
+      'https://wa.me/$digits?text=${Uri.encodeComponent(text)}',
     );
     bool ok = false;
     try {
