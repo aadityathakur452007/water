@@ -88,6 +88,11 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   2. Lazy Tab Mounting in User Shell: `UserShell` tracks `_visitedTabs` in state. Unvisited tabs inside `IndexedStack` render `const SizedBox.shrink()`, lazily mounting tab trees only when the user explicitly taps their bottom navigation destination. Prevents the 5-6 concurrent query storm on app launch (`/catalog`, `/addresses`, `/ledger/me`, `/orders`, `/auth/me`).
   3. Guest-Safe Orders Loading: In `OrdersScreen.initState`, `controller.load()` is guarded by `isAuthenticated` so guest browsing never triggers an unauthenticated `/orders` request.
   4. Cloudflare D1 Composite Index: Migration `025_payments_user_index.sql` adds `CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments (user_id, created_at DESC)`, converting payment history lookups from full-table scans to O(log N) index seeks.
+- ADR-115 026 Monthly Billing Modes Merge (2026-10-17, ADR-114 workstream):
+  1. Monthly billing modes restored from branch 026: `POST /v1/subscriptions` accepts `billing_mode` (`per_delivery` default, `monthly_prepaid`, `monthly_postpaid`) and validates strict `payment_method` (`upi`|`cod`); `subscription_service.py` grafted into main's evolved service (idempotent create, proration cancel, deposit waiving kept); `notifications` of `list`/`get_owned` expose `billing_mode` + `monthly_estimate_paise` (qty x rate x 30); `process_due` descriptors carry `billing_mode` (scheduler run_due log shows it).
+  2. PRAGMA Self-Heal Convergence: `_ensure_billing_mode` ALTERs `subscriptions.billing_mode` on legacy DBs (ADR-065 precedent), so 012_monthly.sql is belt-and-suspenders; `payment_service.get_dues` gains provider-honesty fields (`provider`, `razorpay_ready`) per the Razorpay-only truth (ADR-096).
+  3. Dormant UI treatment: 026's superseded Flutter booking/checkout/subscription UI injections were dropped in the merge (main's green UI kept); the user-app wiring for monthly modes lands with the 031 UI revamp.
+  4. Pre-existing main defect (not from this merge): `tests/test_resilience_snapshots.py::test_address_snapshot_preservation_on_edit` fails with `StaleQuoteError` (`order_service.py:153`) on pre-merge main `a90f814` — owner-owed fix.
 ```
 
 
