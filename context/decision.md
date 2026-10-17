@@ -33,6 +33,7 @@
 
 ## Decision Index
 
+| ADR-118 | 2026-10-17 | Security-hygiene from frontend↔backend contract audit: ApiClient cleartext guard assert→hard ArgumentError (release must ship https SHODASHA_API_BASE), SupportScreen DI via shell-injected ApiClient (kills unknown-device identity split + unauthenticated complaints), kSupportPhone single-source for all wa.me links | Accepted | apps/user_app api_client.dart, support_screen.dart, user_shell.dart, orders_controller.dart, bill_screen.dart |
 | ADR-117 | 2026-10-17 | UI revamp P2/P3 batch transplant: wallet+address cards on donor grammar (real ledger data, porter card look), checkout sticky-CTA sheet (idempotency/UPI frozen), orders/tracking/subscription/support reskin (donor order-card + live subscription grammar), Android brand adaptive icon (teal bg + white drop vector, legacy PNG fallback kept) | Accepted | apps/user_app profile/address/booking/orders/tracking/subscription/support screens, android/res/*.xml, branch 031-user-app-ui-revamp |
 | ADR-116 | 2026-10-17 | Register skin transplant: name_number_screen reskinned on donor login skeleton (welcome band, label-above fields, teal 2px focus ring, 52dp ink CTA, donor rhythm) + first_run_screen consistency pass — palette v2 tokens only, zero string/logic changes | Accepted | apps/user_app/lib/features/auth/name_number_screen.dart, first_run_screen.dart, branch 031-user-app-ui-revamp |
 | ADR-115 | 2026-10-17 | Merge 026-upi-monthly-redesign into main: hand-union graft of monthly billing modes (prepaid/postpaid + 012 migration + PRAGMA self-heal + provider-honesty get_dues) into main evolved subscription service/scheduler; 026 superseded UI dropped (dormant backend modes until UI revamp wires them); ADR numbering collision with 026 own ADR-072 noted - 026 landed content supersedes its branch ADR | Accepted | workers/api (subscription_service, scheduler, subscriptions.py, payment_service), 012_monthly.sql, test_monthly_billing.py, branch 031-user-app-ui-revamp |
@@ -168,6 +169,14 @@
 ---
 
 ## Decision Entries
+
+### ADR-118: Contract-audit security-hygiene fixes (https guard, SupportScreen DI, phone single-source) (2026-10-17)
+- **Date**: 2026-10-17
+- **Status**: Accepted
+- **Decision**: From the frontend↔backend contract verification pass (141 backend routes vs full frontend endpoint inventory; pytest 333/1 with the 1 failure being the pre-documented main-only StaleQuoteError), three source-evidenced drift findings were fixed: (1) `ApiClient`'s cleartext `assert` became a construction-time `ArgumentError` — release builds throw unless the base URL is https or an explicit loopback (release APK must be built with `--dart-define=SHODASHA_API_BASE=https://<domain>/v1`; the shipped-inner-device URL cannot silently go cleartext). (2) `SupportScreen` now takes the shell's authenticated `ApiClient` (ADR-112 DI precedent) — the old `ApiClient(accessToken: null)` + `deviceId: 'unknown-device'` fallback is deleted; complaints carry the user's real Bearer + persisted device UUID. (3) The two hardcoded `919302190067` wa.me literals (orders_controller.openWhatsApp, bill_screen._share) derive digits from the single `kSupportPhone` constant.
+- **Why**: All three were honest-boundary drift, not exploitable breaks: (1) made the release artifact inert against prod (localhost base) and had no runtime residual guard for owners who set a non-https URL; (2) split the fraud-graph device identity and made the Support tab for logged-in users hit 401-first even when a valid session existed; (3) risked divergence if the support line changes.
+- **Consequences**: Debug/test behavior unchanged (loopback allowed; only one test constructs a non-loopback base and it is already https). Watch-outs: future release builds MUST pass the https dart-define; SupportScreen without server/api/controller now fails fast rather than silently mis-identifying. Open (owner-scoped out this pass): `POST /v1/quotes` un-throttled public endpoint; Flutter refresh-token wiring (30-min access expiry → cold re-login).
+- **Affects**: apps/user_app/lib/core/api_client.dart, features/support/support_screen.dart, features/shell/user_shell.dart, features/orders/orders_controller.dart, features/orders/bill_screen.dart
 
 ### ADR-117: UI revamp P2/P3 batch transplant (donor grammar onto real controllers) + Android brand icon (2026-10-17)
 - **Date**: 2026-10-17
