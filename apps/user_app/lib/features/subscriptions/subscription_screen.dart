@@ -1,4 +1,7 @@
 // F5 — Subscriptions: list + pause range + skip + resume. Contract §4.5
+// 031 restyle: donor premium plan-card grammar (white surface cards, pill
+// status treatment on the REAL pause/cancel state, teal tint dues strip,
+// next-run row from server data). Actions + controller wiring untouched.
 // ignore_for_file: prefer_initializing_formals
 // WHY: public ctor param `api:` is the API (same pattern as F2 auth);
 // private initializing formals are unusable from other libraries.
@@ -279,8 +282,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     var to = base.add(const Duration(days: 7));
     final err = await showModalBottomSheet<String>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radius),
+        ),
       ),
       builder: (sheetCtx) => StatefulBuilder(
         builder: (ctx, setSheet) => SafeArea(
@@ -337,6 +342,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
+                    // 031: pause/resume are plan-management actions →
+                    // token teal, never the money green.
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ShodashaTheme.teal,
+                      foregroundColor: ShodashaTheme.surface,
+                    ),
                     onPressed: () => Navigator.of(ctx).pop(
                       '${ApiClient.dateOnly(from)}|${ApiClient.dateOnly(to)}',
                     ),
@@ -379,7 +390,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radius),
+        ),
       ),
       builder: (ctx) => _CancelSubscriptionSheet(sub: s),
     );
@@ -485,11 +498,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 // 015: totals header — Due today + Paid till now (pay-per-day).
                 if (i == 0) {
                   return Container(
+                    // 031: donor status-banner grammar on the dues strip —
+                    // brand tint + hairline border + 800-weight money line.
+                    // 'Dues chukayein' is the money CTA → green (locked).
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: ShodashaTheme.blueTint,
+                      color: ShodashaTheme.tealTint,
                       borderRadius:
                           BorderRadius.circular(ShodashaTheme.radius),
+                      border: Border.all(
+                        color: ShodashaTheme.teal.withValues(alpha: 0.25),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -497,17 +516,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           child: Text(
                             'Due today Rs ${c.dueTodayPaise ~/ 100} • Paid till now Rs ${c.duesPaise ~/ 100}',
                             style:
-                                const TextStyle(fontWeight: FontWeight.w700),
+                                const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
                         // F7: server UPI intent for outstanding dues.
                         if (c.duesPayLink != null)
-                          TextButton(
-                            onPressed: () => launchUrl(
-                              Uri.parse(c.duesPayLink!),
-                              mode: LaunchMode.externalApplication,
+                          SizedBox(
+                            height: ShodashaTheme.minTarget,
+                            child: ElevatedButton.icon(
+                              onPressed: () => launchUrl(
+                                Uri.parse(c.duesPayLink!),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                              icon: const Icon(Icons.currency_rupee,
+                                  size: 16),
+                              label: const Text(
+                                'Dues chukayein',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
                             ),
-                            child: const Text('Dues chukayein'),
                           ),
                       ],
                     ),
@@ -515,11 +545,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 }
                 final s = c.items[i - 1];
                 return Container(
+                  // 031: premium plan card — white surface on the slate
+                  // ground, hairline border, token radius.
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
+                    color: ShodashaTheme.surface,
                     border: Border.all(color: ShodashaTheme.border),
-                    borderRadius:
-                        BorderRadius.circular(ShodashaTheme.radius),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,27 +562,34 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             child: Text(
                               s.label,
                               style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                                letterSpacing: -0.2,
+                                color: ShodashaTheme.ink,
                               ),
                             ),
                           ),
+                          // Donor pill treatment (token colors only):
+                          // mint-tinted pause chip → neutral bg + muted,
+                          // canceled → neutral bg + danger text.
                           if (s.canceled)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
-                                vertical: 2,
+                                vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFFEE2E2),
+                                color: ShodashaTheme.bg,
                                 borderRadius: BorderRadius.circular(
-                                  ShodashaTheme.radius,
+                                  ShodashaTheme.radius / 2,
                                 ),
                               ),
                               child: const Text(
                                 'Canceled',
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
                                   color: ShodashaTheme.danger,
                                 ),
                               ),
@@ -559,25 +598,49 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
-                                vertical: 2,
+                                vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: ShodashaTheme.blueTint,
+                                color: ShodashaTheme.bg,
                                 borderRadius: BorderRadius.circular(
-                                  ShodashaTheme.radius,
+                                  ShodashaTheme.radius / 2,
                                 ),
                               ),
                               child: Text(
                                 subStringsHi['pausedBadge']!,
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  color: ShodashaTheme.blue,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                  color: ShodashaTheme.muted,
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: ShodashaTheme.tealTint,
+                                borderRadius: BorderRadius.circular(
+                                  ShodashaTheme.radius / 2,
+                                ),
+                              ),
+                              child: const Text(
+                                'Active',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                  color: ShodashaTheme.teal,
                                 ),
                               ),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Text(
                         '${subStringsHi['qty']}: ${s.qty} • '
                         '${subStringsHi['windowLabel']}: '
@@ -585,14 +648,41 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         style: const TextStyle(
                           color: ShodashaTheme.muted,
                           fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
+                      // Donor "Next drop" treatment on real server data
+                      // (next_run from GET /subscriptions/{id}).
+                      if (!s.paused &&
+                          !s.canceled &&
+                          s.nextRun != null) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.schedule,
+                              size: 14,
+                              color: ShodashaTheme.teal,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${subStringsHi['nextRun']}: ${s.nextRun}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: ShodashaTheme.teal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (s.paused && s.holdTo != null)
                         Text(
                           '${subStringsHi['pausedUntil']} ${s.holdTo}',
                           style: const TextStyle(
                             color: ShodashaTheme.muted,
-                            fontSize: 13,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       const SizedBox(height: 8),
@@ -615,11 +705,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             if (!s.paused)
                               TextButton(
                                 onPressed: () => _pauseSheet(s),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: ShodashaTheme.teal,
+                                ),
                                 child: Text(subStringsHi['pause']!),
                               )
                             else
                               TextButton(
                                 onPressed: () => _resumeSheet(s),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: ShodashaTheme.teal,
+                                ),
                                 child: Text(subStringsHi['resume']!),
                               ),
                             if (!s.paused)
@@ -651,13 +747,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                     _toast(e);
                                   }
                                 },
+                                style: TextButton.styleFrom(
+                                  foregroundColor: ShodashaTheme.teal,
+                                ),
                                 child: Text(subStringsHi['skipToday']!),
                               ),
                             TextButton(
                               onPressed: () => _cancelSheet(s),
+                              style: TextButton.styleFrom(
+                                foregroundColor: ShodashaTheme.danger,
+                              ),
                               child: const Text(
                                 'Cancel karein',
-                                style: TextStyle(color: ShodashaTheme.danger),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ],
@@ -675,7 +779,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 }
 
 /// Phase 9 §9.1: first-load skeleton matching the sub-row rhythm
-/// (same blueTint boxes as the orders list).
+/// (031: teal-tint boxes — palette v2 rhythm).
 class _SubsSkeleton extends StatelessWidget {
   const _SubsSkeleton();
 
@@ -688,7 +792,7 @@ class _SubsSkeleton extends StatelessWidget {
       itemBuilder: (_, _) => Container(
         height: 88,
         decoration: BoxDecoration(
-          color: ShodashaTheme.blueTint,
+          color: ShodashaTheme.tealTint,
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
       ),
@@ -719,9 +823,10 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
     final deposit = _jarsPerDelivery * _depositPerJar;
 
     return Container(
+      // 031: premium plan card — white surface on the slate ground.
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: ShodashaTheme.bg,
+        color: ShodashaTheme.surface,
         border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
@@ -730,30 +835,32 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
         children: [
           Row(
             children: [
-              const Icon(Icons.calculate_outlined, color: ShodashaTheme.blue, size: 22),
+              const Icon(Icons.calculate_outlined, color: ShodashaTheme.teal, size: 22),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
                   'Mahina Subscription Calculator',
                   style: TextStyle(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     fontSize: 16,
+                    letterSpacing: -0.2,
                     color: ShodashaTheme.ink,
                   ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: ShodashaTheme.blueTint,
-                  borderRadius: BorderRadius.circular(12),
+                  color: ShodashaTheme.tealTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius / 2),
                 ),
                 child: const Text(
                   'Plans',
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: ShodashaTheme.blue,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                    color: ShodashaTheme.teal,
                   ),
                 ),
               ),
@@ -773,7 +880,7 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                 child: ChoiceChip(
                   label: Text('$qty Jar${qty > 1 ? "s" : ""}'),
                   selected: sel,
-                  selectedColor: ShodashaTheme.blueTint,
+                  selectedColor: ShodashaTheme.tealTint,
                   onSelected: (_) => setState(() => _jarsPerDelivery = qty),
                 ),
               );
@@ -791,19 +898,19 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
               ChoiceChip(
                 label: const Text('Rozana (30 din)'),
                 selected: _deliveriesPerMonth == 30,
-                selectedColor: ShodashaTheme.blueTint,
+                selectedColor: ShodashaTheme.tealTint,
                 onSelected: (_) => setState(() => _deliveriesPerMonth = 30),
               ),
               ChoiceChip(
                 label: const Text('Alternate (15 din)'),
                 selected: _deliveriesPerMonth == 15,
-                selectedColor: ShodashaTheme.blueTint,
+                selectedColor: ShodashaTheme.tealTint,
                 onSelected: (_) => setState(() => _deliveriesPerMonth = 15),
               ),
               ChoiceChip(
                 label: const Text('Hafte me 2 din (8 din)'),
                 selected: _deliveriesPerMonth == 8,
-                selectedColor: ShodashaTheme.blueTint,
+                selectedColor: ShodashaTheme.tealTint,
                 onSelected: (_) => setState(() => _deliveriesPerMonth = 8),
               ),
             ],
@@ -823,9 +930,13 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: _isPrepaid ? ShodashaTheme.blueTint : ShodashaTheme.bg,
+                      color: _isPrepaid
+                          ? ShodashaTheme.tealTint
+                          : ShodashaTheme.surface,
                       border: Border.all(
-                        color: _isPrepaid ? ShodashaTheme.blue : ShodashaTheme.border,
+                        color: _isPrepaid
+                            ? ShodashaTheme.teal
+                            : ShodashaTheme.border,
                         width: _isPrepaid ? 2 : 1,
                       ),
                       borderRadius: BorderRadius.circular(ShodashaTheme.radius),
@@ -835,7 +946,7 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                       children: const [
                         Text(
                           'Prepaid Monthly',
-                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                         ),
                         SizedBox(height: 2),
                         Text(
@@ -855,9 +966,13 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: !_isPrepaid ? ShodashaTheme.blueTint : ShodashaTheme.bg,
+                      color: !_isPrepaid
+                          ? ShodashaTheme.tealTint
+                          : ShodashaTheme.surface,
                       border: Border.all(
-                        color: !_isPrepaid ? ShodashaTheme.blue : ShodashaTheme.border,
+                        color: !_isPrepaid
+                            ? ShodashaTheme.teal
+                            : ShodashaTheme.border,
                         width: !_isPrepaid ? 2 : 1,
                       ),
                       borderRadius: BorderRadius.circular(ShodashaTheme.radius),
@@ -867,7 +982,7 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                       children: const [
                         Text(
                           'Postpaid / Per-day',
-                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                         ),
                         SizedBox(height: 2),
                         Text(
@@ -886,7 +1001,7 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
+              color: ShodashaTheme.bg,
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
               border: Border.all(color: ShodashaTheme.border),
             ),
@@ -917,8 +1032,8 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                       '₹$deposit (one-time)',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: ShodashaTheme.blue,
-                        fontWeight: FontWeight.w600,
+                        color: ShodashaTheme.teal,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
@@ -934,16 +1049,17 @@ class _MonthlyPlanCalculatorState extends State<_MonthlyPlanCalculator> {
                     Text(
                       '₹$waterBill',
                       style: const TextStyle(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                         fontSize: 18,
-                        color: ShodashaTheme.blue,
+                        letterSpacing: -0.3,
+                        color: ShodashaTheme.ink,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  '💡 Service chhodne par Jar Deposit aapke UPI par turant refund ho jata hai.',
+                  'Service chhodne par Jar Deposit aapke UPI par turant refund ho jata hai.',
                   style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
                 ),
               ],
@@ -1038,7 +1154,7 @@ class _CancelSubscriptionSheetState extends State<_CancelSubscriptionSheet> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: ShodashaTheme.blueTint,
+              color: ShodashaTheme.tealTint,
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
               border: Border.all(color: ShodashaTheme.border),
             ),
@@ -1048,7 +1164,7 @@ class _CancelSubscriptionSheetState extends State<_CancelSubscriptionSheet> {
                 const Text(
                   'Refund & Jar Return Calculation:',
                   style: TextStyle(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     fontSize: 14,
                     color: ShodashaTheme.ink,
                   ),
@@ -1058,7 +1174,7 @@ class _CancelSubscriptionSheetState extends State<_CancelSubscriptionSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(Icons.water_drop_outlined,
-                        size: 16, color: ShodashaTheme.blue),
+                        size: 16, color: ShodashaTheme.teal),
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -1074,7 +1190,7 @@ class _CancelSubscriptionSheetState extends State<_CancelSubscriptionSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Icon(Icons.inventory_2_outlined,
-                        size: 16, color: ShodashaTheme.blue),
+                        size: 16, color: ShodashaTheme.teal),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -1134,7 +1250,7 @@ class _CancelSubscriptionSheetState extends State<_CancelSubscriptionSheet> {
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: ShodashaTheme.danger,
-                foregroundColor: Colors.white,
+                foregroundColor: ShodashaTheme.surface,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),

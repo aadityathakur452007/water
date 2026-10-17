@@ -1,4 +1,7 @@
 // F5 — Support tab: WhatsApp entry + FAQ + complaint form. Contract §4.7
+// 031 restyle: donor contact-row grammar on tokens only (tinted icon chips,
+// teal actions, white tiles on the slate ground). Real support options,
+// strings and complaint wiring untouched.
 // ignore_for_file: prefer_initializing_formals
 // WHY: public ctor param `api:` is the API (same pattern as F2 auth);
 // private initializing formals are unusable from other libraries.
@@ -246,8 +249,10 @@ class _SupportScreenState extends State<SupportScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radius),
+        ),
       ),
       builder: (_) => _ComplaintFormSheet(controller: _c),
     );
@@ -260,18 +265,30 @@ class _SupportScreenState extends State<SupportScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // WhatsApp primary entry (flat card, blue cue on the icon only).
+          // 031: donor contact-row grammar — white tile on the slate ground,
+          // tinted icon chip, action opens WhatsApp (flat card, token cues).
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
+              color: ShodashaTheme.surface,
               border: Border.all(color: ShodashaTheme.border),
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.chat_bubble_outline,
-                  color: ShodashaTheme.blue,
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.tealTint,
+                    borderRadius: BorderRadius.circular(
+                      ShodashaTheme.radius / 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.chat_bubble_outline,
+                    size: 22,
+                    color: ShodashaTheme.teal,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -281,7 +298,7 @@ class _SupportScreenState extends State<SupportScreen> {
                       Text(
                         supportStringsHi['waTitle']!,
                         style: const TextStyle(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
                           color: ShodashaTheme.ink,
                         ),
                       ),
@@ -297,6 +314,9 @@ class _SupportScreenState extends State<SupportScreen> {
                 ),
                 TextButton(
                   onPressed: _openWhatsApp,
+                  style: TextButton.styleFrom(
+                    foregroundColor: ShodashaTheme.teal,
+                  ),
                   child: const Text('Kholein'),
                 ),
               ],
@@ -329,12 +349,26 @@ class _SupportScreenState extends State<SupportScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
+              color: ShodashaTheme.surface,
               border: Border.all(color: ShodashaTheme.border),
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
             child: Row(
               children: [
-                const Icon(Icons.report_outlined, color: ShodashaTheme.blue),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.tealTint,
+                    borderRadius: BorderRadius.circular(
+                      ShodashaTheme.radius / 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.report_outlined,
+                    size: 22,
+                    color: ShodashaTheme.teal,
+                  ),
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -343,7 +377,7 @@ class _SupportScreenState extends State<SupportScreen> {
                       Text(
                         supportStringsHi['complaintTitle']!,
                         style: const TextStyle(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
                           color: ShodashaTheme.ink,
                         ),
                       ),
@@ -359,6 +393,9 @@ class _SupportScreenState extends State<SupportScreen> {
                 ),
                 TextButton(
                   onPressed: _openComplaintForm,
+                  style: TextButton.styleFrom(
+                    foregroundColor: ShodashaTheme.teal,
+                  ),
                   child: const Text('Form bharein'),
                 ),
               ],
@@ -407,6 +444,7 @@ class _SupportScreenState extends State<SupportScreen> {
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
+                        color: ShodashaTheme.surface,
                         border: Border.all(color: ShodashaTheme.border),
                         borderRadius: BorderRadius.circular(
                           ShodashaTheme.radius,
@@ -422,7 +460,8 @@ class _SupportScreenState extends State<SupportScreen> {
                                   kComplaintReasonsHi[cm.reasonCode] ??
                                       cm.reasonCode,
                                   style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w700,
+                                    color: ShodashaTheme.ink,
                                   ),
                                 ),
                                 Text(
@@ -435,6 +474,8 @@ class _SupportScreenState extends State<SupportScreen> {
                               ],
                             ),
                           ),
+                          // Status treatment: token-colored micro label —
+                          // teal for live states, success for resolved.
                           Text(
                             cm.status == 'resolved'
                                 ? supportStringsHi['statusResolved']!
@@ -442,11 +483,12 @@ class _SupportScreenState extends State<SupportScreen> {
                                 ? supportStringsHi['statusProgress']!
                                 : supportStringsHi['statusOpen']!,
                             style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
                               color: cm.status == 'resolved'
                                   ? ShodashaTheme.success
-                                  : ShodashaTheme.blue,
+                                  : ShodashaTheme.teal,
                             ),
                           ),
                         ],
@@ -463,7 +505,7 @@ class _SupportScreenState extends State<SupportScreen> {
 }
 
 /// Phase 9 §9.1: compact skeleton for the complaints section
-/// (same blueTint boxes as the orders list).
+/// (031: teal-tint boxes — palette v2 rhythm).
 class _ComplaintsSkeleton extends StatelessWidget {
   const _ComplaintsSkeleton();
 
@@ -476,7 +518,7 @@ class _ComplaintsSkeleton extends StatelessWidget {
             height: 64,
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
-              color: ShodashaTheme.blueTint,
+              color: ShodashaTheme.tealTint,
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
           ),
@@ -503,6 +545,7 @@ class _FaqState extends State<_Faq> {
     return Container(
       margin: const EdgeInsets.only(top: 8),
       decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
         border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),

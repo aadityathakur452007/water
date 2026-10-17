@@ -2,6 +2,11 @@
 // Contract §4.4 + user-flows flow 3 (window + rider + call, map only near
 // arrival — never in v1).
 //
+// 031 restyle: donor status treatment on tokens only — teal tracker +
+// live banners, slate inset for the delivery-code chip, tint schedule row.
+// Frozen on purpose: the delivery OTP reveal behavior + strings, every
+// order/status string, and the verification/poll wiring (60s backoff).
+//
 // Visibility matrix: pre-dispatch → Cancel + Reschedule (confirm dialogs);
 // dispatched → WhatsApp CTA only; delivered → help row + rate once
 // (auto-popup on first view + manual button); cancelled → none.
@@ -361,10 +366,11 @@ class _HeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      // 031: white card on the slate ground (palette v2 provider).
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OrdersTokens.white,
-        border: Border.all(color: OrdersTokens.border),
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
       ),
       child: Row(
@@ -379,8 +385,9 @@ class _HeaderCard extends StatelessWidget {
                       : order.itemSummary,
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: OrdersTokens.ink,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
                 if (order.addressLabel.isNotEmpty) ...[
@@ -389,7 +396,7 @@ class _HeaderCard extends StatelessWidget {
                     order.addressLabel,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: OrdersTokens.muted,
+                      color: ShodashaTheme.muted,
                     ),
                   ),
                 ],
@@ -403,19 +410,23 @@ class _HeaderCard extends StatelessWidget {
                 formatRupees(order.totalPaise),
                 style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: OrdersTokens.ink,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                  color: ShodashaTheme.ink,
                 ),
               ),
               // 015: payment mode + paid state badge (UPI/COD visibility).
+              // Money-state cue: token success when paid, muted when due.
               Text(
                 order.isPaid
                     ? '${order.paymentMode.toUpperCase()} • Paid'
                     : '${order.paymentMode.toUpperCase()} • ${formatRupees(order.totalPaise - order.paymentsPaise)} due',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: OrdersTokens.blue,
                   fontWeight: FontWeight.w700,
+                  color: order.isPaid
+                      ? ShodashaTheme.success
+                      : ShodashaTheme.muted,
                 ),
               ),
               if (order.refundPending)
@@ -423,7 +434,7 @@ class _HeaderCard extends StatelessWidget {
                   ordersStringsHi['refundPending']!,
                   style: const TextStyle(
                     fontSize: 11,
-                    color: OrdersTokens.blue,
+                    color: ShodashaTheme.muted,
                   ),
                 ),
             ],
@@ -458,8 +469,8 @@ class _FourStepTracker extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: OrdersTokens.white,
-          border: Border.all(color: OrdersTokens.border),
+          color: ShodashaTheme.surface,
+          border: Border.all(color: ShodashaTheme.border),
           borderRadius: BorderRadius.circular(OrdersTokens.radius),
         ),
         child: Column(
@@ -482,11 +493,11 @@ class _FourStepTracker extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: i == step
-                            ? FontWeight.w700
-                            : FontWeight.w400,
+                            ? FontWeight.w800
+                            : FontWeight.w500,
                         color: i <= step
-                            ? OrdersTokens.blue
-                            : OrdersTokens.muted,
+                            ? ShodashaTheme.teal
+                            : ShodashaTheme.muted,
                       ),
                       textAlign: i == 0
                           ? TextAlign.start
@@ -513,20 +524,21 @@ class _Dot extends StatelessWidget {
     // Phase 9 §9.1: the fill change pops (scale) + the check fades in —
     // 200ms, transform + opacity only. Static when reduced motion is on
     // (the color still flips instantly, so state never depends on motion).
+    // 031: active flow color is the brand teal (palette v2).
     if (MediaQuery.disableAnimationsOf(context)) {
       return Container(
         width: 20,
         height: 20,
         decoration: BoxDecoration(
-          color: filled ? OrdersTokens.blue : OrdersTokens.white,
+          color: filled ? ShodashaTheme.teal : ShodashaTheme.surface,
           shape: BoxShape.circle,
           border: Border.all(
-            color: filled ? OrdersTokens.blue : OrdersTokens.border,
+            color: filled ? ShodashaTheme.teal : ShodashaTheme.border,
             width: 2,
           ),
         ),
         child: filled
-            ? const Icon(Icons.check, size: 12, color: OrdersTokens.white)
+            ? const Icon(Icons.check, size: 12, color: ShodashaTheme.surface)
             : null,
       );
     }
@@ -538,10 +550,10 @@ class _Dot extends StatelessWidget {
         width: 20,
         height: 20,
         decoration: BoxDecoration(
-          color: filled ? OrdersTokens.blue : OrdersTokens.white,
+          color: filled ? ShodashaTheme.teal : ShodashaTheme.surface,
           shape: BoxShape.circle,
           border: Border.all(
-            color: filled ? OrdersTokens.blue : OrdersTokens.border,
+            color: filled ? ShodashaTheme.teal : ShodashaTheme.border,
             width: 2,
           ),
         ),
@@ -552,7 +564,7 @@ class _Dot extends StatelessWidget {
           child: const Icon(
             Icons.check,
             size: 12,
-            color: OrdersTokens.white,
+            color: ShodashaTheme.surface,
           ),
         ),
       ),
@@ -571,7 +583,7 @@ class _Connector extends StatelessWidget {
         height: 3,
         margin: const EdgeInsets.symmetric(horizontal: 4),
         decoration: BoxDecoration(
-          color: filled ? OrdersTokens.blue : OrdersTokens.border,
+          color: filled ? ShodashaTheme.teal : ShodashaTheme.border,
           borderRadius: BorderRadius.circular(2),
         ),
       ),
@@ -604,7 +616,7 @@ class _TrackingSkeleton extends StatelessWidget {
   static Widget _skelBox(double height) => Container(
         height: height,
         decoration: BoxDecoration(
-          color: OrdersTokens.blueTint,
+          color: ShodashaTheme.tealTint,
           borderRadius: BorderRadius.circular(OrdersTokens.radius),
         ),
       );
@@ -620,14 +632,16 @@ class _WindowCard extends StatelessWidget {
     final s = order.windowStart;
     final e = order.windowEnd ?? s.add(const Duration(minutes: 30));
     return Container(
+      // 031: donor schedule row — brand tint card, teal accent on the cue,
+      // 900-weight time as the value line.
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OrdersTokens.blueTint,
+        color: ShodashaTheme.tealTint,
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
       ),
       child: Row(
         children: [
-          const Icon(Icons.schedule, size: 20, color: OrdersTokens.blue),
+          const Icon(Icons.schedule, size: 20, color: ShodashaTheme.teal),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -637,7 +651,8 @@ class _WindowCard extends StatelessWidget {
                   ordersStringsHi['windowLabel']!,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: OrdersTokens.blue,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.teal,
                   ),
                 ),
                 // F10: date rides with the time — a bare HH:MM hides
@@ -646,7 +661,8 @@ class _WindowCard extends StatelessWidget {
                   '${two(s.day)}/${two(s.month)}',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: OrdersTokens.blue,
+                    fontWeight: FontWeight.w600,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
                 Text(
@@ -654,8 +670,9 @@ class _WindowCard extends StatelessWidget {
                   '${two(e.hour)}:${two(e.minute)}',
                   style: const TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: OrdersTokens.blue,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.2,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
               ],
@@ -676,15 +693,18 @@ class _LiveStopsAheadBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNext = stopsAhead == 0;
+    // 031: single brand treatment (donor status-banner grammar, token
+    // palette only): teal for both live states, depth from the icon chip —
+    // no out-of-token colors.
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isNext ? const Color(0xFFF0FDF4) : OrdersTokens.blueTint,
+        color: ShodashaTheme.tealTint,
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
         border: Border.all(
           color: isNext
-              ? const Color(0xFF86EFAC)
-              : OrdersTokens.blue.withValues(alpha: 0.3),
+              ? ShodashaTheme.teal.withValues(alpha: 0.45)
+              : ShodashaTheme.border,
         ),
       ),
       child: Row(
@@ -693,12 +713,12 @@ class _LiveStopsAheadBanner extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: isNext ? const Color(0xFFDCFCE7) : Colors.white,
+              color: isNext ? ShodashaTheme.teal : ShodashaTheme.surface,
               shape: BoxShape.circle,
             ),
             child: Icon(
               isNext ? Icons.local_shipping : Icons.route,
-              color: isNext ? const Color(0xFF15803D) : OrdersTokens.blue,
+              color: isNext ? ShodashaTheme.surface : ShodashaTheme.teal,
               size: 20,
             ),
           ),
@@ -709,12 +729,12 @@ class _LiveStopsAheadBanner extends StatelessWidget {
               children: [
                 Text(
                   isNext
-                      ? 'Aapka stop agla hai! 🚀'
-                      : 'Driver abhi $stopsAhead stops door hai ⏱️',
+                      ? 'Aapka stop agla hai!'
+                      : 'Driver abhi $stopsAhead stops door hai',
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: isNext ? const Color(0xFF166534) : OrdersTokens.ink,
+                    fontWeight: FontWeight.w800,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -722,10 +742,9 @@ class _LiveStopsAheadBanner extends StatelessWidget {
                   isNext
                       ? 'Driver aapke address par aa raha hai. Kripya empty jar ready rakhein.'
                       : 'Anumanit samay: lagbhag ${stopsAhead * 10}–${stopsAhead * 15} minute. Empty jar bahar rakhein.',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13,
-                    color:
-                        isNext ? const Color(0xFF15803D) : OrdersTokens.muted,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
               ],
@@ -747,16 +766,24 @@ class _RiderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OrdersTokens.white,
-        border: Border.all(color: OrdersTokens.border),
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.delivery_dining_outlined,
-            size: 20,
-            color: OrdersTokens.ink,
+          // Donor tile grammar: tinted icon chip + label/name stack.
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: ShodashaTheme.tealTint,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.delivery_dining_outlined,
+              size: 20,
+              color: ShodashaTheme.teal,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -766,16 +793,18 @@ class _RiderCard extends StatelessWidget {
                 Text(
                   ordersStringsHi['riderLabel']!,
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: OrdersTokens.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                    color: ShodashaTheme.muted,
                   ),
                 ),
                 Text(
                   order.riderName ?? '',
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: OrdersTokens.ink,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
               ],
@@ -787,8 +816,8 @@ class _RiderCard extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: onCall,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: OrdersTokens.blue,
-                  side: const BorderSide(color: OrdersTokens.border),
+                  foregroundColor: ShodashaTheme.teal,
+                  side: const BorderSide(color: ShodashaTheme.border),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
@@ -808,40 +837,55 @@ class _DeliveryCodeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 031: donor security-PIN chip — slate inset box, teal pin icon, loose
+    // letter-spacing on the digits. Display logic + strings are FROZEN.
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: OrdersTokens.white,
-        border: Border.all(color: OrdersTokens.border),
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.key_outlined, size: 20, color: OrdersTokens.ink),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Delivery code / डिलीवरी कोड',
-                  style: TextStyle(fontSize: 12, color: OrdersTokens.muted),
-                ),
-                Text(
-                  '$code — rider ko batayein',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: OrdersTokens.ink,
-                    letterSpacing: 2,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: ShodashaTheme.bg,
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(OrdersTokens.radius / 2),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.key_outlined, size: 18, color: ShodashaTheme.teal),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Delivery code / डिलीवरी कोड',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                      color: ShodashaTheme.muted,
+                    ),
                   ),
-                ),
-              ],
+                  Text(
+                    '$code — rider ko batayein',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: ShodashaTheme.teal,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -861,8 +905,8 @@ class _BillRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: OrdersTokens.white,
-          border: Border.all(color: OrdersTokens.border),
+          color: ShodashaTheme.surface,
+          border: Border.all(color: ShodashaTheme.border),
           borderRadius: BorderRadius.circular(OrdersTokens.radius),
         ),
         child: Column(
@@ -876,12 +920,15 @@ class _BillRow extends StatelessWidget {
                     '${formatRupees(order.totalPaise)}',
                     style: const TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: OrdersTokens.ink,
+                      fontWeight: FontWeight.w700,
+                      color: ShodashaTheme.ink,
                     ),
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: OrdersTokens.muted),
+                const Icon(
+                  Icons.chevron_right,
+                  color: ShodashaTheme.muted,
+                ),
               ],
             ),
             if (order.paymentsPaise > 0)
@@ -891,7 +938,7 @@ class _BillRow extends StatelessWidget {
                   'Vendor ko ${formatRupees(order.paymentsPaise)} diye — bill me confirm karein',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: OrdersTokens.blue,
+                    color: ShodashaTheme.muted,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -910,19 +957,25 @@ class _FlatBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 031: tokens only — neutral ground + red text/border for errors
+    // (always paired with copy, never color-alone), brand tint otherwise.
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isError ? const Color(0xFFFEF2F2) : OrdersTokens.blueTint,
+        color: ShodashaTheme.bg,
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
-        border: isError ? Border.all(color: const Color(0xFFFCA5A5)) : null,
+        border: Border.all(
+          color: isError
+              ? ShodashaTheme.danger.withValues(alpha: 0.4)
+              : ShodashaTheme.border,
+        ),
       ),
       child: Text(
         text,
         style: TextStyle(
           fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: isError ? const Color(0xFFDC2626) : OrdersTokens.blue,
+          fontWeight: FontWeight.w700,
+          color: isError ? ShodashaTheme.danger : ShodashaTheme.teal,
         ),
         textAlign: TextAlign.center,
       ),
@@ -961,8 +1014,8 @@ class _ActionsFor extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: busy ? null : onCancel,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: OrdersTokens.ink,
-                  side: const BorderSide(color: OrdersTokens.border),
+                  foregroundColor: ShodashaTheme.ink,
+                  side: const BorderSide(color: ShodashaTheme.border),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
@@ -978,8 +1031,9 @@ class _ActionsFor extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: busy ? null : onReschedule,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: ShodashaTheme.ink,
-                  foregroundColor: OrdersTokens.white,
+                  // 031: schedule action → structure teal (not a money CTA).
+                  backgroundColor: ShodashaTheme.teal,
+                  foregroundColor: ShodashaTheme.surface,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(OrdersTokens.radius),
                   ),
@@ -998,8 +1052,8 @@ class _ActionsFor extends StatelessWidget {
         child: ElevatedButton(
           onPressed: onWhatsApp,
           style: ElevatedButton.styleFrom(
-            backgroundColor: ShodashaTheme.ink,
-            foregroundColor: OrdersTokens.white,
+            backgroundColor: ShodashaTheme.teal,
+            foregroundColor: ShodashaTheme.surface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(OrdersTokens.radius),
             ),
@@ -1013,10 +1067,10 @@ class _ActionsFor extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: OrdersTokens.white,
-              border: Border.all(color: OrdersTokens.border),
+              color: ShodashaTheme.surface,
+              border: Border.all(color: ShodashaTheme.border),
               borderRadius: BorderRadius.circular(OrdersTokens.radius),
             ),
             child: Row(
@@ -1025,7 +1079,7 @@ class _ActionsFor extends StatelessWidget {
                   child: TextButton(
                     onPressed: onCall,
                     style: TextButton.styleFrom(
-                      foregroundColor: OrdersTokens.blue,
+                      foregroundColor: ShodashaTheme.teal,
                       minimumSize: const Size(48, OrdersTokens.minTarget),
                     ),
                     child: Text(ordersStringsHi['callRider']!),
@@ -1035,7 +1089,7 @@ class _ActionsFor extends StatelessWidget {
                   child: TextButton(
                     onPressed: onWhatsApp,
                     style: TextButton.styleFrom(
-                      foregroundColor: OrdersTokens.blue,
+                      foregroundColor: ShodashaTheme.teal,
                       minimumSize: const Size(48, OrdersTokens.minTarget),
                     ),
                     child: Text(ordersStringsHi['whatsappHelp']!),
@@ -1050,9 +1104,9 @@ class _ActionsFor extends StatelessWidget {
             child: ElevatedButton(
               onPressed: order.canRate ? onRate : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: ShodashaTheme.ink,
-                foregroundColor: OrdersTokens.white,
-                disabledBackgroundColor: ShodashaTheme.ink.withValues(
+                backgroundColor: ShodashaTheme.teal,
+                foregroundColor: ShodashaTheme.surface,
+                disabledBackgroundColor: ShodashaTheme.teal.withValues(
                   alpha: 0.3,
                 ),
                 shape: RoundedRectangleBorder(
@@ -1070,10 +1124,10 @@ class _ActionsFor extends StatelessWidget {
         height: OrdersTokens.minTarget,
         child: OutlinedButton.icon(
           onPressed: onWhatsApp,
-          icon: const Icon(Icons.support_agent, color: OrdersTokens.blue),
+          icon: const Icon(Icons.support_agent, color: ShodashaTheme.teal),
           style: OutlinedButton.styleFrom(
-            foregroundColor: OrdersTokens.blue,
-            side: const BorderSide(color: OrdersTokens.blue),
+            foregroundColor: ShodashaTheme.teal,
+            side: const BorderSide(color: ShodashaTheme.teal),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(OrdersTokens.radius),
             ),
