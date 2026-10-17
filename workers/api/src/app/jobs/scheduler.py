@@ -113,7 +113,8 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
                 }
                 order = await svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
                 created.append({"order_id": order["id"], "sub_id": d["sub_id"],
-                                "user_id": d["user_id"], "total": order["total"]})
+                                "user_id": d["user_id"], "total": order["total"],
+                                "billing_mode": d.get("billing_mode", "per_delivery")})
             except IdempotentReplayError as e:
                 order = (e.details or {}).get("order") or {}
                 created.append({"order_id": order.get("id"), "sub_id": d["sub_id"],
