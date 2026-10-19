@@ -19,6 +19,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # apps/user_app_legacy_flutter (the pre-032 customer app) is
+          # intentionally NOT in this matrix: reference-only, never built.
           - app: user
             dir: apps/user_app
             label: Shodasha (customer)
