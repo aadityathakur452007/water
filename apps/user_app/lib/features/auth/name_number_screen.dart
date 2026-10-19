@@ -3,6 +3,11 @@
 // No OTP, no SMS round-trip. Guest browse keeps prices visible WITHOUT
 // login (user-flows flow 1); demo sheet stays as the server-gated QA
 // fallback. All CTAs ≥48dp. Inputs stay un-animated (keyboard-jank guard).
+//
+// 031: donor login_screen skeleton transplanted (welcome band with brand
+// mark + centered title, label-above fields, teal 2px focus ring, 52dp flat
+// ink CTA) — locked palette v2 tokens only, zero string/logic changes
+// (behavior tests assert exact copy).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,9 +27,21 @@ class AuthTokens {
   static const Color muted = ShodashaTheme.muted;
   static const Color blue = ShodashaTheme.blue;
   static const Color border = ShodashaTheme.border;
+  // 031: teal rides structure/brand (law) — welcome band mark, focus rings.
+  static const Color teal = ShodashaTheme.teal;
+  static const Color tealTint = ShodashaTheme.tealTint;
+  static const Color surface = ShodashaTheme.surface;
   static const double radius = ShodashaTheme.radius;
   static const double minTarget = ShodashaTheme.minTarget;
 }
+
+/// Donor field-label grammar: small bold label sittings above the field,
+/// hint stays in-field. Same string data as before (freeze-safe).
+const TextStyle _fieldLabel = TextStyle(
+  fontSize: 13,
+  fontWeight: FontWeight.w800,
+  color: AuthTokens.text,
+);
 
 /// Name+number entry. [onGuestBrowse] keeps prices visible WITHOUT login
 /// (user-flows flow 1).
@@ -79,6 +96,13 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
   bool get _validEmail => isValidUserEmail(_email.text);
   bool get _validPhone => isValidIndianPhone(_phone.text);
   bool get _valid => _validName && _validEmail && _validPhone;
+
+  /// Donor's 2px colored focus ring — our brand teal (blue stays link-only;
+  /// enabled/error borders ride the theme's token borders).
+  InputBorder get _focusRing => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AuthTokens.radius),
+        borderSide: const BorderSide(color: AuthTokens.teal, width: 2),
+      );
 
   String? get _nameError =>
       (_touched && !_validName) ? authStringsHi['nameError'] : null;
@@ -138,97 +162,113 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Generous top space per the hero rhythm (mark → headline →
-              // sub → CTA cascade below).
-              const SizedBox(height: 48),
-              // Designed hero: brand card + factual trust chips (UPI+COD and
-              // WhatsApp help are real product facts — no invented claims).
+              // Welcome band (donor hero): white sheet on the slate ground
+              // with the brand mark, w900 wordmark, trust line and the real
+              // fact chips centered — no invented claims, no gradients.
               _rise(
-                Card(
-                  shape: ShodashaTheme.shape,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Image.asset(
-                          'assets/logo.png',
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AuthTokens.surface,
+                    border: Border.all(color: AuthTokens.border),
+                    borderRadius: BorderRadius.circular(AuthTokens.radius),
+                  ),
+                  child: Column(
+                    children: [
+                      Image.asset(
+                        'assets/logo.png',
+                        height: 84,
+                        cacheWidth: 168,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, _, _) => Container(
                           width: 56,
                           height: 56,
-                          cacheWidth: 112,
-                          errorBuilder: (_, _, _) => const Icon(
+                          decoration: const BoxDecoration(
+                            color: AuthTokens.tealTint,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
                             Icons.water_drop,
-                            size: 44,
-                            color: AuthTokens.blue,
+                            color: AuthTokens.teal,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Shodasha',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w700,
-                                  color: AuthTokens.text,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                authStringsHi['trustLine']!,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AuthTokens.muted,
-                                ),
-                              ),
-                            ],
-                          ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Shodasha',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.4,
+                          color: AuthTokens.text,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        authStringsHi['trustLine']!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AuthTokens.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        children: [
+                          Chip(
+                            avatar: Icon(Icons.payments_outlined, size: 16),
+                            label: Text('UPI + COD'),
+                          ),
+                          Chip(
+                            avatar: Icon(Icons.support_agent_outlined, size: 16),
+                            label: Text('WhatsApp par madad'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 begin: -0.2,
               ),
-              const SizedBox(height: 12),
-              _rise(
-                const Row(
-                  children: [
-                    Chip(
-                      avatar: Icon(Icons.payments_outlined, size: 16),
-                      label: Text('UPI + COD'),
-                    ),
-                    SizedBox(width: 8),
-                    Chip(
-                      avatar: Icon(Icons.support_agent_outlined, size: 16),
-                      label: Text('WhatsApp par madad'),
-                    ),
-                  ],
-                ),
-                begin: -0.1,
-                delayMs: 60,
-              ),
               const SizedBox(height: 24),
+              // Editorial header rhythm shared with the 031 home reskin:
+              // eyebrow → w900 headline → muted sub.
               const Text(
                 'Naam + Email + Mobile number',
-                style: TextStyle(fontSize: 12, color: AuthTokens.muted),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                  color: AuthTokens.muted,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
                 authStringsHi['registerTitle']!,
                 style: const TextStyle(
                   fontSize: 20,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
                   color: AuthTokens.text,
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 authStringsHi['registerSubtitle']!,
-                style: const TextStyle(fontSize: 14, color: AuthTokens.muted),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AuthTokens.muted,
+                ),
               ),
               const SizedBox(height: 24),
+              // Name — label above the field (donor), hint in-field, theme
+              // borders; focus rides the brand teal.
+              Text(authStringsHi['nameLabel']!, style: _fieldLabel),
+              const SizedBox(height: 8),
               TextField(
                 controller: _name,
                 focusNode: _nameFocus,
@@ -239,26 +279,16 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                 style: const TextStyle(fontSize: 16, color: AuthTokens.text),
                 textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
-                  labelText: authStringsHi['nameLabel'],
                   hintText: authStringsHi['nameHint'],
                   counterText: '',
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 14,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AuthTokens.radius),
-                    borderSide: const BorderSide(color: AuthTokens.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AuthTokens.radius),
-                    borderSide: const BorderSide(color: AuthTokens.blue),
-                  ),
+                  focusedBorder: _focusRing,
                   errorText: _nameError,
                   errorStyle: TextStyle(color: errorColor, fontSize: 13),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              Text(authStringsHi['emailLabel']!, style: _fieldLabel),
+              const SizedBox(height: 8),
               TextField(
                 controller: _email,
                 focusNode: _emailFocus,
@@ -267,25 +297,15 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                 textInputAction: TextInputAction.next,
                 onSubmitted: (_) => _emailFocus.nextFocus(),
                 decoration: InputDecoration(
-                  labelText: authStringsHi['emailLabel'],
                   hintText: authStringsHi['emailHint'],
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 14,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AuthTokens.radius),
-                    borderSide: const BorderSide(color: AuthTokens.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AuthTokens.radius),
-                    borderSide: const BorderSide(color: AuthTokens.blue),
-                  ),
+                  focusedBorder: _focusRing,
                   errorText: _emailError,
                   errorStyle: TextStyle(color: errorColor, fontSize: 13),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              Text(authStringsHi['phoneLabel']!, style: _fieldLabel),
+              const SizedBox(height: 8),
               TextField(
                 controller: _phone,
                 focusNode: _phoneFocus,
@@ -298,32 +318,40 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
-                  labelText: authStringsHi['phoneLabel'],
                   hintText: authStringsHi['phoneHint'],
                   helperText: authStringsHi['phoneHelper'],
                   helperStyle: const TextStyle(color: AuthTokens.muted),
-                  prefixText: '+91 ',
-                  prefixStyle: const TextStyle(
-                    fontSize: 16,
-                    color: AuthTokens.text,
+                  // Donor prefix block: bold +91 with a hairline divider.
+                  // Their flag emoji is dropped — zero-emoji law.
+                  prefixIcon: const Padding(
+                    padding: EdgeInsets.only(left: 12, right: 10),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '+91 ',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AuthTokens.text,
+                          ),
+                        ),
+                        VerticalDivider(
+                          width: 1,
+                          thickness: 1,
+                          indent: 14,
+                          endIndent: 14,
+                          color: AuthTokens.border,
+                        ),
+                      ],
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 14,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AuthTokens.radius),
-                    borderSide: const BorderSide(color: AuthTokens.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AuthTokens.radius),
-                    borderSide: const BorderSide(color: AuthTokens.blue),
-                  ),
+                  focusedBorder: _focusRing,
                   errorText: _phoneError,
                   errorStyle: TextStyle(color: errorColor, fontSize: 13),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               ListenableBuilder(
                 listenable: widget.controller,
                 builder: (context, _) {
@@ -334,20 +362,24 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _rise(
+                        // Donor CTA: flat, zero-elevation 52dp full-width bar
+                        // (law floor 48dp holds).
                         SizedBox(
-                          height: AuthTokens.minTarget,
+                          height: 52,
                           child: ElevatedButton(
                             // WHY: disabled until valid (no dead taps, no spam register).
                             onPressed: (!_valid || registering)
                                 ? null
                                 : _submit,
                             style: ElevatedButton.styleFrom(
-                              // Locked spec: primary = black #111 (blue is for
-                              // links/active/water cues only).
+                              // Locked spec: primary = black ink (green stays
+                              // money-CTA-only, blue is links); donor's dark
+                              // flat CTA is the same #0F172A value.
                               backgroundColor: AuthTokens.text,
                               foregroundColor: AuthTokens.bg,
                               disabledBackgroundColor: AuthTokens.text
                                   .withValues(alpha: 0.3),
+                              elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(
                                   AuthTokens.radius,
@@ -356,10 +388,10 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
                             ),
                             child: registering
                                 ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
+                                    width: 22,
+                                    height: 22,
                                     child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                                      strokeWidth: 2.5,
                                       color: AuthTokens.bg,
                                     ),
                                   )

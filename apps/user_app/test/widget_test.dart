@@ -1,5 +1,6 @@
-// F5 — Theme smoke test: locked palette (white ground, black ink, water
-// blue accents) + no purple leaking through the seed. Plugin-free.
+// 031 — Theme smoke test: locked palette v2 (teal brand, green money CTA,
+// slate ground + white cards, blue link-only) + no purple leaking through
+// the seed. Plugin-free.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,15 +8,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shodasha_app/core/theme.dart';
 
 void main() {
-  test('locked palette: white bg, black primary, blue accent-only', () {
-    expect(ShodashaTheme.bg, const Color(0xFFFFFFFF));
-    expect(ShodashaTheme.ink, const Color(0xFF111111));
+  test('locked palette v2: slate ground, teal brand, green CTA, blue links', () {
+    expect(ShodashaTheme.bg, const Color(0xFFF8FAFC));
+    expect(ShodashaTheme.surface, const Color(0xFFFFFFFF));
+    expect(ShodashaTheme.ink, const Color(0xFF0F172A));
+    expect(ShodashaTheme.teal, const Color(0xFF0D9488));
+    expect(ShodashaTheme.green, const Color(0xFF16A34A));
     expect(ShodashaTheme.blue, const Color(0xFF0284C7));
   });
 
-  testWidgets('theme: primary buttons render black on white scaffold', (
-    tester,
-  ) async {
+  testWidgets('theme: elevated buttons render green CTA, nav indicator teal-tinted',
+      (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildShodashaTheme(),
@@ -35,16 +38,20 @@ void main() {
         matching: find.byType(Material),
       ),
     );
-    // Locked spec: primary buttons are black (#111), same as ErrorInfo.
-    expect(material.color, ShodashaTheme.ink);
+    // Locked v2: elevated buttons are the money-CTA green (#16A34A).
+    expect(material.color, ShodashaTheme.green);
   });
 
   test('no purple in the token set', () {
     int ch(double component) => (component * 255.0).round().clamp(0, 255);
     const tokens = [
       ShodashaTheme.bg,
+      ShodashaTheme.surface,
       ShodashaTheme.ink,
       ShodashaTheme.muted,
+      ShodashaTheme.teal,
+      ShodashaTheme.tealTint,
+      ShodashaTheme.green,
       ShodashaTheme.blue,
       ShodashaTheme.blueTint,
       ShodashaTheme.border,

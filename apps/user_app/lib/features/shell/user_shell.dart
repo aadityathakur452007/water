@@ -201,7 +201,7 @@ class _UserShellState extends State<UserShell> {
             )
           : const SizedBox.shrink(),
       UserTab.support: _visitedTabs.contains(UserTab.support)
-          ? const SupportScreen()
+          ? SupportScreen(api: widget.api)
           : const SizedBox.shrink(),
       UserTab.profile: _visitedTabs.contains(UserTab.profile)
           ? ProfileScreen(

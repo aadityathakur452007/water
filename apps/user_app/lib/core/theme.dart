@@ -1,42 +1,52 @@
-// F5 — App-wide theme from the approved visual spec (Mode-1 restraint).
-//
-// Locked palette: white #FFFFFF ground, ink/primary black #111111 (same as
-// the ErrorInfo black button), water blue #0284C7 for links/active/water
-// cues ONLY. No gradients, no purple, hairline borders, radius 8, 48dp
-// minimum targets. Component library stays Material (zero new deps; the
-// shadcn_flutter dep in pubspec is unused by v1 screens — tokens mirror the
-// same flat language so a later swap is config-only).
+// F5 → 031 palette v2 (031-user-app-ui-revamp): premium direction adopted
+// from the friend's design audit (Feature_docs/user-app-ui-import-audit/).
+// Locked by owner 2026-10-17: teal brand #0D9488 (nav/structure/active),
+// green CTA #16A34A (money buttons only), slate-50 page ground with WHITE
+// cards, blue stays link-only. No gradients inside v1 screens; radius lifts
+// 8→12; 48dp targets untouched. Component library stays Material (zero deps).
 
 import 'package:flutter/material.dart';
 
 /// Design tokens (single source for every new screen; feature-local token
 /// classes from F2–F4 mirror these values and consolidate in F1's l10n pass).
 abstract final class ShodashaTheme {
-  /// Page + card ground (white, never grey panels).
-  static const Color bg = Color(0xFFFFFFFF);
+  /// Page ground (slate-50; cards paint white on top of it).
+  static const Color bg = Color(0xFFF8FAFC);
 
-  /// Text + primary buttons (black — the ErrorInfo button color).
-  static const Color ink = Color(0xFF111111);
+  /// Card / sheet ground (white on slate ground).
+  static const Color surface = Color(0xFFFFFFFF);
 
-  /// Secondary text.
-  static const Color muted = Color(0xFF595959);
+  /// Text primary (slate-900).
+  static const Color ink = Color(0xFF0F172A);
 
-  /// Links / active nav / water cues ONLY — never a filled surface.
+  /// Text secondary (slate-500).
+  static const Color muted = Color(0xFF64748B);
+
+  /// Brand teal — nav, active states, structure, chips, focus. Never money.
+  static const Color teal = Color(0xFF0D9488);
+
+  /// Teal 10% tint for chips/indicators (no gradients).
+  static const Color tealTint = Color(0xFFCCFBF1);
+
+  /// Money CTA green — BOOK NOW / Pay / confirm buttons ONLY.
+  static const Color green = Color(0xFF16A34A);
+
+  /// Links / deep body links ONLY — never a filled surface (v1 rule kept).
   static const Color blue = Color(0xFF0284C7);
 
-  /// Blue at 8% for chips/tints (no gradients).
+  /// Blue at 8% for chips/tints (unchanged from v1).
   static const Color blueTint = Color(0xFFE6F3FA);
 
-  /// Hairline borders.
-  static const Color border = Color(0xFFE5E5E5);
+  /// Hairline borders (slate-200).
+  static const Color border = Color(0xFFE2E8F0);
 
   /// Errors (spec: red text/icon, never color-alone — always + icon).
   static const Color danger = Color(0xFFB91C1C);
 
-  /// Success cues (delivered / paid states).
-  static const Color success = Color(0xFF15803D);
+  /// Success cues (delivered / paid states) — emerald.
+  static const Color success = Color(0xFF10B981);
 
-  static const double radius = 8;
+  static const double radius = 12;
   static const double minTarget = 48;
 
   /// Input + card + button shape.
@@ -45,18 +55,18 @@ abstract final class ShodashaTheme {
       );
 }
 
-/// MaterialApp theme: flat white, black primaries, blue accents.
+/// MaterialApp theme: slate ground, teal brand, green money CTA, blue links.
 ThemeData buildShodashaTheme() {
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: ShodashaTheme.ink,
+      seedColor: ShodashaTheme.teal,
     ).copyWith(
-      // WHY: force the locked palette over seed-derived purples.
-      primary: ShodashaTheme.ink,
-      onPrimary: ShodashaTheme.bg,
-      secondary: ShodashaTheme.blue,
-      surface: ShodashaTheme.bg,
+      // WHY: force the locked palette over seed-derived drift.
+      primary: ShodashaTheme.teal,
+      onPrimary: ShodashaTheme.surface,
+      secondary: ShodashaTheme.green,
+      surface: ShodashaTheme.surface,
       onSurface: ShodashaTheme.ink,
       error: ShodashaTheme.danger,
     ),
@@ -71,47 +81,47 @@ ThemeData buildShodashaTheme() {
       centerTitle: false,
       titleTextStyle: TextStyle(
         fontSize: 18,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w800,
         color: ShodashaTheme.ink,
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: ShodashaTheme.bg,
-      indicatorColor: ShodashaTheme.blueTint,
+      backgroundColor: ShodashaTheme.surface,
+      indicatorColor: ShodashaTheme.tealTint,
       height: 64,
       elevation: 0,
       iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
             size: 24,
             color: states.contains(WidgetState.selected)
-                ? ShodashaTheme.blue
+                ? ShodashaTheme.teal
                 : ShodashaTheme.muted,
           )),
       labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
             fontSize: 12,
             fontWeight:
-                states.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w500,
+                states.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w500,
             color: states.contains(WidgetState.selected)
-                ? ShodashaTheme.blue
+                ? ShodashaTheme.teal
                 : ShodashaTheme.muted,
           )),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: ShodashaTheme.ink, // black primaries (locked)
-        foregroundColor: ShodashaTheme.bg,
-        disabledBackgroundColor: ShodashaTheme.ink.withValues(alpha: 0.3),
+        backgroundColor: ShodashaTheme.green, // money CTA (locked)
+        foregroundColor: ShodashaTheme.surface,
+        disabledBackgroundColor: ShodashaTheme.green.withValues(alpha: 0.3),
         minimumSize: const Size.fromHeight(ShodashaTheme.minTarget),
         shape: ShodashaTheme.shape,
         textStyle: const TextStyle(
           fontSize: 16,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w800,
         ),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: ShodashaTheme.ink,
-        side: const BorderSide(color: ShodashaTheme.ink),
+        foregroundColor: ShodashaTheme.teal,
+        side: const BorderSide(color: ShodashaTheme.teal),
         minimumSize: const Size(ShodashaTheme.minTarget, ShodashaTheme.minTarget),
         shape: ShodashaTheme.shape,
       ),
@@ -120,12 +130,12 @@ ThemeData buildShodashaTheme() {
       style: TextButton.styleFrom(
         foregroundColor: ShodashaTheme.blue, // blue = links only
         minimumSize: const Size(ShodashaTheme.minTarget, ShodashaTheme.minTarget),
-        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: ShodashaTheme.bg,
+      fillColor: ShodashaTheme.surface,
       hintStyle: const TextStyle(color: ShodashaTheme.muted),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       enabledBorder: OutlineInputBorder(
@@ -134,7 +144,7 @@ ThemeData buildShodashaTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-        borderSide: const BorderSide(color: ShodashaTheme.blue),
+        borderSide: const BorderSide(color: ShodashaTheme.teal),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),

@@ -434,76 +434,193 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                       ),
-                    // Ledger card (read-only per contract §4.6).
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: ShodashaTheme.border),
-                        borderRadius: BorderRadius.circular(
-                          ShodashaTheme.radius,
+                    // Ledger — 031 premium wallet-card grammar (donor
+                    // wallet_screen): solid teal hero carries the REAL
+                    // refundable deposit, white statement card below. Every
+                    // rupee comes from GET /ledger/me via ProfileController's
+                    // LedgerSnapshot — no fake balance, no add-money flow
+                    // (donor's fake recharge CTA is omitted).
+                    if (_c.status != LedgerStatus.loaded)
+                      // Loading / error / initial: one statement card —
+                      // never a fake Rs 0 hero.
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: ShodashaTheme.surface,
+                          border: Border.all(color: ShodashaTheme.border),
+                          borderRadius: BorderRadius.circular(
+                            ShodashaTheme.radius,
+                          ),
                         ),
-                      ),
-                      child: _c.status == LedgerStatus.loading
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(8),
-                                child: CircularProgressIndicator(),
-                              ),
-                            )
-                          // Error branch (was: silent zero ledger) —
-                          // message + retry, never fake Rs 0.
-                          : _c.status == LedgerStatus.error
-                          ? Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _c.errorMessage ?? 'Load nahi hua',
-                                    style: const TextStyle(
-                                      color: ShodashaTheme.muted,
+                        child: _c.status == LedgerStatus.loading
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            // Error branch — message + retry, never fake Rs 0.
+                            : Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _c.errorMessage ?? 'Load nahi hua',
+                                      style: const TextStyle(
+                                        color: ShodashaTheme.muted,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                TextButton(
-                                  onPressed: _c.load,
-                                  child: const Text('Dobara try karein'),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                                  TextButton(
+                                    onPressed: _c.load,
+                                    child: const Text('Dobara try karein'),
+                                  ),
+                                ],
+                              ),
+                      )
+                    else ...[
+                      // Hero: deposit held (our wallet analog). Donor
+                      // grammar — caps label + wallet glyph row, w900 amount.
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: ShodashaTheme.teal,
+                          borderRadius: BorderRadius.circular(
+                            ShodashaTheme.radius,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  _c.t('ledgerTitle'),
-                                  style: const TextStyle(
+                                  _c.t('deposit').toUpperCase(),
+                                  style: TextStyle(
+                                    color: ShodashaTheme.surface.withValues(
+                                      alpha: 0.85,
+                                    ),
+                                    fontSize: 12,
                                     fontWeight: FontWeight.w700,
-                                    fontSize: 16,
+                                    letterSpacing: 0.8,
                                   ),
                                 ),
-                                const SizedBox(height: 8),
-                                _LedgerRow(
-                                  label: _c.t('held'),
-                                  value: '${l.heldJars}',
-                                ),
-                                _LedgerRow(
-                                  label: _c.t('deposit'),
-                                  value: 'Rs ${l.depositPaise ~/ 100}',
-                                ),
-                                _LedgerRow(
-                                  label: _c.t('dues'),
-                                  value: 'Rs ${l.duesPaise ~/ 100}',
-                                  highlight: l.duesPaise > 0,
-                                ),
-                                const Divider(height: 16),
-                                const Text(
-                                  'Refundable Security Deposit: Rs 150/jar (container/jar wapas karne par turant refund)',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: ShodashaTheme.muted,
+                                Icon(
+                                  Icons.account_balance_wallet_outlined,
+                                  size: 24,
+                                  color: ShodashaTheme.surface.withValues(
+                                    alpha: 0.85,
                                   ),
                                 ),
                               ],
                             ),
-                    ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '₹${l.depositPaise ~/ 100}',
+                              style: const TextStyle(
+                                color: ShodashaTheme.surface,
+                                fontSize: 32,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Jar ledger statement card (donor CAN SECURITY LEDGER
+                      // grammar): caps header, held + dues lines, refund
+                      // note carries the per-jar rule verbatim.
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: ShodashaTheme.surface,
+                          border: Border.all(color: ShodashaTheme.border),
+                          borderRadius: BorderRadius.circular(
+                            ShodashaTheme.radius,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _c.t('ledgerTitle'),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: ShodashaTheme.muted,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _LedgerRow(
+                              label: _c.t('held'),
+                              value: '${l.heldJars}',
+                            ),
+                            _LedgerRow(
+                              label: _c.t('dues'),
+                              value: '₹${l.duesPaise ~/ 100}',
+                              highlight: l.duesPaise > 0,
+                            ),
+                            const Divider(height: 16),
+                            const Text(
+                              'Refundable Security Deposit: Rs 150/jar (container/jar wapas karne par turant refund)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: ShodashaTheme.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Payment history — donor transaction-tile grammar.
+                      // Real statements load in PaymentHistoryScreen
+                      // (GET /payments/me via ApiClient.listUserPayments).
+                      Container(
+                        decoration: BoxDecoration(
+                          color: ShodashaTheme.surface,
+                          border: Border.all(color: ShodashaTheme.border),
+                          borderRadius: BorderRadius.circular(
+                            ShodashaTheme.radius,
+                          ),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
+                          leading: const CircleAvatar(
+                            radius: 20,
+                            backgroundColor: ShodashaTheme.tealTint,
+                            child: Icon(
+                              Icons.receipt_long_outlined,
+                              size: 20,
+                              color: ShodashaTheme.teal,
+                            ),
+                          ),
+                          title: Text(
+                            _c.t('paymentsLink'),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: ShodashaTheme.ink,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: ShodashaTheme.muted,
+                          ),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => PaymentHistoryScreen(
+                                  api: widget.api ?? _c.api,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
 
                     const SizedBox(height: 12),
                     // Return-jar request (10-day SLA text visible pre-tap).
@@ -575,27 +692,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: ShodashaTheme.muted,
                       ),
                       onTap: widget.onOpenSubscriptions,
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.receipt_long_outlined,
-                        color: ShodashaTheme.ink,
-                      ),
-                      title: Text(_c.t('paymentsLink')),
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                        color: ShodashaTheme.muted,
-                      ),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => PaymentHistoryScreen(
-                              api: widget.api ?? _c.api,
-                            ),
-                          ),
-                        );
-                      },
                     ),
                     const Divider(),
                     // Language toggle (Hindi default, English fallback).

@@ -3,7 +3,13 @@
 //
 // States.md covered: loading (skeleton) / empty / no-results / error /
 // offline / refreshing / searching. Search filters client-side (no `q`
-// server param). Status is a FLAT solid chip (blueTint bg + blue text + dot).
+// server param).
+//
+// 031 restyle: donor order-card grammar (white card on the slate ground,
+// hairline border + 3% soft shadow, 800-weight order id in the brand teal,
+// tinted status pill, 12px icon meta rows, 900-weight price). Palette v2:
+// teal = in-flight states, neutral slate = done, danger = fail only.
+// Strings + navigation are frozen (tests assert exact copy).
 
 import 'package:flutter/material.dart';
 
@@ -140,7 +146,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(OrdersTokens.radius),
-                    borderSide: const BorderSide(color: OrdersTokens.blue),
+                    borderSide: const BorderSide(color: ShodashaTheme.teal),
                   ),
                 ),
               ),
@@ -174,7 +180,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     );
                   }
                   return RefreshIndicator(
-                    color: OrdersTokens.blue,
+                    color: ShodashaTheme.teal,
                     onRefresh: c.refresh,
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -194,9 +200,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             child: OutlinedButton(
                               onPressed: c.loadMore,
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: OrdersTokens.blue,
+                                foregroundColor: ShodashaTheme.teal,
                                 side: const BorderSide(
-                                  color: OrdersTokens.border,
+                                  color: ShodashaTheme.border,
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
@@ -266,47 +272,43 @@ class _OrderCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(OrdersTokens.radius),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        // 031: donor order-card craft — white surface on the slate ground,
+        // hairline border + 3% soft shadow. Flat, no gradients.
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: OrdersTokens.white,
-          border: Border.all(color: OrdersTokens.border),
+          color: ShodashaTheme.surface,
+          border: Border.all(color: ShodashaTheme.border),
           borderRadius: BorderRadius.circular(OrdersTokens.radius),
+          boxShadow: [
+            BoxShadow(
+              color: ShodashaTheme.ink.withValues(alpha: 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Donor meta head: 800-weight id in the brand color + status pill.
             Row(
               children: [
                 Expanded(
                   child: Text(
                     '#${order.id}',
                     style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: OrdersTokens.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                      color: ShodashaTheme.teal,
                     ),
                   ),
                 ),
-                if (order.isBulk)
-                  Container(
-                    margin: const EdgeInsets.only(right: 6),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: OrdersTokens.ink,
-                      borderRadius: BorderRadius.circular(OrdersTokens.radius),
-                    ),
-                    child: const Text(
-                      'Bulk',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: ShodashaTheme.bg,
-                      ),
-                    ),
-                  ),
+                if (order.isBulk) ...[
+                  const SizedBox(width: 6),
+                  const _BulkPill(),
+                  const SizedBox(width: 6),
+                ],
                 _StatusChip(state: order.state),
               ],
             ),
@@ -315,61 +317,117 @@ class _OrderCard extends StatelessWidget {
               Text(
                 historyTag,
                 style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: OrdersTokens.blue,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                  color: ShodashaTheme.muted,
                 ),
               ),
             ],
+            // Jar mix (refill + container) — honest server summary.
             if (order.itemSummary.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
               Text(
                 order.itemSummary,
-                style: const TextStyle(fontSize: 14, color: OrdersTokens.muted),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2,
+                  color: ShodashaTheme.ink,
+                ),
               ),
             ],
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
+            // Donor meta rows: 12px token-muted info with 14px icons.
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    _windowLabel(order),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: OrdersTokens.muted,
-                    ),
+                const Icon(
+                  Icons.schedule,
+                  size: 14,
+                  color: ShodashaTheme.muted,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _windowLabel(order),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: ShodashaTheme.muted,
                   ),
                 ),
+                const Spacer(),
                 Text(
                   formatRupees(order.totalPaise),
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: OrdersTokens.ink,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
               ],
             ),
+            if (order.addressLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.location_on,
+                    size: 14,
+                    color: ShodashaTheme.muted,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      order.addressLabel,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: ShodashaTheme.muted,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (order.refundPending) ...[
               const SizedBox(height: 6),
               Text(
                 ordersStringsHi['refundPending']!,
-                style: const TextStyle(fontSize: 12, color: OrdersTokens.blue),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: ShodashaTheme.muted,
+                ),
               ),
             ],
             if (onReorder != null && order.canReorder) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
+              // Money CTA → token green (locked). 48dp target.
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton.icon(
+                height: OrdersTokens.minTarget,
+                child: ElevatedButton.icon(
                   onPressed: onReorder,
                   icon: const Icon(Icons.repeat, size: 18),
-                  label: const Text('Phir se order karein'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: OrdersTokens.blue,
-                    side: const BorderSide(color: OrdersTokens.blue),
+                  label: const Text(
+                    'Phir se order karein',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: ShodashaTheme.green,
+                    foregroundColor: ShodashaTheme.surface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(OrdersTokens.radius),
+                    ),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
                     ),
                   ),
                 ),
@@ -391,50 +449,75 @@ class _OrderCard extends StatelessWidget {
   }
 }
 
-/// FLAT solid status chip: blueTint bg + blue text + dot (no shadows).
-class StatusChip extends StatelessWidget {
-  const StatusChip({super.key, required this.state});
-
-  final OrderState state;
-
-  @override
-  Widget build(BuildContext context) => _StatusChip(state: state);
-}
-
+/// Donor-style status pill: tint chip + 800-weight micro label (no dot,
+/// no shadows). Maps OUR state set only — teal for in-flight, neutral slate
+/// for delivered, danger for failed/rejected (never a fake status).
 class _StatusChip extends StatelessWidget {
   const _StatusChip({required this.state});
 
   final OrderState state;
 
+  (Color bg, Color fg) _tone(OrderState s) {
+    switch (s) {
+      case OrderState.placed:
+      case OrderState.accepted:
+      case OrderState.picked:
+      case OrderState.packed:
+      case OrderState.assigned:
+      case OrderState.dispatched:
+        return (ShodashaTheme.tealTint, ShodashaTheme.teal);
+      case OrderState.delivered:
+        return (ShodashaTheme.bg, ShodashaTheme.muted);
+      case OrderState.failed:
+      case OrderState.rejected:
+        return (ShodashaTheme.bg, ShodashaTheme.danger);
+      case OrderState.cancelled:
+        return (ShodashaTheme.bg, ShodashaTheme.muted);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (bg, fg) = _tone(state);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(OrdersTokens.radius / 2),
+      ),
+      child: Text(
+        state.name,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
+          color: fg,
+        ),
+      ),
+    );
+  }
+}
+
+/// Bulk nudge (dark lip — informational, not a status).
+class _BulkPill extends StatelessWidget {
+  const _BulkPill();
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: OrdersTokens.blueTint,
-        borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        color: ShodashaTheme.ink,
+        borderRadius: BorderRadius.circular(OrdersTokens.radius / 2),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: const BoxDecoration(
-              color: OrdersTokens.blue,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            state.name,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: OrdersTokens.blue,
-            ),
-          ),
-        ],
+      child: Text(
+        'Bulk',
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+          color: ShodashaTheme.bg,
+        ),
       ),
     );
   }
@@ -452,7 +535,7 @@ class _SkeletonList extends StatelessWidget {
       itemBuilder: (_, _) => Container(
         height: 96,
         decoration: BoxDecoration(
-          color: OrdersTokens.blueTint,
+          color: ShodashaTheme.tealTint,
           borderRadius: BorderRadius.circular(OrdersTokens.radius),
         ),
       ),
@@ -477,7 +560,7 @@ class _EmptyState extends StatelessWidget {
             const Icon(
               Icons.water_drop_outlined,
               size: 40,
-              color: OrdersTokens.blue,
+              color: ShodashaTheme.teal,
             ),
             const SizedBox(height: 12),
             Text(
@@ -557,7 +640,7 @@ class _OfflineBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: OrdersTokens.blueTint,
+        color: ShodashaTheme.tealTint,
         borderRadius: BorderRadius.circular(OrdersTokens.radius),
       ),
       child: Row(
@@ -565,13 +648,17 @@ class _OfflineBanner extends StatelessWidget {
           const Icon(
             Icons.wifi_off_outlined,
             size: 16,
-            color: OrdersTokens.blue,
+            color: ShodashaTheme.teal,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               ordersStringsHi['offlineTitle']!,
-              style: const TextStyle(fontSize: 13, color: OrdersTokens.blue),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ShodashaTheme.teal,
+              ),
             ),
           ),
         ],
