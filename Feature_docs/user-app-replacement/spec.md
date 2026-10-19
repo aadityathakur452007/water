@@ -351,7 +351,7 @@ Data flow stays single-truth: `main.dart` mints ONE `ApiClient` (device UUID, to
 
 | # | Slice | Contents | Ported tests (legacy → new) |
 |---|---|---|---|
-| S1 | Repo surgery + skeleton + theme + transport | `git mv`; donor import (kept files); dead-file strip; platform folders; pubspec merge; ONE theme file; ApiClient/SessionStore/auth_impls/location_service/constants; composition root + AuthGate + empty 5-tab shell with honest states; CI comment | `api_client_test`, `api_parity_test`, `location_service_test` |
+| S1 | Repo surgery + skeleton + theme + transport — **SHIPPED 2026-10-19 (`26f71dc`)** | `git mv` legacy → `apps/user_app_legacy_flutter` (`2f2d47c`); platform folders reconstructed from tracked files (`git archive` export); pubspec rebuilt; ONE theme file (donor tokens + `ShodashaTheme` superset); verbatim ports of `api_client` / `session_store` / `auth_impls` / `location_service` / `auth_controller`; composition root `main.dart`; 5-tab shell with honest "Coming soon" placeholders; CI comment. Deltas logged in ADR-121: AuthGate → S2 (needs the register screen); no `constants.dart` (single-source constants stay co-located). | `api_client_test`, `api_parity_test`, `auth_validation_test`, `demo_login_test`, `location_service_test`, `shell_test`, `widget_test` — 41/41 green |
 | S2 | Auth & onboarding | register screen (donor hero), demo sheet, first-run locate→address→serviceability/leads, auth validation copy | `demo_login_test`, `auth_validation_test`, `address_entry_test` (first-run part) |
 | S3 | Home | top bar (address/slot/GPS), mode cards → BOOK NOW, featured rail from `/catalog`, repeat card, window picker | `catalog_live_test`, `selected_address_store_test` |
 | S4 | Booking & payment | booking sheet (qty/empties → address → slot → quote → order → pay), quote_confirm visuals, UPI intent + poll, COD + cod-confirm, idempotency lifecycle | `booking_rules_test`, `checkout_payload_test`, `address_payload_test` |
@@ -376,7 +376,7 @@ All six questions were answered before any code was written:
 5. **Legacy folder / CI** — **confirmed**: `git mv apps/user_app apps/user_app_legacy_flutter`, parked forever, zero edits after the move, excluded from CI by omission (+ ci.yml comment).
 6. **Notifications screen** — **dropped in v1** (no inbox contract; no fake list).
 
-**Remaining hard gate:** explicit owner approval of this spec → then implementation starts at Slice S1 (§10).
+**Hard gate closed 2026-10-19:** owner gave the go-ahead; implementation runs on branch `032-user-app-replacement`. Slice S1 shipped (`26f71dc`, gates: analyze clean + 41/41 tests). Next slice: S2 (§10).
 
 ---
 

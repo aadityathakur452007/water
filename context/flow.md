@@ -382,6 +382,23 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 ```
 - `normalizeIndianPhone` / `isValidIndianPhone` / `isValidAccessCode` / `maskPhone` (auth_controller.dart) ← `test/auth_validation_test.dart`; code+demo matrix ← `test/demo_login_test.dart`
 
+### 032 user-app replacement — boot skeleton (S1, 2026-10-19, ADR-121, branch 032-user-app-replacement)
+```
+main.dart _boot() (composition root — donor-based app)
+  ├─ loadOrCreateDeviceId()               (core/session_store.dart — persisted UUID → X-Device-Id)
+  ├─ ApiClient(deviceId, accessTokenGetter: () => _auth.session?.accessToken,
+  │            onUnauthorized: () => _auth.forceLogout())
+  │    └─ https/loopback ArgumentError guard · single-flight GET · keyed-POST retry (ported verbatim)
+  ├─ AuthController(api: ApiBackedAuthApi(_api), store: SecureSessionStore())
+  │    └─ restoreSession() — best-effort (valid session → authenticated, else guest)
+  └─ UserShell (5 tabs: Home / Orders / Subscriptions / Wallet / Profile)
+       └─ lazy mount (ADR-112): a tab mounts on first visit, IndexedStack keeps its state
+            └─ tab bodies land per slice: S3 home · S5 orders · S6 subscriptions · S7 wallet · S8 profile
+AuthGate + register screen land in S2 (S1 boots straight to the shell; guest browsing everywhere)
+```
+- `kApiBaseUrl` (SHODASHA_API_BASE, default loopback) + `kSupportPhone` — core/api_client.dart · `kRazorpayKeyId` (RAZORPAY_KEY_ID) — main.dart
+- S1 gate: `test/{api_client,api_parity,auth_validation,demo_login,location_service,shell,widget}_test.dart` — 41/41 green, analyze clean; legacy suite lives on at `apps/user_app_legacy_flutter/test/` (reference, never built)
+
 ### Feature: [feature name]
 - `[Function A]` calls `[Function B]` to [why]
 - `[Function B]` calls `[Repository X]` to [why]
