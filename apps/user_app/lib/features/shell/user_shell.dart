@@ -2,8 +2,8 @@
 //
 // Composition surface: the shell owns tab state + cross-tab routes and is
 // the only place that imports multiple feature folders.
-// Live slices: Orders (S5), Wallet (S7), Profile (S8). Home (S3) and
-// Subscriptions (S6) mount their screens in the next wiring pass.
+// Live slices: Orders (S5), Subscriptions (S6), Wallet (S7), Profile (S8).
+// Home (S3) mounts its screen in the next wiring pass.
 // Lazy mounting (ADR-112): a tab mounts on first visit and keeps its state
 // after that via IndexedStack.
 
@@ -15,6 +15,7 @@ import '../orders/orders_controller.dart';
 import '../orders/orders_screen.dart';
 import '../profile/profile_controller.dart';
 import '../profile/profile_screen.dart';
+import '../subscriptions/subscription_screen.dart';
 import '../support/support_screen.dart';
 import '../wallet/payment_history_screen.dart';
 import '../wallet/wallet_screen.dart';
@@ -82,6 +83,13 @@ class _UserShellState extends State<UserShell> {
         ),
       );
 
+  /// Dues payment lives in Wallet (S7) — the subscriptions strip only
+  /// switches tabs (no cross-feature import).
+  void _openWallet() => setState(() {
+        _tab = UserTab.wallet;
+        _mounted.add(UserTab.wallet);
+      });
+
   @override
   Widget build(BuildContext context) {
     final listenable = widget.authListenable;
@@ -146,7 +154,17 @@ class _UserShellState extends State<UserShell> {
             onOpenPayments: _openPayments,
             onSupport: _openSupport,
           ),
-        UserTab.subscriptions => const _TabBody(tab: UserTab.subscriptions),
+        UserTab.subscriptions => widget.isAuthenticated()
+            ? SubscriptionScreen(
+                api: widget.api,
+                onOpenWallet: _openWallet,
+              )
+            : _GuestBody(
+                icon: Icons.event_repeat_outlined,
+                title: 'Subscriptions',
+                message: 'Sign in to see your plans and dues.',
+                onSignIn: _login,
+              ),
         UserTab.wallet => WalletScreen(
             api: widget.api,
             isAuthenticated: widget.isAuthenticated,
@@ -199,6 +217,60 @@ class _TabBody extends StatelessWidget {
             style: TextStyle(color: ShodashaTheme.muted),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Guest gate for tabs whose data is account-scoped (Subscriptions): no
+/// authed request until login, honest copy instead of a fake empty list.
+class _GuestBody extends StatelessWidget {
+  const _GuestBody({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.onSignIn,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final VoidCallback onSignIn;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: ShodashaTheme.teal),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: ShodashaTheme.ink,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: ShodashaTheme.muted),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: onSignIn,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ShodashaTheme.teal,
+                minimumSize: const Size(0, 48),
+              ),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ),
       ),
     );
   }

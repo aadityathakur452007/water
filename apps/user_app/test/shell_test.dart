@@ -11,6 +11,7 @@ import 'package:shodasha_app/features/orders/orders_screen.dart';
 import 'package:shodasha_app/features/profile/profile_controller.dart';
 import 'package:shodasha_app/features/profile/profile_screen.dart';
 import 'package:shodasha_app/features/shell/user_shell.dart';
+import 'package:shodasha_app/features/subscriptions/subscription_screen.dart';
 import 'package:shodasha_app/features/wallet/wallet_screen.dart';
 
 void main() {
@@ -73,11 +74,16 @@ void main() {
     expect(visibleTab(tester), UserTab.wallet.index);
     expect(find.byType(WalletScreen), findsOneWidget);
 
-    // Subscriptions is still a placeholder; Home + Subscriptions = 2.
+    // Subscriptions is account-scoped: guest sees a sign-in gate and the
+    // screen (which would fetch) stays unmounted.
     await tester.tap(navLabel('Subscriptions'));
     await tester.pumpAndSettle();
     expect(visibleTab(tester), UserTab.subscriptions.index);
-    expect(find.text('Coming soon.', skipOffstage: false), findsNWidgets(2));
+    expect(find.text('Sign in to see your plans and dues.'), findsOneWidget);
+    expect(
+        find.byType(SubscriptionScreen, skipOffstage: false), findsNothing);
+    // Home is still the only placeholder.
+    expect(find.text('Coming soon.', skipOffstage: false), findsOneWidget);
     expect(find.byType(ProfileScreen, skipOffstage: false), findsNothing);
   });
 }
