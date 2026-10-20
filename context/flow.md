@@ -830,6 +830,37 @@ Vendor Web (/vendor/login):
          └─ true → VendorLayout (Header WhatsApp CTA, Logout CTA, sub-routes: overview, route, collections, etc.)
 ```
 
+## 032 — Customer app replacement (branch 032-user-app-replacement, ADR-119…122)
+
+Donor-based Flutter app at `apps/user_app`; legacy parked read-only at `apps/user_app_legacy_flutter`. One `ApiClient` (Bearer + X-Device-Id, https/loopback guard) is shared by every controller.
+
+```
+ShodashaApp (main.dart)
+ ├─ deviceId (loadOrCreateDeviceId) → ApiClient → AuthController(store: SecureSessionStore)
+ ├─ BookingController()        ← HttpCatalogApi attaches on Home mount (GET /catalog; no fallback)
+ ├─ AddressController(api)     ←bindSelection→ SelectedAddressStore (shared_preferences id)
+ ├─ OrdersController(repo: ApiBackedOrdersRepository(api))
+ └─ ProfileController(api)
+      └─ AuthGate(controller: auth, home: UserShell(...))   ← restoreSession owns cold start
+           ├─ Home (S3): address bar → addresses gate; mode/qty/empties → quote estimate
+           │    └─ shell onBuy → showCheckoutSheet(quote → order → cod | upiIntent)
+           │         ├─ UPI: gateway → GET /orders/{id} poll ≤5×2s until payment_status == paid_upi
+           │         └─ onDone → showOrderConfirm → Orders tab | Subscriptions tab
+           ├─ Orders (S5): GET /orders (paging/search), detail/tracking, cancel/reschedule/rating/COD-confirm, bill
+           │    └─ onReorder → setRefill/setContainer → Home → shell checkout
+           ├─ Subscriptions (S6): guest-gated in shell; GET /subscriptions → pause/resume/skip/cancel + estimate/build
+           │    └─ dues strip → POST /payments/dues-intent via api.send (stable key per amount; link never auto-launched)
+           ├─ Wallet (S7): GET /ledger/me + GET /payments/me; returns via ReturnSheet(pickAddress: shell maps AddressEntry → ReturnAddress)
+           └─ Profile (S8): GET/PATCH /auth/me, addresses, payment history, support; logout → auth.logout
+```
+
+- Shell composition law: `UserShell` is the only multi-feature importer. Props: `api`, `bookingController`, `addresses`, `ordersController`, `profileController`, `isAuthenticated()`, `onLoginRequested(BuildContext) → Future<bool>`, `onLogout`, optional `authListenable`, `razorpayKeyId`. It owns cross-tab pushes (payment history, support, addresses) and the checkout flow, so Home BUY and Orders reorder share one money path. `openAddressesGated` re-checks live auth after register; `openRegister` returns whether the user ended up authenticated.
+- Ledger: shell post-frame + auth-change listener → `GET /ledger/me` → `BookingController.applyLedger(dues, held, depositPaid)`; the server remains the COD authority at commit.
+- Lazy mount: each tab first mounts on visit, then `IndexedStack` retains state (ADR-112). Subscriptions is account-scoped and guest-gated at the shell, so guest mode fires zero authed requests.
+- Money/idempotency: no client-computed payable amounts; one idempotency key per payload until input changes; delivery OTP server-owned (never minted client-side); COD and UPI first-class; UPI settlement only after the order itself reports `paid_upi`.
+- Copy: English v1 (ADR-120). `authStringsHi` / `ordersStringsHi` map keys are stable, values English — a later l10n pass can swap values without touching screens.
+- Packaging/release: `flutter build apk --release --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF` → `build/app/outputs/flutter-apk/app-release.apk`; per-ABI `libapp.so` scan confirms prod URL present and `http://localhost:8787` absent.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
