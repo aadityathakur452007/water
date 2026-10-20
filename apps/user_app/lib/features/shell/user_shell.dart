@@ -1,20 +1,54 @@
-// S1 — 5-tab shell: Home / Orders / Subscriptions / Wallet / Profile.
+// 032 — 5-tab shell: Home / Orders / Subscriptions / Wallet / Profile.
 //
-// Structure mirrors the donor bottom-nav map; chrome uses the locked theme
-// (teal structure, slate ground). Tab bodies land per slice:
-//   S3 home · S5 orders · S6 subscriptions · S7 wallet · S8 profile.
+// Composition surface: the shell owns tab state + cross-tab routes and is
+// the only place that imports multiple feature folders.
+// Live slices: Orders (S5), Wallet (S7), Profile (S8). Home (S3) and
+// Subscriptions (S6) mount their screens in the next wiring pass.
 // Lazy mounting (ADR-112): a tab mounts on first visit and keeps its state
 // after that via IndexedStack.
 
 import 'package:flutter/material.dart';
 
+import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../orders/orders_controller.dart';
+import '../orders/orders_screen.dart';
+import '../profile/profile_controller.dart';
+import '../profile/profile_screen.dart';
+import '../support/support_screen.dart';
+import '../wallet/payment_history_screen.dart';
+import '../wallet/wallet_screen.dart';
 
 /// Tab order is a stable identifier (deep links + tests).
 enum UserTab { home, orders, subscriptions, wallet, profile }
 
 class UserShell extends StatefulWidget {
-  const UserShell({super.key});
+  const UserShell({
+    super.key,
+    required this.api,
+    required this.ordersController,
+    required this.profileController,
+    required this.isAuthenticated,
+    required this.onLoginRequested,
+    required this.onLogout,
+    this.authListenable,
+  });
+
+  /// The single authenticated transport from the composition root.
+  final ApiClient api;
+
+  /// Auth changes must rebuild guest/auth tab bodies (Profile takes a bool).
+  final Listenable? authListenable;
+
+  final OrdersController ordersController;
+  final ProfileController profileController;
+  final bool Function() isAuthenticated;
+
+  /// Pushes the register screen; resolves when the user leaves the route.
+  final Future<void> Function(BuildContext context) onLoginRequested;
+
+  /// Server revoke + local wipe live in the composition root.
+  final Future<void> Function() onLogout;
 
   @override
   State<UserShell> createState() => _UserShellState();
@@ -34,19 +68,31 @@ class _UserShellState extends State<UserShell> {
     });
   }
 
+  void _login() => widget.onLoginRequested(context);
+
+  void _openPayments() => Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => PaymentHistoryScreen(api: widget.api),
+        ),
+      );
+
+  void _openSupport() => Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => SupportScreen(api: widget.api),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final listenable = widget.authListenable;
     return Scaffold(
       body: SafeArea(
-        child: IndexedStack(
-          index: _tab.index,
-          children: [
-            for (final tab in UserTab.values)
-              _mounted.contains(tab)
-                  ? _TabBody(tab: tab)
-                  : const SizedBox.shrink(),
-          ],
-        ),
+        child: listenable == null
+            ? _tabs()
+            : ListenableBuilder(
+                listenable: listenable,
+                builder: (_, _) => _tabs(),
+              ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab.index,
@@ -81,6 +127,40 @@ class _UserShellState extends State<UserShell> {
       ),
     );
   }
+
+  Widget _tabs() => IndexedStack(
+        index: _tab.index,
+        children: [
+          for (final tab in UserTab.values)
+            _mounted.contains(tab)
+                ? _bodyFor(tab)
+                : const SizedBox.shrink(),
+        ],
+      );
+
+  Widget _bodyFor(UserTab tab) => switch (tab) {
+        UserTab.home => const _TabBody(tab: UserTab.home),
+        UserTab.orders => OrdersScreen(
+            controller: widget.ordersController,
+            isAuthenticated: widget.isAuthenticated,
+            onOpenPayments: _openPayments,
+            onSupport: _openSupport,
+          ),
+        UserTab.subscriptions => const _TabBody(tab: UserTab.subscriptions),
+        UserTab.wallet => WalletScreen(
+            api: widget.api,
+            isAuthenticated: widget.isAuthenticated,
+            onLoginRequired: _login,
+          ),
+        UserTab.profile => ProfileScreen(
+            api: widget.api,
+            isAuthenticated: widget.isAuthenticated(),
+            controller: widget.profileController,
+            onLoginRequired: _login,
+            onLogout: widget.onLogout,
+            onOpenPayments: _openPayments,
+          ),
+      };
 }
 
 /// Honest placeholder until the tab's slice lands — no fake data, no fake

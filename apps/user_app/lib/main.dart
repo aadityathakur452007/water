@@ -1,10 +1,12 @@
-// Shodasha user app (032-user-app-replacement) — S1 composition root:
-// device id + ApiClient + AuthController + 5-tab shell skeleton.
+// Shodasha user app (032-user-app-replacement) — composition root.
+//
+// S1: device id + ApiClient + AuthController + 5-tab shell skeleton.
+// S2/S5/S7/S8: AuthGate owns session restore; Orders / Wallet / Profile
+// tabs are live against the shared transport. Home (S3) and Subscriptions
+// (S6) attach in the next wiring pass.
 //
 // Guest-browse contract (user-flows flow 1): prices stay visible without
-// login; register gates only booking commit + profile data. The full
-// AuthGate + register screen land in S2 (auth/onboarding); this build
-// boots straight into the shell.
+// login; register gates only booking commit + profile data.
 
 import 'package:flutter/material.dart';
 
@@ -13,23 +15,18 @@ import 'core/auth_impls.dart';
 import 'core/session_store.dart';
 import 'core/theme.dart';
 import 'features/auth/auth_controller.dart';
+import 'features/auth/auth_gate.dart';
+import 'features/orders/orders_controller.dart';
+import 'features/profile/profile_controller.dart';
 import 'features/shell/user_shell.dart';
-
-/// Publishable Razorpay test key (public by design — the secret stays
-/// server-side in workers/api/.env). Empty = UPI gateway disabled with
-/// an honest message; COD keeps working.
-const String kRazorpayKeyId = String.fromEnvironment(
-  'RAZORPAY_KEY_ID',
-  defaultValue: '',
-);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ShodashaApp());
 }
 
-/// Composition root: one ApiClient + AuthController shared by the shell
-/// and pushed routes (feature controllers attach in their slices).
+/// Composition root: one ApiClient + controllers shared by the shell and
+/// pushed routes.
 class ShodashaApp extends StatefulWidget {
   const ShodashaApp({super.key});
 
@@ -40,6 +37,8 @@ class ShodashaApp extends StatefulWidget {
 class _ShodashaAppState extends State<ShodashaApp> {
   late final ApiClient _api;
   late final AuthController _auth;
+  late final OrdersController _orders;
+  late final ProfileController _profile;
   late final String _deviceId;
 
   bool _ready = false;
@@ -55,7 +54,7 @@ class _ShodashaAppState extends State<ShodashaApp> {
   /// `_auth` lazily — the first authed call happens long after boot, so the
   /// late field is assigned); 401/403 wipes locally back to guest via
   /// [AuthController.forceLogout] (never loops: the hook never calls the
-  /// server). Session restore is best-effort — failure = guest.
+  /// server). Session restore is owned by [AuthGate] (its splash).
   Future<void> _boot() async {
     _deviceId = await loadOrCreateDeviceId();
     _api = ApiClient(
@@ -68,12 +67,15 @@ class _ShodashaAppState extends State<ShodashaApp> {
       store: SecureSessionStore(),
       deviceId: _deviceId,
     );
-    await _auth.restoreSession();
+    _orders = OrdersController(repo: ApiBackedOrdersRepository(_api));
+    _profile = ProfileController(api: _api);
     if (mounted) setState(() => _ready = true);
   }
 
   @override
   void dispose() {
+    _orders.dispose();
+    _profile.dispose();
     _auth.dispose();
     super.dispose();
   }
@@ -90,7 +92,18 @@ class _ShodashaAppState extends State<ShodashaApp> {
       title: 'Shodasha',
       debugShowCheckedModeBanner: false,
       theme: buildShodashaTheme(),
-      home: const UserShell(),
+      home: AuthGate(
+        controller: _auth,
+        home: UserShell(
+          api: _api,
+          authListenable: _auth,
+          ordersController: _orders,
+          profileController: _profile,
+          isAuthenticated: () => _auth.isAuthenticated,
+          onLoginRequested: (ctx) => openRegister(ctx, _auth),
+          onLogout: _auth.logout,
+        ),
+      ),
     );
   }
 }
