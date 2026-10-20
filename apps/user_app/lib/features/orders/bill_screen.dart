@@ -124,12 +124,12 @@ class BillScreen extends StatelessWidget {
                       ),
                     if (o.prevDuesPaise != 0)
                       _Line(
-                        label: 'Pichla baki',
+                        label: 'Previous dues',
                         amount: formatRupees(o.prevDuesPaise),
                       ),
                     if (o.paymentsPaise != 0)
                       _Line(
-                        label: 'Bhugtan',
+                        label: 'Payment',
                         amount: '−${formatRupees(o.paymentsPaise)}',
                       ),
                     // 015: payment mode + vendor-collect note (trust by visibility).

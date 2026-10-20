@@ -249,9 +249,9 @@ void main() {
       expect(find.textContaining('UPI'), findsWidgets);
       expect(find.textContaining('Paid'), findsWidgets);
       // Vendor-collect note renders because paymentsPaise > 0.
-      expect(find.textContaining('Vendor ko'), findsOneWidget);
+      expect(find.textContaining('to the vendor'), findsOneWidget);
       // Bill row is tappable (InkWell, was dead Container).
-      await tester.tap(find.textContaining('Bill dekhein'));
+      await tester.tap(find.textContaining('View bill'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 

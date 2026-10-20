@@ -32,42 +32,43 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
 
-/// Hindi-first copy for the orders feature (local map per approved answer 1).
+/// English copy for the orders feature (v1, ADR-120). Keys stay stable for a
+/// later Hinglish l10n pass.
 const Map<String, String> ordersStringsHi = {
-  'ordersTitle': 'Mere orders',
-  'searchHint': 'Order ID ya address khojein',
-  'emptyTitle': 'Abhi koi order nahi',
-  'emptyHint': 'Pehla order book karein — kal subah delivery',
-  'noResultsTitle': 'Koi order nahi mila',
-  'noResultsHint': 'Khoj badal kar dekhein',
-  'errorTitle': 'Orders load nahi hue',
-  'offlineTitle': 'Internet nahi — purane orders dikh rahe',
-  'retry': 'Dobara try karein',
-  'loadMore': 'Aur orders dekhein',
-  'cancelTitle': 'Order cancel karein?',
-  'cancelConfirm': 'Haan, cancel karein',
-  'cancelKeep': 'Rehne dein',
-  'cancelReasonLabel': 'Cancel ka kaaran chunein',
-  'rescheduleTitle': 'Delivery ka time badlein',
-  'rescheduleConfirm': 'Naya time pakka karein',
-  'whatsappHelp': 'WhatsApp par madad',
-  'whatsappFail': 'WhatsApp khul nahi paya — 8AM–8PM par try karein',
-  'callFail': 'Dialer khul nahi paya',
-  'callRider': 'Rider ko call karein',
-  'deliveredBanner': 'Order deliver ho gaya',
-  'cancelledBanner': 'Order cancel ho gaya',
-  'failedBanner': 'Delivery fail ho gayi — support se baat karein',
-  'rejectedBanner': 'Order reject ho gaya — paise wapas honge',
-  'refundPending': 'Refund pending — rashi frozen, badlegi nahi',
-  'duesNote': 'Baki rashi agle bill me jud jayegi',
-  'rateTitle': 'Delivery kaisi rahi?',
-  'rateSubmit': 'Rating bhejein',
-  'rateThanks': 'Shukriya! Aapki rating mil gayi',
-  'rateAgain': 'Rating ek baar hi di ja sakti hai',
-  'complaintShortcut': 'Dikkat hai? Shikayat karein',
-  'viewBill': 'Bill dekhein',
+  'ordersTitle': 'My orders',
+  'searchHint': 'Search order ID or address',
+  'emptyTitle': 'No orders yet',
+  'emptyHint': 'Place your first order — delivery tomorrow morning',
+  'noResultsTitle': 'No matching orders',
+  'noResultsHint': 'Try a different search',
+  'errorTitle': 'Could not load orders',
+  'offlineTitle': 'Offline — showing older orders',
+  'retry': 'Try again',
+  'loadMore': 'Load more orders',
+  'cancelTitle': 'Cancel this order?',
+  'cancelConfirm': 'Yes, cancel it',
+  'cancelKeep': 'Keep it',
+  'cancelReasonLabel': 'Choose a cancellation reason',
+  'rescheduleTitle': 'Change delivery time',
+  'rescheduleConfirm': 'Confirm new time',
+  'whatsappHelp': 'Help on WhatsApp',
+  'whatsappFail': 'Could not open WhatsApp — try between 8AM–8PM',
+  'callFail': 'Could not open the dialer',
+  'callRider': 'Call the rider',
+  'deliveredBanner': 'Order delivered',
+  'cancelledBanner': 'Order cancelled',
+  'failedBanner': 'Delivery failed — contact support',
+  'rejectedBanner': 'Order rejected — refund on the way',
+  'refundPending': 'Refund pending — amount frozen, will not change',
+  'duesNote': 'Remaining amount will be added to your next bill',
+  'rateTitle': 'How was the delivery?',
+  'rateSubmit': 'Submit rating',
+  'rateThanks': 'Thanks! Your rating was received',
+  'rateAgain': 'A rating can be submitted only once',
+  'complaintShortcut': 'Something wrong? File a complaint',
+  'viewBill': 'View bill',
   'autoRefresh': 'Auto-refresh',
-  'windowLabel': 'Delivery ka samay',
+  'windowLabel': 'Delivery window',
   'riderLabel': 'Rider',
 };
 
@@ -118,15 +119,15 @@ String orderStateToString(OrderState s) => s.name;
 /// Cancel reasons — dropdown codes (approved answer 3), consistent with
 /// complaint reason-code style ({reason} string on the wire).
 enum CancelReason {
-  changedMind('changed_mind', 'Mann badal gaya'),
-  duplicate('duplicate', 'Duplicate order ho gaya'),
-  orderedByMistake('ordered_by_mistake', 'Galti se order ho gaya'),
-  delayed('delayed', 'Delivery me deri'),
-  other('other', 'Kuch aur');
+  changedMind('changed_mind', 'Changed my mind'),
+  duplicate('duplicate', 'Duplicate order'),
+  orderedByMistake('ordered_by_mistake', 'Ordered by mistake'),
+  delayed('delayed', 'Delivery is late'),
+  other('other', 'Something else');
 
-  const CancelReason(this.code, this.labelHi);
+  const CancelReason(this.code, this.label);
   final String code;
-  final String labelHi;
+  final String label;
 
   static CancelReason fromCode(String code) {
     for (final r in CancelReason.values) {

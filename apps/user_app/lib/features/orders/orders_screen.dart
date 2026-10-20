@@ -412,7 +412,7 @@ class _OrderCard extends StatelessWidget {
                   onPressed: onReorder,
                   icon: const Icon(Icons.repeat, size: 18),
                   label: const Text(
-                    'Phir se order karein',
+                    'Reorder',
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 14,

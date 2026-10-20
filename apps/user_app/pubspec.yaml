@@ -45,7 +45,7 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
 
-  # Real brand assets (no placeholders in shipped screens). login_hero.png
+  # Real brand assets (no placeholders in shipped screens). login_hero.jpg
   # is the donor hero image, adopted with the donor UI import.
   assets:
     - assets/logo.png

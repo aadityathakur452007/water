@@ -26,21 +26,21 @@ class LocationError implements Exception {
   /// Internal detail only (never shown, never logged with PII).
   final String detail;
 
-  /// Hindi-first message, safe to display.
+  /// English copy for v1 (ADR-120), safe to display.
   String get userMessage {
     switch (type) {
       case LocationErrorType.serviceDisabled:
-        return 'Location band hai — on karke dobara try karein';
+        return 'Location is off — turn it on and try again';
       case LocationErrorType.denied:
-        return 'Location permission nahi mili — current location ke liye allow karein';
+        return 'Location permission denied — allow it to use your current location';
       case LocationErrorType.deniedForever:
-        return 'Location blocked hai — Settings me allow karein';
+        return 'Location is blocked — allow it in Settings';
       case LocationErrorType.timeout:
-        return 'Location milne me time lag raha hai — dobara try karein';
+        return 'Getting your location is taking a while — try again';
       case LocationErrorType.unavailable:
-        return 'Location nahi mili — dobara try karein';
+        return 'Location not found — try again';
       case LocationErrorType.reverseGeocodeFailed:
-        return 'Position mili, pata nahi mila — dobara try karein';
+        return 'Location found, address not resolved — try again';
     }
   }
 

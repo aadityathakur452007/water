@@ -193,7 +193,7 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
       child: Column(
         children: [
           Image.asset(
-            'assets/images/login_hero.png',
+            'assets/images/login_hero.jpg',
             height: 190,
             width: double.infinity,
             fit: BoxFit.cover,

@@ -112,7 +112,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             ),
             items: [
               for (final r in CancelReason.values)
-                DropdownMenuItem(value: r, child: Text(r.labelHi)),
+                DropdownMenuItem(value: r, child: Text(r.label)),
             ],
             onChanged: (v) {
               if (v != null) setD(() => _cancelReason = v);
@@ -288,7 +288,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: () => widget.controller.refresh(),
-                        child: const Text('Dobara try karein'),
+                        child: const Text('Try again'),
                       ),
                     ],
                   ),
@@ -477,14 +477,14 @@ class _FourStepTracker extends StatelessWidget {
   const _FourStepTracker({required this.step});
   final int step;
 
-  static const _labels = ['Pakka', 'Pack', 'Raste me', 'Mil gaya'];
+  static const _labels = ['Confirmed', 'Packed', 'On the way', 'Delivered'];
 
   @override
   Widget build(BuildContext context) {
     // a11y-2: progress announced as one node (step X of 4 + label).
     return Semantics(
       container: true,
-      label: 'Order pragati: 4 me se charan ${step + 1}, ${_labels[step]}',
+      label: 'Order progress: step ${step + 1} of 4, ${_labels[step]}',
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -748,8 +748,8 @@ class _LiveStopsAheadBanner extends StatelessWidget {
               children: [
                 Text(
                   isNext
-                      ? 'Aapka stop agla hai!'
-                      : 'Driver abhi $stopsAhead stops door hai',
+                      ? 'Your stop is next!'
+                      : 'Driver is $stopsAhead stops away',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
@@ -759,8 +759,8 @@ class _LiveStopsAheadBanner extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   isNext
-                      ? 'Driver aapke address par aa raha hai. Kripya empty jar ready rakhein.'
-                      : 'Anumanit samay: lagbhag ${stopsAhead * 10}–${stopsAhead * 15} minute. Empty jar bahar rakhein.',
+                      ? 'The driver is arriving at your address. Please keep your empty jar ready.'
+                      : 'Estimated time: about ${stopsAhead * 10}–${stopsAhead * 15} minutes. Keep your empty jar outside.',
                   style: const TextStyle(
                     fontSize: 13,
                     color: ShodashaTheme.ink,
@@ -954,7 +954,7 @@ class _BillRow extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
-                  'Vendor ko ${formatRupees(order.paymentsPaise)} diye — bill me confirm karein',
+                  'Paid ${formatRupees(order.paymentsPaise)} to the vendor — confirm in the bill',
                   style: const TextStyle(
                     fontSize: 12,
                     color: ShodashaTheme.muted,
@@ -1151,7 +1151,7 @@ class _ActionsFor extends StatelessWidget {
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
           ),
-          label: const Text('Support se baat karein / WhatsApp'),
+          label: const Text('Talk to support / WhatsApp'),
         ),
       );
     }
