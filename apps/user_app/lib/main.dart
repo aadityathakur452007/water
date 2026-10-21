@@ -88,11 +88,31 @@ class _ShodashaAppState extends State<ShodashaApp> {
     }));
     _orders = OrdersController(repo: ApiBackedOrdersRepository(_api));
     _profile = ProfileController(api: _api);
+    // Session boundary: when the session ends (logout, expiry, 401) drop
+    // every user-scoped controller so the next account can never see the
+    // previous user's orders/addresses/identity/ledger. AuthGate unmounts
+    // the shell at the same moment — this owner is the one that survives
+    // the swap, so the reset lives here, not in the shell.
+    _auth.addListener(_onAuthBoundaryChanged);
     if (mounted) setState(() => _ready = true);
+  }
+
+  bool _wasAuthenticated = false;
+
+  void _onAuthBoundaryChanged() {
+    final authed = _auth.isAuthenticated;
+    if (authed == _wasAuthenticated) return;
+    _wasAuthenticated = authed;
+    if (authed) return;
+    _booking.resetUserScoped();
+    _addresses.reset();
+    _orders.reset();
+    _profile.reset();
   }
 
   @override
   void dispose() {
+    _auth.removeListener(_onAuthBoundaryChanged);
     _booking.dispose();
     _addresses.dispose();
     _selectedStore.dispose();

@@ -1,5 +1,5 @@
-// Shell spec: 5 stable tabs, lazy mount (ADR-112), real tab bodies in guest
-// mode (Home / Orders / Wallet / Profile) with zero authed requests.
+// Shell spec: 5 stable tabs, lazy mount (ADR-112), account-scoped tabs
+// (Orders / Subscriptions) guest-gated with zero authed requests.
 // Plugin-free.
 
 import 'package:flutter/material.dart';
@@ -80,13 +80,17 @@ void main() {
     await tester.tap(navLabel('Orders'));
     await tester.pumpAndSettle();
     expect(visibleTab(tester), UserTab.orders.index);
-    expect(find.byType(OrdersScreen), findsOneWidget);
+    // Orders is account-scoped: guests get the sign-in gate and the screen
+    // (which would render cached rows) is never mounted.
+    expect(find.text('Sign in to see your orders.'), findsOneWidget);
+    expect(find.byType(OrdersScreen, skipOffstage: false), findsNothing);
 
-    // Back to Home: Orders stays mounted (offstage), never remounts.
+    // Back to Home: Home stays mounted (offstage), never remounts.
     await tester.tap(navLabel('Home'));
     await tester.pumpAndSettle();
     expect(visibleTab(tester), UserTab.home.index);
-    expect(find.byType(OrdersScreen, skipOffstage: false), findsOneWidget);
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byType(OrdersScreen, skipOffstage: false), findsNothing);
 
     await tester.tap(navLabel('Wallet'));
     await tester.pumpAndSettle();

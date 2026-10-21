@@ -577,6 +577,10 @@ class OrdersController extends ChangeNotifier {
   int _pollSeconds = pollBaseSeconds;
   bool _disposed = false;
 
+  /// User boundary: bumped by [reset]; async completions from the previous
+  /// account are discarded instead of repopulating the list.
+  int _generation = 0;
+
   /// Rating auto-popup fires once per delivered order view (approved answer 5).
   final Set<String> _ratingPrompted = {};
 
@@ -617,13 +621,34 @@ class OrdersController extends ChangeNotifier {
   }
 
   /// First load (skeleton in the screen while [_status] is loading).
+  /// User boundary: clears every row/flag and invalidates in-flight loads so
+  /// a response landing after logout can never repopulate the list.
+  void reset() {
+    _generation++;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollSeconds = pollBaseSeconds;
+    _all.clear();
+    _query = '';
+    _errorMessage = null;
+    _isOffline = false;
+    _cursor = null;
+    _hasMore = false;
+    _actionBusy = false;
+    _status = OrdersListStatus.initial;
+    _ratingPrompted.clear();
+    _notify();
+  }
+
   Future<void> load() async {
     if (_status == OrdersListStatus.loading) return;
     _status = OrdersListStatus.loading;
     _errorMessage = null;
     _notify();
+    final gen = _generation;
     try {
       final page = await _repo.fetchOrders();
+      if (gen != _generation) return; // reset mid-flight (logout/user switch)
       _all
         ..clear()
         ..addAll(page.orders);
@@ -633,6 +658,7 @@ class OrdersController extends ChangeNotifier {
       _isOffline = false;
       _onPollSuccess();
     } catch (_) {
+      if (gen != _generation) return;
       _status = _all.isEmpty ? OrdersListStatus.error : OrdersListStatus.loaded;
       _errorMessage = ordersStringsHi['errorTitle'];
       _isOffline = _all.isEmpty;
@@ -651,13 +677,16 @@ class OrdersController extends ChangeNotifier {
     if (!_hasMore || cursor == null || _status == OrdersListStatus.loading) {
       return;
     }
+    final gen = _generation;
     try {
       final page = await _repo.fetchOrders(cursor: cursor);
+      if (gen != _generation) return;
       _all.addAll(page.orders);
       _cursor = page.nextCursor;
       _hasMore = page.nextCursor != null;
       _onPollSuccess();
     } catch (_) {
+      if (gen != _generation) return;
       _errorMessage = ordersStringsHi['errorTitle'];
       _onPollError();
     }
@@ -666,8 +695,10 @@ class OrdersController extends ChangeNotifier {
 
   /// Detail refresh for the tracking screen (poll target).
   Future<Order?> refreshOrder(String id) async {
+    final gen = _generation;
     try {
       final fresh = await _repo.fetchOrder(id);
+      if (gen != _generation) return findById(id);
       final idx = _all.indexWhere((o) => o.id == id);
       if (idx >= 0) {
         _all[idx] = fresh;
@@ -678,6 +709,7 @@ class OrdersController extends ChangeNotifier {
       _notify();
       return fresh;
     } catch (_) {
+      if (gen != _generation) return findById(id);
       _onPollError();
       _notify();
       return findById(id);
@@ -688,8 +720,10 @@ class OrdersController extends ChangeNotifier {
     if (_actionBusy) return false;
     _actionBusy = true;
     _notify();
+    final gen = _generation;
     try {
       final updated = await _repo.cancelOrder(id, reasonCode);
+      if (gen != _generation) return true;
       _replace(updated);
       return true;
     } catch (_) {
@@ -704,8 +738,10 @@ class OrdersController extends ChangeNotifier {
     if (_actionBusy) return false;
     _actionBusy = true;
     _notify();
+    final gen = _generation;
     try {
       final updated = await _repo.rescheduleOrder(id, windowStart);
+      if (gen != _generation) return true;
       _replace(updated);
       return true;
     } catch (_) {
@@ -718,8 +754,10 @@ class OrdersController extends ChangeNotifier {
 
   Future<bool> rate(String id, int stars) async {
     if (stars < 1 || stars > 5) return false;
+    final gen = _generation;
     try {
       final updated = await _repo.submitRating(id, stars);
+      if (gen != _generation) return true;
       _replace(updated);
       return true;
     } catch (_) {

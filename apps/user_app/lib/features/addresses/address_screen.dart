@@ -169,6 +169,10 @@ class AddressController extends ChangeNotifier {
   String? _errorMessage;
   bool _busy = false;
 
+  /// User boundary: bumped by [reset]; async completions from a previous
+  /// account are discarded.
+  int _generation = 0;
+
   AddrStatus get status => _status;
   List<AddressEntry> get items => List.unmodifiable(_items);
   String? get errorMessage => _errorMessage;
@@ -216,8 +220,10 @@ class AddressController extends ChangeNotifier {
     _status = AddrStatus.loading;
     _errorMessage = null;
     _notify();
+    final gen = _generation;
     try {
       final raw = await _api.listAddresses();
+      if (gen != _generation) return; // reset mid-flight (logout/user switch)
       _items = raw
           .whereType<Map<String, dynamic>>()
           .map(AddressEntry.fromApi)
@@ -231,14 +237,29 @@ class AddressController extends ChangeNotifier {
         }
       }
     } on ApiException catch (e) {
+      if (gen != _generation) return;
       _status = AddrStatus.error;
       _errorMessage = e.isNetwork
           ? addressStrings['offline']
           : addressStrings['loadFailed'];
     } catch (_) {
+      if (gen != _generation) return;
       _status = AddrStatus.error;
       _errorMessage = addressStrings['loadFailed'];
     }
+    _notify();
+  }
+
+  /// User boundary: clears rows + selection and invalidates in-flight
+  /// requests so the next account never sees the previous user's addresses.
+  void reset() {
+    _generation++;
+    _selectedId = null;
+    _store?.select(null);
+    _items = [];
+    _status = AddrStatus.initial;
+    _errorMessage = null;
+    _busy = false;
     _notify();
   }
 
@@ -246,11 +267,13 @@ class AddressController extends ChangeNotifier {
     _busy = true;
     _errorMessage = null;
     _notify();
+    final gen = _generation;
     try {
       final body = entry.toApi();
       final saved = isNew
           ? AddressEntry.fromApi(await _api.createAddress(body))
           : AddressEntry.fromApi(await _api.patchAddress(entry.id, body));
+      if (gen != _generation) return true;
       final idx = _items.indexWhere((a) => a.id == saved.id);
       if (idx >= 0) {
         _items[idx] = saved;
@@ -260,6 +283,7 @@ class AddressController extends ChangeNotifier {
       select(saved.id); // newly saved address becomes the delivery address
       return true;
     } on ApiException catch (e) {
+      if (gen != _generation) return false;
       _errorMessage = e.statusCode == 409
           ? addressStrings['editBlockedBody']
           : e.isNetwork
@@ -267,6 +291,7 @@ class AddressController extends ChangeNotifier {
               : addressStrings['loadFailed'];
       return false;
     } catch (_) {
+      if (gen != _generation) return false;
       _errorMessage = addressStrings['loadFailed'];
       return false;
     } finally {
@@ -278,12 +303,15 @@ class AddressController extends ChangeNotifier {
   Future<bool> delete(String id) async {
     _busy = true;
     _notify();
+    final gen = _generation;
     try {
       await _api.deleteAddress(id);
+      if (gen != _generation) return true;
       _items.removeWhere((a) => a.id == id);
       if (_selectedId == id) select(null);
       return true;
     } on ApiException catch (e) {
+      if (gen != _generation) return false;
       _errorMessage = e.statusCode == 409
           ? addressStrings['editBlockedBody']
           : e.isNetwork
@@ -291,6 +319,7 @@ class AddressController extends ChangeNotifier {
               : addressStrings['loadFailed'];
       return false;
     } catch (_) {
+      if (gen != _generation) return false;
       _errorMessage = addressStrings['offline'];
       return false;
     } finally {

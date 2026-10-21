@@ -66,6 +66,17 @@ class _Slot {
 
 enum _Phase { form, paying, error }
 
+/// What the error phase may honestly offer. Once an order/subscription
+/// exists, create is NEVER re-posted — only the payment step is retried
+/// (same idempotency key → server replays the same row).
+enum _Recovery {
+  none,
+  retry, // nothing created — safe to retry create with the same key
+  created, // row exists — retry payment / open Orders
+  unconfirmed, // payment sent, webhook silent — re-check / open Orders
+  checkOnly, // response unusable — review Orders/Subscriptions first
+}
+
 const Map<DeliveryType, String> _deliveryLabels = {
   DeliveryType.once: 'One-time',
   DeliveryType.daily: 'Daily plan',
@@ -131,6 +142,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   Razorpay? _gateway;
   CheckoutResult? _pendingUpi;
+
+  /// The created order/subscription. Set as soon as the server confirms it;
+  /// the recovery flow never re-posts create while this is non-null.
+  CheckoutResult? _placed;
+  _Recovery _recovery = _Recovery.none;
 
   BookingController get c => widget.controller;
   bool get _isOnce => c.deliveryType == DeliveryType.once;
@@ -361,6 +377,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     setState(() {
       _phase = _Phase.paying;
       _error = '';
+      _recovery = _Recovery.none;
+      _placed = null;
     });
 
     // Address identity: the id the sheet opened with must still exist.
@@ -371,6 +389,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         if (!mounted) return;
         setState(() {
           _phase = _Phase.error;
+          _recovery = _Recovery.retry;
           _error = 'This address changed. Go back and choose it again.';
         });
         return;
@@ -391,9 +410,23 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         quote: _isOnce ? _quote : null,
       );
       if (!mounted) return;
+      _placed = result;
       if (result.isSubscription || c.paymentMode == PaymentMode.cod) {
         c.resetBookingSession();
         widget.onDone(result);
+        return;
+      }
+      if (result.providerRef.isEmpty && result.upiLink.isEmpty) {
+        // The order exists; only the payment step failed (caught in
+        // placeCheckout, so no throw and no key rotation).
+        setState(() {
+          _phase = _Phase.error;
+          _recovery = _Recovery.created;
+          _error = result.attentionMessage.isNotEmpty
+              ? result.attentionMessage
+              : 'Your order is placed. The payment could not be started — '
+                  'retry payment or check Orders.';
+        });
         return;
       }
       await _collectUpi(result);
@@ -402,38 +435,55 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       setState(() {
         _quote = null;
         _phase = _Phase.error;
+        _recovery = _Recovery.retry;
         _error = e.message;
       });
       await _loadQuote();
+    } on UnconfirmedCreateException catch (e) {
+      // The row may exist but the response was unusable — retrying would
+      // create a duplicate, so send the user to Orders/Subscriptions.
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.error;
+        _recovery = _Recovery.checkOnly;
+        _error = e.message;
+      });
     } on ServerDataException catch (e) {
       if (!mounted) return;
       setState(() {
         _phase = _Phase.error;
+        _recovery = _Recovery.retry;
         _error = e.message;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _phase = _Phase.error;
+        _recovery = _Recovery.retry;
         _error = checkoutErrorFor(e);
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _phase = _Phase.error;
+        _recovery = _Recovery.retry;
         _error = 'Something went wrong. Please retry.';
       });
     }
   }
 
   Future<void> _collectUpi(CheckoutResult result) async {
+    // Every branch below runs AFTER the order exists — the key is never
+    // rotated and create is never re-posted; only the payment step retries.
     if (result.providerRef.isEmpty && result.upiLink.isEmpty) {
       if (!mounted) return;
-      c.refreshIdempotencyKey();
       setState(() {
         _phase = _Phase.error;
-        _error = 'The payment link is missing. Retry or choose cash on '
-            'delivery.';
+        _recovery = _Recovery.created;
+        _error = result.attentionMessage.isNotEmpty
+            ? result.attentionMessage
+            : 'Your order is placed. The payment could not be started — '
+                'retry payment or check Orders.';
       });
       return;
     }
@@ -442,11 +492,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       // Server-issued link only — the client never mints a UPI URI.
       if (result.upiLink.isEmpty) {
         if (!mounted) return;
-        c.refreshIdempotencyKey();
         setState(() {
           _phase = _Phase.error;
-          _error = 'The payment link is missing. Retry or choose cash on '
-              'delivery.';
+          _recovery = _Recovery.created;
+          _error = 'Your order is placed, but the payment link is missing. '
+              'Retry payment or check Orders.';
         });
         return;
       }
@@ -461,10 +511,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       }
       if (!mounted) return;
       if (!opened) {
-        c.refreshIdempotencyKey();
         setState(() {
           _phase = _Phase.error;
-          _error = 'No UPI app opened. Retry or choose cash on delivery.';
+          _recovery = _Recovery.created;
+          _error = 'Your order is placed. No UPI app opened — retry the '
+              'payment or check Orders.';
         });
         return;
       }
@@ -476,10 +527,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
     if (widget.razorpayKeyId.isEmpty) {
       if (!mounted) return;
-      c.refreshIdempotencyKey();
       setState(() {
         _phase = _Phase.error;
-        _error = 'Online payment is not set up yet. Choose cash on delivery.';
+        _recovery = _Recovery.created;
+        _error = 'Your order is placed. Online payment is not set up in '
+            'this build — check Orders.';
       });
       return;
     }
@@ -497,6 +549,69 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       'name': 'Shodasha',
       'description': 'Water order ${result.orderId}',
     });
+  }
+
+  /// Retry the payment step for the already-created order: re-request the
+  /// intent (same key → server replays the same row) or re-open the payment
+  /// that was issued. Never touches create.
+  Future<void> _recoverPayment() async {
+    final placed = _placed;
+    if (placed == null || _phase == _Phase.paying) return;
+    if (placed.providerRef.isEmpty && placed.upiLink.isEmpty) {
+      await _requestIntent();
+    } else {
+      await _collectUpi(placed);
+    }
+  }
+
+  Future<void> _requestIntent() async {
+    final placed = _placed;
+    if (placed == null) return;
+    setState(() {
+      _phase = _Phase.paying;
+      _error = '';
+    });
+    final String failCopy = 'The payment link is still unavailable. Try '
+        'again or check Orders.';
+    try {
+      final intent = await widget.api.upiIntent(
+        orderId: placed.orderId,
+        idempotencyKey: c.ensureIdempotencyKey(),
+      );
+      final ref = (intent['provider_ref'] ?? '') as String;
+      final link = (intent['link'] ?? '') as String;
+      if (!mounted) return;
+      if (ref.isEmpty && link.isEmpty) {
+        setState(() {
+          _phase = _Phase.error;
+          _recovery = _Recovery.created;
+          _error = failCopy;
+        });
+        return;
+      }
+      await _collectUpi(placed.withIntent(providerRef: ref, upiLink: link));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.error;
+        _recovery = _Recovery.created;
+        _error = failCopy;
+      });
+    }
+  }
+
+  Future<void> _checkPaymentAgain() async {
+    final placed = _placed;
+    if (placed == null || _phase == _Phase.paying) return;
+    setState(() => _phase = _Phase.paying);
+    await _verifyOrPollPayment(placed);
+  }
+
+  void _checkOrders() {
+    final placed = _placed;
+    if (placed == null) return;
+    // Shell's onDone pops this sheet and shows the confirmation/pending view.
+    widget.onDone(placed);
   }
 
   Future<void> _verifyOrPollPayment(CheckoutResult pending) async {
@@ -518,12 +633,13 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       }
     }
     if (!mounted) return;
-    // Do NOT complete an unconfirmed order. Fresh key for a clean retry.
-    c.refreshIdempotencyKey();
+    // Do NOT complete an unconfirmed order and do NOT mint a new key — the
+    // order stays placed; the user can re-check or open Orders.
     setState(() {
       _phase = _Phase.error;
-      _error = 'Payment is not confirmed yet. Retry, or choose cash on '
-          'delivery.';
+      _recovery = _Recovery.unconfirmed;
+      _error = 'Payment is not confirmed yet. Your order is placed — check '
+          'the payment again or open Orders.';
     });
   }
 
@@ -536,12 +652,13 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   void _onGatewayError(PaymentFailureResponse resp) {
     if (!mounted) return;
-    c.refreshIdempotencyKey();
     setState(() {
       _phase = _Phase.error;
+      _recovery = _Recovery.created;
       _error = resp.message?.isNotEmpty == true
           ? resp.message!
-          : 'Payment failed. Retry, or choose cash on delivery.';
+          : 'Your order is placed. Payment failed — retry payment or check '
+              'Orders.';
     });
   }
 
@@ -697,6 +814,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                 } else if (_customDays.length < 6) {
                   _customDays.add(day);
                 }
+                // Dates are part of the create payload → fresh key.
+                c.refreshIdempotencyKey();
               });
             },
             calendarStyle: const CalendarStyle(
@@ -898,28 +1017,50 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         spacing: 8,
                         runSpacing: 4,
                         children: [
-                          OutlinedButton(
-                            onPressed: busy
-                                ? null
-                                : () {
-                                    c.refreshIdempotencyKey();
-                                    _pay();
-                                  },
-                            child: const Text('Retry'),
-                          ),
-                          if (_isOnce &&
-                              codOk &&
-                              c.paymentMode == PaymentMode.upi)
+                          if (_recovery == _Recovery.retry) ...[
+                            OutlinedButton(
+                              onPressed: busy ? null : _pay,
+                              child: const Text('Retry'),
+                            ),
+                            if (_isOnce &&
+                                codOk &&
+                                c.paymentMode == PaymentMode.upi)
+                              ElevatedButton(
+                                onPressed: busy
+                                    ? null
+                                    : () {
+                                        setState(
+                                          () =>
+                                              c.paymentMode = PaymentMode.cod,
+                                        );
+                                        _pay();
+                                      },
+                                child: const Text('Choose COD'),
+                              ),
+                          ] else if (_recovery == _Recovery.created) ...[
+                            OutlinedButton(
+                              onPressed: busy ? null : _recoverPayment,
+                              child: const Text('Retry payment'),
+                            ),
                             ElevatedButton(
+                              onPressed: busy ? null : _checkOrders,
+                              child: const Text('Check Orders'),
+                            ),
+                          ] else if (_recovery == _Recovery.unconfirmed) ...[
+                            OutlinedButton(
+                              onPressed: busy ? null : _checkPaymentAgain,
+                              child: const Text('Check payment again'),
+                            ),
+                            ElevatedButton(
+                              onPressed: busy ? null : _checkOrders,
+                              child: const Text('Check Orders'),
+                            ),
+                          ] else if (_recovery == _Recovery.checkOnly)
+                            OutlinedButton(
                               onPressed: busy
                                   ? null
-                                  : () {
-                                      setState(
-                                        () => c.paymentMode = PaymentMode.cod,
-                                      );
-                                      _pay();
-                                    },
-                              child: const Text('Choose COD'),
+                                  : () => Navigator.of(context).pop(),
+                              child: const Text('Close'),
                             ),
                         ],
                       ),

@@ -7,6 +7,14 @@
 // Recurring → POST /subscriptions (+Idempotency-Key, double-tap safe).
 // STALE_QUOTE (409) retries the quote→order pair exactly once.
 //
+// Post-create law (P0 fix): once the server has minted an order or
+// subscription, this file NEVER throws for a later failure — the payment-step
+// problem is reported as [CheckoutResult.attention] and the same idempotency
+// key stays in place, so retrying the payment step replays the SAME row
+// instead of creating a second one. An unusable create response throws
+// [UnconfirmedCreateException] (never [ServerDataException]) so the UI sends
+// the user to Orders/Subscriptions instead of retrying create.
+//
 // Money law: the payable total is always the server quote/order total. No
 // client-side total is passed to the gateway or shown as payable.
 
@@ -28,6 +36,8 @@ class CheckoutResult {
     this.capsPaise = 0,
     this.addressLabel = '',
     this.upiPending = false,
+    this.attention = false,
+    this.attentionMessage = '',
   });
 
   /// Server-minted order id ('' for subscription-only checkouts).
@@ -55,9 +65,51 @@ class CheckoutResult {
   /// says what happens next instead of going silent.
   final bool upiPending;
 
+  /// The order/subscription exists but something after create did not
+  /// complete (payment could not start, server response incomplete). The
+  /// recovery flow must NEVER re-post create — only retry the payment step
+  /// or send the user to Orders/Subscriptions.
+  final bool attention;
+  final String attentionMessage;
+
+  /// Same placement, with the UPI intent refreshed (retry payment re-uses
+  /// the original idempotency key, so the server replays the existing row).
+  CheckoutResult withIntent({
+    required String providerRef,
+    required String upiLink,
+  }) =>
+      CheckoutResult(
+        orderId: orderId,
+        totalPaise: totalPaise,
+        windowLabel: windowLabel,
+        isSubscription: isSubscription,
+        providerRef: providerRef,
+        upiLink: upiLink,
+        subscriptionId: subscriptionId,
+        waterPaise: waterPaise,
+        depositPaise: depositPaise,
+        capsPaise: capsPaise,
+        addressLabel: addressLabel,
+        upiPending: upiPending,
+        attention: false,
+        attentionMessage: '',
+      );
+
   /// Real Razorpay ref → open the gateway; otherwise use the server link.
   bool get needsGateway =>
       providerRef.startsWith('order_') || providerRef.startsWith('rzp_');
+}
+
+/// The create call may have succeeded but the server response was unusable
+/// (no order/subscription id or no amount). Retrying could create a SECOND
+/// order/subscription, so the UI must point at Orders/Subscriptions instead.
+class UnconfirmedCreateException implements Exception {
+  const UnconfirmedCreateException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'UnconfirmedCreateException($message)';
 }
 
 /// The quote changed between display and Pay. The sheet must show the new
@@ -153,14 +205,16 @@ Future<CheckoutResult> placeCheckout({
         (data['first_cycle_estimate'] as Map<String, dynamic>?);
     final total = (est?['total'] as num?)?.toInt();
     if (total == null || total < 0) {
-      throw const ServerDataException(
-        'The server did not return the first-cycle amount. Please retry.',
+      throw const UnconfirmedCreateException(
+        'The plan may have been created, but the server did not confirm '
+        'the first-cycle amount. Open Subscriptions before trying again.',
       );
     }
     final subscriptionId = (data['id'] ?? '') as String;
     if (subscriptionId.isEmpty) {
-      throw const ServerDataException(
-        'The server did not return a subscription id. Please retry.',
+      throw const UnconfirmedCreateException(
+        'The plan may have been created, but the server did not confirm it. '
+        'Open Subscriptions before trying again.',
       );
     }
     return CheckoutResult(
@@ -240,9 +294,9 @@ Future<CheckoutResult> placeCheckout({
   final orderId = (data['id'] ?? '') as String;
   final total = (data['total'] as num?)?.toInt();
   if (orderId.isEmpty || total == null || total < 0) {
-    throw const ServerDataException(
-      'The server did not return a complete order. Please check Orders '
-      'before retrying.',
+    throw const UnconfirmedCreateException(
+      'The order may have been created, but the server did not confirm it. '
+      'Check Orders before trying again.',
     );
   }
 
@@ -257,15 +311,24 @@ Future<CheckoutResult> placeCheckout({
   var providerRef = '';
   var upiLink = '';
   var upiPending = false;
+  var attentionMessage = '';
   if (controller.paymentMode == PaymentMode.upi) {
-    final intent = await api.upiIntent(orderId: orderId, idempotencyKey: key);
-    providerRef = (intent['provider_ref'] ?? '') as String;
-    upiLink = (intent['link'] ?? '') as String;
-    if (providerRef.isEmpty && upiLink.isEmpty) {
-      throw const ServerDataException(
-        'The payment link is missing. Please retry or choose cash on '
-        'delivery.',
-      );
+    // The order EXISTS from here on: any payment-step failure is reported
+    // as [attention], never thrown — a thrown error would send the sheet
+    // back to Retry and a new idempotency key would create a second order.
+    try {
+      final intent = await api.upiIntent(orderId: orderId, idempotencyKey: key);
+      providerRef = (intent['provider_ref'] ?? '') as String;
+      upiLink = (intent['link'] ?? '') as String;
+    } catch (_) {
+      attentionMessage =
+          'Your order is placed. The payment could not be started — retry '
+          'payment or check Orders.';
+    }
+    if (attentionMessage.isEmpty && providerRef.isEmpty && upiLink.isEmpty) {
+      attentionMessage =
+          'Your order is placed. The payment could not be started — retry '
+          'payment or check Orders.';
     }
     // FAKE refs open the server link (never the gateway); the webhook has
     // not confirmed yet, so the confirm screen explains what happens next.
@@ -292,6 +355,8 @@ Future<CheckoutResult> placeCheckout({
     capsPaise: caps,
     addressLabel: addressLabel,
     upiPending: upiPending,
+    attention: attentionMessage.isNotEmpty,
+    attentionMessage: attentionMessage,
   );
 }
 

@@ -54,6 +54,10 @@ class ProfileController extends ChangeNotifier {
   bool _saving = false;
   bool _disposed = false;
 
+  /// User boundary: bumped by [reset]; async completions from a previous
+  /// account are discarded.
+  int _generation = 0;
+
   ProfileStatus get status => _status;
   Map<String, dynamic>? get user => _user;
   String? get errorMessage => _errorMessage;
@@ -65,17 +69,32 @@ class ProfileController extends ChangeNotifier {
     _status = ProfileStatus.loading;
     _errorMessage = null;
     _notify();
+    final gen = _generation;
     try {
       final res = await _api.me();
+      if (gen != _generation) return; // reset mid-flight (logout/user switch)
       _user = (res['user'] as Map<String, dynamic>?) ?? res;
       _status = ProfileStatus.loaded;
     } on ApiException catch (e) {
+      if (gen != _generation) return;
       _status = ProfileStatus.error;
       _errorMessage = _loadError(e);
     } catch (_) {
+      if (gen != _generation) return;
       _status = ProfileStatus.error;
       _errorMessage = kProfileLoadError;
     }
+    _notify();
+  }
+
+  /// User boundary: drops the cached identity so the next account never sees
+  /// the previous user's name/phone.
+  void reset() {
+    _generation++;
+    _user = null;
+    _status = ProfileStatus.initial;
+    _errorMessage = null;
+    _saving = false;
     _notify();
   }
 
@@ -90,12 +109,14 @@ class ProfileController extends ChangeNotifier {
     if (_saving) return null;
     _saving = true;
     _notify();
+    final gen = _generation;
     try {
       final res = await _api.patchMe({
         'name': name.trim(),
         'phone': phone.trim(),
         'email': email.trim(),
       });
+      if (gen != _generation) return null;
       _user = (res['user'] as Map<String, dynamic>?) ?? res;
       return null;
     } on ApiException catch (e) {

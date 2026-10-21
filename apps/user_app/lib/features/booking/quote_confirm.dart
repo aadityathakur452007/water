@@ -63,18 +63,24 @@ class _ConfirmSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
                 Icon(
-                  Icons.check_circle_outline,
-                  color: ShodashaTheme.teal,
+                  r.attention
+                      ? Icons.info_outline
+                      : Icons.check_circle_outline,
+                  color: r.attention ? ShodashaTheme.blue : ShodashaTheme.teal,
                   size: 28,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Order confirmed',
-                    style: TextStyle(
+                    r.attention
+                        ? (r.isSubscription
+                            ? 'Plan created'
+                            : 'Order placed — payment pending')
+                        : 'Order confirmed',
+                    style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 20,
                       letterSpacing: -0.3,
@@ -84,6 +90,20 @@ class _ConfirmSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            if (r.attention) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.blueTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+                child: Text(
+                  r.attentionMessage,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -93,12 +113,15 @@ class _ConfirmSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    r.isSubscription
-                        ? 'Subscription: ${r.subscriptionId}'
-                        : 'Order: ${r.orderId}',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
+                  if (r.isSubscription
+                          ? r.subscriptionId.isNotEmpty
+                          : r.orderId.isNotEmpty)
+                    Text(
+                      r.isSubscription
+                          ? 'Subscription: ${r.subscriptionId}'
+                          : 'Order: ${r.orderId}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                   const SizedBox(height: 2),
                   Text('Window: ${r.windowLabel}'),
                   if (r.waterPaise > 0 || r.depositPaise > 0)
@@ -108,10 +131,11 @@ class _ConfirmSheet extends StatelessWidget {
                       '${r.capsPaise > 0 ? ' + Cap ${rupeesLabel(r.capsPaise)} (at handover)' : ''}',
                       style: const TextStyle(fontSize: 13),
                     ),
-                  Text(
-                    'Amount: ${rupeesLabel(r.totalPaise)}',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
+                  if (r.totalPaise > 0)
+                    Text(
+                      'Amount: ${rupeesLabel(r.totalPaise)}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                   if (r.addressLabel.isNotEmpty)
                     Text(
                       'Address: ${r.addressLabel}',
@@ -119,17 +143,18 @@ class _ConfirmSheet extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13),
                     ),
-                  const Text(
-                    'The rider name and call button appear once assigned.',
-                    style: TextStyle(
-                      color: ShodashaTheme.muted,
-                      fontSize: 13,
+                  if (!r.attention)
+                    const Text(
+                      'The rider name and call button appear once assigned.',
+                      style: TextStyle(
+                        color: ShodashaTheme.muted,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
-            if (r.upiPending) ...[
+            if (r.upiPending && !r.attention) ...[
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -154,31 +179,33 @@ class _ConfirmSheet extends StatelessWidget {
                 child: const Text('Pause or skip any time'),
               ),
             ],
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: ShodashaTheme.tealTint,
-                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-              ),
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.shield_outlined,
-                    size: 18,
-                    color: ShodashaTheme.teal,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Your safety deposit is tracked in the app — see '
-                      'the Wallet tab.',
-                      style: TextStyle(fontSize: 13),
+            if (!r.attention) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.shield_outlined,
+                      size: 18,
+                      color: ShodashaTheme.teal,
                     ),
-                  ),
-                ],
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Your safety deposit is tracked in the app — see '
+                        'the Wallet tab.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,

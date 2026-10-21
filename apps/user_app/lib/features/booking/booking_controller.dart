@@ -325,6 +325,7 @@ class BookingController extends ChangeNotifier {
   set deliveryType(DeliveryType t) {
     if (_deliveryType != t) {
       _deliveryType = t;
+      refreshIdempotencyKey(); // schedule_type is part of the create payload
       notifyListeners();
     }
   }
@@ -347,7 +348,8 @@ class BookingController extends ChangeNotifier {
   DateTime? quoteCreatedAtUtc;
   String frozenHash = '';
 
-  /// Idempotency key: minted ONCE per sheet-open, reused on retry (§4.4).
+  /// Idempotency key: minted per payload (sheet-open + any input change)
+  /// and reused for every retry of that same payload (§4.4).
   String? idempotencyKey;
 
   /// Default window day (next serviceable morning). Set on sheet-open.
@@ -364,23 +366,27 @@ class BookingController extends ChangeNotifier {
   void setRefill(int v) {
     refillQty = v.clamp(kStepperMin, kStepperMax);
     _clampEmpties();
+    refreshIdempotencyKey(); // changed payload → old key would mismatch
     notifyListeners();
   }
 
   void setContainer(int v) {
     containerQty = v.clamp(kStepperMin, kStepperMax);
     _clampEmpties();
+    refreshIdempotencyKey();
     notifyListeners();
   }
 
   void setEmpties(int v) {
     emptiesQty = v.clamp(kStepperMin, kStepperMax);
     _clampEmpties();
+    refreshIdempotencyKey();
     notifyListeners();
   }
 
   void setCapsMissing(int v) {
     capsMissing = v.clamp(0, totalJars);
+    refreshIdempotencyKey();
     notifyListeners();
   }
 
@@ -481,11 +487,29 @@ class BookingController extends ChangeNotifier {
     serverQuoteCreatedAtUtc = null;
   }
 
-  /// Mint once per sheet-open; retries reuse the same key.
+  /// Mint once per payload; every retry of that payload reuses the key so
+  /// an ambiguous create (network dropped after the server committed) is
+  /// replayed, never duplicated. Never rotate between create and retry.
   String ensureIdempotencyKey() => idempotencyKey ??= newIdempotencyKey();
 
-  /// Force-mint a fresh key for a new checkout session.
+  /// Force-mint for a changed payload (steppers, mode, delivery type,
+  /// slots) — the server rejects a key whose body changed.
   String refreshIdempotencyKey() => idempotencyKey = newIdempotencyKey();
+
+  /// Drops every user-scoped field so the next account never sees the
+  /// previous user's lines, ledger or pending key. Catalog rates are global
+  /// server data and stay.
+  void resetUserScoped() {
+    duesPaise = 0;
+    heldJars = 0;
+    depositPaidPaise = 0;
+    _paymentMode = PaymentMode.upi;
+    _deliveryType = DeliveryType.once;
+    windowStart = '';
+    addressId = '';
+    windowDay = null;
+    resetBookingSession();
+  }
 
   /// Reset booking state and idempotency key after order completion.
   void resetBookingSession() {

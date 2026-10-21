@@ -92,7 +92,13 @@ class _UserShellState extends State<UserShell> {
   }
 
   void _onAuthChanged() {
-    if (widget.isAuthenticated()) _refreshLedger();
+    if (!widget.isAuthenticated()) return;
+    _refreshLedger();
+    // Guest → login happens on top of the live shell, so Home is already
+    // mounted and its guest-gated address fetch still needs to run.
+    if (widget.addresses.status == AddrStatus.initial) {
+      widget.addresses.load();
+    }
   }
 
   /// Live dues/held/deposit into booking so the COD gate + deposit display
@@ -101,6 +107,9 @@ class _UserShellState extends State<UserShell> {
     if (!mounted || !widget.isAuthenticated()) return;
     try {
       final led = await widget.api.ledgerMe();
+      // Session may have ended while the call was in flight — never write
+      // the previous account's dues into the next user's state.
+      if (!mounted || !widget.isAuthenticated()) return;
       widget.bookingController.applyLedger(
         dues: (led['dues'] as num?)?.toInt() ?? 0,
         held: (led['held'] as num?)?.toInt() ?? 0,
@@ -113,10 +122,18 @@ class _UserShellState extends State<UserShell> {
     }
   }
 
-  void _selectTab(UserTab tab) => setState(() {
-        _tab = tab;
-        _mounted.add(tab);
-      });
+  void _selectTab(UserTab tab) {
+    final changed = _tab != tab || !_mounted.contains(tab);
+    setState(() {
+      _tab = tab;
+      _mounted.add(tab);
+    });
+    // The list may predate a just-placed order (recovery "Check Orders") or
+    // a previous visit's cancellations/assignments.
+    if (changed && tab == UserTab.orders && widget.isAuthenticated()) {
+      widget.ordersController.load();
+    }
+  }
 
   void _select(int index) => _selectTab(UserTab.values[index]);
 
@@ -308,13 +325,20 @@ class _UserShellState extends State<UserShell> {
             onOpenSubscriptions: () => _selectTab(UserTab.subscriptions),
             razorpayKeyId: widget.razorpayKeyId,
           ),
-        UserTab.orders => OrdersScreen(
-            controller: widget.ordersController,
-            isAuthenticated: widget.isAuthenticated,
-            onReorder: _reorder,
-            onOpenPayments: _openPayments,
-            onSupport: _openSupport,
-          ),
+        UserTab.orders => widget.isAuthenticated()
+            ? OrdersScreen(
+                controller: widget.ordersController,
+                isAuthenticated: widget.isAuthenticated,
+                onReorder: _reorder,
+                onOpenPayments: _openPayments,
+                onSupport: _openSupport,
+              )
+            : _GuestBody(
+                icon: Icons.receipt_long_outlined,
+                title: 'Orders',
+                message: 'Sign in to see your orders.',
+                onSignIn: _login,
+              ),
         UserTab.subscriptions => widget.isAuthenticated()
             ? SubscriptionScreen(
                 api: widget.api,

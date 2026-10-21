@@ -81,7 +81,11 @@ class _HomeScreenState extends State<HomeScreen> {
           widget.controller.refreshRates();
         }
       }
-      if (widget.addresses?.status == AddrStatus.initial) {
+      // Guests have no addresses to fetch — firing GET /addresses without a
+      // session would cache a 401 the next login has to clear. Load only
+      // with a token; the shell reloads after an in-session login.
+      if ((widget.api?.hasToken ?? false) &&
+          widget.addresses?.status == AddrStatus.initial) {
         widget.addresses?.load();
       }
     });
