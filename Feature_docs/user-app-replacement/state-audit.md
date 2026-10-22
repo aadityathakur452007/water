@@ -193,7 +193,7 @@ Legend: ✅ handled · ⚠️ partial/weak · ❌ missing · N/A not applicable.
 
 ## 6. P2 & deliberate non-goals
 
-**P2 (do after P0/P1):**
+**P2 — ✅ all fixed in Phase C (ADR-126):**
 1. Splash restore timeout/error fallback (`auth_gate.dart:41-44`) — timeout → login instead of infinite splash.
 2. First-run locate→address onboarding (legacy `first_run_screen.dart`) — either a one-time sheet on Home when the address list is empty, or an explicit ADR note dropping it (recommend porting; it is the only legacy flow missing).
 3. Booking sheet dismissible while paying — block swipe/back or confirm (`booking_sheet.dart:39-57`).
@@ -234,7 +234,17 @@ Legend: ✅ handled · ⚠️ partial/weak · ❌ missing · N/A not applicable.
 15. Regression tests: `test/phase_b_states_test.dart` (11 — formatter, VPA, load-more dedupe/guard/failure, offline truth, rating outcomes) + 2 subscription widget tests (skip confirm, estimate-failed submit disabled). `order_states_test.dart` / `subscription_flow_test.dart` updated for `RateResult` and ₹.
 16. Gates: `flutter analyze` clean · **210/210** tests · release APK 55.8 MB, SHA256 `CC21EB44E4C479E0765B68D7AB9E222D9011AB701D857E2699D837B409B1D244` · 3 ABIs: prod URL present ✓, `http://localhost:8787` absent ✓, Razorpay test key present ✓. Backend untouched; device-verification debt unchanged.
 
-**Phase C — P2 + first-run decision** (port or ADR-drop).
+**Phase C — P2 — ✅ DONE (2026-10-22, commit on `032-user-app-replacement`)**
+1. **P2-1 restore fallback:** `AuthController.restoreSession()` is bounded by an injectable `restoreTimeout` (default 5s), catches storage errors, and uses a restore generation so a late completion cannot overwrite the fallback. `AuthGate` always leaves the splash; login shows “Couldn’t restore your session. Sign in again.” ✅
+2. **P2-2 first-run onboarding:** new `features/addresses/first_run_sheet.dart` (`firstrun_done_v1`) is offered only when authenticated + `AddrStatus.loaded` + zero addresses + flag unset. “Add address” opens the existing Addresses form/map; “Not now” and completion both persist. Guests/non-empty accounts skip it. ✅
+3. **P2-3 paying dismissal:** drag is disabled and the decorative handle removed; barrier/back while `_Phase.paying` open “Payment still processing” with Stay / Leave. Leave closes without awaiting the pending POST; idle sheets close normally. ✅
+4. **P2-4 conflict/bill truth:** address delete 409 uses `deleteBlockedBody` (active orders/subscriptions); bill Cap / Previous dues / Payment rows always render, with `—` when absent. ✅
+5. **P2-5 Android back:** shell `PopScope` returns to Home from any sub-tab; Home still exits. ✅
+6. **P2-6 connectivity:** `ApiClient.offline` (transport-only `ValueNotifier`) drives the shell offline strip + Retry (`GET /catalog` probe) and the 3s “Back online.” strip; map tiles get an error card + Retry via a tile-reset stream while the pin stays usable. ✅
+7. **P2-7 wide screens:** shell body + bottom nav centered at max 560 logical px; phone-first documented. ✅
+8. **P2-8 list limits:** Payment History appends “Showing the latest 50 payments…” when the server page is full; no fake load-more because `/payments/me` has no cursor. Audit: `/complaints` is unbounded server-side and Support builds every returned row in one `ListView` (future pagination candidate); `/payments/me` defaults to 50/max 100. ✅
+9. Regression tests: `test/phase_c_states_test.dart` (5) + restore/dismiss/back/width/offline tests (7). ✅
+10. Gates: `flutter analyze` clean · **222/222** tests · release APK **55.8MB** (58,553,018 bytes), SHA256 `5C372AAA754BE895E5FD3B61F756CC881B116BACB6295CDF0A0D7D490643C4A0` · 3 ABIs: prod URL present ✓, `http://localhost:8787` absent ✓, Razorpay test key present ✓ (debug cert). Backend untouched; device-verification debt unchanged. ✅
 
 **Gates after each phase:** `flutter analyze` clean, `flutter test` all green, rebuild release APK, confirm prod URL present / `localhost:8787` absent, update `context/progress-tracker.md`, `flow.md`, `decision.md`, then commit on `032-user-app-replacement` only.
 
@@ -242,4 +252,4 @@ Legend: ✅ handled · ⚠️ partial/weak · ❌ missing · N/A not applicable.
 
 ---
 
-*Audit completed 2026-10-21 (read-only, no code changed). Phase A implemented the same day per owner approval — see `context/decision.md` ADR-124. Phase B implemented 2026-10-22 after the owner said “continue” — see ADR-125. Phase C (P2 + first-run decision) still requires explicit approval. Legacy app untouched.*
+*Audit completed 2026-10-21 (read-only, no code changed). Phase A implemented the same day per owner approval — see `context/decision.md` ADR-124. Phase B implemented 2026-10-22 after the owner said “continue” — see ADR-125. Phase C (all 8 P2 findings, including the ported first-run onboarding) closed 2026-10-22 — see ADR-126. Release remains do-not-ship until the owner device smoke and signing keystore are complete. Legacy app untouched.*

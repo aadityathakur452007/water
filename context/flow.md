@@ -109,6 +109,16 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   6. Wallet/Subscriptions: Wallet adds pull-to-refresh, reload after a return request, and a shell `refreshTick` on each Wallet tab entry (dues paid in Subscriptions appear). Skip-today confirms first; plan-builder Start requires a loaded, non-erroring estimate.
   7. Inputs: address form tracks a dirty baseline and `PopScope` asks before discarding on close/system back/drag (save + confirmed discard pop on the next frame, because `canPop` is a build-time value); null serviceability shows a “couldn’t verify” warning. Return sheet validates the refund VPA (`name@bank`) before enabling Send.
   8. Regression tests: `test/phase_b_states_test.dart` (11) + 2 subscription widget tests; suite 210/210. Release APK 55.8MB, prod-define verified (prod URL present, localhost absent, Razorpay key present, 3 ABIs).
+- ADR-126 032 Phase C — P2 State Completeness (2026-10-22):
+  1. Cold start: `AuthController.restoreSession()` returns `Future<bool>` and is bounded by an injectable `restoreTimeout` (default 5s) with a restore generation; `AuthGate` always leaves the splash and shows a login note when restore failed/timed out.
+  2. First run: `HomeScreen` triggers `maybeOfferFirstRun` only for authenticated + `AddrStatus.loaded` + zero addresses + unset `firstrun_done_v1`. The sheet's primary action opens the existing Addresses form/map; “Not now” and completion persist the flag, so guests and non-empty accounts never see it.
+  3. Checkout: `showCheckoutSheet` uses `enableDrag:false` and drops the decorative handle; while `_Phase.paying`, barrier/back are intercepted by `PopScope` and show “Payment still processing” with Stay/Leave. Leaving pops immediately without awaiting the pending POST; an idle sheet closes normally.
+  4. Conflict/bill truth: address delete 409 renders the active-orders/subscriptions copy; `BillScreen` always renders Cap / Previous dues / Payment rows and uses `—` for absent values.
+  5. Shell back: `PopScope` selects Home from any sub-tab; on Home the system exit is unchanged.
+  6. Transport: `ApiClient.offline` is a `ValueNotifier<bool>` set false on every HTTP response and true only on timeout/socket failure. The shell shows an offline strip with a `/catalog` Retry probe and a 3s “Back online.” confirmation. The map picker surfaces tile failures with Retry (tile-reset stream) while the pin remains usable.
+  7. Wide screens: shell body and bottom navigation are centered and capped at 560 logical px; phone-first is the documented target.
+  8. List limits: when `/payments/me` returns the full 50-row page, Payment History appends “Showing the latest 50 payments…” with the support number instead of inventing a cursor. Server audit: `/complaints` returns all rows with no cap (Support’s `ListView` builds them all — a future pagination candidate); `/payments/me` defaults to 50 (max 100) with no offset/cursor.
+  9. Regression tests: `test/phase_c_states_test.dart` (5) + restore/dismiss/back/width/offline tests (7); suite 222/222. Release APK 55.8MB, SHA256 `5C372AAA754BE895E5FD3B61F756CC881B116BACB6295CDF0A0D7D490643C4A0`, prod-define verified across 3 ABIs.
 - ADR-114 P2/P3 UI Revamp Batch (2026-10-17, 031 branch): PRESENTATION-ONLY transplants — no route, controller, service, or endpoint changes; call maps unchanged. (1) ProfileScreen wallet region renders the existing `LedgerSnapshot` (`ProfileController.load()` → `ApiClient.ledgerMe()` → `GET /v1/ledger/me`) as the donor wallet-card grammar; payments entries still open `PaymentHistoryScreen` (same `GET /v1/payments/me` wiring). AddressScreen renders the donor DELIVERY-TO treatment over the same controller data (selection/save/default/pickMapPin logic untouched). (2) BookingSheet reskinned (`_pay/_collectUpi/_verifyOrPollPayment` byte-identical; sticky CTA). (3) Orders/Tracking/Subscription/Support reskinned: status pills map OUR states (placed..dispatched→teal, delivered→slate, failed/rejected→danger), delivery-OTP reveal predicate + strings untouched, subscription actions on the same controller calls, 3 banner strings de-emoji'd (no test asserts). (4) Android packaging: adaptive icon (vector drawable drop on teal bg) + `android:roundIcon`, legacy PNGs kept for API<26. ADR-118 hygiene adds: `SupportScreen(api:)` DI via UserShell's authenticated ApiClient (complaints now carry the real Bearer + persisted X-Device-Id; no `unknown-device` fallback), and wa.me share links derive digits from `kSupportPhone` (orders_controller.openWhatsApp, bill_screen._share).
 ```
 
@@ -846,7 +856,7 @@ Vendor Web (/vendor/login):
          └─ true → VendorLayout (Header WhatsApp CTA, Logout CTA, sub-routes: overview, route, collections, etc.)
 ```
 
-## 032 — Customer app replacement (branch 032-user-app-replacement, ADR-119…122)
+## 032 — Customer app replacement (branch 032-user-app-replacement, ADR-119…126)
 
 Donor-based Flutter app at `apps/user_app`; legacy parked read-only at `apps/user_app_legacy_flutter`. One `ApiClient` (Bearer + X-Device-Id, https/loopback guard) is shared by every controller.
 
@@ -875,7 +885,11 @@ ShodashaApp (main.dart)
 - Lazy mount: each tab first mounts on visit, then `IndexedStack` retains state (ADR-112). Subscriptions is account-scoped and guest-gated at the shell, so guest mode fires zero authed requests.
 - Money/idempotency: no client-computed payable amounts; one idempotency key per payload until input changes; delivery OTP server-owned (never minted client-side); COD and UPI first-class; UPI settlement only after the order itself reports `paid_upi`.
 - Copy: English v1 (ADR-120). `authStringsHi` / `ordersStringsHi` map keys are stable, values English — a later l10n pass can swap values without touching screens.
-- Packaging/release: `flutter build apk --release --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF` → `build/app/outputs/flutter-apk/app-release.apk`; per-ABI `libapp.so` scan confirms prod URL present and `http://localhost:8787` absent.
+- First run: after an authenticated Home sees `AddrStatus.loaded` + zero addresses, `maybeOfferFirstRun` → `first_run_sheet.dart` (flag `firstrun_done_v1`). Add address opens the normal Addresses screen (three-step form + OSM pin); Not now/completion persist the flag.
+- Shell guards: `PopScope` returns to Home from sub-tabs; body + nav are centered at max 560px; `ApiClient.offline` drives the offline/back-online strips (Retry probes `GET /catalog`).
+- Checkout dismissal: drag disabled; barrier/back while paying ask Stay/Leave; leaving never waits for the pending POST.
+- List limits: Payment History shows the newest 50 and appends an honest cap note (no cursor exists server-side); complaints are unbounded server-side and the Support list builds every returned row (future pagination candidate, no v1 cap).
+- Packaging/release: `flutter build apk --release --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF` → `build/app/outputs/flutter-apk/app-release.apk`; per-ABI `libapp.so` scan confirms prod URL present and `http://localhost:8787` absent (Phase C: 55.8MB, SHA256 `5C372AAA754BE895E5FD3B61F756CC881B116BACB6295CDF0A0D7D490643C4A0`).
 
 ## Update Protocol (MANDATORY)
 
