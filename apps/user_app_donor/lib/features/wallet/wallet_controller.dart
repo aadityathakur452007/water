@@ -1,0 +1,103 @@
+// S7 — wallet ledger state, fed only by GET /v1/ledger/me.
+//
+// States.md coverage: loading (skeleton in wallet_screen), loaded (hero +
+// statement), empty (a real all-zero server snapshot — never a placeholder
+// hero), error (message + retry), guest (login CTA, zero network). [ledger]
+// stays null until the server answers, so a fake ₹0 hero can never flash.
+
+import 'package:flutter/foundation.dart';
+
+import '../../core/api_client.dart';
+
+enum WalletStatus { initial, loading, loaded, error }
+
+@immutable
+class LedgerSnapshot {
+  const LedgerSnapshot({
+    required this.heldJars,
+    required this.depositPaidPaise,
+    required this.depositRefundedPaise,
+    required this.depositHeldPaise,
+    required this.duesPaise,
+  });
+
+  /// Jars currently with the customer (server `held`).
+  final int heldJars;
+
+  /// Lifetime deposit paid (server `deposit_paid`, paise).
+  final int depositPaidPaise;
+
+  /// Lifetime deposit already refunded (server `deposit_refunded`, paise).
+  final int depositRefundedPaise;
+
+  /// Refundable deposit still held (server `wallet_held`, paise).
+  final int depositHeldPaise;
+
+  /// Outstanding dues (server `dues`, paise).
+  final int duesPaise;
+
+  /// Nothing outstanding on the jar account. This is the server's answer —
+  /// the screen swaps the hero for an honest empty state, never a ₹0 hero.
+  bool get isEmpty => heldJars == 0 && depositHeldPaise == 0 && duesPaise == 0;
+
+  /// GET /v1/ledger/me:
+  /// `{held, deposit_paid, deposit_refunded, wallet_held, dues}`.
+  /// Legacy aliases stay tolerated so older fixtures keep parsing.
+  static LedgerSnapshot fromApi(Map<String, dynamic> j) => LedgerSnapshot(
+    heldJars: _int(j['held'] ?? j['held_jars'] ?? j['d_held']),
+    depositPaidPaise: _int(j['deposit_paid'] ?? j['deposit_paise']),
+    depositRefundedPaise: _int(j['deposit_refunded']),
+    depositHeldPaise: _int(
+      j['wallet_held'] ?? j['deposit_paise'] ?? j['d_deposit'],
+    ),
+    duesPaise: _int(j['dues'] ?? j['dues_paise'] ?? j['d_dues']),
+  );
+}
+
+int _int(Object? v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+
+class WalletController extends ChangeNotifier {
+  WalletController({required this.api});
+
+  final ApiClient api;
+
+  WalletStatus _status = WalletStatus.initial;
+  LedgerSnapshot? _ledger;
+  String? _errorMessage;
+  bool _disposed = false;
+
+  WalletStatus get status => _status;
+  LedgerSnapshot? get ledger => _ledger;
+  String? get errorMessage => _errorMessage;
+
+  /// Single-flight: a second call while loading joins the first.
+  Future<void> load() async {
+    if (_status == WalletStatus.loading) return;
+    _status = WalletStatus.loading;
+    _errorMessage = null;
+    _notify();
+    try {
+      _ledger = LedgerSnapshot.fromApi(await api.ledgerMe());
+      _status = WalletStatus.loaded;
+    } on ApiException catch (e) {
+      _status = WalletStatus.error;
+      _errorMessage = e.isNetwork
+          ? 'No internet — try again'
+          : 'Could not load your ledger';
+    } catch (_) {
+      _status = WalletStatus.error;
+      _errorMessage = 'Could not load your ledger';
+    }
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+}
