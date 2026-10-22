@@ -30,6 +30,7 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool _ready = false;
   bool _guest = false;
+  bool _restoreFailed = false;
 
   @override
   void initState() {
@@ -39,8 +40,18 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _boot() async {
-    await widget.controller.restoreSession();
-    if (mounted) setState(() => _ready = true);
+    var restored = false;
+    try {
+      restored = await widget.controller.restoreSession();
+    } catch (_) {
+      // restoreSession owns its timeout/error path; this is belt-and-braces
+      // so no unexpected throw can leave the splash mounted.
+    }
+    if (!mounted) return;
+    setState(() {
+      _restoreFailed = !restored;
+      _ready = true;
+    });
   }
 
   void _onAuthChanged() {
@@ -66,6 +77,9 @@ class _AuthGateState extends State<AuthGate> {
         if (widget.controller.isAuthenticated || _guest) return widget.home;
         return NameNumberScreen(
           controller: widget.controller,
+          notice: _restoreFailed
+              ? 'Couldn’t restore your session. Sign in again.'
+              : null,
           onGuestBrowse: () => setState(() => _guest = true),
         );
       },

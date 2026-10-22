@@ -9,6 +9,8 @@
 // Standalone by design: the shell passes its own controller/api/address
 // source and callbacks; [HomeScreen] owns no auth or navigation policy.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,6 +19,7 @@ import '../../core/api_client.dart';
 import '../../core/payment_config.dart';
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
+import '../addresses/first_run_sheet.dart';
 import 'booking_controller.dart';
 import 'booking_sheet.dart';
 import 'product_catalog.dart';
@@ -67,6 +70,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// One-shot first-run prompt guard (P2-2): checked once per Home mount.
+  bool _firstRunChecked = false;
+
   @override
   void initState() {
     super.initState();
@@ -88,7 +94,23 @@ class _HomeScreenState extends State<HomeScreen> {
           widget.addresses?.status == AddrStatus.initial) {
         widget.addresses?.load();
       }
+      unawaited(_maybeOfferFirstRun());
     });
+  }
+
+  /// Offers the one-time address prompt when an authenticated account has
+  /// zero saved addresses. Skips guests and re-checks after `load()` lands.
+  Future<void> _maybeOfferFirstRun() async {
+    if (_firstRunChecked || !mounted) return;
+    final api = widget.api;
+    final addrs = widget.addresses;
+    if (api == null || addrs == null || !api.hasToken) return;
+    if (addrs.status != AddrStatus.loaded || addrs.items.isNotEmpty) return;
+    _firstRunChecked = true;
+    await maybeOfferFirstRun(
+      context,
+      onAddAddress: () => widget.onOpenAddresses?.call(),
+    );
   }
 
   @override
@@ -99,7 +121,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    unawaited(_maybeOfferFirstRun());
   }
 
   Future<bool> _gate() async {

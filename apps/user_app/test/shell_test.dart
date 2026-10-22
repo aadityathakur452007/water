@@ -4,6 +4,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'package:shodasha_app/core/api_client.dart';
 import 'package:shodasha_app/core/theme.dart';
@@ -35,16 +37,16 @@ void main() {
         matching: find.text(label),
       );
 
-  Widget buildShell() {
-    final api = ApiClient(deviceId: 'test-device');
+  Widget buildShell({ApiClient? api}) {
+    final client = api ?? ApiClient(deviceId: 'test-device');
     return MaterialApp(
       theme: buildShodashaTheme(),
       home: UserShell(
-        api: api,
+        api: client,
         bookingController: BookingController(catalog: _StubCatalog()),
-        addresses: AddressController(api: api),
+        addresses: AddressController(api: client),
         ordersController: OrdersController(repo: StubOrdersRepository()),
-        profileController: ProfileController(api: api),
+        profileController: ProfileController(api: client),
         isAuthenticated: () => false,
         onLoginRequested: (_) async => false,
         onLogout: () async {},
@@ -110,5 +112,64 @@ void main() {
     await tester.pumpAndSettle();
     expect(visibleTab(tester), UserTab.profile.index);
     expect(find.byType(ProfileScreen), findsOneWidget);
+  });
+
+  testWidgets('shell: back on a sub-tab returns Home', (tester) async {
+    await tester.pumpWidget(buildShell());
+    await tester.pumpAndSettle();
+
+    await tester.tap(navLabel('Wallet'));
+    await tester.pumpAndSettle();
+    expect(visibleTab(tester), UserTab.wallet.index);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(visibleTab(tester), UserTab.home.index);
+  });
+
+  testWidgets('shell: wide screens cap body and nav at 560 and center them',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 800);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    await tester.pumpWidget(buildShell());
+    await tester.pumpAndSettle();
+
+    for (final key in const ['shell-body', 'shell-nav']) {
+      final box = find.byKey(ValueKey(key));
+      expect(tester.getSize(box).width, 560);
+      expect(tester.getTopLeft(box).dx, 320);
+    }
+  });
+
+  testWidgets('shell: offline strip retries and confirms recovery',
+      (tester) async {
+    var catalogCalls = 0;
+    final api = ApiClient(
+      client: MockClient((req) async {
+        catalogCalls++;
+        return http.Response('{"ok":true}', 200);
+      }),
+      deviceId: 'test-device',
+    );
+    await tester.pumpWidget(buildShell(api: api));
+    await tester.pumpAndSettle();
+
+    api.offline.value = true;
+    await tester.pump();
+    expect(find.textContaining('No internet'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(catalogCalls, 1);
+    expect(api.offline.value, isFalse);
+    expect(find.text('Back online.'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('Back online.'), findsNothing);
   });
 }

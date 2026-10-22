@@ -8,6 +8,8 @@
 // Lazy mounting (ADR-112): a tab mounts on first visit and keeps its state
 // after that via IndexedStack.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
@@ -73,6 +75,10 @@ class UserShell extends StatefulWidget {
 }
 
 class _UserShellState extends State<UserShell> {
+  /// Wide-screen cap: the app is phone-first; content stays readable and
+  /// centered instead of stretching across a tablet (P2-7).
+  static const double _maxContentWidth = 560;
+
   UserTab _tab = UserTab.home;
 
   /// Bumped on every Wallet tab entry; the tab owns its controller, so this
@@ -83,17 +89,58 @@ class _UserShellState extends State<UserShell> {
   /// Tabs visited at least once (lazy mount).
   final Set<UserTab> _mounted = {UserTab.home};
 
+  /// Transport banner state: offline comes from [ApiClient.offline]; the
+  /// restored strip is a short confirmation after the value flips back.
+  bool _wasOffline = false;
+  bool _showRestored = false;
+  bool _retrying = false;
+  Timer? _restoredTimer;
+
   @override
   void initState() {
     super.initState();
     widget.authListenable?.addListener(_onAuthChanged);
+    _wasOffline = widget.api.offline.value;
+    widget.api.offline.addListener(_onOfflineChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLedger());
   }
 
   @override
   void dispose() {
     widget.authListenable?.removeListener(_onAuthChanged);
+    widget.api.offline.removeListener(_onOfflineChanged);
+    _restoredTimer?.cancel();
     super.dispose();
+  }
+
+  void _onOfflineChanged() {
+    if (!mounted) return;
+    final offline = widget.api.offline.value;
+    if (offline) {
+      _restoredTimer?.cancel();
+      setState(() => _showRestored = false);
+    } else if (_wasOffline) {
+      setState(() => _showRestored = true);
+      _restoredTimer?.cancel();
+      _restoredTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _showRestored = false);
+      });
+    }
+    _wasOffline = offline;
+  }
+
+  /// Probe with the guest-callable catalog; success flips [ApiClient.offline]
+  /// and dismisses the banner. Screens keep their own retry actions.
+  Future<void> _retryOffline() async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
+    try {
+      await widget.api.catalog();
+    } catch (_) {
+      // Still offline — the banner stays and Retry remains available.
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
   }
 
   void _onAuthChanged() {
@@ -271,45 +318,85 @@ class _UserShellState extends State<UserShell> {
   @override
   Widget build(BuildContext context) {
     final listenable = widget.authListenable;
-    return Scaffold(
-      body: SafeArea(
-        child: listenable == null
-            ? _tabs()
-            : ListenableBuilder(
-                listenable: listenable,
-                builder: (_, _) => _tabs(),
+    return PopScope(
+      // Back on a sub-tab returns Home; back on Home keeps the system exit.
+      canPop: _tab == UserTab.home,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _tab == UserTab.home) return;
+        _selectTab(UserTab.home);
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              key: const ValueKey('shell-body'),
+              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+              child: Column(
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.api.offline,
+                    builder: (_, offline, _) => offline
+                        ? _OfflineStrip(
+                            retrying: _retrying,
+                            onRetry: _retryOffline,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  if (_showRestored) const _RestoredStrip(),
+                  Expanded(
+                    child: listenable == null
+                        ? _tabs()
+                        : ListenableBuilder(
+                            listenable: listenable,
+                            builder: (_, _) => _tabs(),
+                          ),
+                  ),
+                ],
               ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab.index,
-        onDestinationSelected: _select,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Orders',
+        ),
+        bottomNavigationBar: ColoredBox(
+          color: ShodashaTheme.surface,
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              key: const ValueKey('shell-nav'),
+              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+              child: NavigationBar(
+                selectedIndex: _tab.index,
+                onDestinationSelected: _select,
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.receipt_long_outlined),
+                    selectedIcon: Icon(Icons.receipt_long),
+                    label: 'Orders',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.event_repeat_outlined),
+                    selectedIcon: Icon(Icons.event_repeat),
+                    label: 'Subscriptions',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.account_balance_wallet_outlined),
+                    selectedIcon: Icon(Icons.account_balance_wallet),
+                    label: 'Wallet',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline),
+                    selectedIcon: Icon(Icons.person),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.event_repeat_outlined),
-            selectedIcon: Icon(Icons.event_repeat),
-            label: 'Subscriptions',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Wallet',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -375,6 +462,92 @@ class _UserShellState extends State<UserShell> {
       onOpenPayments: _openPayments,
     ),
   };
+}
+
+/// App-level transport strip (P2-6): appears only after a socket/timeout
+/// failure, so HTTP errors never masquerade as "offline".
+class _OfflineStrip extends StatelessWidget {
+  const _OfflineStrip({required this.retrying, required this.onRetry});
+
+  final bool retrying;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border(bottom: BorderSide(color: ShodashaTheme.border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.cloud_off_outlined,
+            size: 18,
+            color: ShodashaTheme.danger,
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'No internet — showing what was already loaded.',
+              style: TextStyle(fontSize: 12, color: ShodashaTheme.ink),
+            ),
+          ),
+          TextButton(
+            onPressed: retrying ? null : onRetry,
+            style: TextButton.styleFrom(
+              foregroundColor: ShodashaTheme.teal,
+              minimumSize: const Size(
+                ShodashaTheme.minTarget,
+                ShodashaTheme.minTarget,
+              ),
+            ),
+            child: retrying
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Short confirmation after the transport recovers; hides itself.
+class _RestoredStrip extends StatelessWidget {
+  const _RestoredStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: ShodashaTheme.tealTint,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            size: 18,
+            color: ShodashaTheme.teal,
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Back online.',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: ShodashaTheme.teal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Guest gate for tabs whose data is account-scoped (Subscriptions): no

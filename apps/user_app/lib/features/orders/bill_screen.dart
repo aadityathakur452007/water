@@ -121,17 +121,23 @@ class BillScreen extends StatelessWidget {
                       _Line(
                         label: 'Cap',
                         amount: formatRupees(o.capChargePaise),
-                      ),
+                      )
+                    else
+                      const _Line(label: 'Cap', amount: '—'),
                     if (o.prevDuesPaise != 0)
                       _Line(
                         label: 'Previous dues',
                         amount: formatRupees(o.prevDuesPaise),
-                      ),
+                      )
+                    else
+                      const _Line(label: 'Previous dues', amount: '—'),
                     if (o.paymentsPaise != 0)
                       _Line(
                         label: 'Payment',
                         amount: '−${formatRupees(o.paymentsPaise)}',
-                      ),
+                      )
+                    else
+                      const _Line(label: 'Payment', amount: '—'),
                     // 015: payment mode + vendor-collect note (trust by visibility).
                     _Line(
                       label: 'Mode',

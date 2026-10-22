@@ -66,10 +66,16 @@ class PaymentHistoryScreen extends StatefulWidget {
 }
 
 class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
+  /// Server default page size for GET /payments/me; it has no cursor, so a
+  /// full page means there may be older receipts we cannot reach (P2-8).
+  static const int _pageLimit = 50;
+
   bool _loading = true;
   bool _isAuthError = false;
   String? _error;
   List<PaymentRecord> _payments = const [];
+
+  bool get _isCapped => _payments.length >= _pageLimit;
 
   @override
   void initState() {
@@ -93,7 +99,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       _isAuthError = false;
     });
     try {
-      final list = await widget.api.listUserPayments(limit: 50);
+      final list = await widget.api.listUserPayments(limit: _pageLimit);
       if (!mounted) return;
       setState(() {
         _payments = [
@@ -186,12 +192,17 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        itemCount: _payments.length,
+        // The server caps /payments/me with no cursor, so we can only show
+        // the newest page. Say so instead of faking a "load more" (P2-8).
+        itemCount: _payments.length + (_isCapped ? 1 : 0),
         separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) => _PaymentCard(
-          payment: _payments[index],
-          date: _formatDate(_payments[index].dateIso),
-        ),
+        itemBuilder: (context, index) {
+          if (index == _payments.length) return const _CapNote();
+          return _PaymentCard(
+            payment: _payments[index],
+            date: _formatDate(_payments[index].dateIso),
+          );
+        },
       ),
     );
   }
@@ -339,6 +350,44 @@ class _PaymentCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CapNote extends StatelessWidget {
+  const _CapNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.bg,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline,
+            size: 18,
+            color: ShodashaTheme.muted,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Showing the latest 50 payments. Older receipts are not '
+              'available in the app yet — contact support at $kSupportPhone '
+              'if you need one.',
+              style: const TextStyle(
+                fontSize: 12,
+                color: ShodashaTheme.muted,
+              ),
+            ),
           ),
         ],
       ),

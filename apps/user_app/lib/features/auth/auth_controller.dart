@@ -39,7 +39,8 @@ const Map<String, String> authStringsHi = {
   'phoneLabel': 'Mobile number',
   'phoneHint': '93021 90067',
   'phoneHelper': '10 digits only, starting 6–9',
-  'phoneError': 'Enter a valid 10-digit mobile number (digits only, starting 6–9)',
+  'phoneError':
+      'Enter a valid 10-digit mobile number (digits only, starting 6–9)',
   'registerGo': 'Get started',
   'registering': 'Creating your account…',
   'staffNumber': 'This number belongs to a staff account — contact support',
@@ -207,8 +208,9 @@ class AuthController extends ChangeNotifier {
     required AuthApi api,
     required SessionStore store,
     this.deviceId = 'pending-device-id',
-  })  : _api = api,
-        _store = store;
+    this.restoreTimeout = const Duration(seconds: 5),
+  }) : _api = api,
+       _store = store;
 
   final AuthApi _api;
   final SessionStore _store;
@@ -216,11 +218,16 @@ class AuthController extends ChangeNotifier {
   /// X-Device-Id (fraud graph, SEC-F01). TODO(F1): real device id provider.
   final String deviceId;
 
+  /// Upper bound for the cold-start secure-storage restore. A hung keychain
+  /// must never strand the splash (P2-1).
+  final Duration restoreTimeout;
+
   AuthStatus _status = AuthStatus.idle;
   String? _errorMessage;
   int _errorSeq = 0;
   bool _newDeviceAlert = false;
   AuthSession? _session;
+  int _restoreGeneration = 0;
   bool _disposed = false;
 
   AuthStatus get status => _status;
@@ -398,11 +405,38 @@ class AuthController extends ChangeNotifier {
   }
 
   /// Cold-start restore for [AuthGate]: valid session → authenticated.
-  Future<void> restoreSession() async {
+  ///
+  /// Bounded by [restoreTimeout]. A store that never answers must surface the
+  /// login screen instead of an infinite splash (P2-1). The generation guard
+  /// discards an orphaned restore that completes after the timeout.
+  ///
+  /// Returns false only when restore itself failed/timed out. A normal
+  /// "no session" or expired-session result returns true — the login screen
+  /// is then the expected state, not an error.
+  Future<bool> restoreSession() async {
+    final gen = ++_restoreGeneration;
+    try {
+      await _restoreSession(gen).timeout(restoreTimeout);
+      return true;
+    } catch (_) {
+      if (gen != _restoreGeneration) return false;
+      _restoreGeneration++;
+      _session = null;
+      _status = AuthStatus.idle;
+      _notify();
+      return false;
+    }
+  }
+
+  Future<void> _restoreSession(int gen) async {
     final access = await _store.readAccessToken();
+    if (gen != _restoreGeneration) return;
     final refresh = await _store.readRefreshToken();
+    if (gen != _restoreGeneration) return;
     final expiryIso = await _store.readExpiryIso();
+    if (gen != _restoreGeneration) return;
     final role = await _store.readRole();
+    if (gen != _restoreGeneration) return;
     if (access == null || refresh == null || expiryIso == null) {
       _status = AuthStatus.idle;
       _notify();
@@ -411,6 +445,7 @@ class AuthController extends ChangeNotifier {
     final expiresAt = DateTime.tryParse(expiryIso);
     if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
       await _store.clear(); // session expired → logged-out state (States.md)
+      if (gen != _restoreGeneration) return;
       _status = AuthStatus.idle;
     } else {
       _session = AuthSession(

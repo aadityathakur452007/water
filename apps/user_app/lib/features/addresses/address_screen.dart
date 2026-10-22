@@ -46,6 +46,9 @@ const Map<String, String> addressStrings = {
   'delete': 'Delete',
   'deleteConfirmTitle': 'Delete this address?',
   'deleteConfirmBody': 'This address will be removed permanently.',
+  'deleteBlockedBody':
+      'This address has active orders or subscriptions. Complete or '
+      'cancel them first, or contact support.',
   'deleteYes': 'Yes, delete',
   'deleteNo': 'Keep it',
   'defaultTick': 'Default',
@@ -322,7 +325,7 @@ class AddressController extends ChangeNotifier {
     } on ApiException catch (e) {
       if (gen != _generation) return false;
       _errorMessage = e.statusCode == 409
-          ? addressStrings['editBlockedBody']
+          ? addressStrings['deleteBlockedBody']
           : e.isNetwork
           ? addressStrings['offline']
           : addressStrings['loadFailed'];

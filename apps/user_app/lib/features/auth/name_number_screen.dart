@@ -43,11 +43,16 @@ class NameNumberScreen extends StatefulWidget {
     required this.controller,
     this.onGuestBrowse,
     this.onRegistered,
+    this.notice,
   });
 
   final AuthController controller;
   final VoidCallback? onGuestBrowse;
   final VoidCallback? onRegistered;
+
+  /// One-line recovery note shown above the form (e.g. session restore
+  /// timed out at cold start). Null hides it.
+  final String? notice;
 
   @override
   State<NameNumberScreen> createState() => _NameNumberScreenState();
@@ -301,6 +306,36 @@ class _NameNumberScreenState extends State<NameNumberScreen> {
               color: ShodashaTheme.muted,
             ),
           ),
+          if (widget.notice != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.solarTint,
+                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 18,
+                    color: ShodashaTheme.onSolar,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.notice!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: ShodashaTheme.onSolar,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           Text('Name', style: _labelStyle),
           const SizedBox(height: 8),

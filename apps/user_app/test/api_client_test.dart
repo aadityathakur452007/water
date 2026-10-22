@@ -30,4 +30,29 @@ void main() {
     expect(out['deposit_per_jar'], 15000);
     expect((out['skus'] as List).length, 2);
   });
+
+  test('offline follows transport, not HTTP status', () async {
+    var down = true;
+    final mock = MockClient((req) async {
+      if (down) throw http.ClientException('no route');
+      return http.Response('{"ok":true}', 200);
+    });
+    final api = ApiClient(client: mock, deviceId: 'test-device');
+    expect(api.offline.value, isFalse);
+
+    await expectLater(api.catalog(), throwsA(isA<ApiException>()));
+    expect(api.offline.value, isTrue);
+
+    down = false;
+    await api.catalog();
+    expect(api.offline.value, isFalse);
+
+    // A 500 still means the socket works — never a false "offline".
+    final failing = ApiClient(
+      client: MockClient((req) async => http.Response('oops', 500)),
+      deviceId: 'test-device',
+    );
+    await expectLater(failing.catalog(), throwsA(isA<ApiException>()));
+    expect(failing.offline.value, isFalse);
+  });
 }

@@ -4,6 +4,8 @@
 // zoom controls, live coordinates badge. All chrome uses ShodashaTheme
 // tokens; OSM tiles are the only external imagery.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -37,6 +39,10 @@ class _MapPickerState extends State<_MapPicker> {
   bool _locating = false;
   String? _locateNote;
   bool _isGpsDisabled = false;
+  bool _tilesFailed = false;
+
+  /// Fires the TileLayer reset so failed tiles are refetched.
+  final StreamController<void> _tileReset = StreamController<void>.broadcast();
 
   @override
   void initState() {
@@ -50,6 +56,17 @@ class _MapPickerState extends State<_MapPicker> {
         if (mounted) _locate();
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _tileReset.close();
+    super.dispose();
+  }
+
+  void _retryTiles() {
+    setState(() => _tilesFailed = false);
+    _tileReset.add(null);
   }
 
   Future<void> _locate() async {
@@ -166,6 +183,12 @@ class _MapPickerState extends State<_MapPicker> {
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.shodasha.shodasha_app',
+                reset: _tileReset.stream,
+                evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
+                errorTileCallback: (_, _, _) {
+                  if (!mounted || _tilesFailed) return;
+                  setState(() => _tilesFailed = true);
+                },
               ),
             ],
           ),
@@ -258,6 +281,58 @@ class _MapPickerState extends State<_MapPicker> {
               ],
             ),
           ),
+          if (_tilesFailed)
+            Positioned(
+              top: 64,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.surface,
+                  border: Border.all(color: ShodashaTheme.border),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  boxShadow: [
+                    BoxShadow(
+                      color: ShodashaTheme.ink.withValues(alpha: 0.06),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.map_outlined,
+                      size: 18,
+                      color: ShodashaTheme.muted,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        "Map tiles didn't load. The pin still works — retry "
+                        'or keep dragging.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: ShodashaTheme.ink,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _retryTiles,
+                      style: TextButton.styleFrom(
+                        foregroundColor: ShodashaTheme.teal,
+                        minimumSize: const Size(
+                          ShodashaTheme.minTarget,
+                          ShodashaTheme.minTarget,
+                        ),
+                      ),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (_locateNote != null)
             Positioned(
               left: 16,

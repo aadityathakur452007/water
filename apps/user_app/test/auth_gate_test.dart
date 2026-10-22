@@ -50,6 +50,17 @@ class _GatedStore extends InMemorySessionStore {
   }
 }
 
+/// Store that never answers — the cold-start hang P2-1 guards against.
+class _HangingStore extends InMemorySessionStore {
+  final Completer<void> never = Completer<void>();
+
+  @override
+  Future<String?> readAccessToken() async {
+    await never.future;
+    return null;
+  }
+}
+
 AuthController _controller(SessionStore store) {
   final controller = AuthController(
     api: _FakeApi(),
@@ -96,6 +107,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('HOME'), findsOneWidget);
     expect(find.text('Create your account'), findsNothing);
+  });
+
+  testWidgets('hung restore leaves the splash for login with a note', (
+    tester,
+  ) async {
+    final controller = AuthController(
+      api: _FakeApi(),
+      store: _HangingStore(),
+      deviceId: 'test-device',
+      restoreTimeout: const Duration(milliseconds: 20),
+    );
+    addTearDown(controller.dispose);
+
+    await _pumpGate(tester, controller);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create your account'), findsOneWidget);
+    expect(
+      find.text('Couldn’t restore your session. Sign in again.'),
+      findsOneWidget,
+    );
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(controller.isAuthenticated, isFalse);
   });
 
   testWidgets('guest (no session) lands on register', (tester) async {

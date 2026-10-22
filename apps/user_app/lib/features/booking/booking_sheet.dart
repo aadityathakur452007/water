@@ -39,6 +39,9 @@ Future<void> showCheckoutSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    // Checkout is an explicit task; a stray swipe must never drop the
+    // payment poller. Back/barrier are still guarded while paying (P2-3).
+    enableDrag: false,
     backgroundColor: ShodashaTheme.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(
@@ -148,9 +151,14 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   CheckoutResult? _placed;
   _Recovery _recovery = _Recovery.none;
 
+  /// Payment is in flight: back/barrier must confirm before leaving.
+  bool _allowPop = false;
+  bool _confirmingLeave = false;
+
   BookingController get c => widget.controller;
   bool get _isOnce => c.deliveryType == DeliveryType.once;
   bool get _isCustom => c.deliveryType == DeliveryType.custom;
+  bool get _paying => _phase == _Phase.paying;
 
   int get _payStepIdx => _isOnce ? 1 : 2;
   List<String> get _titles =>
@@ -669,9 +677,55 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _verifyOrPollPayment(pending);
   }
 
+  /// Leaving mid-payment is allowed, but only after an explicit warning:
+  /// the order may already exist and the payment may still settle.
+  Future<void> _confirmLeaveWhilePaying() async {
+    if (_confirmingLeave || !mounted) return;
+    _confirmingLeave = true;
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: ShodashaTheme.shape,
+        title: const Text('Payment still processing'),
+        content: const Text(
+          'Your payment may still go through. If you leave now, check '
+          'Orders before paying again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Stay'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    _confirmingLeave = false;
+    if (leave != true || !mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final busy = _phase == _Phase.paying || _loadingSlots;
+    return PopScope(
+      canPop: _allowPop || !_paying,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || !mounted) return;
+        _confirmLeaveWhilePaying();
+      },
+      child: _buildSheet(busy),
+    );
+  }
+
+  Widget _buildSheet(bool busy) {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -686,21 +740,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Center(
-                  child: Container(
-                    width: 44,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: ShodashaTheme.border,
-                      borderRadius:
-                          BorderRadius.circular(ShodashaTheme.radiusSm),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 8, 0),
+                padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
                 child: Row(
                   children: [
                     Expanded(child: _StepHeader(step: _step, titles: _titles)),

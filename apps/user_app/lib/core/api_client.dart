@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// One place for the base URL (contract base; override at build time).
@@ -94,6 +95,15 @@ class ApiClient {
   /// Cleanup uses then/onError (never whenComplete): whenComplete mints a
   /// derived future that rethrows unlistened and trips test-zone guards.
   final Map<String, Future<dynamic>> _inflight = {};
+
+  /// Transport health for the shell banner: true only when the last attempt
+  /// failed at the socket/timeout layer. Any HTTP response — including 4xx/5xx
+  /// — proves the network is up, so it flips back to false.
+  final ValueNotifier<bool> offline = ValueNotifier<bool>(false);
+
+  void _markTransport({required bool online}) {
+    if (offline.value != !online) offline.value = !online;
+  }
 
   String? get _token => accessTokenGetter?.call() ?? accessToken;
 
@@ -252,18 +262,22 @@ class ApiClient {
           .then(http.Response.fromStream)
           .timeout(timeout);
     } on TimeoutException {
+      _markTransport(online: false);
       throw ApiException(
         code: 'NETWORK',
         message: 'Request timed out',
         statusCode: 0,
       );
     } catch (_) {
+      _markTransport(online: false);
       throw ApiException(
         code: 'NETWORK',
         message: 'Network unavailable',
         statusCode: 0,
       );
     }
+    // Any response (even an error envelope) means the transport works.
+    _markTransport(online: true);
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       if (resp.body.isEmpty) return null;
       return jsonDecode(utf8.decode(resp.bodyBytes));
