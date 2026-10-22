@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../returns/return_sheet.dart';
 import '../returns/returns_controller.dart';
@@ -23,6 +24,7 @@ class WalletScreen extends StatefulWidget {
     required this.isAuthenticated,
     this.onLoginRequired,
     this.pickAddress,
+    this.refreshTick = 0,
   });
 
   /// The ONE app-wide authenticated client (core/api_client.dart).
@@ -37,6 +39,10 @@ class WalletScreen extends StatefulWidget {
   /// Injected address picker for the returns sheet (nullable — see
   /// [ReturnAddressPicker]). Returns never imports the addresses feature.
   final ReturnAddressPicker? pickAddress;
+
+  /// Bumped by the shell on every Wallet tab entry so a ledger changed
+  /// elsewhere (dues paid in Subscriptions, a return filed earlier) reloads.
+  final int refreshTick;
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
@@ -73,11 +79,22 @@ class _WalletScreenState extends State<WalletScreen> {
         if (mounted) _controller.load();
       });
     }
+    if (oldWidget.refreshTick != widget.refreshTick &&
+        widget.isAuthenticated() &&
+        widget.api.hasToken &&
+        _controller.status != WalletStatus.loading) {
+      _controller.load();
+    }
   }
 
   void _openPayments() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PaymentHistoryScreen(api: widget.api)),
+      MaterialPageRoute(
+        builder: (_) => PaymentHistoryScreen(
+          api: widget.api,
+          onLoginRequired: widget.onLoginRequired,
+        ),
+      ),
     );
   }
 
@@ -102,10 +119,13 @@ class _WalletScreenState extends State<WalletScreen> {
     // A refund is surfaced only when the server states it (never computed).
     final refund = request.refundPaise == null
         ? ''
-        : ' Refund recorded: ₹${request.refundPaise! ~/ 100}.';
+        : ' Refund recorded: ${formatInr(request.refundPaise!)}.';
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('$message$refund')));
+    // A return changes the jar ledger server-side; re-read it instead of
+    // leaving the previous deposit/dues snapshot on screen.
+    _controller.load();
   }
 
   @override
@@ -117,20 +137,25 @@ class _WalletScreenState extends State<WalletScreen> {
           ? _GuestState(onLoginRequired: widget.onLoginRequired)
           : ListenableBuilder(
               listenable: _controller,
-              builder: (context, _) => ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _ledgerSection(),
-                  const SizedBox(height: 12),
-                  _LinkCard(
-                    icon: Icons.receipt_long_outlined,
-                    title: 'Payments & deposits',
-                    subtitle: 'UPI and cash receipts, plus deposit refunds',
-                    onTap: _openPayments,
-                  ),
-                  const SizedBox(height: 12),
-                  _ReturnsCard(onRequest: _openReturnSheet),
-                ],
+              builder: (context, _) => RefreshIndicator(
+                color: ShodashaTheme.teal,
+                onRefresh: _controller.load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _ledgerSection(),
+                    const SizedBox(height: 12),
+                    _LinkCard(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'Payments & deposits',
+                      subtitle: 'UPI and cash receipts, plus deposit refunds',
+                      onTap: _openPayments,
+                    ),
+                    const SizedBox(height: 12),
+                    _ReturnsCard(onRequest: _openReturnSheet),
+                  ],
+                ),
               ),
             ),
     );
@@ -202,7 +227,7 @@ class _LedgerBody extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                '₹${ledger.depositHeldPaise ~/ 100}',
+                formatInr(ledger.depositHeldPaise),
                 style: const TextStyle(
                   color: ShodashaTheme.surface,
                   fontSize: 32,
@@ -269,16 +294,16 @@ class _LedgerBody extends StatelessWidget {
               ),
               _StatementRow(
                 label: 'Deposit paid',
-                value: '₹${ledger.depositPaidPaise ~/ 100}',
+                value: formatInr(ledger.depositPaidPaise),
               ),
               if (ledger.depositRefundedPaise > 0)
                 _StatementRow(
                   label: 'Deposit refunded',
-                  value: '₹${ledger.depositRefundedPaise ~/ 100}',
+                  value: formatInr(ledger.depositRefundedPaise),
                 ),
               _StatementRow(
                 label: 'Dues',
-                value: '₹${ledger.duesPaise ~/ 100}',
+                value: formatInr(ledger.duesPaise),
                 highlight: ledger.duesPaise > 0,
               ),
               const Divider(height: 20),

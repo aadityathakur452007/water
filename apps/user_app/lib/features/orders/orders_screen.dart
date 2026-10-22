@@ -192,7 +192,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       itemCount:
                           orders.length +
-                          (c.hasMore ? 1 : 0) +
+                          ((c.hasMore || c.loadMoreFailed) ? 1 : 0) +
                           (c.isOffline ? 1 : 0),
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, i) {
@@ -201,10 +201,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         }
                         final idx = c.isOffline ? i - 1 : i;
                         if (idx >= orders.length) {
+                          if (c.loadMoreFailed) {
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    ordersStringsHi['loadMoreFailed']!,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: ShodashaTheme.muted,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: c.retryLoadMore,
+                                  child: Text(ordersStringsHi['retry']!),
+                                ),
+                              ],
+                            );
+                          }
                           return SizedBox(
                             height: ShodashaTheme.minTarget,
                             child: OutlinedButton(
-                              onPressed: c.loadMore,
+                              onPressed: c.loadingMore ? null : c.loadMore,
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: ShodashaTheme.teal,
                                 side: const BorderSide(
@@ -216,7 +235,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   ),
                                 ),
                               ),
-                              child: Text(ordersStringsHi['loadMore']!),
+                              child: c.loadingMore
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: ShodashaTheme.teal,
+                                      ),
+                                    )
+                                  : Text(ordersStringsHi['loadMore']!),
                             ),
                           );
                         }
@@ -413,10 +441,7 @@ class _OrderCard extends StatelessWidget {
                   icon: const Icon(Icons.repeat, size: 18),
                   label: const Text(
                     'Reorder',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: ShodashaTheme.green,

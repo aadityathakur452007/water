@@ -186,7 +186,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
 
   Future<void> _submit() async {
     final addressId = _addressId;
-    if (addressId == null || _submitting) return;
+    if (addressId == null || _submitting || _estimate == null) return;
     setState(() {
       _submitting = true;
       _error = null;
@@ -231,7 +231,13 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final canSubmit = !_signedOut && _addressId != null && !_submitting;
+    final canSubmit =
+        !_signedOut &&
+        _addressId != null &&
+        !_submitting &&
+        _estimate != null &&
+        !_estimateLoading &&
+        _estimateError == null;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: ConstrainedBox(

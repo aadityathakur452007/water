@@ -114,6 +114,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Future<void> _skipToday(SubscriptionEntry sub) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: ShodashaTheme.shape,
+        title: Text(subStrings['skipConfirmTitle']!),
+        content: Text(subStrings['skipConfirmBody']!),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.muted),
+            child: Text(subStrings['skipKeep']!),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(subStrings['skipConfirm']!),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final error = await _controller.skipToday(sub.id);
     if (!mounted) return;
     if (error == 'lateSkip') {

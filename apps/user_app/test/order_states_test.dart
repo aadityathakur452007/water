@@ -198,9 +198,9 @@ void main() {
       ]);
       final c = OrdersController(repo: repo);
       await c.load();
-      expect(await c.rate('D2', 5), isTrue);
+      expect(await c.rate('D2', 5), RateResult.success);
       expect(c.findById('D2')!.canRate, isFalse);
-      expect(await c.rate('D2', 4), isFalse);
+      expect(await c.rate('D2', 4), RateResult.alreadyRated);
       c.dispose();
     });
 

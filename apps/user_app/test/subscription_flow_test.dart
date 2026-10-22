@@ -169,8 +169,8 @@ void main() {
     });
 
     test('rupeesLabel is display formatting only', () {
-      expect(rupeesLabel(5600), 'Rs 56');
-      expect(rupeesLabel(5650), 'Rs 56.50');
+      expect(rupeesLabel(5600), '₹56');
+      expect(rupeesLabel(5650), '₹56.50');
     });
   });
 
@@ -416,13 +416,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Build a monthly plan'), findsOneWidget);
       expect(find.text('First-delivery estimate'), findsOneWidget);
-      expect(find.text('Rs 56'), findsOneWidget);
+      expect(find.text('₹56'), findsOneWidget);
       expect(estimates.single, {'qty': 1, 'sku_mix': 'refill'});
 
       await tester.tap(find.byTooltip('Add a jar'));
       await tester.pumpAndSettle();
       expect(estimates.last['qty'], 2);
-      expect(find.text('Rs 106'), findsOneWidget);
+      expect(find.text('₹106'), findsOneWidget);
 
       await tester.ensureVisible(find.text('Start this plan'));
       await tester.tap(find.text('Start this plan'));
@@ -462,7 +462,7 @@ void main() {
 
       await _pumpScreen(tester, api);
       expect(find.text('OUTSTANDING DUES'), findsOneWidget);
-      expect(find.text('Rs 56'), findsOneWidget);
+      expect(find.text('₹56'), findsOneWidget);
 
       await tester.tap(find.text('Pay dues'));
       await tester.pumpAndSettle();
@@ -503,6 +503,60 @@ void main() {
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
       expect(find.text('No subscription yet'), findsOneWidget);
+    });
+
+    testWidgets('skip today asks first and only posts on confirm', (
+      tester,
+    ) async {
+      final log = _Log();
+      final api = _api(
+        MockClient((req) async {
+          log.requests.add(req);
+          if (req.method == 'POST' && req.url.path.endsWith('/skips')) {
+            return _json({'late_skip': false}, 201);
+          }
+          return _standard(req, subs: [_sub()]);
+        }),
+      );
+
+      await _pumpScreen(tester, api);
+      await tester.ensureVisible(find.text('Skip today'));
+      await tester.tap(find.text('Skip today'));
+      await tester.pumpAndSettle();
+      expect(find.text(subStrings['skipConfirmTitle']!), findsOneWidget);
+
+      await tester.tap(find.text(subStrings['skipKeep']!));
+      await tester.pumpAndSettle();
+      expect(log.all('POST', '/skips'), isEmpty);
+
+      await tester.tap(find.text('Skip today'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Skip today'));
+      await tester.pumpAndSettle();
+      expect(log.all('POST', '/skips'), hasLength(1));
+    });
+
+    testWidgets('builder blocks Start while the estimate failed', (
+      tester,
+    ) async {
+      final api = _api(
+        MockClient((req) async {
+          if (req.url.path.endsWith('/subscriptions/estimate')) {
+            return _json({
+              'error': {'code': 'INTERNAL', 'message': 'estimate down'},
+            }, 500);
+          }
+          return _standard(req);
+        }),
+      );
+
+      await _pumpScreen(tester, api);
+      await tester.tap(find.text('Build a plan'));
+      await tester.pumpAndSettle();
+
+      final start = find.widgetWithText(ElevatedButton, 'Start this plan');
+      await tester.ensureVisible(start);
+      expect(tester.widget<ElevatedButton>(start).onPressed, isNull);
     });
 
     testWidgets('canceled plan wins over paused and hides actions', (

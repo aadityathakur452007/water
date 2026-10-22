@@ -50,6 +50,8 @@ class _ShodashaAppState extends State<ShodashaApp> {
   late final ProfileController _profile;
   late final String _deviceId;
 
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
   bool _ready = false;
 
   @override
@@ -83,9 +85,11 @@ class _ShodashaAppState extends State<ShodashaApp> {
     _selectedStore = SelectedAddressStore();
     // Persistence behind the live selection: restore once, then the
     // controller writes through on every select (011_port).
-    unawaited(_selectedStore.load().then((_) {
-      _addresses.bindSelection(_selectedStore);
-    }));
+    unawaited(
+      _selectedStore.load().then((_) {
+        _addresses.bindSelection(_selectedStore);
+      }),
+    );
     _orders = OrdersController(repo: ApiBackedOrdersRepository(_api));
     _profile = ProfileController(api: _api);
     // Session boundary: when the session ends (logout, expiry, 401) drop
@@ -108,6 +112,12 @@ class _ShodashaAppState extends State<ShodashaApp> {
     _addresses.reset();
     _orders.reset();
     _profile.reset();
+    // Any pushed route/sheet (rating, checkout, payment history) would sit
+    // above the login screen and keep retrying with a dead token. Pop to the
+    // AuthGate root after the frame that swaps the shell to guest.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    });
   }
 
   @override
@@ -133,6 +143,7 @@ class _ShodashaAppState extends State<ShodashaApp> {
     return MaterialApp(
       title: 'Shodasha',
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey,
       theme: buildShodashaTheme(),
       home: AuthGate(
         controller: _auth,

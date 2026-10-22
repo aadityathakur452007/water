@@ -26,6 +26,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
+import '../../core/money.dart';
 
 /// Screen copy (English; keys match the legacy controller contract).
 const Map<String, String> subStrings = {
@@ -78,6 +79,12 @@ const Map<String, String> subStrings = {
   'lateSkipTitle': 'Cut-off has passed',
   'lateSkipBody': "Today's delivery was not skipped. Call support at ",
   'lateSkipTail': ' so the vendor is informed.',
+  'skipConfirmTitle': "Skip today's delivery?",
+  'skipConfirmBody':
+      "Today's jars won't be delivered. Your next delivery stays as "
+      'scheduled.',
+  'skipConfirm': 'Skip today',
+  'skipKeep': 'Keep delivery',
   'ok': 'OK',
   'saved': 'Done',
   'cancelTitle': 'Cancel subscription',
@@ -122,11 +129,8 @@ const Map<String, String> subStrings = {
   'close': 'Close',
 };
 
-/// `5600` → `Rs 56`; `5650` → `Rs 56.50` (display only — never math).
-String rupeesLabel(int paise) {
-  if (paise % 100 == 0) return 'Rs ${paise ~/ 100}';
-  return 'Rs ${(paise / 100).toStringAsFixed(2)}';
-}
+/// `5600` → `₹56`; `5650` → `₹56.50` (display only — never math).
+String rupeesLabel(int paise) => formatInr(paise);
 
 /// User-facing address label from an address payload (server-owned fields).
 String addressLabelOf(Map<String, dynamic> a) {

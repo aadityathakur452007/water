@@ -17,6 +17,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
+import '../../core/money.dart';
 
 // ── Contract gates (integer paise) ──────────────────────────────────────
 /// COD cap Rs 2,000 → paise (contract tunable §8).
@@ -41,8 +42,8 @@ const int kStepperMax = 10;
 /// Fixed morning promise (014): never promise van-times.
 const String kFixedWindowLabel = 'Morning 8–12';
 
-/// Paise → "Rs X" label (whole rupees only in v1; paise stay integer).
-String rupeesLabel(int paise) => 'Rs ${paise ~/ 100}';
+/// Paise → display label via the shared formatter (never money math).
+String rupeesLabel(int paise) => formatInr(paise);
 
 /// Thrown when the server catalog cannot produce a complete rate snapshot.
 /// The UI shows [message] + retry; it never substitutes local prices.
@@ -99,7 +100,9 @@ class CatalogRates {
           return value;
         }
       }
-      throw const CatalogUnavailable('A product is missing from the price list.');
+      throw const CatalogUnavailable(
+        'A product is missing from the price list.',
+      );
     }
 
     final deposit = (res['deposit_per_jar'] as num?)?.toInt();
@@ -142,8 +145,7 @@ int computeWaterBillPaise({
   required int refill,
   required int container,
   required CatalogRates rates,
-}) =>
-    refill * rates.refillPaise + container * rates.containerPaise;
+}) => refill * rates.refillPaise + container * rates.containerPaise;
 
 /// Container-only, once-only deposit. Refill never deposits.
 int computeDepositDuePaise({
@@ -169,11 +171,7 @@ int computeQuoteTotalPaise({
   int capsMissing = 0,
   int depositPaidPaise = 0,
 }) =>
-    computeWaterBillPaise(
-      refill: refill,
-      container: container,
-      rates: rates,
-    ) +
+    computeWaterBillPaise(refill: refill, container: container, rates: rates) +
     computeDepositDuePaise(
       container: container,
       empties: empties,
@@ -213,8 +211,7 @@ String quoteHashOf({
   required int container,
   required int empties,
   required int capsMissing,
-}) =>
-    '$refill|$container|$empties|$capsMissing';
+}) => '$refill|$container|$empties|$capsMissing';
 
 /// Idempotency key factory (one per sheet-open, reused on retry).
 String newIdempotencyKey() => const Uuid().v4();
@@ -243,12 +240,12 @@ enum DeliveryType { once, daily, alternate, weekly, custom }
 
 /// schedule_type wire value ('' for once — no subscription is created).
 String scheduleTypeOf(DeliveryType t) => switch (t) {
-      DeliveryType.once => '',
-      DeliveryType.daily => 'daily',
-      DeliveryType.alternate => 'alternate',
-      DeliveryType.weekly => 'weekly',
-      DeliveryType.custom => 'custom',
-    };
+  DeliveryType.once => '',
+  DeliveryType.daily => 'daily',
+  DeliveryType.alternate => 'alternate',
+  DeliveryType.weekly => 'weekly',
+  DeliveryType.custom => 'custom',
+};
 
 /// sku_mix wire value for subscription create (dominant SKU wins; ties refill).
 String skuMixOf({required int refill, required int container}) =>
@@ -258,17 +255,16 @@ String skuMixOf({required int refill, required int container}) =>
 List<Map<String, dynamic>> orderItemsOf({
   required int refill,
   required int container,
-}) =>
-    [
-      if (refill > 0) {'sku': 'refill', 'qty': refill},
-      if (container > 0) {'sku': 'container', 'qty': container},
-    ];
+}) => [
+  if (refill > 0) {'sku': 'refill', 'qty': refill},
+  if (container > 0) {'sku': 'container', 'qty': container},
+];
 
 /// Booking state: steppers + quote freeze + gates. UI calls the getters.
 class BookingController extends ChangeNotifier {
   BookingController({CatalogApi? catalog, CatalogRates? initialRates})
-      : _catalog = catalog,
-        rates = initialRates;
+    : _catalog = catalog,
+      rates = initialRates;
 
   CatalogApi? _catalog;
 
@@ -419,11 +415,11 @@ class BookingController extends ChangeNotifier {
         );
 
   String get currentHash => quoteHashOf(
-        refill: refillQty,
-        container: containerQty,
-        empties: emptiesQty,
-        capsMissing: capsMissing,
-      );
+    refill: refillQty,
+    container: containerQty,
+    empties: emptiesQty,
+    capsMissing: capsMissing,
+  );
 
   /// BOOK NOW enabled iff N ≥ 1 (E ≤ N enforced by clamp).
   bool get canBook => totalJars >= 1;

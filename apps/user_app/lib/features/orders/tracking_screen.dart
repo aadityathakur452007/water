@@ -47,16 +47,30 @@ class _TrackingScreenState extends State<TrackingScreen> {
   CancelReason _cancelReason = CancelReason.changedMind;
   RescheduleSlot? _slot;
   bool _ratingShown = false;
+  bool _detailLoading = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.controller.refreshOrder(widget.orderId);
+    _detailLoading = widget.controller.findById(widget.orderId) == null;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await widget.controller.refreshOrder(widget.orderId);
+      if (mounted && _detailLoading) {
+        setState(() => _detailLoading = false);
+      }
       widget.controller.startTracking(widget.orderId);
       _maybeAutoRate();
     });
     widget.controller.addListener(_maybeAutoRate);
+  }
+
+  /// Detail-only retry: re-read this order instead of the whole list.
+  Future<void> _retryDetail() async {
+    if (_detailLoading) return;
+    setState(() => _detailLoading = true);
+    await widget.controller.refreshOrder(widget.orderId);
+    if (!mounted) return;
+    setState(() => _detailLoading = false);
   }
 
   void _maybeAutoRate() {
@@ -150,7 +164,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
         content: Text(
           done
               ? ordersStringsHi['cancelledBanner']!
-              : ordersStringsHi['errorTitle']!,
+              : ordersStringsHi['cancelFailed']!,
         ),
       ),
     );
@@ -216,7 +230,17 @@ class _TrackingScreenState extends State<TrackingScreen> {
       ),
     );
     if (ok != true || !mounted || _slot == null) return;
-    await widget.controller.reschedule(order.id, _slot!.start);
+    final done = await widget.controller.reschedule(order.id, _slot!.start);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          done
+              ? ordersStringsHi['rescheduled']!
+              : ordersStringsHi['rescheduleFailed']!,
+        ),
+      ),
+    );
   }
 
   Future<void> _openWhatsApp(Order order) async {
@@ -268,8 +292,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
             // otherwise message + retry instead of a bare line. Refresh
             // re-reads the order.
             if (order == null) {
-              if (widget.controller.status ==
-                  OrdersListStatus.loading) {
+              if (_detailLoading ||
+                  widget.controller.status == OrdersListStatus.loading) {
                 // Phase 9 §9.1: tracker-shaped skeleton (was a bare
                 // spinner) — same blueTint rhythm as the orders list.
                 return const _TrackingSkeleton();
@@ -287,8 +311,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: () => widget.controller.refresh(),
-                        child: const Text('Try again'),
+                        onPressed: _retryDetail,
+                        child: Text(ordersStringsHi['retry']!),
                       ),
                     ],
                   ),
@@ -321,7 +345,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       (order.state == OrderState.dispatched ||
                           order.state == OrderState.assigned)) ...[
                     const SizedBox(height: 12),
-                    _LiveStopsAheadBanner(stopsAhead: order.stopsAhead!, order: order),
+                    _LiveStopsAheadBanner(
+                      stopsAhead: order.stopsAhead!,
+                      order: order,
+                    ),
                   ],
                   if (order.riderName != null) ...[
                     const SizedBox(height: 12),
@@ -633,12 +660,12 @@ class _TrackingSkeleton extends StatelessWidget {
   }
 
   static Widget _skelBox(double height) => Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: ShodashaTheme.tealTint,
-          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-        ),
-      );
+    height: height,
+    decoration: BoxDecoration(
+      color: ShodashaTheme.tealTint,
+      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+    ),
+  );
 }
 
 class _WindowCard extends StatelessWidget {
@@ -944,10 +971,7 @@ class _BillRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: ShodashaTheme.muted,
-                ),
+                const Icon(Icons.chevron_right, color: ShodashaTheme.muted),
               ],
             ),
             if (order.paymentsPaise > 0)

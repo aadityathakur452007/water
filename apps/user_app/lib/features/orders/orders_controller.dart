@@ -31,6 +31,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
+import '../../core/money.dart';
 
 /// English copy for the orders feature (v1, ADR-120). Keys stay stable for a
 /// later Hinglish l10n pass.
@@ -45,12 +46,16 @@ const Map<String, String> ordersStringsHi = {
   'offlineTitle': 'Offline — showing older orders',
   'retry': 'Try again',
   'loadMore': 'Load more orders',
+  'loadMoreFailed': 'Could not load more orders',
   'cancelTitle': 'Cancel this order?',
   'cancelConfirm': 'Yes, cancel it',
   'cancelKeep': 'Keep it',
+  'cancelFailed': 'Could not cancel this order — try again',
   'cancelReasonLabel': 'Choose a cancellation reason',
   'rescheduleTitle': 'Change delivery time',
   'rescheduleConfirm': 'Confirm new time',
+  'rescheduled': 'Delivery time updated',
+  'rescheduleFailed': 'Could not change the delivery time — try again',
   'whatsappHelp': 'Help on WhatsApp',
   'whatsappFail': 'Could not open WhatsApp — try between 8AM–8PM',
   'callFail': 'Could not open the dialer',
@@ -65,6 +70,7 @@ const Map<String, String> ordersStringsHi = {
   'rateSubmit': 'Submit rating',
   'rateThanks': 'Thanks! Your rating was received',
   'rateAgain': 'A rating can be submitted only once',
+  'rateFailed': 'Could not submit your rating — try again',
   'complaintShortcut': 'Something wrong? File a complaint',
   'viewBill': 'View bill',
   'autoRefresh': 'Auto-refresh',
@@ -154,9 +160,7 @@ class RescheduleSlot {
 
   @override
   bool operator ==(Object other) =>
-      other is RescheduleSlot &&
-      other.start == start &&
-      other.end == end;
+      other is RescheduleSlot && other.start == start && other.end == end;
 
   @override
   int get hashCode => Object.hash(start, end);
@@ -171,21 +175,20 @@ List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
   for (var h = 8; h < 20; h++) {
     for (final m in [0, 30]) {
       final start = day.add(Duration(hours: h, minutes: m));
-      slots.add(RescheduleSlot(start: start, end: start.add(
-        const Duration(minutes: 30),
-      )));
+      slots.add(
+        RescheduleSlot(
+          start: start,
+          end: start.add(const Duration(minutes: 30)),
+        ),
+      );
     }
   }
   return slots;
 }
 
 /// ₹ formatting: paise ints, 2dp ONLY when needed (5600 → ₹56, 5650 → ₹56.50).
-String formatRupees(int paise) {
-  final sign = paise < 0 ? '-' : '';
-  final abs = paise.abs();
-  if (abs % 100 == 0) return '$sign\u20B9${abs ~/ 100}';
-  return '$sign\u20B9${(abs / 100).toStringAsFixed(2)}';
-}
+/// Kept as the orders-local name; the implementation is the shared formatter.
+String formatRupees(int paise) => formatInr(paise);
 
 /// Order entity — money in integer paise, frozen server-side (contract §4.4).
 @immutable
@@ -251,7 +254,8 @@ class Order {
   /// Shown once on tracking so the customer can read it to the rider.
   final String? deliveryOtp;
 
-  bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+  bool get isPaid =>
+      paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
 
   /// Reorder possible only when the mix is known.
   bool get canReorder => refillQty + containerQty >= 1;
@@ -306,7 +310,6 @@ class Order {
     );
   }
 }
-
 
 /// Visibility matrix (contract §4.4 + flows 3/5):
 /// pre-dispatch → Cancel + Reschedule; dispatched → WhatsApp CTA only;
@@ -492,8 +495,8 @@ Order orderFromApi(Map<String, dynamic> json) {
     stopsAhead: json['stops_ahead'] != null
         ? (json['stops_ahead'] as num).toInt()
         : (rider['stops_ahead'] != null
-            ? (rider['stops_ahead'] as num).toInt()
-            : null),
+              ? (rider['stops_ahead'] as num).toInt()
+              : null),
     itemSummary: parts.join(' + '),
     waterBillPaise: paise(bill['water_bill'] ?? json['water_bill']),
     depositDuePaise: paise(bill['deposit_due'] ?? json['deposit_due']),
@@ -543,8 +546,13 @@ class ApiBackedOrdersRepository implements OrdersRepository {
 
   @override
   Future<Order> rescheduleOrder(String id, DateTime windowStart) async =>
-      orderFromApi(await _api.rescheduleApi(
-          id, windowStart.toIso8601String(), const Uuid().v4()));
+      orderFromApi(
+        await _api.rescheduleApi(
+          id,
+          windowStart.toIso8601String(),
+          const Uuid().v4(),
+        ),
+      );
 
   @override
   Future<Order> submitRating(String id, int stars) async {
@@ -556,6 +564,10 @@ class ApiBackedOrdersRepository implements OrdersRepository {
 }
 
 enum OrdersListStatus { initial, loading, loaded, error }
+
+/// Rating outcome — a 409/“already rated” is not a transport failure and must
+/// not close the sheet with retry copy meant for network errors.
+enum RateResult { success, alreadyRated, failed }
 
 /// Orders lifecycle: list(search client-side) → tracking(poll) → bill(frozen)
 /// → rating(once). Covers States.md data/error/network/search/action states.
@@ -569,6 +581,8 @@ class OrdersController extends ChangeNotifier {
   String _query = '';
   String? _errorMessage;
   bool _isOffline = false;
+  bool _loadMoreFailed = false;
+  bool _loadingMore = false;
   String? _cursor;
   bool _hasMore = false;
   bool _actionBusy = false;
@@ -591,6 +605,8 @@ class OrdersController extends ChangeNotifier {
   OrdersListStatus get status => _status;
   String? get errorMessage => _errorMessage;
   bool get isOffline => _isOffline;
+  bool get loadMoreFailed => _loadMoreFailed;
+  bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
   bool get actionBusy => _actionBusy;
   int get pollSeconds => _pollSeconds;
@@ -602,10 +618,14 @@ class OrdersController extends ChangeNotifier {
   List<Order> get filteredOrders {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return List.unmodifiable(_all);
-    return List.unmodifiable(_all.where((o) =>
-        o.id.toLowerCase().contains(q) ||
-        o.addressLabel.toLowerCase().contains(q) ||
-        o.itemSummary.toLowerCase().contains(q)));
+    return List.unmodifiable(
+      _all.where(
+        (o) =>
+            o.id.toLowerCase().contains(q) ||
+            o.addressLabel.toLowerCase().contains(q) ||
+            o.itemSummary.toLowerCase().contains(q),
+      ),
+    );
   }
 
   Order? findById(String id) {
@@ -634,6 +654,8 @@ class OrdersController extends ChangeNotifier {
     _isOffline = false;
     _cursor = null;
     _hasMore = false;
+    _loadMoreFailed = false;
+    _loadingMore = false;
     _actionBusy = false;
     _status = OrdersListStatus.initial;
     _ratingPrompted.clear();
@@ -657,11 +679,13 @@ class OrdersController extends ChangeNotifier {
       _status = OrdersListStatus.loaded;
       _isOffline = false;
       _onPollSuccess();
-    } catch (_) {
+    } catch (e) {
       if (gen != _generation) return;
       _status = _all.isEmpty ? OrdersListStatus.error : OrdersListStatus.loaded;
       _errorMessage = ordersStringsHi['errorTitle'];
-      _isOffline = _all.isEmpty;
+      // Cached rows stay visible, marked stale, for network/5xx failures —
+      // only a 4xx response (session/validation) is not "offline".
+      _isOffline = e is ApiException && e.isNetwork;
       _onPollError();
     }
     _notify();
@@ -674,23 +698,47 @@ class OrdersController extends ChangeNotifier {
 
   Future<void> loadMore() async {
     final cursor = _cursor;
-    if (!_hasMore || cursor == null || _status == OrdersListStatus.loading) {
+    if (!_hasMore ||
+        cursor == null ||
+        _status == OrdersListStatus.loading ||
+        _loadingMore) {
       return;
     }
+    _loadingMore = true;
+    _loadMoreFailed = false;
+    _notify();
     final gen = _generation;
     try {
       final page = await _repo.fetchOrders(cursor: cursor);
       if (gen != _generation) return;
-      _all.addAll(page.orders);
+      // Cursor pages can overlap (a new order shifts the window) — dedupe by
+      // id so "Load more" never renders the same card twice.
+      final seen = _all.map((o) => o.id).toSet();
+      for (final order in page.orders) {
+        if (seen.add(order.id)) _all.add(order);
+      }
       _cursor = page.nextCursor;
       _hasMore = page.nextCursor != null;
       _onPollSuccess();
     } catch (_) {
       if (gen != _generation) return;
+      _loadMoreFailed = true;
       _errorMessage = ordersStringsHi['errorTitle'];
       _onPollError();
+    } finally {
+      if (gen == _generation) {
+        _loadingMore = false;
+        _notify();
+      }
     }
+  }
+
+  /// Footer retry for a failed [loadMore].
+  Future<void> retryLoadMore() async {
+    if (_loadingMore) return;
+    _loadMoreFailed = false;
     _notify();
+    await loadMore();
   }
 
   /// Detail refresh for the tracking screen (poll target).
@@ -752,16 +800,25 @@ class OrdersController extends ChangeNotifier {
     }
   }
 
-  Future<bool> rate(String id, int stars) async {
-    if (stars < 1 || stars > 5) return false;
+  Future<RateResult> rate(String id, int stars) async {
+    if (stars < 1 || stars > 5) return RateResult.failed;
     final gen = _generation;
     try {
       final updated = await _repo.submitRating(id, stars);
-      if (gen != _generation) return true;
+      if (gen != _generation) return RateResult.success;
       _replace(updated);
-      return true;
+      return RateResult.success;
+    } on StateError catch (e) {
+      // Local repo guard — anything else (not found / not delivered) failed.
+      return e.message == 'already rated'
+          ? RateResult.alreadyRated
+          : RateResult.failed;
+    } on ApiException catch (e) {
+      return e.code == 'ALREADY_RATED'
+          ? RateResult.alreadyRated
+          : RateResult.failed;
     } catch (_) {
-      return false;
+      return RateResult.failed;
     }
   }
 

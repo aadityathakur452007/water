@@ -25,6 +25,15 @@ class ReturnAddress {
 typedef ReturnAddressPicker =
     Future<ReturnAddress?> Function(BuildContext context);
 
+/// Minimal UPI VPA check: `localpart@handle`, no spaces. Tolerant of bank
+/// handles (`@okhdfcbank`, `@ybl`) and dots/dashes in the local part.
+final RegExp _upiVpa = RegExp(
+  r'^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.]{1,64}$',
+);
+
+/// True when [value] looks like a refundable UPI id (server-side truth).
+bool isValidUpi(String value) => _upiVpa.hasMatch(value.trim());
+
 class ReturnSheet extends StatefulWidget {
   const ReturnSheet({super.key, required this.api, this.pickAddress});
 
@@ -41,7 +50,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
   ReturnAddress? _address;
   int _qty = 1;
 
-  bool get _valid => _address != null && _upi.text.trim().isNotEmpty;
+  bool get _valid => _address != null && isValidUpi(_upi.text);
 
   @override
   void dispose() {
@@ -183,9 +192,13 @@ class _ReturnSheetState extends State<ReturnSheet> {
                 textInputAction: TextInputAction.done,
                 onChanged: (_) => setState(() {}),
                 style: const TextStyle(fontSize: 16),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'UPI ID (for deposit refund)',
                   hintText: 'name@bank',
+                  errorText:
+                      _upi.text.trim().isNotEmpty && !isValidUpi(_upi.text)
+                      ? 'Enter a valid UPI ID like name@bank'
+                      : null,
                   helperText:
                       'Your deposit refund is sent to this UPI after pickup.',
                 ),

@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/money.dart';
 import '../../core/theme.dart';
 
 /// One receipt row from GET /v1/payments/me. Field names mirror the server
@@ -49,9 +50,16 @@ class PaymentRecord {
 int _int(Object? v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
 
 class PaymentHistoryScreen extends StatefulWidget {
-  const PaymentHistoryScreen({super.key, required this.api});
+  const PaymentHistoryScreen({
+    super.key,
+    required this.api,
+    this.onLoginRequired,
+  });
 
   final ApiClient api;
+
+  /// 401 fallback CTA; the root navigator normally pops to login first.
+  final VoidCallback? onLoginRequired;
 
   @override
   State<PaymentHistoryScreen> createState() => _PaymentHistoryScreenState();
@@ -59,6 +67,7 @@ class PaymentHistoryScreen extends StatefulWidget {
 
 class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   bool _loading = true;
+  bool _isAuthError = false;
   String? _error;
   List<PaymentRecord> _payments = const [];
 
@@ -81,6 +90,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _isAuthError = false;
     });
     try {
       final list = await widget.api.listUserPayments(limit: 50);
@@ -95,7 +105,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = (e.statusCode == 401 || e.statusCode == 403)
+        final auth = e.statusCode == 401 || e.statusCode == 403;
+        _isAuthError = auth;
+        _error = auth
             ? 'Session expired — log in again'
             : (e.isNetwork
                   ? 'No internet — try again'
@@ -147,13 +159,25 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     );
   }
 
+  /// Close this route before the shell shows login (no dead-end stack).
+  void _signIn() {
+    Navigator.of(context).pop();
+    widget.onLoginRequired?.call();
+  }
+
   Widget _buildBody() {
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(color: ShodashaTheme.teal),
       );
     }
-    if (_error != null) return _ErrorState(message: _error!, onRetry: _fetch);
+    if (_error != null) {
+      return _ErrorState(
+        message: _error!,
+        onRetry: _fetch,
+        onSignIn: _isAuthError ? _signIn : null,
+      );
+    }
     if (_payments.isEmpty) return const _EmptyState();
 
     return RefreshIndicator(
@@ -226,7 +250,7 @@ class _PaymentCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '₹${payment.amountPaise ~/ 100}',
+                        formatInr(payment.amountPaise),
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 18,
@@ -282,7 +306,7 @@ class _PaymentCard extends StatelessWidget {
                   ),
                 if (payment.depositPaise > 0)
                   Text(
-                    'Deposit: ₹${payment.depositPaise ~/ 100}',
+                    'Deposit: ${formatInr(payment.depositPaise)}',
                     style: const TextStyle(
                       fontSize: 13,
                       color: ShodashaTheme.ink,
@@ -365,10 +389,15 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
+  const _ErrorState({
+    required this.message,
+    required this.onRetry,
+    this.onSignIn,
+  });
 
   final String message;
   final Future<void> Function() onRetry;
+  final VoidCallback? onSignIn;
 
   @override
   Widget build(BuildContext context) {
@@ -390,6 +419,10 @@ class _ErrorState extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
+            if (onSignIn != null) ...[
+              ElevatedButton(onPressed: onSignIn, child: const Text('Sign in')),
+              const SizedBox(height: 8),
+            ],
             OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
           ],
         ),

@@ -29,11 +29,8 @@ Future<void> showRatingSheet(
         top: Radius.circular(ShodashaTheme.radiusSheet),
       ),
     ),
-    builder: (_) => RatingSheet(
-      controller: controller,
-      order: order,
-      onSupport: onSupport,
-    ),
+    builder: (_) =>
+        RatingSheet(controller: controller, order: order, onSupport: onSupport),
   );
 }
 
@@ -61,13 +58,24 @@ class _RatingSheetState extends State<RatingSheet> {
   Future<void> _submit() async {
     if (_stars < 1 || _busy) return;
     setState(() => _busy = true);
-    final ok = await widget.controller.rate(widget.order.id, _stars);
+    final result = await widget.controller.rate(widget.order.id, _stars);
     if (!mounted) return;
+    if (result == RateResult.failed) {
+      // Network/401: keep the sheet open so the user can retry instead of
+      // being told a rating was already received.
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(ordersStringsHi['rateFailed']!)));
+      return;
+    }
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? ordersStringsHi['rateThanks']! : ordersStringsHi['rateAgain']!,
+          result == RateResult.success
+              ? ordersStringsHi['rateThanks']!
+              : ordersStringsHi['rateAgain']!,
         ),
       ),
     );
@@ -113,9 +121,7 @@ class _RatingSheetState extends State<RatingSheet> {
                         ? null
                         : () => setState(() => _stars = i),
                     icon: Icon(
-                      i <= _stars
-                          ? Icons.star
-                          : Icons.star_border,
+                      i <= _stars ? Icons.star : Icons.star_border,
                       color: i <= _stars
                           ? ShodashaTheme.solarDark
                           : ShodashaTheme.muted,
@@ -127,16 +133,17 @@ class _RatingSheetState extends State<RatingSheet> {
             SizedBox(
               height: ShodashaTheme.minTarget,
               child: ElevatedButton(
-                onPressed:
-                    (alreadyRated || _stars < 1 || _busy) ? null : _submit,
+                onPressed: (alreadyRated || _stars < 1 || _busy)
+                    ? null
+                    : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: ShodashaTheme.ink,
                   foregroundColor: ShodashaTheme.surface,
-                  disabledBackgroundColor:
-                      ShodashaTheme.ink.withValues(alpha: 0.3),
+                  disabledBackgroundColor: ShodashaTheme.ink.withValues(
+                    alpha: 0.3,
+                  ),
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ShodashaTheme.radius),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   ),
                 ),
                 child: _busy
@@ -158,8 +165,7 @@ class _RatingSheetState extends State<RatingSheet> {
                   onPressed: _complaint,
                   style: TextButton.styleFrom(
                     foregroundColor: ShodashaTheme.blue, // link only
-                    minimumSize:
-                        const Size(48, ShodashaTheme.minTarget),
+                    minimumSize: const Size(48, ShodashaTheme.minTarget),
                   ),
                   child: Text(ordersStringsHi['complaintShortcut']!),
                 ),

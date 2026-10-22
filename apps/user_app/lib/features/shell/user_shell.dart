@@ -75,6 +75,11 @@ class UserShell extends StatefulWidget {
 class _UserShellState extends State<UserShell> {
   UserTab _tab = UserTab.home;
 
+  /// Bumped on every Wallet tab entry; the tab owns its controller, so this
+  /// is the only way the shell can ask it to re-read a ledger changed
+  /// elsewhere (dues paid in Subscriptions, return filed earlier).
+  int _walletTick = 0;
+
   /// Tabs visited at least once (lazy mount).
   final Set<UserTab> _mounted = {UserTab.home};
 
@@ -113,7 +118,8 @@ class _UserShellState extends State<UserShell> {
       widget.bookingController.applyLedger(
         dues: (led['dues'] as num?)?.toInt() ?? 0,
         held: (led['held'] as num?)?.toInt() ?? 0,
-        depositPaid: (led['wallet_held'] as num?)?.toInt() ??
+        depositPaid:
+            (led['wallet_held'] as num?)?.toInt() ??
             (led['deposit_paid'] as num?)?.toInt() ??
             0,
       );
@@ -127,6 +133,9 @@ class _UserShellState extends State<UserShell> {
     setState(() {
       _tab = tab;
       _mounted.add(tab);
+      if (tab == UserTab.wallet && widget.isAuthenticated()) {
+        _walletTick++;
+      }
     });
     // The list may predate a just-placed order (recovery "Check Orders") or
     // a previous visit's cancellations/assignments.
@@ -142,16 +151,15 @@ class _UserShellState extends State<UserShell> {
   }
 
   void _openPayments() => Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => PaymentHistoryScreen(api: widget.api),
-        ),
-      );
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          PaymentHistoryScreen(api: widget.api, onLoginRequired: _login),
+    ),
+  );
 
   void _openSupport() => Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => SupportScreen(api: widget.api),
-        ),
-      );
+    MaterialPageRoute<void>(builder: (_) => SupportScreen(api: widget.api)),
+  );
 
   /// Dues payment lives in Wallet (S7) — the subscriptions strip only
   /// switches tabs (no cross-feature import).
@@ -188,6 +196,9 @@ class _UserShellState extends State<UserShell> {
       },
       onDone: (result) {
         Navigator.of(context).pop();
+        // The new order must appear immediately even when the user is
+        // already on the Orders tab (tab-entry reload would be a no-op).
+        if (widget.isAuthenticated()) widget.ordersController.load();
         showOrderConfirm(
           context,
           result: result,
@@ -304,68 +315,66 @@ class _UserShellState extends State<UserShell> {
   }
 
   Widget _tabs() => IndexedStack(
-        index: _tab.index,
-        children: [
-          for (final tab in UserTab.values)
-            _mounted.contains(tab)
-                ? _bodyFor(tab)
-                : const SizedBox.shrink(),
-        ],
-      );
+    index: _tab.index,
+    children: [
+      for (final tab in UserTab.values)
+        _mounted.contains(tab) ? _bodyFor(tab) : const SizedBox.shrink(),
+    ],
+  );
 
   Widget _bodyFor(UserTab tab) => switch (tab) {
-        UserTab.home => HomeScreen(
-            controller: widget.bookingController,
-            api: widget.api,
-            addresses: widget.addresses,
-            ensureAuth: () => widget.onLoginRequested(context),
-            onOpenAddresses: _openAddresses,
-            onBuy: _openCheckout,
-            onTrackOrder: () => _selectTab(UserTab.orders),
-            onOpenSubscriptions: () => _selectTab(UserTab.subscriptions),
-            razorpayKeyId: widget.razorpayKeyId,
-          ),
-        UserTab.orders => widget.isAuthenticated()
-            ? OrdersScreen(
-                controller: widget.ordersController,
-                isAuthenticated: widget.isAuthenticated,
-                onReorder: _reorder,
-                onOpenPayments: _openPayments,
-                onSupport: _openSupport,
-              )
-            : _GuestBody(
-                icon: Icons.receipt_long_outlined,
-                title: 'Orders',
-                message: 'Sign in to see your orders.',
-                onSignIn: _login,
-              ),
-        UserTab.subscriptions => widget.isAuthenticated()
-            ? SubscriptionScreen(
-                api: widget.api,
-                onOpenWallet: _openWallet,
-              )
-            : _GuestBody(
-                icon: Icons.event_repeat_outlined,
-                title: 'Subscriptions',
-                message: 'Sign in to see your plans and dues.',
-                onSignIn: _login,
-              ),
-        UserTab.wallet => WalletScreen(
-            api: widget.api,
-            isAuthenticated: widget.isAuthenticated,
-            onLoginRequired: _login,
-            pickAddress: _pickReturnAddress,
-          ),
-        UserTab.profile => ProfileScreen(
-            api: widget.api,
-            isAuthenticated: widget.isAuthenticated(),
-            controller: widget.profileController,
-            onLoginRequired: _login,
-            onLogout: widget.onLogout,
-            onOpenAddresses: _openAddresses,
-            onOpenPayments: _openPayments,
-          ),
-      };
+    UserTab.home => HomeScreen(
+      controller: widget.bookingController,
+      api: widget.api,
+      addresses: widget.addresses,
+      ensureAuth: () => widget.onLoginRequested(context),
+      onOpenAddresses: _openAddresses,
+      onBuy: _openCheckout,
+      onTrackOrder: () => _selectTab(UserTab.orders),
+      onOpenSubscriptions: () => _selectTab(UserTab.subscriptions),
+      razorpayKeyId: widget.razorpayKeyId,
+    ),
+    UserTab.orders =>
+      widget.isAuthenticated()
+          ? OrdersScreen(
+              controller: widget.ordersController,
+              isAuthenticated: widget.isAuthenticated,
+              onReorder: _reorder,
+              onOpenPayments: _openPayments,
+              onSupport: _openSupport,
+            )
+          : _GuestBody(
+              icon: Icons.receipt_long_outlined,
+              title: 'Orders',
+              message: 'Sign in to see your orders.',
+              onSignIn: _login,
+            ),
+    UserTab.subscriptions =>
+      widget.isAuthenticated()
+          ? SubscriptionScreen(api: widget.api, onOpenWallet: _openWallet)
+          : _GuestBody(
+              icon: Icons.event_repeat_outlined,
+              title: 'Subscriptions',
+              message: 'Sign in to see your plans and dues.',
+              onSignIn: _login,
+            ),
+    UserTab.wallet => WalletScreen(
+      api: widget.api,
+      isAuthenticated: widget.isAuthenticated,
+      onLoginRequired: _login,
+      pickAddress: _pickReturnAddress,
+      refreshTick: _walletTick,
+    ),
+    UserTab.profile => ProfileScreen(
+      api: widget.api,
+      isAuthenticated: widget.isAuthenticated(),
+      controller: widget.profileController,
+      onLoginRequired: _login,
+      onLogout: widget.onLogout,
+      onOpenAddresses: _openAddresses,
+      onOpenPayments: _openPayments,
+    ),
+  };
 }
 
 /// Guest gate for tabs whose data is account-scoped (Subscriptions): no
@@ -396,9 +405,9 @@ class _GuestBody extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: ShodashaTheme.ink,
-                  ),
+                fontWeight: FontWeight.w800,
+                color: ShodashaTheme.ink,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
