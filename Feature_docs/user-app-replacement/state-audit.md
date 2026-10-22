@@ -216,7 +216,23 @@ Legend: ✅ handled · ⚠️ partial/weak · ❌ missing · N/A not applicable.
 4. Regression tests landed: `test/session_reset_test.dart` (reset clears + late-response discard + key policy) and `test/checkout_recovery_test.dart` (service: one `POST /orders`, same key replay, `UnconfirmedCreateException`; widget: recovery UI + request counts). Guest Orders covered in `shell_test.dart`. 401 route-unwind test is Phase B (P1-1). ✅
 5. Gates: analyze clean · **197/197** tests · release APK 55.7 MB, SHA256 `F21C4F1CAB9D26C2FBDFF687EF2340915C1643AF2B2FDE4B6B5A161FF70CC380` · prod URL present / `localhost:8787` absent. ✅
 
-**Phase B — P1 states** (the §5 table, in order 1→14) with widget tests per fix; shared money formatter first (highest blast radius). **Awaits owner review of Phase A.**
+**Phase B — P1 — ✅ DONE (2026-10-22, commit on `032-user-app-replacement`)**
+1. **P1-1 root unwind:** `MaterialApp.navigatorKey`; on an authenticated→guest transition the auth listener resets user-scoped controllers and post-frame `popUntil(isFirst)`, so pushed routes/sheets never sit above the login screen. Payment History also offers a “Sign in” CTA on 401/403 as a fallback.
+2. **P1-2 orders offline truth:** a network/5xx list failure keeps cached rows (`status = loaded`), raises `isOffline`, and renders the stale banner; 4xx still uses the error state.
+3. **P1-3 load-more:** `_loadingMore` in-flight guard, id dedupe across overlapping cursor pages, `loadMoreFailed` + inline footer error/retry, spinner while loading.
+4. **P1-4 fresh after checkout:** the shell reloads Orders in `_openCheckout.onDone` (reorder shares this path) in addition to the existing tab-entry reload.
+5. **P1-5 reschedule feedback:** success/failure snackbars use new `rescheduled` / `rescheduleFailed` copy.
+6. **P1-6 cancel feedback:** a failed cancel now says `cancelFailed`, not the generic load-error title.
+7. **P1-7 tracking retry:** detail-missing retry calls `refreshOrder(id)` under a local `_detailLoading`; it no longer reloads the whole list.
+8. **P1-8 rating outcomes:** `RateResult { success, alreadyRated, failed }`; server 409/`ALREADY_RATED` and the local “already rated” guard map to `alreadyRated`; network failures keep the sheet open with `rateFailed` copy and a retryable button.
+9. **P1-9 plan-builder gate:** `canSubmit` requires a loaded estimate with no error and no in-flight request; `_submit` guards the same condition.
+10. **P1-10 skip confirm:** “Skip today” opens a confirm dialog (`Skip today` / `Keep delivery`); no POST on cancel.
+11. **P1-11 wallet freshness:** `RefreshIndicator`, reload after a return is filed, and a shell-owned `refreshTick` bumped on every Wallet tab entry (covers dues paid in Subscriptions).
+12. **P1-12 money display:** new `lib/core/money.dart` `formatInr` (₹, 2dp only when the amount has paise); `formatRupees` and both `rupeesLabel` helpers delegate, and wallet/payment-history stop truncating with `~/ 100`. **Design delta:** money now renders `₹56` / `₹56.50` everywhere (was mixed `Rs 56` / `₹56`); subscription tests updated.
+13. **P1-13 payment-history 401:** explicit “Sign in” CTA wired through Wallet and the shell (root unwind remains the primary path).
+14. **P1-14 input completeness:** return sheet validates the refund VPA with an inline error (`name@bank`) and keeps Send disabled until valid; address serviceability `null` shows the new “couldn’t verify” warning; the address form tracks a dirty baseline and `PopScope` asks before discarding on close/system back/drag (save and confirmed discard bypass via a post-frame pop).
+15. Regression tests: `test/phase_b_states_test.dart` (11 — formatter, VPA, load-more dedupe/guard/failure, offline truth, rating outcomes) + 2 subscription widget tests (skip confirm, estimate-failed submit disabled). `order_states_test.dart` / `subscription_flow_test.dart` updated for `RateResult` and ₹.
+16. Gates: `flutter analyze` clean · **210/210** tests · release APK 55.8 MB, SHA256 `CC21EB44E4C479E0765B68D7AB9E222D9011AB701D857E2699D837B409B1D244` · 3 ABIs: prod URL present ✓, `http://localhost:8787` absent ✓, Razorpay test key present ✓. Backend untouched; device-verification debt unchanged.
 
 **Phase C — P2 + first-run decision** (port or ADR-drop).
 
@@ -226,4 +242,4 @@ Legend: ✅ handled · ⚠️ partial/weak · ❌ missing · N/A not applicable.
 
 ---
 
-*Audit completed 2026-10-21 (read-only, no code changed). Phase A implemented the same day per owner approval — see `context/decision.md` ADR-124. Phase B/C still require explicit approval. Legacy app untouched.*
+*Audit completed 2026-10-21 (read-only, no code changed). Phase A implemented the same day per owner approval — see `context/decision.md` ADR-124. Phase B implemented 2026-10-22 after the owner said “continue” — see ADR-125. Phase C (P2 + first-run decision) still requires explicit approval. Legacy app untouched.*
