@@ -891,6 +891,35 @@ ShodashaApp (main.dart)
 - List limits: Payment History shows the newest 50 and appends an honest cap note (no cursor exists server-side); complaints are unbounded server-side and the Support list builds every returned row (future pagination candidate, no v1 cap).
 - Packaging/release: `flutter build apk --release --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF` → `build/app/outputs/flutter-apk/app-release.apk`; per-ABI `libapp.so` scan confirms prod URL present and `http://localhost:8787` absent (Phase C: 55.8MB, SHA256 `5C372AAA754BE895E5FD3B61F756CC881B116BACB6295CDF0A0D7D490643C4A0`).
 
+## 033 — Donor-parity customer clone (branch 033-donor-parity, ADR-127)
+
+New customer-only app at `apps/user_app_donor`; `apps/user_app` stays in place as
+the fallback. The donor customer screens/flows sit on the proven 032 core and
+controllers; one `ApiClient` (Bearer + X-Device-Id) serves every call.
+
+```
+ShodashaDonorApp (main.dart)
+ ├─ loadOrCreateDeviceId → ApiClient → AuthController(SecureSessionStore)
+ ├─ BookingController / AddressController / OrdersController / ProfileController
+ └─ AuthGate(login-first; bounded restore)
+      └─ DonorShell (5 tabs: Home · My Orders · Subscriptions · Wallet · Profile)
+           ├─ Home: donor top bar → mode cards → featured SKUs → quality card
+           │    ├─ onOrder/instantOrder → shell _openCheckout → 032 quote → order → COD|UPI
+           │    ├─ addresses gate → 032 AddressScreen (server CRUD + OSM pin)
+           │    └─ notifications → real orders + subscriptions
+           ├─ My Orders: 032 OrdersController + donor order card
+           │    └─ Track / Bill only (no customer “deliver”, no fake PIN)
+           ├─ Subscriptions: 032 real plan list/actions (donor title/cards/pills)
+           ├─ Wallet: real GET /ledger/me + receipts/returns (no fake balance/top-up)
+           └─ Profile: real GET/PATCH /auth/me, addresses, support, wallet, logout
+```
+
+- Auth: `AuthController.startOtp` → `POST /auth/otp/start` (`{phone}` → `{resend_after_s, channel}`); `verifyOtp` → `POST /auth/otp/verify` (`{phone, otp_code, device}`); 6 digits. A `channel=firebase` response is an honest configuration error (no Firebase SDK/config). QA path is the server-gated `/auth/demo` sheet; there is no guest path. `AuthGate` restores the stored session with a timeout and falls back to login.
+- Shell: `DonorShell` is the only multi-feature importer. It owns cross-tab pushes (addresses, support, notifications), the shared checkout, the offline strip (Retry probes `GET /catalog`) and the 560px width cap. Tabs lazy-mount; Orders/Profile entry reloads orders; Wallet entry refreshes the ledger.
+- Data law: unchanged from 032 — server quote/total, one idempotency key per payload, UPI settles only when the order reports `paid_upi`, COD is server-confirmed, delivery OTP/PIN server-owned, no client money math.
+- Accepted reuse deviations: Subscriptions, saved addresses and support reuse the real 032 screens with donor copy/cards/pills; the donor's local `Rs 65` plan modal, hardcoded addresses and fake ticket dialogs are not cloned. Notifications derive from real order/subscription state; the donor's third “pump” product is omitted (no backend SKU).
+- Verification: `flutter analyze` clean · `flutter test` **10/10** (6 OTP controller, donor order mapping, login smoke 360dp, five-tab shell smoke 390dp) · `flutter build apk --debug` succeeded. Release signing, physical-device smoke and live-backend smoke remain open.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
