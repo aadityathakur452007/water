@@ -115,9 +115,11 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
         _isAuthError = auth;
         _error = auth
             ? 'Session expired — log in again'
-            : (e.isNetwork
-                  ? 'No internet — try again'
-                  : 'Could not load payments');
+            : e.isOffline
+            ? 'No internet — try again'
+            : e.isServerError
+            ? 'Server problem — try again'
+            : 'Could not load payments';
         _loading = false;
       });
     } catch (_) {

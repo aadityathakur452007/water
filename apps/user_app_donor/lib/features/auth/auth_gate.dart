@@ -1,8 +1,9 @@
 // Donor auth gate: cold-start restore splash → donor login / customer shell.
 //
-// This clone intentionally has no guest-browse door: the donor customer app
-// is login-first. Session restore still gets the 032 timeout so a hung
-// keychain can never strand the splash.
+// Login-first. Session restore keeps the 032 5s timeout so a hung keychain can
+// never strand the splash. 034 adds the one-shot session-expiry notice: a
+// forced 401/403 wipe explains why the user is back at login; manual logout
+// never gets that copy.
 
 import 'package:flutter/material.dart';
 
@@ -23,11 +24,19 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool _ready = false;
   bool _restoreFailed = false;
+  String? _gateNotice;
 
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_onAuthChanged);
     _boot();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onAuthChanged);
+    super.dispose();
   }
 
   Future<void> _boot() async {
@@ -39,9 +48,33 @@ class _AuthGateState extends State<AuthGate> {
       // unexpected throw can leave the splash mounted.
     }
     if (!mounted) return;
+    final expiryNotice = widget.controller.sessionNotice;
     setState(() {
       _restoreFailed = !restored;
+      _gateNotice =
+          expiryNotice ??
+          (!restored ? "Couldn't restore your session. Sign in again." : null);
       _ready = true;
+    });
+    if (expiryNotice != null) _consumeExpiryNotice();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (widget.controller.isAuthenticated) {
+      if (_gateNotice != null) setState(() => _gateNotice = null);
+      return;
+    }
+    final expiryNotice = widget.controller.sessionNotice;
+    if (expiryNotice == null) return;
+    setState(() => _gateNotice = expiryNotice);
+    _consumeExpiryNotice();
+  }
+
+  /// Clear the controller's one-shot flag after the frame that displays it.
+  void _consumeExpiryNotice() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.controller.clearSessionNotice();
     });
   }
 
@@ -54,9 +87,11 @@ class _AuthGateState extends State<AuthGate> {
         if (widget.controller.isAuthenticated) return widget.home;
         return DonorLoginScreen(
           controller: widget.controller,
-          notice: _restoreFailed
-              ? "Couldn't restore your session. Sign in again."
-              : null,
+          notice:
+              _gateNotice ??
+              (_restoreFailed
+                  ? "Couldn't restore your session. Sign in again."
+                  : null),
         );
       },
     );

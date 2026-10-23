@@ -225,15 +225,9 @@ def _client(c):
     return TestClient(app)
 
 
-def test_router_sms_start_then_verify_200(_sms):
-    c = _conn()
-    client = _client(c)
+def test_router_sms_otp_retired_410(_sms):
+    client = _client(_conn())
     r = client.post("/v1/auth/otp/start", json={"phone": "9876543210"})
-    assert r.status_code == 202, r.text
-    assert r.json()["channel"] == "sms"
-    code = _sms.sent[0]["code"]
-    v = client.post("/v1/auth/otp/verify",
-                    json={"phone": "+919876543210", "otp_code": code,
-                          "device": {"id": "dev-1"}})
-    assert v.status_code == 200, v.text
-    assert v.json()["role"] == "user"
+    assert r.status_code == 410, r.text
+    assert r.json()["error"]["code"] == "OTP_RETIRED"
+    assert _sms.sent == []  # retired at the wire: no sender is touched

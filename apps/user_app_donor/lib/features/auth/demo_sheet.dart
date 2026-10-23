@@ -84,8 +84,8 @@ class _UserDemoSheetState extends State<UserDemoSheet> {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Seeded QA account — no OTP. The server decides whether the '
-              'demo door is open.',
+              'Seeded QA account. The server decides whether the demo door '
+              'is open.',
               style: TextStyle(
                 fontSize: 13,
                 height: 1.35,
@@ -175,8 +175,8 @@ class _UserDemoSheetState extends State<UserDemoSheet> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'If the demo door is closed, use the phone OTP above. '
-              'No code is accepted locally.',
+              'If the demo door is closed, sign in above with your mobile '
+              'number and password. Demo codes are checked only by the server.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
             ),

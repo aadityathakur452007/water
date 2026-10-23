@@ -1,12 +1,13 @@
 // S8 — Edit-profile bottom sheet (PATCH /v1/auth/me).
 //
 // States.md form coverage: default (prefilled), focused, filled, required/
-// invalid (inline phone + @gmail.com errors), submitting (button spinner,
-// fields locked), submission failed (server message passthrough), success
-// (sheet pops true; the caller confirms with a snackbar).
+// invalid (inline name + mobile + any-valid-email errors), submitting (button
+// spinner, fields locked), submission failed (server message passthrough),
+// success (sheet pops true; the caller confirms with a snackbar).
 //
 // Validation mirrors workers/api/src/app/services/auth_service.py:update_me
-// exactly; the server remains the final gate (its message is shown verbatim).
+// (034: any valid email is accepted); the server remains the final gate and
+// its message is shown verbatim.
 
 import 'package:flutter/material.dart';
 
@@ -27,6 +28,7 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _emailCtrl;
 
+  String? _nameError;
   String? _phoneError;
   String? _emailError;
   String? _serverError;
@@ -50,14 +52,18 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   }
 
   Future<void> _save() async {
+    final nameError = validateProfileName(_nameCtrl.text);
     final phoneError = validateProfilePhone(_phoneCtrl.text);
     final emailError = validateProfileEmail(_emailCtrl.text);
     setState(() {
+      _nameError = nameError;
       _phoneError = phoneError;
       _emailError = emailError;
       _serverError = null;
     });
-    if (phoneError != null || emailError != null) return;
+    if (nameError != null || phoneError != null || emailError != null) {
+      return;
+    }
 
     setState(() => _saving = true);
     final error = await widget.controller.updateProfile(
@@ -130,9 +136,13 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
               textCapitalization: TextCapitalization.words,
               textInputAction: TextInputAction.next,
               style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              decoration: const InputDecoration(
+              onChanged: (_) {
+                if (_nameError != null) setState(() => _nameError = null);
+              },
+              decoration: InputDecoration(
                 labelText: 'Your name',
-                prefixIcon: Icon(Icons.person_outline),
+                prefixIcon: const Icon(Icons.person_outline),
+                errorText: _nameError,
               ),
             ),
             const SizedBox(height: 12),
@@ -169,8 +179,9 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
                 if (_emailError != null) setState(() => _emailError = null);
               },
               decoration: InputDecoration(
-                labelText: 'Gmail address',
-                hintText: 'you@gmail.com',
+                labelText: 'Email (optional)',
+                hintText: 'you@example.com',
+                helperText: 'Optional — used for receipts and updates.',
                 prefixIcon: const Icon(Icons.email_outlined),
                 errorText: _emailError,
               ),

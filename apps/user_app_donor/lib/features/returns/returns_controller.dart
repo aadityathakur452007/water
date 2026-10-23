@@ -56,11 +56,13 @@ class ReturnsController extends ChangeNotifier {
   bool _busy = false;
   String? _error;
   ReturnRequest? _lastRequest;
+  bool _authError = false;
   bool _disposed = false;
 
   bool get busy => _busy;
   String? get error => _error;
   ReturnRequest? get lastRequest => _lastRequest;
+  bool get isAuthError => _authError;
 
   /// Returns true on 2xx. Validation and transport failures land in [error]
   /// so the sheet can stay open with the user's inputs intact (States.md:
@@ -78,6 +80,7 @@ class ReturnsController extends ChangeNotifier {
     }
     _busy = true;
     _error = null;
+    _authError = false;
     _notify();
     try {
       final res = await api.createReturn(
@@ -88,11 +91,14 @@ class ReturnsController extends ChangeNotifier {
       _lastRequest = ReturnRequest.fromApi(res);
       return true;
     } on ApiException catch (e) {
-      _error = (e.statusCode == 401 || e.statusCode == 403)
+      _authError = e.statusCode == 401 || e.statusCode == 403;
+      _error = _authError
           ? 'Session expired — log in again'
-          : (e.isNetwork
-                ? 'No internet — try again'
-                : 'Request failed — try again');
+          : e.isOffline
+          ? 'No internet — try again'
+          : e.isServerError
+          ? 'Server problem — try again'
+          : 'Request failed — try again';
       return false;
     } catch (_) {
       _error = 'Request failed — try again';

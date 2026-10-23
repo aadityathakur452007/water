@@ -1,13 +1,11 @@
-// User auth seams. Donor login uses the server-code OTP endpoints; the
-// legacy name+email+phone register and the server-gated demo door remain as
-// fallbacks. This app intentionally has no Firebase client SDK: when the API
-// is configured for `OTP_PROVIDER=firebase`, the login screen explains that
-// the build cannot complete that channel rather than faking an OTP.
+// User auth seams over the Workers API (034). Password register/login plus the
+// server-gated demo door. Legacy phone-code sign-in was retired server-side (410) and has no
+// client method here by design.
 
 import '../features/auth/auth_controller.dart';
 import 'api_client.dart';
 
-/// Contract §4.1 (028) over [ApiClient].
+/// Contract §4.1/§6.5 over [ApiClient].
 class ApiBackedAuthApi implements AuthApi {
   ApiBackedAuthApi(this._api);
 
@@ -15,17 +13,26 @@ class ApiBackedAuthApi implements AuthApi {
 
   AuthSession _toSession(Map<String, dynamic> raw) {
     // Absolute 30-day cap backstop: the server always sends expires_at, but
-    // a missing field must never strand the user as instantly-expired.
+    // a missing/invalid field must never strand the user as instantly-expired.
     final expiresAt =
-        DateTime.tryParse((raw['expires_at'] ?? '') as String) ??
+        DateTime.tryParse((raw['expires_at'] ?? '').toString()) ??
         DateTime.now().add(const Duration(days: 30));
     return AuthSession(
-      accessToken: (raw['access_token'] ?? '') as String,
-      refreshToken: (raw['refresh_token'] ?? '') as String,
+      accessToken: (raw['access_token'] ?? '').toString(),
+      refreshToken: (raw['refresh_token'] ?? '').toString(),
       expiresAt: expiresAt,
-      role: (raw['role'] ?? 'user') as String,
-      newDeviceAlert: (raw['new_device_alert'] ?? false) as bool,
-      verified: (raw['verified'] ?? false) as bool,
+      role: (raw['role'] ?? 'user').toString(),
+      newDeviceAlert: raw['new_device_alert'] == true,
+      verified: raw['verified'] == true,
+    );
+  }
+
+  Map<String, dynamic> _requireMap(dynamic raw, String label) {
+    if (raw is Map<String, dynamic>) return raw;
+    throw ApiException(
+      code: 'UNKNOWN',
+      message: 'Malformed $label response',
+      statusCode: 0,
     );
   }
 
@@ -34,6 +41,7 @@ class ApiBackedAuthApi implements AuthApi {
     required String name,
     required String email,
     required String phone,
+    required String password,
     required String deviceId,
   }) async {
     final raw = await _api.send(
@@ -43,65 +51,31 @@ class ApiBackedAuthApi implements AuthApi {
         'name': name,
         'email': email,
         'phone': phone,
+        'password': password,
         'device': {'id': deviceId},
       },
       authed: false,
     );
-    if (raw is! Map<String, dynamic>) {
-      throw ApiException(
-        code: 'UNKNOWN',
-        message: 'Malformed register response',
-        statusCode: 0,
-      );
-    }
-    return _toSession(raw);
+    return _toSession(_requireMap(raw, 'register'));
   }
 
   @override
-  Future<OtpStartResult> startOtp({required String phone}) async {
-    final raw = await _api.send(
-      'POST',
-      '/auth/otp/start',
-      body: {'phone': phone},
-      authed: false,
-    );
-    if (raw is! Map<String, dynamic>) {
-      throw ApiException(
-        code: 'UNKNOWN',
-        message: 'Malformed OTP response',
-        statusCode: 0,
-      );
-    }
-    return OtpStartResult(
-      channel: (raw['channel'] ?? 'unknown').toString(),
-      resendAfterSeconds: (raw['resend_after_s'] as num?)?.toInt() ?? 30,
-    );
-  }
-
-  @override
-  Future<AuthSession> verifyOtp({
+  Future<AuthSession> login({
     required String phone,
-    required String code,
+    required String password,
     required String deviceId,
   }) async {
     final raw = await _api.send(
       'POST',
-      '/auth/otp/verify',
+      '/auth/user/login',
       body: {
         'phone': phone,
-        'otp_code': code,
+        'password': password,
         'device': {'id': deviceId},
       },
       authed: false,
     );
-    if (raw is! Map<String, dynamic>) {
-      throw ApiException(
-        code: 'UNKNOWN',
-        message: 'Malformed OTP response',
-        statusCode: 0,
-      );
-    }
-    return _toSession(raw);
+    return _toSession(_requireMap(raw, 'login'));
   }
 
   @override
@@ -125,13 +99,6 @@ class ApiBackedAuthApi implements AuthApi {
       },
       authed: false,
     );
-    if (raw is! Map<String, dynamic>) {
-      throw ApiException(
-        code: 'UNKNOWN',
-        message: 'Malformed demo response',
-        statusCode: 0,
-      );
-    }
-    return _toSession(raw);
+    return _toSession(_requireMap(raw, 'demo'));
   }
 }

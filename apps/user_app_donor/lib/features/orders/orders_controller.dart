@@ -218,6 +218,9 @@ class Order {
     this.paymentMode = 'cod',
     this.paymentStatus = 'unpaid',
     this.deliveryOtp,
+    this.deliveryCodeExpiresAt,
+    this.deliveryCodeState = 'none',
+    this.deliveryCodeReissueAvailable = false,
     this.stopsAhead,
   });
 
@@ -250,9 +253,29 @@ class Order {
   final String paymentMode;
   final String paymentStatus;
 
-  /// F1: PoD delivery code (server detail only, dispatched/assigned).
-  /// Shown once on tracking so the customer can read it to the rider.
+  /// F1/034: PoD delivery code (server detail only, never the list).
+  /// Only present while [deliveryCodeState] is `active`.
   final String? deliveryOtp;
+
+  /// TTL tombstone from dispatch (UTC). Null while the stop is only assigned.
+  final DateTime? deliveryCodeExpiresAt;
+
+  /// none | active | expired | locked | unavailable | used.
+  final String deliveryCodeState;
+
+  /// True when the server says the owner may mint a replacement now.
+  final bool deliveryCodeReissueAvailable;
+
+  /// State that accounts for a 24h rollover while this screen is open.
+  /// Minute precision; no per-second timer is needed for a 24h code.
+  String deliveryCodeStateAt(DateTime now) {
+    if (deliveryCodeState == 'active' &&
+        deliveryCodeExpiresAt != null &&
+        !now.isBefore(deliveryCodeExpiresAt!)) {
+      return 'expired';
+    }
+    return deliveryCodeState;
+  }
 
   bool get isPaid =>
       paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
@@ -292,6 +315,9 @@ class Order {
       paymentMode: paymentMode ?? this.paymentMode,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       deliveryOtp: deliveryOtp ?? this.deliveryOtp,
+      deliveryCodeExpiresAt: deliveryCodeExpiresAt,
+      deliveryCodeState: deliveryCodeState,
+      deliveryCodeReissueAvailable: deliveryCodeReissueAvailable,
       itemSummary: itemSummary,
       addressLabel: addressLabel,
       waterBillPaise: waterBillPaise,
@@ -307,6 +333,47 @@ class Order {
       createdAt: createdAt,
       refillQty: refillQty ?? this.refillQty,
       containerQty: containerQty ?? this.containerQty,
+    );
+  }
+
+  /// Replace only the delivery-code quartet after a reissue. Kept separate
+  /// from [copyWith] because a reissue can legitimately clear the code and
+  /// the expiry (unlike the nullable no-op semantics of copyWith).
+  Order withDeliveryCode({
+    required String? code,
+    required DateTime? expiresAt,
+    required String state,
+    required bool reissueAvailable,
+  }) {
+    return Order(
+      id: id,
+      state: state == 'used' ? OrderState.delivered : this.state,
+      windowStart: windowStart,
+      windowEnd: windowEnd,
+      riderName: riderName,
+      riderPhone: riderPhone,
+      stopsAhead: stopsAhead,
+      itemSummary: itemSummary,
+      addressLabel: addressLabel,
+      waterBillPaise: waterBillPaise,
+      depositDuePaise: depositDuePaise,
+      capChargePaise: capChargePaise,
+      prevDuesPaise: prevDuesPaise,
+      paymentsPaise: paymentsPaise,
+      totalPaise: totalPaise,
+      refundPending: refundPending,
+      refundAmountPaise: refundAmountPaise,
+      rated: rated,
+      stars: stars,
+      createdAt: createdAt,
+      refillQty: refillQty,
+      containerQty: containerQty,
+      paymentMode: paymentMode,
+      paymentStatus: paymentStatus,
+      deliveryOtp: code,
+      deliveryCodeExpiresAt: expiresAt,
+      deliveryCodeState: state,
+      deliveryCodeReissueAvailable: reissueAvailable,
     );
   }
 }
@@ -370,6 +437,9 @@ abstract class OrdersRepository {
   Future<Order> cancelOrder(String id, String reasonCode);
   Future<Order> rescheduleOrder(String id, DateTime windowStart);
   Future<Order> submitRating(String id, int stars);
+
+  /// POST /orders/{id}/delivery-code/reissue → the four delivery fields.
+  Future<Map<String, dynamic>> reissueDeliveryCode(String id);
 }
 
 /// In-memory stub for tests only. Never ships as the real repo.
@@ -441,6 +511,34 @@ class StubOrdersRepository implements OrdersRepository {
     _orders[idx] = updated;
     return updated;
   }
+
+  @override
+  Future<Map<String, dynamic>> reissueDeliveryCode(String id) async {
+    final idx = _orders.indexWhere((o) => o.id == id);
+    if (idx < 0) throw StateError('not found: $id');
+    final current = _orders[idx];
+    if (current.deliveryCodeState == 'active') {
+      throw ApiException(
+        code: 'CODE_ACTIVE',
+        message: 'This delivery code is still active.',
+        statusCode: 409,
+      );
+    }
+    final expiresAt = DateTime.now().toUtc().add(const Duration(hours: 24));
+    final updated = current.withDeliveryCode(
+      code: '654321',
+      expiresAt: expiresAt,
+      state: 'active',
+      reissueAvailable: false,
+    );
+    _orders[idx] = updated;
+    return {
+      'delivery_otp': '654321',
+      'delivery_otp_expires_at': expiresAt.toIso8601String(),
+      'delivery_otp_state': 'active',
+      'delivery_otp_reissue_available': false,
+    };
+  }
 }
 
 /// Maps one server order (OrderOut, or OrderDetailOut which adds
@@ -483,10 +581,26 @@ Order orderFromApi(Map<String, dynamic> json) {
   final rider = json['rider'] == null
       ? const <String, dynamic>{}
       : section(json['rider']);
+  final orderState = orderStateFromString('${json['state'] ?? 'placed'}');
+  final rawCodeState = json['delivery_otp_state']?.toString() ?? '';
+  final code = json['delivery_otp']?.toString();
+  final deliveryState =
+      const {
+        'none',
+        'active',
+        'expired',
+        'locked',
+        'unavailable',
+        'used',
+      }.contains(rawCodeState)
+      ? rawCodeState
+      : orderState == OrderState.delivered
+      ? 'used'
+      : (code != null && code.isNotEmpty ? 'active' : 'none');
 
   return Order(
     id: '${json['id'] ?? ''}',
-    state: orderStateFromString('${json['state'] ?? 'placed'}'),
+    state: orderState,
     windowStart:
         tryDate(json['window_start']) ?? DateTime.fromMillisecondsSinceEpoch(0),
     windowEnd: tryDate(json['window_end']),
@@ -505,7 +619,11 @@ Order orderFromApi(Map<String, dynamic> json) {
     paymentMode: '${json['payment_mode'] ?? 'cod'}',
     paymentStatus:
         '${json['payment_status'] ?? bill['payment_status'] ?? 'unpaid'}',
-    deliveryOtp: json['delivery_otp']?.toString(),
+    deliveryOtp: deliveryState == 'active' ? code : null,
+    deliveryCodeExpiresAt: tryDate(json['delivery_otp_expires_at']),
+    deliveryCodeState: deliveryState,
+    deliveryCodeReissueAvailable:
+        json['delivery_otp_reissue_available'] == true,
     refillQty: refill,
     containerQty: container,
     createdAt: tryDate(json['created_at']),
@@ -561,6 +679,10 @@ class ApiBackedOrdersRepository implements OrdersRepository {
     final rated = res['stars'];
     return fresh.copyWith(rated: true, stars: rated is int ? rated : stars);
   }
+
+  @override
+  Future<Map<String, dynamic>> reissueDeliveryCode(String id) =>
+      _api.reissueDeliveryCodeApi(id);
 }
 
 enum OrdersListStatus { initial, loading, loaded, error }
@@ -568,6 +690,31 @@ enum OrdersListStatus { initial, loading, loaded, error }
 /// Rating outcome — a 409/“already rated” is not a transport failure and must
 /// not close the sheet with retry copy meant for network errors.
 enum RateResult { success, alreadyRated, failed }
+
+/// Reissue outcome. Failures stay inline on the delivery-code card; a 429
+/// carries the server wait so the UI can show it without inventing a timer.
+@immutable
+class DeliveryCodeReissueResult {
+  const DeliveryCodeReissueResult({
+    required this.ok,
+    this.message,
+    this.retryAfterSeconds = 0,
+  });
+
+  const DeliveryCodeReissueResult.success()
+    : ok = true,
+      message = null,
+      retryAfterSeconds = 0;
+
+  const DeliveryCodeReissueResult.failed(
+    String this.message, {
+    this.retryAfterSeconds = 0,
+  }) : ok = false;
+
+  final bool ok;
+  final String? message;
+  final int retryAfterSeconds;
+}
 
 /// Orders lifecycle: list(search client-side) → tracking(poll) → bill(frozen)
 /// → rating(once). Covers States.md data/error/network/search/action states.
@@ -581,11 +728,16 @@ class OrdersController extends ChangeNotifier {
   String _query = '';
   String? _errorMessage;
   bool _isOffline = false;
+  bool _isServerError = false;
   bool _loadMoreFailed = false;
   bool _loadingMore = false;
   String? _cursor;
   bool _hasMore = false;
   bool _actionBusy = false;
+  bool _reissueBusy = false;
+  bool _detailFailed = false;
+  bool _detailOffline = false;
+  bool _detailServerError = false;
 
   Timer? _pollTimer;
   int _pollSeconds = pollBaseSeconds;
@@ -605,10 +757,15 @@ class OrdersController extends ChangeNotifier {
   OrdersListStatus get status => _status;
   String? get errorMessage => _errorMessage;
   bool get isOffline => _isOffline;
+  bool get isServerError => _isServerError;
   bool get loadMoreFailed => _loadMoreFailed;
   bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
   bool get actionBusy => _actionBusy;
+  bool get reissueBusy => _reissueBusy;
+  bool get detailFailed => _detailFailed;
+  bool get detailOffline => _detailOffline;
+  bool get detailServerError => _detailServerError;
   int get pollSeconds => _pollSeconds;
   String get query => _query;
   int get totalCount => _all.length;
@@ -652,11 +809,16 @@ class OrdersController extends ChangeNotifier {
     _query = '';
     _errorMessage = null;
     _isOffline = false;
+    _isServerError = false;
     _cursor = null;
     _hasMore = false;
     _loadMoreFailed = false;
     _loadingMore = false;
     _actionBusy = false;
+    _reissueBusy = false;
+    _detailFailed = false;
+    _detailOffline = false;
+    _detailServerError = false;
     _status = OrdersListStatus.initial;
     _ratingPrompted.clear();
     _notify();
@@ -678,14 +840,20 @@ class OrdersController extends ChangeNotifier {
       _hasMore = page.nextCursor != null;
       _status = OrdersListStatus.loaded;
       _isOffline = false;
+      _isServerError = false;
       _onPollSuccess();
     } catch (e) {
       if (gen != _generation) return;
       _status = _all.isEmpty ? OrdersListStatus.error : OrdersListStatus.loaded;
-      _errorMessage = ordersStringsHi['errorTitle'];
+      _errorMessage = e is ApiException && e.isOffline
+          ? 'No internet — check your connection and retry.'
+          : e is ApiException && e.isServerError
+          ? 'Server problem — retry in a moment.'
+          : ordersStringsHi['errorTitle'];
       // Cached rows stay visible, marked stale, for network/5xx failures —
       // only a 4xx response (session/validation) is not "offline".
-      _isOffline = e is ApiException && e.isNetwork;
+      _isOffline = e is ApiException && e.isOffline;
+      _isServerError = e is ApiException && e.isServerError;
       _onPollError();
     }
     _notify();
@@ -753,11 +921,17 @@ class OrdersController extends ChangeNotifier {
       } else {
         _all.add(fresh);
       }
+      _detailFailed = false;
+      _detailOffline = false;
+      _detailServerError = false;
       _onPollSuccess();
       _notify();
       return fresh;
-    } catch (_) {
+    } catch (e) {
       if (gen != _generation) return findById(id);
+      _detailFailed = true;
+      _detailOffline = e is ApiException && e.isOffline;
+      _detailServerError = e is ApiException && e.isServerError;
       _onPollError();
       _notify();
       return findById(id);
@@ -819,6 +993,102 @@ class OrdersController extends ChangeNotifier {
           : RateResult.failed;
     } catch (_) {
       return RateResult.failed;
+    }
+  }
+
+  /// Owner reissue for an expired/locked/unavailable code. Never called by
+  /// polling; only a deliberate tap. Returns copy for the inline card error.
+  Future<DeliveryCodeReissueResult> reissueDeliveryCode(String id) async {
+    if (_reissueBusy) {
+      return const DeliveryCodeReissueResult.failed('Please wait…');
+    }
+    _reissueBusy = true;
+    _notify();
+    final gen = _generation;
+    try {
+      final raw = await _repo.reissueDeliveryCode(id);
+      if (gen != _generation) {
+        return const DeliveryCodeReissueResult.success();
+      }
+      final rawState = raw['delivery_otp_state']?.toString() ?? '';
+      final state =
+          const {
+            'none',
+            'active',
+            'expired',
+            'locked',
+            'unavailable',
+            'used',
+          }.contains(rawState)
+          ? rawState
+          : 'active';
+      final rawCode = raw['delivery_otp']?.toString();
+      final code = rawCode == null || rawCode.isEmpty ? null : rawCode;
+      final resolvedState = state == 'active' && code == null
+          ? 'unavailable'
+          : state;
+      final expiresAt = DateTime.tryParse(
+        raw['delivery_otp_expires_at']?.toString() ?? '',
+      );
+      final reissueAvailable = raw['delivery_otp_reissue_available'] == true;
+      final idx = _all.indexWhere((o) => o.id == id);
+      if (idx >= 0) {
+        _all[idx] = _all[idx].withDeliveryCode(
+          code: code,
+          expiresAt: expiresAt,
+          state: resolvedState,
+          reissueAvailable: reissueAvailable,
+        );
+      } else {
+        await refreshOrder(id);
+      }
+      return const DeliveryCodeReissueResult.success();
+    } on ApiException catch (e) {
+      if (gen != _generation) {
+        return const DeliveryCodeReissueResult.success();
+      }
+      if (e.code == 'CODE_ACTIVE') {
+        // Race with the 24h rollover/clients: sync the truth, then explain.
+        await refreshOrder(id);
+        return const DeliveryCodeReissueResult.failed(
+          'This code is still active. It will show again on refresh.',
+        );
+      }
+      if (e.statusCode == 429) {
+        final wait = (e.retryAfterSeconds ?? 60).clamp(1, 3600);
+        return DeliveryCodeReissueResult.failed(
+          'Too many new codes. Try again in ${wait}s.',
+          retryAfterSeconds: wait,
+        );
+      }
+      if (e.statusCode == 404 ||
+          (e.statusCode == 409 && e.code != 'CODE_ACTIVE')) {
+        return const DeliveryCodeReissueResult.failed(
+          'This delivery can no longer get a new code.',
+        );
+      }
+      if (e.isOffline) {
+        return const DeliveryCodeReissueResult.failed(
+          'No internet — check your connection and try again.',
+        );
+      }
+      if (e.isServerError) {
+        return const DeliveryCodeReissueResult.failed(
+          'Server problem — retry in a moment.',
+        );
+      }
+      return const DeliveryCodeReissueResult.failed(
+        'Could not get a new code. Try again.',
+      );
+    } catch (_) {
+      return const DeliveryCodeReissueResult.failed(
+        'Could not get a new code. Try again.',
+      );
+    } finally {
+      if (gen == _generation) {
+        _reissueBusy = false;
+        _notify();
+      }
     }
   }
 

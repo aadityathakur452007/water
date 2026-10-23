@@ -55,6 +55,7 @@ const Map<String, String> addressStrings = {
   'errPincode': 'Enter a 6-digit pincode',
   'errLine': 'Enter the full address',
   'errLabel': 'Enter a name',
+  'errPhone': 'Enter a valid 10-digit mobile number, or leave it blank.',
   'errOfficeBulk': 'Office addresses use bulk rules (monthly bill).',
   'errMap': 'Place a pin on the map to continue.',
   'editBlockedTitle': "Can't edit right now",
@@ -63,6 +64,7 @@ const Map<String, String> addressStrings = {
       'deliver first, or contact support.',
   'loadFailed': 'Could not load addresses.',
   'offline': 'No internet — check your connection and retry.',
+  'server': 'Server problem — retry in a moment.',
   'saved': 'Address saved',
   'deleted': 'Address deleted',
   'retry': 'Retry',
@@ -82,6 +84,19 @@ const Map<String, String> addressStrings = {
 
 /// Pincode: exactly 6 digits, first non-zero (Indian postal norms).
 bool isValidPincode(String v) => RegExp(r'^[1-9][0-9]{5}$').hasMatch(v);
+
+/// Optional address phone: blank is allowed; otherwise accept the same
+/// `+91`/`91`/`0`/space variants as customer auth and require a valid mobile.
+bool isValidOptionalPhone(String raw) {
+  if (raw.trim().isEmpty) return true;
+  var digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits.startsWith('91') && digits.length == 12) {
+    digits = digits.substring(2);
+  } else if (digits.startsWith('0') && digits.length == 11) {
+    digits = digits.substring(1);
+  }
+  return RegExp(r'^[6-9]\d{9}$').hasMatch(digits);
+}
 
 enum AddrType { home, office }
 
@@ -251,8 +266,10 @@ class AddressController extends ChangeNotifier {
     } on ApiException catch (e) {
       if (gen != _generation) return;
       _status = AddrStatus.error;
-      _errorMessage = e.isNetwork
+      _errorMessage = e.isOffline
           ? addressStrings['offline']
+          : e.isServerError
+          ? addressStrings['server']
           : addressStrings['loadFailed'];
     } catch (_) {
       if (gen != _generation) return;
@@ -298,8 +315,10 @@ class AddressController extends ChangeNotifier {
       if (gen != _generation) return false;
       _errorMessage = e.statusCode == 409
           ? addressStrings['editBlockedBody']
-          : e.isNetwork
+          : e.isOffline
           ? addressStrings['offline']
+          : e.isServerError
+          ? addressStrings['server']
           : addressStrings['loadFailed'];
       return false;
     } catch (_) {
@@ -326,8 +345,10 @@ class AddressController extends ChangeNotifier {
       if (gen != _generation) return false;
       _errorMessage = e.statusCode == 409
           ? addressStrings['deleteBlockedBody']
-          : e.isNetwork
+          : e.isOffline
           ? addressStrings['offline']
+          : e.isServerError
+          ? addressStrings['server']
           : addressStrings['loadFailed'];
       return false;
     } catch (_) {
@@ -857,13 +878,14 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool get _pinOk => isValidPincode(_pincode.text);
   bool get _labelOk => _label.text.trim().isNotEmpty;
   bool get _lineOk => _line.text.trim().length >= 6;
+  bool get _phoneOk => isValidOptionalPhone(_phone.text);
   bool get _mapOk => _lat != null && _lng != null;
-  bool get _valid => _pinOk && _labelOk && _lineOk && _mapOk;
+  bool get _valid => _pinOk && _labelOk && _lineOk && _phoneOk && _mapOk;
 
   bool _stepOk(int step) {
     switch (step) {
       case 0:
-        return _labelOk;
+        return _labelOk && _phoneOk;
       case 1:
         return _pinOk && _lineOk;
       default:
@@ -1166,6 +1188,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                 decoration: InputDecoration(
                                   labelText: addressStrings['phone'],
                                   counterText: '',
+                                  errorText: _touched && !_phoneOk
+                                      ? addressStrings['errPhone']
+                                      : null,
                                 ),
                               ),
                             ],

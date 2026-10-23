@@ -81,8 +81,10 @@ class WalletController extends ChangeNotifier {
       _status = WalletStatus.loaded;
     } on ApiException catch (e) {
       _status = WalletStatus.error;
-      _errorMessage = e.isNetwork
+      _errorMessage = e.isOffline
           ? 'No internet — try again'
+          : e.isServerError
+          ? 'Server problem — try again'
           : 'Could not load your ledger';
     } catch (_) {
       _status = WalletStatus.error;

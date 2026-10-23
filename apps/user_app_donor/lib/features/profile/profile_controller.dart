@@ -11,6 +11,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/api_client.dart';
+import '../auth/auth_controller.dart'
+    show isValidUserEmail, normalizeIndianPhone;
 
 /// Copy shared by the controller and the edit sheet (English v1, per ADR-120).
 const String kProfileOfflineError = 'No internet — please try again.';
@@ -21,23 +23,26 @@ const String kProfileLoadError = 'Could not load your profile.';
 const String kProfileSaveError =
     'Could not save your profile. Please try again.';
 const String kProfilePhoneError = 'Enter a valid 10-digit mobile number.';
-const String kProfileEmailError = 'Enter a valid @gmail.com address.';
+const String kProfileEmailError = 'Enter a valid email address.';
+const String kProfileNameError = 'Enter your name.';
 
-/// Optional profile fields: empty is allowed (the server clears them).
-/// Backend rule (auth_service.update_me) is ported verbatim:
-/// `^(\+91|91|0)?[6-9]\d{9}$` / `^[a-zA-Z0-9._%+-]+@gmail\.com$`.
+/// Optional profile fields: empty email is allowed (the server clears it).
+/// 034 removed the provider-only rule; any valid address is accepted.
 String? validateProfilePhone(String raw) {
   final value = raw.trim();
-  if (value.isEmpty) return null;
-  const pattern = r'^(\+91|91|0)?[6-9]\d{9}$';
-  return RegExp(pattern).hasMatch(value) ? null : kProfilePhoneError;
+  if (value.isEmpty) return 'Mobile number is required.';
+  return normalizeIndianPhone(value) == null ? kProfilePhoneError : null;
 }
 
 String? validateProfileEmail(String raw) {
-  final value = raw.trim().toLowerCase();
+  final value = raw.trim();
   if (value.isEmpty) return null;
-  const pattern = r'^[a-zA-Z0-9._%+-]+@gmail\.com$';
-  return RegExp(pattern).hasMatch(value) ? null : kProfileEmailError;
+  return isValidUserEmail(value) ? null : kProfileEmailError;
+}
+
+String? validateProfileName(String raw) {
+  final value = raw.trim();
+  return value.isEmpty || value.runes.length > 100 ? kProfileNameError : null;
 }
 
 enum ProfileStatus { initial, loading, loaded, error }
@@ -111,9 +116,10 @@ class ProfileController extends ChangeNotifier {
     _notify();
     final gen = _generation;
     try {
+      final digits = normalizeIndianPhone(phone);
       final res = await _api.patchMe({
         'name': name.trim(),
-        'phone': phone.trim(),
+        'phone': digits == null ? phone.trim() : '+91$digits',
         'email': email.trim(),
       });
       if (gen != _generation) return null;

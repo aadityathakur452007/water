@@ -154,44 +154,39 @@ class OrderRepo:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    async def route_date_for_order(self, order_id: str) -> str | None:
-        """Latest route date carrying this order (F1 PoD OTP display)."""
+    async def stop_delivery_state(self, order_id: str) -> dict | None:
+        """Latest stop row with the delivery-code lifecycle fields.
+
+        Tolerates pre-015/027 schemas by returning empty/NULL defaults. Read-only;
+        the service resolves active/expired/locked/unavailable from these fields.
+        """
+        cols = {r["name"] for r in (
+            await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
+        ).fetchall()}
+        selected = ["id", "status", "version"]
+        for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts", "triple"):
+            if name in cols:
+                selected.append(name)
         row = (
             await self._conn.execute(
-                "SELECT r.date AS d FROM stops s JOIN routes r ON r.id = s.route_id"
-                " WHERE s.order_id = ? ORDER BY r.date DESC LIMIT 1",
+                f"SELECT {', '.join(selected)} FROM stops WHERE order_id = ?"  # noqa: S608
+                " ORDER BY version DESC LIMIT 1",
                 (order_id,),
             )
         ).fetchone()
-        return str(row["d"]) if row is not None else None
-
-    async def stop_pod_otp(self, order_id: str) -> str | None:
-        """Stored PoD code on the order's latest pending stop, if any.
-
-        None on pre-015 DBs, NULL rows, or no active stop — the caller falls
-        back to the legacy deterministic code. Read-only.
-        """
+        if row is None:
+            return None
+        out = dict(row)
+        out.setdefault("pod_otp", None)
+        out.setdefault("pod_otp_expires_at", None)
+        out.setdefault("pod_attempts", 0)
+        out["pod_otp"] = str(out["pod_otp"]) if out["pod_otp"] else None
         try:
-            cols = {r["name"] for r in (
-                await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
-            ).fetchall()}
-        except Exception:
-            return None
-        if "pod_otp" not in cols:
-            return None
-        try:
-            row = (
-                await self._conn.execute(
-                    "SELECT pod_otp FROM stops WHERE order_id = ? AND status = 'pending'"
-                    " ORDER BY version DESC LIMIT 1",
-                    (order_id,),
-                )
-            ).fetchone()
-        except Exception:
-            return None
-        if row is None or not row["pod_otp"]:
-            return None
-        return str(row["pod_otp"])
+            triple = json.loads(out.get("triple") or "{}")
+        except (TypeError, ValueError):
+            triple = {}
+        out["pod_closed"] = bool(triple.get("pod"))
+        return out
 
     # -- writes (each = exactly one transaction) --------------------------
 
@@ -401,6 +396,26 @@ class OrderRepo:
             await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
         ).fetchone()), "instructions": instructions}
 
+    async def _clear_stop_codes(self, order_id: str) -> None:
+        """Drop every pending delivery code for a cancelled/terminal order."""
+        cols = {r["name"] for r in (
+            await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
+        ).fetchall()}
+        sets = []
+        if "pod_otp" in cols:
+            sets.append("pod_otp = NULL")
+        if "pod_otp_expires_at" in cols:
+            sets.append("pod_otp_expires_at = NULL")
+        if "pod_attempts" in cols:
+            sets.append("pod_attempts = 0")
+        if not sets:
+            return
+        await self._conn.execute(
+            f"UPDATE stops SET {', '.join(sets)}"
+            " WHERE order_id = ? AND status = 'pending'",  # noqa: S608
+            (order_id,),
+        )
+
     async def cancel_settle(self, order_id: str, actor: object) -> dict:
         """§10 settlement in ONE transaction: state check + void + compensating
         ledger rows + refund row iff money moved. Already-cancelled -> 409 with
@@ -428,6 +443,7 @@ class OrderRepo:
                 )
             try:
                 await self._conn.execute("UPDATE orders SET state = 'cancelled' WHERE id = ?", (order_id,))
+                await self._clear_stop_codes(order_id)
                 await self._event(order_id, from_state, "cancelled", _actor_id(actor), _role(actor), "cancel settled")
                 if int(order["deposit_due"]) > 0:  # compensating reversal of the deposit entry
                     await LedgerRepo(self._conn).apply_event(

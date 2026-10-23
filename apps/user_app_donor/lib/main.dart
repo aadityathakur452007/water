@@ -1,9 +1,9 @@
 // Shodasha donor-parity customer app — composition root.
 //
-// One ApiClient + the proven 032 controllers are shared by the donor UI. The
-// donor login is server OTP (with the server-gated demo door for QA); there is
-// no guest-browse path in this clone. Razorpay's publishable key still comes
-// from --dart-define and is never hardcoded.
+// One ApiClient + the proven 032 controllers are shared by the donor UI. Auth
+// is mobile + password (034); legacy phone-code sign-in is retired. There is no guest-browse
+// path in this clone. Razorpay's publishable key still comes from --dart-define
+// and is never hardcoded.
 
 import 'dart:async';
 
@@ -60,7 +60,7 @@ class _ShodashaDonorAppState extends State<ShodashaDonorApp> {
     _api = ApiClient(
       deviceId: _deviceId,
       accessTokenGetter: () => _auth.session?.accessToken,
-      onUnauthorized: () => _auth.forceLogout(),
+      onUnauthorized: () => _auth.forceLogout(sessionExpired: true),
     );
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),

@@ -43,6 +43,10 @@ MIGRATIONS = [
     "006_aftermath.sql",
     "007_ops.sql",
     "011_port.sql",  # full address-format columns (repo INSERT requires them)
+    "015_pod_otp.sql",
+    "020_user_email.sql",
+    "026_user_password.sql",
+    "027_pod_otp_lifecycle.sql",
 ]
 
 USER_PHONE = "+919876543210"
@@ -169,13 +173,22 @@ async def _drive_to(conn, order_id, *states):
 async def test_e2e_full_lifecycle(client):
     http, conn = client
 
-    # (1) otp start -> verify -> me -------------------------------------------
-    r = http.post("/v1/auth/otp/start", json={"phone": USER_PHONE})
-    assert r.status_code == 202, r.text
-    assert r.json()["sent_to_masked"] == "+91******3210"
+    # (1) password register -> login -> me ------------------------------------
+    password = "correct-horse-9"
     r = http.post(
-        "/v1/auth/otp/verify",
-        json={"firebase_id_token": "good-user", "device": {"id": "dev-e2e"}},
+        "/v1/auth/user/register",
+        json={"name": "E2E User", "email": "e2e@example.com",
+              "phone": USER_PHONE, "password": password,
+              "device": {"id": "dev-e2e"}},
+    )
+    assert r.status_code == 200, r.text
+    assert http.post(
+        "/v1/auth/otp/start", json={"phone": USER_PHONE}
+    ).json()["error"]["code"] == "OTP_RETIRED"
+    r = http.post(
+        "/v1/auth/user/login",
+        json={"phone": USER_PHONE, "password": password,
+              "device": {"id": "dev-e2e"}},
     )
     assert r.status_code == 200, r.text
     user_tok = r.json()["access_token"]
@@ -243,12 +256,17 @@ async def test_e2e_full_lifecycle(client):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "done"
     await _drive_to(conn, oid, "dispatched")
-    from app.services.vendor_service import pod_otp  # noqa: E402
+    from app.db_d1 import AsyncSqliteConn  # noqa: E402
+    from app.services.dispatch_service import set_delivery_window  # noqa: E402
 
-    today = datetime.now(timezone.utc).date().isoformat()
+    await set_delivery_window(AsyncSqliteConn(conn), stop_id)
+    detail = http.get(f"/v1/orders/{oid}", headers=_auth(user_tok)).json()
+    assert detail["delivery_otp_state"] == "active", detail
+    assert detail["delivery_otp_expires_at"]
+    code = detail["delivery_otp"]
     r = http.post(
         f"/v1/vendor/stops/{stop_id}/pod",
-        json={"delivery_otp": pod_otp(oid, today), "seal_ok": True},
+        json={"delivery_otp": code, "seal_ok": True},
         headers=_auth("tok-vendor-1"),
     )
     assert r.status_code == 200, r.text
@@ -295,8 +313,15 @@ async def test_e2e_full_lifecycle(client):
     # (10) abuse ------------------------------------------------------------------
     # cross-user read: not-yours == not-found (no oracle)
     r = http.post(
-        "/v1/auth/otp/verify",
-        json={"firebase_id_token": "good-user2", "device": {"id": "dev-e2e-2"}},
+        "/v1/auth/user/register",
+        json={"name": "E2E Other", "phone": "+919876543211",
+              "password": password, "device": {"id": "dev-e2e-2"}},
+    )
+    assert r.status_code == 200, r.text
+    r = http.post(
+        "/v1/auth/user/login",
+        json={"phone": "+919876543211", "password": password,
+              "device": {"id": "dev-e2e-2"}},
     )
     assert r.status_code == 200, r.text
     user2_tok = r.json()["access_token"]

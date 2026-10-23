@@ -373,6 +373,9 @@ String checkoutErrorFor(ApiException e) {
   if (e.statusCode == 429 || e.code == 'RATE_LIMITED') {
     return 'Too many attempts. Please wait a moment and retry.';
   }
+  if (e.isServerError) {
+    return 'Server problem — retry in a moment.';
+  }
   switch (e.code) {
     case 'NETWORK':
       return 'No internet — check your connection and retry.';

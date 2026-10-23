@@ -1,6 +1,7 @@
 """Tests for resilience, address freezing, damaged container accounting, and RTO stop failure."""
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 
@@ -85,7 +86,7 @@ async def test_address_snapshot_preservation_on_edit():
         "quote_hash": q["quote_hash"],
         "quote_total": q["total"],
         "quote_rate_version": q["rate_version"],
-        "quote_expires_at": "2026-10-15T09:00:00Z",
+        "quote_expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
         "payment_mode": "cod",
     }, "idem_order_1")
     order_id = order["id"]

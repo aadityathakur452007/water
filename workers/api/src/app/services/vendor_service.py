@@ -7,12 +7,10 @@ earnings with flagged-hold note, complaint verify, quality door-check.
 Scope deviations (documented, ponytail-minimal):
 - Duty persists on vendor_profile.on_duty (F5, via ensure_profile column
   convergence — 007 vs 011 shape conflict resolved in code, no migration).
-- PoD OTP is a random 6-digit code minted per order stop at dispatch
-  (``stops.pod_otp``, 015) with a DB-backed attempt counter (lockout after 5
-  fails). Pre-015 rows (pod_otp NULL) fall back to the legacy deterministic
-  ``pod_otp(order_id, route_date)`` during the migration window. Wrong codes
-  read as not-found (no oracle); the code is disclosed to the order owner
-  only, never logged.
+- Delivery codes are random 6-digit secrets minted at assignment, armed for
+  24h at dispatch (``stops.pod_otp_expires_at``, 027), and deleted on use,
+  terminal failure/cancel, or expiry. Wrong codes read as not-found (no
+  oracle) and lock after five attempts; there is no deterministic fallback.
 - Quality door-checks write the quality_incidents table (F4, single truth).
 - Cash posts to money truth via POST .../cash → mark_paid_cash (F2);
   in_hand custody bumps with duty convergence (F5).
@@ -25,13 +23,13 @@ import hashlib
 import hmac
 import json
 import math
-import secrets
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
 from app.db_d1 import AsyncSqliteConn, D1Conn
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
+from app.services import delivery_code
 
 Conn = D1Conn | AsyncSqliteConn
 
@@ -49,6 +47,16 @@ class StaleStopError(AppError):
 class PodLockedError(AppError):
     code = "POD_LOCKED"
     status_code = 429
+
+
+class DeliveryCodeExpiredError(AppError):
+    code = "DELIVERY_CODE_EXPIRED"
+    status_code = 410
+
+
+class DeliveryCodeUnavailableError(AppError):
+    code = "DELIVERY_CODE_UNAVAILABLE"
+    status_code = 410
 
 
 class PayloadMismatchError(AppError):
@@ -90,23 +98,7 @@ def _encode_cursor(created_at: str, row_id: str) -> str:
     return base64.urlsafe_b64encode(f"{created_at}|{row_id}".encode()).decode()
 
 
-def pod_otp(order_id: str, route_date: str) -> str:
-    """Legacy deterministic PoD code — fallback for pre-015 stops only.
-
-    New stops carry a random code minted at dispatch (``mint_pod_otp``);
-    this stays as the migration-window fallback for rows with pod_otp NULL.
-    """
-
-    digest = hashlib.sha256(f"{order_id}:{route_date}".encode()).hexdigest()
-    return f"{int(digest, 16) % 1000000:06d}"
-
-
 POD_MAX_ATTEMPTS = 5  # wrong codes per stop before the stop locks (DB-backed)
-
-
-def mint_pod_otp() -> str:
-    """Random 6-digit PoD code, minted once per order stop at dispatch."""
-    return f"{secrets.randbelow(1000000):06d}"
 
 
 async def _has_pod_cols(conn: Conn) -> bool:
@@ -117,6 +109,33 @@ async def _has_pod_cols(conn: Conn) -> bool:
         return False
     names = {r["name"] for r in rows}
     return "pod_otp" in names and "pod_attempts" in names
+
+
+async def _pod_lifecycle(conn: Conn, stop_id: str) -> dict:
+    """Read code, attempts, and expiry together (tolerant of pre-015/027)."""
+    try:
+        cols = {r["name"] for r in (
+            await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
+    except Exception:
+        return {"has_otp": False, "has_expiry": False,
+                "code": None, "attempts": 0, "expires_at": None}
+    selected = ["id"]
+    for name in ("pod_otp", "pod_attempts", "pod_otp_expires_at"):
+        if name in cols:
+            selected.append(name)
+    row = (await conn.execute(
+        f"SELECT {', '.join(selected)} FROM stops WHERE id = ?", (stop_id,)  # noqa: S608
+    )).fetchone()
+    if row is None:
+        return {"has_otp": False, "has_expiry": False,
+                "code": None, "attempts": 0, "expires_at": None}
+    return {
+        "has_otp": "pod_otp" in cols and "pod_attempts" in cols,
+        "has_expiry": "pod_otp_expires_at" in cols,
+        "code": str(row["pod_otp"]) if "pod_otp" in cols and row["pod_otp"] else None,
+        "attempts": int(row["pod_attempts"] or 0) if "pod_attempts" in cols else 0,
+        "expires_at": row["pod_otp_expires_at"] if "pod_otp_expires_at" in cols else None,
+    }
 
 
 async def _stop_field_cols(conn: Conn) -> dict[str, bool]:
@@ -148,20 +167,6 @@ def _parse_items(raw: object) -> list:
     except (ValueError, TypeError):
         return []
     return items if isinstance(items, list) else []
-
-
-async def _stop_pod_code(conn: Conn, stop_id: str) -> str | None:
-    """Stored PoD code for one stop, or None (pre-015 / NULL / missing)."""
-    if not await _has_pod_cols(conn):
-        return None
-    try:
-        row = (await conn.execute(
-            "SELECT pod_otp FROM stops WHERE id = ?", (stop_id,))).fetchone()
-    except Exception:
-        return None
-    if row is None or not row["pod_otp"]:
-        return None
-    return str(row["pod_otp"])
 
 
 def _haversine_m(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -568,54 +573,83 @@ class VendorService:
         return result
 
     async def pod_complete(self, vendor_id: str, stop_id: str, payload: dict) -> dict:
-        """OTP-gated PoD. Wrong OTP reads as not-found (no oracle for stop
-        existence); 5 wrong codes lock the stop (429 POD_LOCKED, support
-        re-issues). Replays of a completed close return the current outcome
-        with no write and no attempt burn (offline-outbox safety). GPS drift
-        → flagged, never blocked."""
+        """Delivery-code-gated PoD with a 24h window and replay-safe close.
+
+        Wrong codes read as not-found (no stop oracle) and lock after five
+        attempts. Expired/unavailable/locked codes are explicit 410/429s, never
+        a deterministic fallback. Replaying a completed close returns the
+        current outcome without the code (offline-outbox safety).
+        """
         from app.services.dispatch_service import write_audit  # noqa: PLC0415 (lazy, lock-safe)
 
         stop = await self._owned_stop(vendor_id, stop_id)
-        route = (await self._conn.execute("SELECT date FROM routes WHERE id = ?", (stop["route_id"],))).fetchone()
-        day = route["date"] if route else _today()
         try:
             closed = bool((json.loads(stop["triple"]) if stop["triple"] else {}).get("pod"))
         except (ValueError, TypeError):
             closed = False
         if stop["order_id"] and stop["status"] == "done" and closed:
-            # Completed-close replay (offline outbox flush after success):
-            # same code → current outcome, no write, no attempt burn.
-            # A tripled-but-unclosed stop falls through to the normal close.
-            stored = await _stop_pod_code(self._conn, stop_id)
-            expected = stored or pod_otp(stop["order_id"], day)
-            if hmac.compare_digest(str(payload.get("delivery_otp", "")), expected):
-                return {**self._stop_out(stop), "replay": True}
-            raise NotFoundError(message="Stop not found.", details={"id": stop_id})
+            # Completed-close replay (offline outbox flush after success): the
+            # code is already deleted, so the previous outcome is the proof.
+            return {**self._stop_out(stop), "replay": True}
         if stop["order_id"]:
             provided = str(payload.get("delivery_otp", ""))
-            if await _has_pod_cols(self._conn):
-                row = (await self._conn.execute(
-                    "SELECT pod_otp, pod_attempts FROM stops WHERE id = ?", (stop_id,))).fetchone()
-                attempts = int(row["pod_attempts"] or 0) if row is not None else 0
-                if attempts >= POD_MAX_ATTEMPTS:
-                    raise PodLockedError(
-                        message="Too many wrong codes — ask support to re-issue the delivery code.",
-                        details={"stop_id": stop_id})
-                expected = str(row["pod_otp"]) if row is not None and row["pod_otp"] else None
-                expected = expected or pod_otp(stop["order_id"], day)  # NULL = legacy in-flight row
-                if not hmac.compare_digest(provided, expected):
-                    with WRITE_LOCK:
-                        try:
+            life = await _pod_lifecycle(self._conn, stop_id)
+            if not life["has_otp"]:
+                raise DeliveryCodeUnavailableError(
+                    "Delivery code is unavailable for this stop.",
+                    {"stop_id": stop_id},
+                )
+            if int(life["attempts"]) >= POD_MAX_ATTEMPTS:
+                raise PodLockedError(
+                    message="Too many wrong codes — request a new delivery code.",
+                    details={"stop_id": stop_id},
+                )
+            if delivery_code.expired(life["expires_at"]):
+                # Expiry is terminal even before the scheduler purge runs.
+                with WRITE_LOCK:
+                    try:
+                        await self._conn.execute(
+                            "UPDATE stops SET pod_otp = NULL, pod_attempts = 0 WHERE id = ?",
+                            (stop_id,),
+                        )
+                        self._conn.commit()
+                    except Exception:
+                        self._conn.rollback()
+                        raise
+                raise DeliveryCodeExpiredError(
+                    "Delivery code expired. Request a new code.",
+                    {"stop_id": stop_id},
+                )
+            expected = life["code"]
+            if not expected:
+                raise DeliveryCodeUnavailableError(
+                    "Delivery code is unavailable for this stop.",
+                    {"stop_id": stop_id},
+                )
+            if not hmac.compare_digest(provided, str(expected)):
+                new_attempts = int(life["attempts"]) + 1
+                locked = new_attempts >= POD_MAX_ATTEMPTS
+                with WRITE_LOCK:
+                    try:
+                        if locked:
+                            await self._conn.execute(
+                                "UPDATE stops SET pod_attempts = ?, pod_otp = NULL WHERE id = ?",
+                                (new_attempts, stop_id),
+                            )
+                        else:
                             await self._conn.execute(
                                 "UPDATE stops SET pod_attempts = pod_attempts + 1 WHERE id = ?",
                                 (stop_id,),
                             )
-                            self._conn.commit()
-                        except Exception:
-                            self._conn.rollback()
-                            raise
-                    raise NotFoundError(message="Stop not found.", details={"id": stop_id})
-            elif not hmac.compare_digest(provided, pod_otp(stop["order_id"], day)):
+                        self._conn.commit()
+                    except Exception:
+                        self._conn.rollback()
+                        raise
+                if locked:
+                    raise PodLockedError(
+                        message="Too many wrong codes — request a new delivery code.",
+                        details={"stop_id": stop_id},
+                    )
                 raise NotFoundError(message="Stop not found.", details={"id": stop_id})
         gps: dict = {}
         if payload.get("lat") is not None and payload.get("lng") is not None:
@@ -646,8 +680,15 @@ class VendorService:
                 current["pod"] = {k: v for k, v in pod.items() if v is not None}
                 if cash_paise > 0 and not current.get("cash"):
                     current["cash"] = cash_paise
+                stop_cols = {r["name"] for r in (
+                    await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
+                ).fetchall()}
+                sets = ["triple = ?", "status = 'done'", "synced_at = ?"]
+                for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts"):
+                    if name in stop_cols:
+                        sets.append(f"{name} = {'0' if name == 'pod_attempts' else 'NULL'}")
                 await self._conn.execute(
-                    "UPDATE stops SET triple = ?, status = 'done', synced_at = ? WHERE id = ?",
+                    f"UPDATE stops SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
                     (json.dumps(current), _now(), stop_id),
                 )
                 if stop.get("order_id") and cash_paise > 0:
@@ -674,8 +715,8 @@ class VendorService:
 
     async def fail_stop(self, vendor_id: str, stop_id: str, reason_code: str, note: str = "") -> dict:
         """Vendor reports a delivery failure / RTO (Door Locked, Unreachable, Refused)."""
-        from app.services.dispatch_service import write_audit
         from app.repositories.order_repo import OrderRepo
+        from app.services.dispatch_service import clear_stop_delivery_code, write_audit
 
         valid_reasons = {"DOOR_LOCKED", "CUSTOMER_UNREACHABLE", "CUSTOMER_REFUSED", "INCORRECT_ADDRESS", "RESCHEDULE_REQUESTED"}
         code = str(reason_code or "DOOR_LOCKED").upper().strip()
@@ -709,6 +750,7 @@ class VendorService:
                         "UPDATE stops SET status = 'failed', synced_at = ?, version = version + 1 WHERE id = ?",
                         (_now(), stop_id),
                     )
+                await clear_stop_delivery_code(self._conn, stop_id)
                 await write_audit(self._conn, actor=vendor_id, action="vendor.stop_failed",
                                   entity="stops", entity_id=stop_id)
                 self._conn.commit()

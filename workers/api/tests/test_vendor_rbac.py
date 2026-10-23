@@ -19,7 +19,7 @@ from app.core.errors import AppError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.services.auth_service import AuthService, reset_rate_limits  # noqa: E402
-from app.services.vendor_service import VendorService, pod_otp  # noqa: E402
+from app.services.vendor_service import VendorService  # noqa: E402
 
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
 M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").read_text()
@@ -28,8 +28,12 @@ M005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").rea
 M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_text()
 M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 M013 = (API_ROOT / "src" / "app" / "db" / "migrations" / "013_vendor_access.sql").read_text()
+M015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+M027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
 
 NOW = _dt.datetime.now(_dt.timezone.utc)
+POD = "482910"
+POD_EXPIRY = (NOW + _dt.timedelta(hours=12)).isoformat()
 DAY = NOW.date().isoformat()
 FUTURE = (NOW + _dt.timedelta(hours=1)).isoformat()
 FAR_FUTURE = (NOW + _dt.timedelta(days=30)).isoformat()
@@ -55,7 +59,7 @@ def _H(s: str) -> str:
 
 def _conn(flag=True):
     raw = get_connection(":memory:")
-    raw.executescript(M002 + M003 + M004 + M005 + M007 + M010 + M013)
+    raw.executescript(M002 + M003 + M004 + M005 + M007 + M010 + M013 + M015 + M027)
     now = NOW.isoformat()
     raw.execute(
         "INSERT INTO users(id, phone, role, created_at) VALUES "
@@ -95,7 +99,9 @@ def _conn(flag=True):
     )
     raw.execute(
         "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-        " empties_exp, version, status) VALUES ('s1', 'r1', 'o1', 'u1', 0, 2, 1, 1, 'pending')",
+        " empties_exp, version, status, pod_otp, pod_otp_expires_at)"
+        " VALUES ('s1', 'r1', 'o1', 'u1', 0, 2, 1, 1, 'pending', ?, ?)",
+        (POD, POD_EXPIRY),
     )
     raw.execute(
         "INSERT INTO complaints(id, order_id, user_id, reason_code, text, status, created_at)"
@@ -340,7 +346,7 @@ async def test_vendor_writes_are_audited():
     await svc.triple_commit("va", "s1",
                             {"fulls_given": 2, "empties_back": 1, "cash": 0,
                              "upi": 0, "caps_missing": 0, "version": 1}, "k-audit-1")
-    await svc.pod_complete("va", "s1", {"delivery_otp": pod_otp("o1", DAY)})
+    await svc.pod_complete("va", "s1", {"delivery_otp": POD})
     await svc.cash_post("va", "s1", 20600)
     await svc.verify_complaint("va", "c1", True, "short, redeliver")
     await svc.vendor_check_quality("va", "q1", True, "seal", "seal intact")

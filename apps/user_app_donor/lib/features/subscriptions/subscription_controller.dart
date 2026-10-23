@@ -390,8 +390,10 @@ class SubscriptionController extends ChangeNotifier {
       // the strip tells the truth instead of repeating a dead intent.
       if (e.statusCode == 409 || e.statusCode == 422) await _loadDues();
       return {
-        'error': e.isNetwork
+        'error': e.isOffline
             ? subStrings['offline']
+            : e.isServerError
+            ? 'Server problem — retry in a moment.'
             : (e.message.isNotEmpty ? e.message : subStrings['duesPayFailed']),
       };
     } catch (_) {
@@ -421,8 +423,10 @@ class SubscriptionController extends ChangeNotifier {
       return res;
     } on ApiException catch (e) {
       return {
-        'error': e.isNetwork
+        'error': e.isOffline
             ? subStrings['offline']
+            : e.isServerError
+            ? 'Server problem — retry in a moment.'
             : (e.message.isNotEmpty ? e.message : subStrings['loadFailed']),
       };
     } catch (_) {
@@ -466,7 +470,8 @@ class SubscriptionController extends ChangeNotifier {
   String _loadError(ApiException e) {
     if (e.statusCode == 401) return subStrings['signedOut']!;
     if (e.statusCode == 403) return subStrings['restricted']!;
-    if (e.isNetwork) return subStrings['offline']!;
+    if (e.isOffline) return subStrings['offline']!;
+    if (e.isServerError) return 'Server problem — retry in a moment.';
     return subStrings['loadFailed']!;
   }
 

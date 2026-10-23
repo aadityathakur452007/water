@@ -37,8 +37,10 @@ from app.services.dispatch_service import (
     ensure_profile,
     generate_routes,
     reassign_order,
+    set_delivery_window,
     write_audit,
 )
+from app.services.auth_service import AuthService
 from app.services.vendor_service import VendorService
 
 router = APIRouter(tags=["admin"])
@@ -148,6 +150,10 @@ class SuspendIn(BaseModel):
     level: str = Field(default="suspend", pattern=r"^(restrict|suspend)$")
 
 
+class PasswordResetIn(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 # -- orders queue + dispatch --------------------------------------------------
 
 @router.get("/admin/orders")
@@ -246,6 +252,7 @@ async def admin_dispatch_route(route_id: str, conn=Depends(get_db_conn), user=Ad
             skipped.append({"stop_id": s["id"], "state": str(order["state"]) if order else "missing"})
             continue
         await OrderRepo(conn).transition(s["order_id"], "dispatched", actor, f"route {route_id} dispatched")
+        await set_delivery_window(conn, s["id"])
         with WRITE_LOCK:
             await _audit(conn, user, "admin.dispatch", "stops", s["id"], "", "dispatched")
             conn.commit()
@@ -1366,6 +1373,21 @@ async def admin_unsuspend_user(user_id: str, conn=Depends(get_db_conn), user=Adm
                {"suspended": False})
         conn.commit()
     return {"user_id": user_id, "suspended": False}
+
+
+@router.post("/admin/users/{user_id}/password-reset")
+async def admin_password_reset(
+    user_id: str, payload: PasswordResetIn,
+    conn=Depends(get_db_conn), user=Admin,
+):
+    """Support-only reset: new hash, all sessions revoked, admin audit row.
+
+    There is no customer self-service reset in 034; a forgotten password is
+    handled through this door.
+    """
+    return await AuthService(conn, None).reset_user_password(
+        user_id, payload.new_password, actor_id=_uid(user)
+    )
 
 
 @router.get("/admin/payments")

@@ -1,9 +1,11 @@
 // Donor order card, mapped onto the real 032 Order model.
 //
-// Removed from the donor version: the local delivery PIN, the hardcoded
+// Removed from the donor version: the local delivery-code block, the hardcoded
 // rider/van name, and the "rider enter PIN & deliver" button (a customer app
 // must never be able to complete a delivery). The only actions here are
-// Track / View bill; the server owns status and PoD.
+// Track / View bill; the server owns status and PoD. 034: the list endpoint
+// never carries the delivery code, so this card must not render one — the
+// secret lives only on tracking.
 
 import 'package:flutter/material.dart';
 
@@ -261,41 +263,6 @@ class DonorOrderCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-          ],
-          if (!_isClosed && order.deliveryOtp != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.pin, color: AppColors.primary, size: 16),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'DELIVERY PIN: ',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textSecondary,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  Text(
-                    order.deliveryOtp!,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.primary,
-                      letterSpacing: 2.5,
-                    ),
-                  ),
-                ],
-              ),
             ),
           ],
           const SizedBox(height: 10),

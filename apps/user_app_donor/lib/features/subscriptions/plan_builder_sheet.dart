@@ -108,8 +108,10 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
       if (!mounted) return;
       setState(() {
         _loadingAddresses = false;
-        _addressError = e.isNetwork
+        _addressError = e.isOffline
             ? subStrings['offline']
+            : e.isServerError
+            ? 'Server problem — retry in a moment.'
             : subStrings['loadFailed'];
       });
     } catch (_) {
@@ -144,8 +146,10 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
       setState(() {
         _estimate = null;
         _estimateLoading = false;
-        _estimateError = e.isNetwork
+        _estimateError = e.isOffline
             ? subStrings['offline']
+            : e.isServerError
+            ? 'Server problem — retry in a moment.'
             : subStrings['estimateFailed'];
       });
     } catch (_) {
@@ -210,8 +214,10 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         if (e.code == 'PAYLOAD_MISMATCH') {
           _idemKey = const Uuid().v4();
           _error = subStrings['payloadMismatch'];
-        } else if (e.isNetwork) {
+        } else if (e.isOffline) {
           _error = subStrings['offline'];
+        } else if (e.isServerError) {
+          _error = 'Server problem — retry in a moment.';
         } else if (e.statusCode == 401) {
           _error = subStrings['signedOutPlan'];
         } else {

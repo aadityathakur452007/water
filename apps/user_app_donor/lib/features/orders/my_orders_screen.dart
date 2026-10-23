@@ -100,7 +100,17 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppConstants.defaultPadding),
               children: [
-                if (c.isOffline) const _OfflineNote(),
+                if (c.isOffline)
+                  const _StaleNote(
+                    message: 'Offline — showing the orders already loaded.',
+                  )
+                else if (c.errorMessage != null && !c.loadMoreFailed)
+                  _StaleNote(
+                    message: c.isServerError
+                        ? 'Server problem — showing the orders already loaded.'
+                        : 'Could not refresh — showing the orders already loaded.',
+                    onRetry: c.load,
+                  ),
                 _sectionTitle('LIVE DELIVERIES'),
                 const SizedBox(height: 10),
                 if (active.isEmpty)
@@ -172,22 +182,33 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
   }
 }
 
-class _OfflineNote extends StatelessWidget {
-  const _OfflineNote();
+class _StaleNote extends StatelessWidget {
+  const _StaleNote({required this.message, this.onRetry});
+
+  final String message;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.fromLTRB(10, 6, onRetry == null ? 10 : 4, 6),
       decoration: BoxDecoration(
         color: const Color(0xFFFEF9C3),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFFDE047)),
       ),
-      child: const Text(
-        'Offline — showing the orders already loaded.',
-        style: TextStyle(fontSize: 12, color: Color(0xFF713F12)),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF713F12)),
+            ),
+          ),
+          if (onRetry != null)
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
       ),
     );
   }

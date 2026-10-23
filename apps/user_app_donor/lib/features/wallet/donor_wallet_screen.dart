@@ -84,6 +84,16 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
         ];
         _paymentsLoading = false;
       });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _paymentsError = e.isOffline
+            ? 'No internet — check your connection and retry.'
+            : e.isServerError
+            ? 'Server problem — retry in a moment.'
+            : 'Could not load recent receipts';
+        _paymentsLoading = false;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -105,15 +115,8 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
           ReturnSheet(api: widget.api, pickAddress: widget.pickAddress),
     );
     if (!mounted || request == null) return;
-    final message = request.message.isNotEmpty
-        ? request.message
-        : 'Pickup requested.';
-    final refund = request.refundPaise == null
-        ? ''
-        : ' Refund recorded: ${formatInr(request.refundPaise!)}.';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$message$refund')));
+    // The sheet already showed request id, SLA and refund; just refresh the
+    // ledger so the new return is reflected.
     _load();
   }
 
@@ -215,12 +218,22 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                     child: Center(child: CircularProgressIndicator()),
                   )
                 else if (_paymentsError != null)
-                  Text(
-                    _paymentsError!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _paymentsError!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _loadPayments,
+                        child: const Text('Retry'),
+                      ),
+                    ],
                   )
                 else if (_payments.isEmpty)
                   const Text(
@@ -242,6 +255,45 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
   }
 
   Widget _ledgerBody(LedgerSnapshot ledger) {
+    if (ledger.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+              child: const Icon(
+                Icons.water_drop_outlined,
+                color: AppColors.primary,
+                size: 26,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'No jars with you yet',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'When your first 20L jar is delivered, its refundable deposit '
+              'and any dues will appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.4,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -563,8 +563,10 @@ class BookingController extends ChangeNotifier {
       rates = await api.fetchRates();
       ratesError = null;
     } on ApiException catch (e) {
-      ratesError = e.isNetwork
+      ratesError = e.isOffline
           ? 'No internet — check your connection and retry.'
+          : e.isServerError
+          ? 'Server problem — retry in a moment.'
           : e.message;
     } on CatalogUnavailable catch (e) {
       ratesError = e.message;

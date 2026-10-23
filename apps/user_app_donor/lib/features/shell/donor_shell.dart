@@ -433,6 +433,16 @@ class _SearchSheetState extends State<_SearchSheet> {
   final _query = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.booking.rates == null && !widget.booking.ratesLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.booking.refreshRates();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _query.dispose();
     super.dispose();
@@ -488,6 +498,37 @@ class _SearchSheetState extends State<_SearchSheet> {
             builder: (context, _) {
               final rates = widget.booking.rates;
               if (rates == null) {
+                final error = widget.booking.ratesError;
+                if (error != null) {
+                  return Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.cloud_off,
+                          color: AppColors.textSecondary,
+                          size: 28,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          error,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        TextButton(
+                          onPressed: widget.booking.ratesLoading
+                              ? null
+                              : widget.booking.refreshRates,
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
                 return const Padding(
                   padding: EdgeInsets.all(16),
                   child: Center(child: CircularProgressIndicator()),

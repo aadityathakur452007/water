@@ -87,8 +87,8 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Log out?'),
         content: const Text(
-          'You will need your phone OTP to sign in again. Your orders and '
-          'deposit stay safe on the server.',
+          'You will need your mobile number and password to sign in again. '
+          'Your orders and deposit stay safe on the server.',
         ),
         actions: [
           TextButton(
@@ -144,7 +144,13 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
           final phone = _text(user, 'phone');
           final email = _text(user, 'email');
           final addresses = widget.addressController.items.length;
-          final initials = _initials(name.isEmpty ? 'Shodasha Customer' : name);
+          final initials = _initials(name.isEmpty ? 'Shodasha' : name);
+          final loading =
+              user == null &&
+              (widget.controller.status == ProfileStatus.initial ||
+                  widget.controller.status == ProfileStatus.loading);
+          final loadFailed =
+              user == null && widget.controller.status == ProfileStatus.error;
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -152,117 +158,147 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppConstants.defaultPadding),
               children: [
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 32,
-                            backgroundColor: AppColors.primary.withValues(
-                              alpha: 0.12,
+                if (loading)
+                  const _ProfileSkeleton()
+                else if (loadFailed)
+                  _ProfileError(
+                    message:
+                        widget.controller.errorMessage ??
+                        'Could not load your profile.',
+                    onRetry: _refresh,
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 32,
+                              backgroundColor: AppColors.primary.withValues(
+                                alpha: 0.12,
+                              ),
+                              child: Text(
+                                initials,
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.primary,
+                                ),
+                              ),
                             ),
-                            child: Text(
-                              initials,
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    name.isEmpty ? 'Your profile' : name,
+                                    style: const TextStyle(
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.3,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  if (phone.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      phone,
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                  if (email.isNotEmpty)
+                                    Text(
+                                      email,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Edit profile',
+                              onPressed: _edit,
+                              icon: const Icon(
+                                Icons.edit_outlined,
                                 color: AppColors.primary,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name.isEmpty ? 'Shodasha customer' : name,
-                                  style: const TextStyle(
-                                    fontSize: 19,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -0.3,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  phone.isEmpty ? 'Phone on file' : phone,
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                ),
-                                if (email.isNotEmpty)
-                                  Text(
-                                    email,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Edit profile',
-                            onPressed: _edit,
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _stat('${widget.orderCount}', 'Orders'),
-                            Container(
-                              height: 28,
-                              width: 1,
-                              color: AppColors.border,
-                            ),
-                            _stat('$addresses', 'Addresses'),
-                            Container(
-                              height: 28,
-                              width: 1,
-                              color: AppColors.border,
-                            ),
-                            _stat(
-                              widget.auth.isAuthenticated ? 'Active' : '—',
-                              'Session',
-                            ),
                           ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _stat('${widget.orderCount}', 'Orders'),
+                              Container(
+                                height: 28,
+                                width: 1,
+                                color: AppColors.border,
+                              ),
+                              _stat('$addresses', 'Addresses'),
+                              Container(
+                                height: 28,
+                                width: 1,
+                                color: AppColors.border,
+                              ),
+                              _stat(
+                                widget.auth.isAuthenticated ? 'Active' : '—',
+                                'Session',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                if (widget.controller.status == ProfileStatus.error) ...[
+                if (widget.controller.status == ProfileStatus.error &&
+                    user != null) ...[
                   const SizedBox(height: 12),
-                  Text(
-                    widget.controller.errorMessage ??
-                        'Could not load your profile.',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFFB91C1C),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF9C3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFDE047)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Showing saved profile — refresh failed.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF713F12),
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _refresh,
+                          child: const Text('Retry'),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -459,6 +495,94 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
           size: 20,
         ),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _ProfileSkeleton extends StatelessWidget {
+  const _ProfileSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget box(double width, double height) => Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.border.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE2E8F0),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  box(150, 16),
+                  const SizedBox(height: 8),
+                  box(110, 12),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          box(double.infinity, 42),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileError extends StatelessWidget {
+  const _ProfileError({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.cloud_off, color: AppColors.textSecondary, size: 30),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+        ],
       ),
     );
   }

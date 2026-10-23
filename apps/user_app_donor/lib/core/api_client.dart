@@ -40,8 +40,12 @@ class ApiException implements Exception {
   final int? retryAfterSeconds;
   final Map<String, dynamic>? details;
 
-  /// Offline / 5xx / timeout → offline banner (States.md network states).
-  bool get isNetwork => code == 'NETWORK' || statusCode >= 500;
+  /// True only for socket/timeout failures. 5xx is a server problem, not
+  /// offline — showing the offline banner for it is a lie (034 §8.2).
+  bool get isOffline => code == 'NETWORK';
+
+  /// Transport worked; the server failed. Never render this as offline.
+  bool get isServerError => statusCode >= 500;
 
   @override
   String toString() => 'ApiException($code, $statusCode, $message)';
@@ -234,7 +238,9 @@ class ApiClient {
           timeout: timeout,
         );
       } on ApiException catch (e) {
-        if (e.statusCode == 401 || e.statusCode == 403) {
+        // Only an authed call proves the session is dead. A 401 from
+        // login/register is bad credentials, not an expired session.
+        if (authed && (e.statusCode == 401 || e.statusCode == 403)) {
           await onUnauthorized?.call();
         }
         final canRetry = retryableMethod && attempt < 3 && _retryable(e);
@@ -599,6 +605,13 @@ class ApiClient {
   /// workers/api/src/app/api/v1/ratings.py (once per delivered order).
   Future<Map<String, dynamic>> submitRatingApi(String id, int stars) async =>
       (await send('POST', '/orders/$id/rating', body: {'stars': stars}))
+          as Map<String, dynamic>;
+
+  /// POST /orders/{id}/delivery-code/reissue → the four delivery fields.
+  /// No Idempotency-Key by design: each accepted call mints a new code, and
+  /// the server caps it at 3/order/24h. Never auto-retried.
+  Future<Map<String, dynamic>> reissueDeliveryCodeApi(String id) async =>
+      (await send('POST', '/orders/$id/delivery-code/reissue'))
           as Map<String, dynamic>;
 
   /// POST /orders/{id}/cod-confirm → posts COD dues now (idempotent) so dues

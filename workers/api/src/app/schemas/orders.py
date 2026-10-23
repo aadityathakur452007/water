@@ -66,6 +66,9 @@ class OrderOut(BaseModel):
 class OrderDetailOut(OrderOut):
     delivery_address: dict | None = None
     delivery_otp: str | None = None
+    delivery_otp_expires_at: str | None = None
+    delivery_otp_state: str = "none"
+    delivery_otp_reissue_available: bool = False
     stops_ahead: int | None = None
     tracker: dict = Field(default_factory=dict)  # 4-step tracker + current state
     rider: dict | None = None  # {name, phone, stops_ahead} once assigned; None before

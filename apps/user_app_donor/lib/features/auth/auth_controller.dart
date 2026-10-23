@@ -1,17 +1,13 @@
-// F2 — Auth state for the Shodasha user app (name+email+phone register).
+// Customer auth for the Shodasha donor app (034).
 //
-// Backend contract: POST /v1/auth/user/register {name, email, phone,
-// device:{id}} → 200 {access_token, refresh_token, role:"user", user_id,
-// verified:false} / 400 (bad name/email/phone/device) / 422 ROLE_RESERVED
-// (staff number) / 429. No OTP anywhere — phone is the identity, email a
-// required contact field.
-// Doorstep-verified: `verified` flips on first PoD in a later slice; until
-// then display + future gating only.
+// Contract:
+//   POST /v1/auth/user/register {name, email?, phone, password, device}
+//   POST /v1/auth/user/login    {phone, password, device}
+//   POST /v1/auth/demo          {phone, demo_code, device} (server-gated QA)
 //
-// Guest-browse rule (user-flows flow 1): prices are NEVER walled behind
-// login. The gate routes a valid session straight to home; without a
-// session it shows the name+number screen, and its guest action drops into
-// home as a guest. Register is enforced only at booking commit OR profile.
+// There is no customer phone-code sign-in. The retired routes answer 410 and no client
+// method or screen may call them. Identity is a normalized Indian mobile plus
+// a password; email is optional contact data, not a login proof.
 
 // ignore_for_file: prefer_initializing_formals
 // (Public ctor param names are required — tests + wiring construct this
@@ -27,33 +23,51 @@ import '../../core/api_client.dart';
 const Map<String, String> authStringsHi = {
   'appName': 'Shodasha',
   'appTagline': 'Shodasha Mineral Water • RO+UV, lab-tested',
-  'trustLine': 'RO+UV • Lab report • Refill Rs 28 / Jar Rs 30',
-  'registerTitle': 'Enter your name, email and mobile number',
-  'registerSubtitle': 'Your account is created instantly • No OTP needed',
+  'signInTitle': 'Welcome back',
+  'signInSubtitle': 'Sign in with your mobile number and password.',
+  'createTitle': 'Create your account',
+  'createSubtitle': 'One account for every delivery.',
   'nameLabel': 'Name',
   'nameHint': 'Your name',
   'nameError': 'Enter a valid name (1–100 characters)',
-  'emailLabel': 'Email',
-  'emailHint': 'you@gmail.com',
-  'emailError': 'Only @gmail.com email is accepted (e.g. you@gmail.com)',
+  'emailLabel': 'Email (optional)',
+  'emailHint': 'you@example.com',
+  'emailError': 'Enter a valid email address, or leave it blank.',
   'phoneLabel': 'Mobile number',
   'phoneHint': '93021 90067',
   'phoneHelper': '10 digits only, starting 6–9',
   'phoneError':
       'Enter a valid 10-digit mobile number (digits only, starting 6–9)',
-  'registerGo': 'Get started',
-  'registering': 'Creating your account…',
+  'passwordLabel': 'Password',
+  'passwordHint': 'At least 8 characters, with a letter and a number',
+  'passwordError':
+      'Use 8–128 characters with at least one letter and one digit.',
+  'passwordRequired': 'Enter your password.',
+  'confirmLabel': 'Confirm password',
+  'confirmError': 'Passwords do not match.',
+  'signInGo': 'Sign in',
+  'createGo': 'Create account',
+  'signingIn': 'Signing in…',
+  'creating': 'Creating your account…',
+  'forgotPassword': 'Forgot password? Contact support',
+  'newHere': 'New here? Create account',
+  'alreadyHere': 'Already have an account? Sign in',
+  'terms':
+      'By creating an account, you agree to Shodasha Terms & Privacy Policy.',
   'staffNumber': 'This number belongs to a staff account — contact support',
+  'invalidCredentials': 'Mobile number or password is incorrect.',
+  'accountExists': 'This number already has an account. Sign in.',
   'rateLimited': 'Too many attempts — wait a moment and try again',
+  'rateLimitedWait': 'Too many attempts. Try again in',
   'serverError': 'Server problem — retry in a moment',
-  'networkError': 'Network problem — try again',
+  'networkError': 'No internet — check your connection and try again',
+  'validationError': 'Check your details and try again.',
+  'sessionExpired': 'Your session expired. Sign in again.',
   'newDevice': 'New device detected — your old session stays safe',
   'notUser': 'This account is not for the customer app',
-  'guestBrowse': 'Browse prices without logging in',
-  'guestNote': 'No login needed to see prices',
   'demoLogin': 'Try the demo (no registration)',
   'demoTitle': 'Demo login',
-  'demoHint': 'Seeded demo account — for QA, no OTP',
+  'demoHint': 'Seeded demo account — for QA only',
   'demoCustomer': 'Fill demo customer',
   'demoGo': 'Log in with demo',
 };
@@ -77,25 +91,50 @@ String? normalizeIndianPhone(String raw) {
 /// True when [raw] normalizes to a valid Indian mobile number.
 bool isValidIndianPhone(String raw) => normalizeIndianPhone(raw) != null;
 
-/// True when [raw] is a usable customer name (backend: 1–100 chars trimmed).
+/// True when [raw] is a usable customer name (backend: 1–100 code points).
 bool isValidUserName(String raw) {
   final name = raw.trim();
-  return name.isNotEmpty && name.length <= 100;
+  final length = name.runes.length;
+  return length > 0 && length <= 100;
 }
 
-/// True when [raw] is a valid @gmail.com address (backend: ≤254 chars,
-/// ending with @gmail.com).
+/// True when [raw] is a valid email (034: any provider, optional on signup).
+///
+/// One `@`, a non-empty local part, a dot inside the domain, no whitespace,
+/// max 254 chars. This mirrors the server's intent-check without pretending to
+/// be an RFC parser.
 bool isValidUserEmail(String raw) {
-  final email = raw.trim().toLowerCase();
+  final email = raw.trim();
   if (email.isEmpty || email.length > 254) return false;
-  return RegExp(r'^[a-zA-Z0-9._%+-]+@gmail\.com$').hasMatch(email);
+  if (RegExp(r'\s').hasMatch(email)) return false;
+  final at = email.indexOf('@');
+  if (at <= 0 || at != email.lastIndexOf('@') || at == email.length - 1) {
+    return false;
+  }
+  final domain = email.substring(at + 1);
+  if (!domain.contains('.')) return false;
+  if (domain.startsWith('.') || domain.endsWith('.')) return false;
+  return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+}
+
+/// True when [raw] satisfies the locked password policy (§6.2).
+///
+/// Length counts Unicode code points; passwords are never trimmed.
+bool isValidPassword(String raw) {
+  final length = raw.runes.length;
+  if (length < 8 || length > 128) return false;
+  return RegExp(r'[A-Za-z]').hasMatch(raw) && RegExp(r'\d').hasMatch(raw);
 }
 
 /// `9876543210` → `+91 ••••• 43210` (never show full digits on screen).
-String maskPhone(String digits10) =>
-    '+91 ••••• ${digits10.substring(digits10.length - 5)}';
+String maskPhone(String digits10) {
+  final tail = digits10.length <= 5
+      ? digits10
+      : digits10.substring(digits10.length - 5);
+  return '+91 ••••• $tail';
+}
 
-/// Session minted by POST /auth/user/register (028).
+/// Session minted by register/login/demo.
 @immutable
 class AuthSession {
   const AuthSession({
@@ -176,41 +215,23 @@ class InMemorySessionStore implements SessionStore {
   }
 }
 
-/// Result of `POST /auth/otp/start`. `channel=firebase` means the server
-/// expects a Firebase client ID token (this app has no Firebase SDK/config);
-/// `fast2sms`/`textbee` mean the server minted and sent a 6-digit code.
-@immutable
-class OtpStartResult {
-  const OtpStartResult({
-    required this.channel,
-    required this.resendAfterSeconds,
-  });
-
-  final String channel;
-  final int resendAfterSeconds;
-
-  bool get serverCode => channel == 'fast2sms' || channel == 'textbee';
-}
-
-/// Backend seam: Workers API user-auth surface (028 + OTP).
+/// Backend seam: Workers API customer auth surface (034).
 abstract class AuthApi {
-  /// POST /auth/user/register `{name, email, phone, device:{id}}` → session
-  /// (200; 400 validation; 422 ROLE_RESERVED staff number; 429 rate-limit).
+  /// POST /auth/user/register → session.
+  /// 400 VALIDATION, 409 ACCOUNT_EXISTS, 422 ROLE_RESERVED, 429 RATE_LIMITED.
   Future<AuthSession> register({
     required String name,
     required String email,
     required String phone,
+    required String password,
     required String deviceId,
   });
 
-  /// POST /auth/otp/start `{phone}` → channel + resend cooldown.
-  Future<OtpStartResult> startOtp({required String phone});
-
-  /// POST /auth/otp/verify `{phone, otp_code, device:{id}}` → session.
-  /// Server-code providers only; Firebase tokens are not available here.
-  Future<AuthSession> verifyOtp({
+  /// POST /auth/user/login → session.
+  /// 401 INVALID_CREDENTIALS (generic), 429 RATE_LIMITED.
+  Future<AuthSession> login({
     required String phone,
-    required String code,
+    required String password,
     required String deviceId,
   });
 
@@ -226,7 +247,7 @@ abstract class AuthApi {
   Future<void> logout(String accessToken);
 }
 
-/// Auth lifecycle: idle → verifying → authenticated (no OTP states).
+/// Auth lifecycle: idle → verifying → authenticated.
 /// Covers States.md form/action/auth states.
 enum AuthStatus { idle, verifying, authenticated, error }
 
@@ -242,23 +263,33 @@ class AuthController extends ChangeNotifier {
   final AuthApi _api;
   final SessionStore _store;
 
-  /// X-Device-Id (fraud graph, SEC-F01). TODO(F1): real device id provider.
+  /// X-Device-Id (fraud graph, SEC-F01).
   final String deviceId;
 
   /// Upper bound for the cold-start secure-storage restore. A hung keychain
-  /// must never strand the splash (P2-1).
+  /// must never strand the splash.
   final Duration restoreTimeout;
 
   AuthStatus _status = AuthStatus.idle;
   String? _errorMessage;
+  String? _lastErrorCode;
+  String? _sessionNotice;
   int _errorSeq = 0;
   bool _newDeviceAlert = false;
   AuthSession? _session;
   int _restoreGeneration = 0;
   bool _disposed = false;
+  DateTime? _rateLimitUntil;
 
   AuthStatus get status => _status;
   String? get errorMessage => _errorMessage;
+
+  /// Last server/guard code (`ACCOUNT_EXISTS`, `ROLE_RESERVED`, `NETWORK`…).
+  /// The screen uses it to pivot to sign-in on a duplicate signup.
+  String? get lastErrorCode => _lastErrorCode;
+
+  /// One-shot message shown by AuthGate after a forced session wipe.
+  String? get sessionNotice => _sessionNotice;
 
   /// Bumps on every new error so screens can react to fresh failures.
   int get errorSeq => _errorSeq;
@@ -270,26 +301,42 @@ class AuthController extends ChangeNotifier {
       _session != null &&
       !_session!.isExpired;
 
+  /// Seconds left on a 429 wall (0 when none). Screens tick this locally.
+  int get rateLimitSecondsRemaining {
+    final until = _rateLimitUntil;
+    if (until == null) return 0;
+    final ms = until.difference(DateTime.now()).inMilliseconds;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
   /// Consume the new-device flag after home/profile has shown it.
   void consumeNewDeviceAlert() {
     _newDeviceAlert = false;
     _notify();
   }
 
-  /// Name+email+phone register from [NameNumberScreen] (raw user input,
-  /// normalized here). Returns true on success.
-  Future<bool> registerNameNumber(
-    String rawName,
-    String rawEmail,
-    String rawPhone,
-  ) async {
-    final name = rawName.trim();
-    if (!isValidUserName(rawName)) {
+  /// Clear the one-shot expiry notice after AuthGate has handed it to login.
+  void clearSessionNotice() {
+    if (_sessionNotice == null) return;
+    _sessionNotice = null;
+    _notify();
+  }
+
+  /// Create-only signup. An existing phone is never claimed or overwritten.
+  Future<bool> register({
+    required String name,
+    String email = '',
+    required String rawPhone,
+    required String password,
+    required String confirmPassword,
+  }) async {
+    _beginAttempt();
+    if (!isValidUserName(name)) {
       _fail(authStringsHi['nameError']!, AuthStatus.idle);
       return false;
     }
-    final email = rawEmail.trim();
-    if (!isValidUserEmail(rawEmail)) {
+    final cleanEmail = email.trim().toLowerCase();
+    if (cleanEmail.isNotEmpty && !isValidUserEmail(cleanEmail)) {
       _fail(authStringsHi['emailError']!, AuthStatus.idle);
       return false;
     }
@@ -298,16 +345,63 @@ class AuthController extends ChangeNotifier {
       _fail(authStringsHi['phoneError']!, AuthStatus.idle);
       return false;
     }
+    if (!isValidPassword(password)) {
+      _fail(authStringsHi['passwordError']!, AuthStatus.idle);
+      return false;
+    }
+    if (password != confirmPassword) {
+      _fail(authStringsHi['confirmError']!, AuthStatus.idle);
+      return false;
+    }
+    return _attempt(
+      () => _api.register(
+        name: name.trim(),
+        email: cleanEmail,
+        phone: '+91$digits',
+        password: password,
+        deviceId: deviceId,
+      ),
+      isRegister: true,
+    );
+  }
+
+  /// Sign in with mobile + password. Wrong phone and wrong password are
+  /// deliberately indistinguishable.
+  Future<bool> login({
+    required String rawPhone,
+    required String password,
+  }) async {
+    _beginAttempt();
+    final digits = normalizeIndianPhone(rawPhone);
+    if (digits == null) {
+      _fail(authStringsHi['phoneError']!, AuthStatus.idle);
+      return false;
+    }
+    if (password.isEmpty) {
+      _fail(authStringsHi['passwordRequired']!, AuthStatus.idle);
+      return false;
+    }
+    return _attempt(
+      () => _api.login(
+        phone: '+91$digits',
+        password: password,
+        deviceId: deviceId,
+      ),
+      isRegister: false,
+    );
+  }
+
+  Future<bool> _attempt(
+    Future<AuthSession> Function() call, {
+    required bool isRegister,
+  }) async {
     _status = AuthStatus.verifying;
     _errorMessage = null;
+    _lastErrorCode = null;
+    _rateLimitUntil = null;
     _notify();
     try {
-      final session = await _api.register(
-        name: name,
-        email: email,
-        phone: '+91$digits',
-        deviceId: deviceId,
-      );
+      final session = await call();
       if (session.role != 'user') {
         await _store.clear();
         _fail(authStringsHi['notUser']!, AuthStatus.error);
@@ -325,20 +419,7 @@ class AuthController extends ChangeNotifier {
       _notify();
       return true;
     } on ApiException catch (e) {
-      if (e.isNetwork) {
-        _fail(authStringsHi['networkError']!, AuthStatus.error);
-      } else if (e.statusCode == 422) {
-        _fail(authStringsHi['staffNumber']!, AuthStatus.error);
-      } else if (e.statusCode == 429) {
-        _fail(authStringsHi['rateLimited']!, AuthStatus.error);
-      } else if ((e.statusCode == 400 || e.statusCode == 403) &&
-          e.message.isNotEmpty) {
-        // 400 validation + 403 role/suspended detail ride the server
-        // message (generic, no oracle); anything else stays generic.
-        _fail(e.message, AuthStatus.error);
-      } else {
-        _fail(authStringsHi['serverError']!, AuthStatus.error);
-      }
+      _handleApiError(e, isRegister: isRegister);
       return false;
     } catch (_) {
       _fail(authStringsHi['serverError']!, AuthStatus.error);
@@ -346,106 +427,10 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Starts the server-owned phone OTP. Returns null on failure (error is
-  /// exposed through [errorMessage]); on success the caller renders the code
-  /// step. A Firebase channel is returned as-is so the screen can explain
-  /// that this build has no Firebase client SDK instead of faking a send.
-  Future<OtpStartResult?> startOtp(String rawPhone) async {
-    final digits = normalizeIndianPhone(rawPhone);
-    if (digits == null) {
-      _fail(authStringsHi['phoneError']!, AuthStatus.idle);
-      return null;
-    }
-    _status = AuthStatus.verifying;
-    _errorMessage = null;
-    _notify();
-    try {
-      final result = await _api.startOtp(phone: '+91$digits');
-      _status = AuthStatus.idle;
-      _notify();
-      return result;
-    } on ApiException catch (e) {
-      if (e.isNetwork) {
-        _fail(authStringsHi['networkError']!, AuthStatus.error);
-      } else if (e.statusCode == 429) {
-        _fail(authStringsHi['rateLimited']!, AuthStatus.error);
-      } else if (e.message.isNotEmpty) {
-        _fail(e.message, AuthStatus.error);
-      } else {
-        _fail('Could not send the verification code.', AuthStatus.error);
-      }
-      return null;
-    } catch (_) {
-      _fail(authStringsHi['serverError']!, AuthStatus.error);
-      return null;
-    }
-  }
-
-  /// Verifies a server-issued 6-digit OTP and persists the session. Non-user
-  /// roles are rejected exactly like the register/demo paths.
-  Future<bool> verifyOtp(String rawPhone, String rawCode) async {
-    final digits = normalizeIndianPhone(rawPhone);
-    if (digits == null) {
-      _fail(authStringsHi['phoneError']!, AuthStatus.idle);
-      return false;
-    }
-    final code = rawCode.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      _fail('Enter the 6-digit verification code.', AuthStatus.idle);
-      return false;
-    }
-    _status = AuthStatus.verifying;
-    _errorMessage = null;
-    _notify();
-    try {
-      final session = await _api.verifyOtp(
-        phone: '+91$digits',
-        code: code,
-        deviceId: deviceId,
-      );
-      if (session.role != 'user') {
-        await _store.clear();
-        _fail(authStringsHi['notUser']!, AuthStatus.error);
-        return false;
-      }
-      await _store.saveSession(
-        accessToken: session.accessToken,
-        refreshToken: session.refreshToken,
-        expiresAtIso: session.expiresAt.toIso8601String(),
-        role: session.role,
-      );
-      _session = session;
-      _newDeviceAlert = session.newDeviceAlert;
-      _status = AuthStatus.authenticated;
-      _notify();
-      return true;
-    } on ApiException catch (e) {
-      if (e.isNetwork) {
-        _fail(authStringsHi['networkError']!, AuthStatus.error);
-      } else if (e.statusCode == 429) {
-        _fail(authStringsHi['rateLimited']!, AuthStatus.error);
-      } else if (e.statusCode == 422) {
-        _fail(authStringsHi['staffNumber']!, AuthStatus.error);
-      } else if ((e.statusCode == 400 || e.statusCode == 403) &&
-          e.message.isNotEmpty) {
-        _fail(e.message, AuthStatus.error);
-      } else {
-        _fail(authStringsHi['serverError']!, AuthStatus.error);
-      }
-      return false;
-    } catch (_) {
-      _fail(authStringsHi['serverError']!, AuthStatus.error);
-      return false;
-    }
-  }
-
-  /// Demo login (no OTP): seeded phone + demo code → session. Same
-  /// persistence as the register path; rejects non-user roles so a vendor
-  /// demo code can never drive the customer app. Fails loudly when the
-  /// server door is closed (prod default).
+  /// Demo login: server-gated QA door. Same persistence and role guard.
   Future<bool> demoLogin(String phone, String code) async {
+    _beginAttempt();
     _status = AuthStatus.verifying;
-    _errorMessage = null;
     _notify();
     try {
       final session = await _api.demoLogin(
@@ -456,7 +441,6 @@ class AuthController extends ChangeNotifier {
       if (session.role != 'user') {
         await _store.clear();
         _fail(authStringsHi['notUser']!, AuthStatus.error);
-        _notify();
         return false;
       }
       await _store.saveSession(
@@ -471,22 +455,28 @@ class AuthController extends ChangeNotifier {
       _notify();
       return true;
     } on ApiException catch (e) {
-      _fail(
-        e.isNetwork ? authStringsHi['networkError']! : e.message,
-        AuthStatus.error,
-      );
-      _notify();
+      if (e.isOffline) {
+        _fail(authStringsHi['networkError']!, AuthStatus.error);
+      } else if (e.isServerError) {
+        _fail(authStringsHi['serverError']!, AuthStatus.error);
+      } else {
+        _fail(
+          e.message.isNotEmpty
+              ? e.message
+              : authStringsHi['invalidCredentials']!,
+          AuthStatus.error,
+        );
+      }
       return false;
     } catch (_) {
       _fail(authStringsHi['serverError']!, AuthStatus.error);
-      _notify();
       return false;
     }
   }
 
-  /// Logout: revoke server-side (best-effort) + wipe local session (contract).
-  /// Also clears user-scoped prefs (selected address) so the next
-  /// login never inherits the previous user's delivery address.
+  /// Logout: revoke server-side (best-effort) + wipe local session.
+  /// Also clears user-scoped prefs so the next login never inherits the
+  /// previous user's delivery address. Manual logout never shows expiry copy.
   Future<void> logout() async {
     final token = _session?.accessToken;
     if (token != null) {
@@ -497,37 +487,31 @@ class AuthController extends ChangeNotifier {
       }
     }
     await _store.clear();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('selected_address_id');
-    } catch (_) {
-      // Prefs wipe is best-effort — secure session already cleared.
-    }
+    await _clearUserPrefs();
     _reset();
+    _sessionNotice = null;
     _status = AuthStatus.idle;
     _notify();
   }
 
   /// Local-only wipe (no server call): the global 401/403 hook
   /// (revoked/suspended/expired — must not call authed endpoints again,
-  /// that would loop). Mirrors the vendor controller (Phase 4 §4.3).
-  Future<void> forceLogout() async {
+  /// that would loop).
+  Future<void> forceLogout({bool sessionExpired = false}) async {
     await _store.clear();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('selected_address_id');
-    } catch (_) {
-      // Prefs wipe is best-effort — secure session already cleared.
-    }
+    await _clearUserPrefs();
     _reset();
     _status = AuthStatus.idle;
+    if (sessionExpired) {
+      _sessionNotice = authStringsHi['sessionExpired'];
+    }
     _notify();
   }
 
   /// Cold-start restore for [AuthGate]: valid session → authenticated.
   ///
   /// Bounded by [restoreTimeout]. A store that never answers must surface the
-  /// login screen instead of an infinite splash (P2-1). The generation guard
+  /// login screen instead of an infinite splash. The generation guard
   /// discards an orphaned restore that completes after the timeout.
   ///
   /// Returns false only when restore itself failed/timed out. A normal
@@ -566,6 +550,7 @@ class AuthController extends ChangeNotifier {
     if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
       await _store.clear(); // session expired → logged-out state (States.md)
       if (gen != _restoreGeneration) return;
+      _sessionNotice = authStringsHi['sessionExpired'];
       _status = AuthStatus.idle;
     } else {
       _session = AuthSession(
@@ -581,8 +566,85 @@ class AuthController extends ChangeNotifier {
 
   /// Clears a surfaced error (e.g. user edits a field again).
   void clearError() {
+    if (_errorMessage == null && _lastErrorCode == null) return;
     _errorMessage = null;
+    _lastErrorCode = null;
+    _rateLimitUntil = null;
     _notify();
+  }
+
+  void _beginAttempt() {
+    _errorMessage = null;
+    _lastErrorCode = null;
+    _rateLimitUntil = null;
+  }
+
+  void _handleApiError(ApiException e, {required bool isRegister}) {
+    _lastErrorCode = e.code;
+    if (e.statusCode == 429) {
+      final wait = (e.retryAfterSeconds ?? 60).clamp(1, 3600);
+      _rateLimitUntil = DateTime.now().add(Duration(seconds: wait));
+      _fail(authStringsHi['rateLimited']!, AuthStatus.error);
+      return;
+    }
+    if (isRegister && e.statusCode == 409) {
+      _lastErrorCode = 'ACCOUNT_EXISTS';
+      _fail(authStringsHi['accountExists']!, AuthStatus.error);
+      return;
+    }
+    if (e.statusCode == 422 && e.code == 'ROLE_RESERVED') {
+      _fail(authStringsHi['staffNumber']!, AuthStatus.error);
+      return;
+    }
+    if (e.isOffline) {
+      _fail(authStringsHi['networkError']!, AuthStatus.error);
+      return;
+    }
+    if (e.isServerError) {
+      _fail(authStringsHi['serverError']!, AuthStatus.error);
+      return;
+    }
+    if (e.statusCode == 401) {
+      _fail(authStringsHi['invalidCredentials']!, AuthStatus.error);
+      return;
+    }
+    if (e.statusCode == 400 || e.statusCode == 422) {
+      _fail(_validationCopy(e), AuthStatus.error);
+      return;
+    }
+    _fail(
+      e.message.isNotEmpty ? e.message : authStringsHi['validationError']!,
+      AuthStatus.error,
+    );
+  }
+
+  /// Map field details to our own copy; never dump raw server text.
+  String _validationCopy(ApiException e) {
+    final details = e.details;
+    if (details != null) {
+      if (details.containsKey('password')) {
+        return authStringsHi['passwordError']!;
+      }
+      if (details.containsKey('email')) {
+        return authStringsHi['emailError']!;
+      }
+      if (details.containsKey('phone')) {
+        return authStringsHi['phoneError']!;
+      }
+      if (details.containsKey('name')) {
+        return authStringsHi['nameError']!;
+      }
+    }
+    return e.message.isNotEmpty ? e.message : authStringsHi['validationError']!;
+  }
+
+  Future<void> _clearUserPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('selected_address_id');
+    } catch (_) {
+      // Prefs wipe is best-effort — secure session already cleared.
+    }
   }
 
   void _fail(String message, AuthStatus status) {
@@ -595,6 +657,8 @@ class AuthController extends ChangeNotifier {
   void _reset() {
     _session = null;
     _errorMessage = null;
+    _lastErrorCode = null;
+    _rateLimitUntil = null;
     _newDeviceAlert = false;
   }
 

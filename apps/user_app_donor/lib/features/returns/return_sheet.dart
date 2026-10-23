@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/money.dart';
 import '../../core/theme.dart';
 import 'returns_controller.dart';
 
@@ -69,13 +70,12 @@ class _ReturnSheetState extends State<ReturnSheet> {
 
   Future<void> _send() async {
     FocusScope.of(context).unfocus();
-    final ok = await _controller.submit(
+    await _controller.submit(
       qty: _qty,
       addressId: _address!.id,
       upiId: _upi.text.trim(),
     );
-    if (!mounted || !ok) return;
-    Navigator.of(context).pop(_controller.lastRequest); // null-safe at caller
+    // Success stays in the sheet to show the server request id + SLA.
   }
 
   @override
@@ -90,167 +90,295 @@ class _ReturnSheetState extends State<ReturnSheet> {
         ),
         child: ListenableBuilder(
           listenable: _controller,
-          builder: (context, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: ShodashaTheme.border,
-                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Return jars',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: ShodashaTheme.ink,
+          builder: (context, _) {
+            final done = _controller.lastRequest;
+            if (done != null) return _success(done);
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.border,
+                      borderRadius: BorderRadius.circular(
+                        ShodashaTheme.radiusSm,
                       ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: _controller.busy
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: ShodashaTheme.muted),
-                  ),
-                ],
-              ),
-              const Text(
-                'Pickup + refund in 10 working days.',
-                style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'HOW MANY JARS ARE YOU RETURNING?',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  color: ShodashaTheme.muted,
                 ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  IconButton.outlined(
-                    tooltip: 'Remove one jar',
-                    onPressed: _qty > 1 ? () => setState(() => _qty--) : null,
-                    icon: const Icon(Icons.remove),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      '$_qty',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: ShodashaTheme.ink,
-                      ),
-                    ),
-                  ),
-                  IconButton.outlined(
-                    tooltip: 'Add one jar',
-                    onPressed: _qty < 10 ? () => setState(() => _qty++) : null,
-                    icon: const Icon(Icons.add),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                'PICKUP ADDRESS',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  color: ShodashaTheme.muted,
-                ),
-              ),
-              const SizedBox(height: 6),
-              _AddressCard(
-                address: _address,
-                enabled: widget.pickAddress != null && !_controller.busy,
-                unavailable: widget.pickAddress == null,
-                onTap: _pickAddress,
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _upi,
-                enabled: !_controller.busy,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.done,
-                onChanged: (_) => setState(() {}),
-                style: const TextStyle(fontSize: 16),
-                decoration: InputDecoration(
-                  labelText: 'UPI ID (for deposit refund)',
-                  hintText: 'name@bank',
-                  errorText:
-                      _upi.text.trim().isNotEmpty && !isValidUpi(_upi.text)
-                      ? 'Enter a valid UPI ID like name@bank'
-                      : null,
-                  helperText:
-                      'Your deposit refund is sent to this UPI after pickup.',
-                ),
-              ),
-              if (_controller.error != null) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 16,
-                      color: ShodashaTheme.danger,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
+                    const Expanded(
                       child: Text(
-                        _controller.error!,
-                        style: const TextStyle(
-                          color: ShodashaTheme.danger,
-                          fontSize: 13,
+                        'Return jars',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: ShodashaTheme.ink,
                         ),
                       ),
                     ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: _controller.busy
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: ShodashaTheme.muted),
+                    ),
                   ],
                 ),
-              ],
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: (_controller.busy || !_valid) ? null : _send,
-                  child: _controller.busy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: ShodashaTheme.surface,
+                const Text(
+                  'Pickup + refund in 10 working days.',
+                  style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'HOW MANY JARS ARE YOU RETURNING?',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    IconButton.outlined(
+                      tooltip: 'Remove one jar',
+                      onPressed: _qty > 1 ? () => setState(() => _qty--) : null,
+                      icon: const Icon(Icons.remove),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        '$_qty',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: ShodashaTheme.ink,
+                        ),
+                      ),
+                    ),
+                    IconButton.outlined(
+                      tooltip: 'Add one jar',
+                      onPressed: _qty < 10
+                          ? () => setState(() => _qty++)
+                          : null,
+                      icon: const Icon(Icons.add),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'PICKUP ADDRESS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _AddressCard(
+                  address: _address,
+                  enabled: widget.pickAddress != null && !_controller.busy,
+                  unavailable: widget.pickAddress == null,
+                  onTap: _pickAddress,
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _upi,
+                  enabled: !_controller.busy,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
+                  onChanged: (_) => setState(() {}),
+                  style: const TextStyle(fontSize: 16),
+                  decoration: InputDecoration(
+                    labelText: 'UPI ID (for deposit refund)',
+                    hintText: 'name@bank',
+                    errorText:
+                        _upi.text.trim().isNotEmpty && !isValidUpi(_upi.text)
+                        ? 'Enter a valid UPI ID like name@bank'
+                        : null,
+                    helperText:
+                        'Your deposit refund is sent to this UPI after pickup.',
+                  ),
+                ),
+                if (_controller.error != null) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 16,
+                        color: ShodashaTheme.danger,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _controller.error!,
+                          style: const TextStyle(
+                            color: ShodashaTheme.danger,
+                            fontSize: 13,
                           ),
-                        )
-                      : const Text('Send request'),
+                        ),
+                      ),
+                      if (_controller.isAuthError)
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Sign in again'),
+                        ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: (_controller.busy || !_valid) ? null : _send,
+                    child: _controller.busy
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: ShodashaTheme.surface,
+                            ),
+                          )
+                        : const Text('Send request'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Deposit is refunded after the jars are collected.',
+                  style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _success(ReturnRequest request) {
+    final refund = request.refundPaise;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Center(
+          child: Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.border,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Row(
+          children: [
+            Icon(Icons.check_circle, color: ShodashaTheme.success, size: 30),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Return requested',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: ShodashaTheme.ink,
                 ),
               ),
-              const SizedBox(height: 8),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          request.message.isEmpty
+              ? 'Pickup within 10 working days.'
+              : request.message,
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.4,
+            color: ShodashaTheme.muted,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: ShodashaTheme.bg,
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            border: Border.all(color: ShodashaTheme.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               const Text(
-                'Deposit is refunded after the jars are collected.',
-                style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                'REQUEST ID',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                  color: ShodashaTheme.muted,
+                ),
               ),
+              const SizedBox(height: 2),
+              SelectableText(
+                request.id,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: ShodashaTheme.ink,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '${request.qty} jar${request.qty == 1 ? '' : 's'} · '
+                'Pickup by ${request.slaDue.isEmpty ? 'support will confirm' : request.slaDue}',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+              if (refund != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Refund recorded: ${formatInr(refund)}',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.greenDark,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
-      ),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(request),
+            child: const Text('Done'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Keep this request id for support. Refund is sent after pickup.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+        ),
+      ],
     );
   }
 }

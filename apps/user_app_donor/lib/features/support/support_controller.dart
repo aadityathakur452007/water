@@ -16,6 +16,7 @@ import '../../core/api_client.dart';
 const Map<String, String> supportStrings = {
   'loadError': 'Could not load your complaints.',
   'offline': 'No internet — please try again.',
+  'server': 'Server problem — retry in a moment.',
   'sessionExpired': 'Session expired. Log in again to see your complaints.',
   'sendError': 'Could not send your complaint — please try again.',
 };
@@ -134,6 +135,7 @@ class SupportController extends ChangeNotifier {
     } on ApiException catch (e) {
       _lastError = e.code;
       if (e.statusCode == 422) return 'windowExpired';
+      if (e.isServerError) return 'server';
       return e.code == 'NETWORK' ? 'offline' : supportStrings['sendError'];
     } catch (_) {
       return supportStrings['sendError'];
@@ -153,6 +155,7 @@ class SupportController extends ChangeNotifier {
 
   String _loadError(ApiException e) {
     if (e.code == 'NETWORK') return supportStrings['offline']!;
+    if (e.isServerError) return supportStrings['server']!;
     if (e.statusCode == 401 || e.statusCode == 403) {
       return supportStrings['sessionExpired']!;
     }

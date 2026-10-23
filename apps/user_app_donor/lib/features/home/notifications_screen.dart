@@ -60,6 +60,16 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
         ];
         _loadingSubs = false;
       });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.isOffline
+            ? 'No internet — could not load subscription updates.'
+            : e.isServerError
+            ? 'Server problem — could not load subscription updates.'
+            : 'Could not load subscription updates.';
+        _loadingSubs = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -121,66 +131,64 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
                 return bd.compareTo(ad);
               });
 
-          if ((widget.orders.status == OrdersListStatus.loading ||
-                  _loadingSubs) &&
-              notes.isEmpty) {
+          final orderError = widget.orders.errorMessage == null
+              ? null
+              : widget.orders.isOffline
+              ? 'No internet — could not refresh order updates.'
+              : 'Could not refresh order updates.';
+          final banners = <Widget>[
+            if (orderError != null)
+              _Banner(message: orderError, onRetry: _refresh),
+            if (_error != null) _Banner(message: _error!, onRetry: _refresh),
+          ];
+          final loading =
+              (widget.orders.status == OrdersListStatus.initial ||
+                      widget.orders.status == OrdersListStatus.loading) &&
+                  widget.orders.allOrders.isEmpty ||
+              _loadingSubs && _subs.isEmpty;
+
+          if (notes.isEmpty && banners.isEmpty && loading) {
             return const Center(child: CircularProgressIndicator());
-          }
-          if (_error != null && notes.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.cloud_off,
-                      color: AppColors.textSecondary,
-                      size: 36,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: _refresh,
-                      child: const Text('Try again'),
-                    ),
-                  ],
-                ),
-              ),
-            );
           }
           return RefreshIndicator(
             onRefresh: _refresh,
-            child: notes.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: const [
-                      SizedBox(height: 120),
-                      Icon(
-                        Icons.notifications_none,
-                        size: 44,
-                        color: AppColors.textSecondary,
-                      ),
-                      SizedBox(height: 10),
-                      Center(
-                        child: Text(
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              children: [
+                ...banners,
+                if (banners.isNotEmpty) const SizedBox(height: 4),
+                if (notes.isEmpty && banners.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 100),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.notifications_none,
+                          size: 44,
+                          color: AppColors.textSecondary,
+                        ),
+                        SizedBox(height: 10),
+                        Text(
                           'No order or subscription updates yet.',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 13,
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   )
-                : ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    itemCount: notes.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) => _NoteTile(note: notes[i]),
-                  ),
+                else
+                  for (final note in notes)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _NoteTile(note: note),
+                    ),
+                const SizedBox(height: 16),
+              ],
+            ),
           );
         },
       ),
@@ -212,6 +220,43 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
     if (parsed == null) return 'not scheduled';
     final local = parsed.toLocal();
     return '${local.day}/${local.month}/${local.year}';
+  }
+}
+
+class _Banner extends StatelessWidget {
+  const _Banner({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF9C3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFDE047)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, size: 17, color: Color(0xFF854D0E)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                color: Color(0xFF713F12),
+              ),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
+    );
   }
 }
 

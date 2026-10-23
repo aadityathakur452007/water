@@ -279,12 +279,75 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
             "quotes_note": "quotes are stateless (15-min TTL enforced at POST /v1/orders); nothing stored"}
 
 
+async def purge_delivery_codes(conn: Conn, now: _dt.datetime | None = None) -> dict:
+    """Remove expired/terminal delivery secrets; keep the expiry tombstone.
+
+    The code is deleted at expiry (or terminal state) but ``pod_otp_expires_at``
+    stays so the customer UI can show "expired" and offer a reissue. Idempotent.
+    """
+    now = now or _now()
+    cols = await _cols(conn, "stops")
+    if "pod_otp" not in cols:
+        return {"expired_cleared": 0, "terminal_cleared": 0}
+    terminal = (
+        "status IN ('failed', 'skipped') OR order_id IN"
+        " (SELECT id FROM orders WHERE state IN ('cancelled', 'rejected', 'failed'))"
+    )
+    sets = ["pod_otp = NULL"]
+    if "pod_attempts" in cols:
+        sets.append("pod_attempts = 0")
+    if "pod_otp_expires_at" in cols:
+        sets.append("pod_otp_expires_at = NULL")
+    with WRITE_LOCK:
+        try:
+            expired_cleared = 0
+            if "pod_otp_expires_at" in cols:
+                cur = await conn.execute(
+                    "UPDATE stops SET pod_otp = NULL"
+                    " WHERE pod_otp IS NOT NULL AND pod_otp_expires_at IS NOT NULL"
+                    " AND pod_otp_expires_at <= ?",
+                    (now.isoformat(),),
+                )
+                expired_cleared = cur.rowcount or 0
+            cur = await conn.execute(
+                f"UPDATE stops SET {', '.join(sets)} WHERE pod_otp IS NOT NULL AND ({terminal})",  # noqa: S608
+                (),
+            )
+            terminal_cleared = cur.rowcount or 0
+            # ``done`` is also set by the triple, which can arrive before the
+            # PoD code is used. Only a closed triple is truly terminal.
+            done = (await conn.execute(
+                "SELECT id, triple FROM stops WHERE status = 'done' AND pod_otp IS NOT NULL"
+            )).fetchall()
+            closed_ids = []
+            for row in done:
+                try:
+                    triple = json.loads(row["triple"] or "{}")
+                except (TypeError, ValueError):
+                    triple = {}
+                if triple.get("pod"):
+                    closed_ids.append(row["id"])
+            if closed_ids:
+                marks = ", ".join("?" for _ in closed_ids)
+                cur = await conn.execute(
+                    f"UPDATE stops SET {', '.join(sets)} WHERE id IN ({marks})",  # noqa: S608
+                    tuple(closed_ids),
+                )
+                terminal_cleared += cur.rowcount or 0
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+            return {"expired_cleared": 0, "terminal_cleared": 0}
+    return {"expired_cleared": expired_cleared, "terminal_cleared": terminal_cleared}
+
+
 async def run_all(conn: Conn, today: object = None,
             now: _dt.datetime | None = None) -> dict:
     """Run every job once; returns the combined summary."""
     return {"due": await run_due_subscriptions(conn, today),
             "reminders": await collect_reminders(conn, today),
-            "purge": await purge_expired(conn, now)}
+            "purge": await purge_expired(conn, now),
+            "delivery_codes": await purge_delivery_codes(conn, now)}
 
 
 def main(argv: list[str] | None = None) -> dict:

@@ -920,6 +920,82 @@ ShodashaDonorApp (main.dart)
 - Accepted reuse deviations: Subscriptions, saved addresses and support reuse the real 032 screens with donor copy/cards/pills; the donor's local `Rs 65` plan modal, hardcoded addresses and fake ticket dialogs are not cloned. Notifications derive from real order/subscription state; the donor's third “pump” product is omitted (no backend SKU).
 - Verification: `flutter analyze` clean · `flutter test` **10/10** (6 OTP controller, donor order mapping, login smoke 360dp, five-tab shell smoke 390dp) · `flutter build apk --debug` succeeded. Release signing, physical-device smoke and live-backend smoke remain open.
 
+## 034 — Password auth + 24h delivery code (branch 034-auth-password-delivery-otp, ADR-128)
+
+Customer identity is mobile + password; customer OTP is retired. Delivery codes are
+24h handoff secrets owned by the backend and surfaced only on tracking.
+
+```
+AuthGate (login-first, bounded restore)
+ ├─ DonorLoginScreen
+ │   ├─ Sign in: normalizePhone(raw) → POST /auth/user/login {phone,password,device}
+ │   ├─ Create: name + optional email + mobile + password/confirm
+ │   │    → POST /auth/user/register {name,email,phone,password,device}
+ │   │    ├─ 409 ACCOUNT_EXISTS → sign-in mode, prefill mobile, no claim
+ │   │    ├─ 422 ROLE_RESERVED → staff-number copy
+ │   │    └─ 429 → retry_after_s countdown
+ │   ├─ Forgot password → support reset dialog (no self-service endpoint)
+ │   └─ Demo access → POST /auth/demo (server-gated QA only)
+ ├─ 401/403 on any authed call → ApiClient.onUnauthorized
+ │    → AuthController.forceLogout(sessionExpired:true)
+ │    → one-shot sessionNotice shown on login; no authed retry loop
+ └─ restoreSession failure/timeout → login + notice, never an infinite splash
+```
+
+### Backend auth
+
+```
+POST /v1/auth/user/register   validate → normalize phone/email → PBKDF2 hash
+                              → insert user (never claims an existing row)
+POST /v1/auth/user/login      rate limit → find by phone → verify password
+                              → generic 401 INVALID_CREDENTIALS
+POST /v1/admin/users/{id}/password-reset
+                              require admin → set password → revoke sessions
+                              → audit user.password_reset (no hash/password)
+POST /v1/auth/otp/start|verify → 410 OTP_RETIRED (no body validation)
+```
+
+Passwords: PBKDF2-HMAC-SHA256, 600,000 iterations, 16-byte salt, 32-byte key,
+constant-time compare; unknown phones still verify a dummy hash. Local Python uses
+`hashlib`; Cloudflare uses WebCrypto (Workers Paid). Parameters are server constants.
+
+### Delivery-code lifecycle
+
+```
+assign/reassign → mint 6-digit code, expiry NULL (state active)
+dispatch        → code (mint if missing) + expiry = now + 24h in same transaction
+read            → _delivery_view(order_state, stop)
+                  active | expired | locked | unavailable | used | none
+                  detail returns delivery_otp only when active
+reissue         → POST /orders/{id}/delivery-code/reissue
+                  owner + dispatched + pending stop + state in
+                  {expired,locked,unavailable}; max 3/order/24h; audit
+                  errors CODE_ACTIVE | RATE_LIMITED | NOT_FOUND | STATE_CONFLICT
+vendor PoD      → compare code constant-time; wrong ×5 → locked (secret cleared)
+                  expired/unavailable → explicit error; success → stop done,
+                  code/expiry/attempts cleared, order delivered
+PoD replay      → completed stop returns replay:true without a code
+scheduler       → purge expired/terminal secrets, keep expiry tombstone
+```
+
+```
+OrdersController.refreshOrder(id)
+ ├─ success → update row, clear detailFailed/detailOffline/detailServerError
+ └─ failure → keep last row, set detail flags, back off poll
+TrackingScreen
+ ├─ active + expiry → code + “Expires in Xh Ym”; local rollover at timestamp
+ ├─ active, no expiry (assigned) → code + “Rider will ask at delivery.”
+ ├─ expired/locked/unavailable → state copy + Get new code when owner/dispatched
+ ├─ used → “Delivery complete — code used.”
+ ├─ detailFailed → stale banner + Retry (offline/server/normal split)
+ └─ app resume → refresh detail + recompute countdown
+```
+
+The secret is never rendered on order-list cards, never returned in list responses,
+never logged, never put in a URL, and other users get 404 like a missing order.
+`ApiException.isOffline == (code == 'NETWORK')`; 5xx is `isServerError` and must
+not drive the offline strip. Demo login remains server-gated QA, not customer proof.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:

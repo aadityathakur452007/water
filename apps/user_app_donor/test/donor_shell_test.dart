@@ -24,7 +24,7 @@ void main() {
       deviceId: 'test-device',
     );
     addTearDown(auth.dispose);
-    await auth.verifyOtp('9876543210', '123456');
+    await auth.login(rawPhone: '9876543210', password: 'test-pass1');
 
     final booking = BookingController(
       initialRates: const CatalogRates(
@@ -144,13 +144,9 @@ class _FakeApi extends ApiClient {
 
 class _FakeAuthApi implements AuthApi {
   @override
-  Future<OtpStartResult> startOtp({required String phone}) async =>
-      const OtpStartResult(channel: 'fast2sms', resendAfterSeconds: 30);
-
-  @override
-  Future<AuthSession> verifyOtp({
+  Future<AuthSession> login({
     required String phone,
-    required String code,
+    required String password,
     required String deviceId,
   }) async => AuthSession(
     accessToken: 'test-token',
@@ -164,6 +160,7 @@ class _FakeAuthApi implements AuthApi {
     required String name,
     required String email,
     required String phone,
+    required String password,
     required String deviceId,
   }) async => throw UnimplementedError();
 

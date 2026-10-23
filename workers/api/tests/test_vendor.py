@@ -19,10 +19,12 @@ from app.core.errors import AppError, NotFoundError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.services.vendor_service import (  # noqa: E402
+    DeliveryCodeExpiredError,
+    DeliveryCodeUnavailableError,
     PayloadMismatchError,
+    PodLockedError,
     StaleStopError,
     VendorService,
-    pod_otp,
 )
 
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
@@ -30,14 +32,18 @@ M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").re
 M004 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 M005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
 M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_text()
+M015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+M027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
 
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 FUTURE = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat()
+POD = "482910"
+POD_EXPIRY = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=12)).isoformat()
 
 
 def _conn():
     c = get_connection(":memory:")
-    c.executescript(M002 + M003 + M004 + M005 + M007)
+    c.executescript(M002 + M003 + M004 + M005 + M007 + M015 + M027)
     c.execute(
         "INSERT INTO users(id, phone, role, created_at) VALUES "
         "('v1', '+911111111111', 'vendor', ?), ('v2', '+913333333333', 'vendor', ?),"
@@ -73,6 +79,10 @@ def _conn():
             (sid, oid, seq, fe, ee, st),
         )
     c.execute("UPDATE stops SET version = 2 WHERE id = 's3'")  # reassigned under the vendor
+    c.execute(
+        "UPDATE stops SET pod_otp = ?, pod_otp_expires_at = ? WHERE id = 's1'",
+        (POD, POD_EXPIRY),
+    )
     c.execute(
         "INSERT INTO complaints(id, order_id, user_id, reason_code, text, status, created_at)"
         " VALUES ('c1', 'o1', 'u1', 'short_delivery', 'one jar short', 'open', ?),"
@@ -256,7 +266,7 @@ async def test_pod_happy_delivers():
     c = _conn()
     s = _svc(c)
     await s.triple_commit("v1", "s1", _triple())
-    out = await s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
+    out = await s.pod_complete("v1", "s1", {"delivery_otp": POD,
                                       "empties_count": 1, "cash": 100, "seal_ok": True})
     assert out["status"] == "done" and out["triple"]["pod"]["seal_ok"] is True
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "delivered"
@@ -271,9 +281,72 @@ async def test_pod_wrong_otp_reads_as_not_found():
     assert e.value.code == "NOT_FOUND" and e.value.status_code == 404
 
 
+async def test_pod_lockout_clears_code_on_fifth_failure():
+    c = _conn()
+    s = _svc(c)
+    for _ in range(4):
+        with pytest.raises(NotFoundError):
+            await s.pod_complete("v1", "s1", {"delivery_otp": "000000"})
+    with pytest.raises(PodLockedError) as e:
+        await s.pod_complete("v1", "s1", {"delivery_otp": "000000"})
+    assert (e.value.code, e.value.status_code) == ("POD_LOCKED", 429)
+    row = c.execute(
+        "SELECT pod_otp, pod_attempts FROM stops WHERE id = 's1'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_attempts"] == 5
+    with pytest.raises(PodLockedError):  # later attempts never check the code
+        await s.pod_complete("v1", "s1", {"delivery_otp": "000000"})
+
+
+async def test_pod_expired_and_unavailable_are_explicit():
+    c = _conn()
+    s = _svc(c)
+    past = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=1)).isoformat()
+    c.execute("UPDATE stops SET pod_otp_expires_at = ? WHERE id = 's1'", (past,))
+    c.commit()
+    with pytest.raises(DeliveryCodeExpiredError) as expired:
+        await s.pod_complete("v1", "s1", {"delivery_otp": POD})
+    assert (expired.value.code, expired.value.status_code) == ("DELIVERY_CODE_EXPIRED", 410)
+    row = c.execute(
+        "SELECT pod_otp, pod_otp_expires_at, pod_attempts FROM stops WHERE id = 's1'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_otp_expires_at"] == past
+    assert row["pod_attempts"] == 0
+
+    # An expired tombstone still reports expired; a truly missing lifecycle
+    # (legacy/race) is the unavailable case.
+    c.execute("UPDATE stops SET pod_otp_expires_at = NULL WHERE id = 's1'")
+    c.commit()
+    with pytest.raises(DeliveryCodeUnavailableError) as unavailable:
+        await s.pod_complete("v1", "s1", {"delivery_otp": POD})
+    assert (unavailable.value.code, unavailable.value.status_code) == (
+        "DELIVERY_CODE_UNAVAILABLE", 410)
+
+
+async def test_completed_pod_replay_needs_no_code():
+    c = _conn()
+    s = _svc(c)
+    first = await s.pod_complete("v1", "s1", {"delivery_otp": POD})
+    assert first["status"] == "done"
+    replay = await s.pod_complete("v1", "s1", {"delivery_otp": "wrong"})
+    assert replay["replay"] is True and replay["status"] == "done"
+    row = c.execute("SELECT pod_attempts FROM stops WHERE id = 's1'").fetchone()
+    assert row["pod_attempts"] in (None, 0)
+
+
+async def test_failed_stop_clears_delivery_code():
+    c = _conn()
+    await _svc(c).fail_stop("v1", "s1", "DOOR_LOCKED", "nobody home")
+    row = c.execute(
+        "SELECT pod_otp, pod_otp_expires_at, pod_attempts FROM stops WHERE id = 's1'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_otp_expires_at"] is None
+    assert row["pod_attempts"] == 0
+
+
 async def test_pod_gps_drift_flagged_not_blocked():
     c = _conn()
-    out = await _svc(c).pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
+    out = await _svc(c).pod_complete("v1", "s1", {"delivery_otp": POD,
                                             "lat": 13.5, "lng": 78.5})  # ~100km away
     assert out["status"] == "done"  # completes despite drift
     assert out["triple"]["pod"]["gps"]["flagged"] is True
@@ -302,7 +375,7 @@ async def test_earnings_totals_and_flagged_hold():
     c = _conn()
     s = _svc(c)
     await s.triple_commit("v1", "s1", _triple(cash=100, upi=50))
-    await s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY), "lat": 13.5, "lng": 78.5})
+    await s.pod_complete("v1", "s1", {"delivery_otp": POD, "lat": 13.5, "lng": 78.5})
     await s.triple_commit("v1", "s2", _triple(fulls_given=1, empties_back=0, cash=0, upi=200))
     out = await s.earnings("v1", DAY)
     assert (out["cash_total"], out["upi_total"], out["stops_done"]) == (100, 250, 2)
@@ -528,7 +601,7 @@ def test_router_triple_pod_me_validation():
     assert client.post("/v1/vendor/stops/s1/pod", json={"delivery_otp": "000000"},
                        headers=h).status_code == 404
     ok = client.post("/v1/vendor/stops/s1/pod",
-                     json={"delivery_otp": pod_otp("o1", DAY), "seal_ok": True}, headers=h)
+                     json={"delivery_otp": POD, "seal_ok": True}, headers=h)
     assert ok.status_code == 200 and ok.json()["triple"]["pod"]["seal_ok"] is True
 
 

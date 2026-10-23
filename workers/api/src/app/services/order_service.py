@@ -12,13 +12,21 @@ import datetime as _dt
 import hashlib
 import json
 
-from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
+from app.core.errors import (
+    AppError,
+    ConflictError,
+    NotFoundError,
+    RateLimitedError,
+    ValidationError,
+)
+from app.db import WRITE_LOCK
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import (
     AlreadyCancelledError,
     NeedDispatchOverrideError,
     OrderRepo,
 )
+from app.services import delivery_code
 
 CREATE_ENDPOINT = "POST /v1/orders"
 MAX_JARS_PER_ORDER = 10  # EC-O03 hard stop; >10 = tanker-stop, contact support
@@ -49,6 +57,56 @@ class PayloadMismatchError(AppError):
 class IdempotentReplayError(AppError):
     code = "IDEMPOTENT_REPLAY"
     status_code = 409
+
+
+class CodeActiveError(AppError):
+    code = "CODE_ACTIVE"
+    status_code = 409
+
+
+def _stop_status(stop: dict) -> str | None:
+    """A tripled-but-not-closed stop is still awaiting the delivery code."""
+    status = stop.get("status")
+    if status == "done" and not stop.get("pod_closed"):
+        return "pending"
+    return status
+
+
+def _delivery_view(order_state: str, stop: dict | None) -> dict:
+    if order_state == "delivered":
+        return {
+            "delivery_otp": None,
+            "delivery_otp_expires_at": None,
+            "delivery_otp_state": "used",
+            "delivery_otp_reissue_available": False,
+        }
+    if stop is None:
+        return {
+            "delivery_otp": None,
+            "delivery_otp_expires_at": None,
+            "delivery_otp_state": "none",
+            "delivery_otp_reissue_available": False,
+        }
+    state = delivery_code.state(
+        order_state=order_state,
+        stop_status=_stop_status(stop),
+        code=stop.get("pod_otp"),
+        code_expires_at=stop.get("pod_otp_expires_at"),
+        attempts=int(stop.get("pod_attempts") or 0),
+    )
+    return {
+        "delivery_otp": stop.get("pod_otp") if state == "active" else None,
+        "delivery_otp_expires_at": (
+            stop.get("pod_otp_expires_at")
+            if state in {"active", "expired", "locked"} else None
+        ),
+        "delivery_otp_state": state,
+        "delivery_otp_reissue_available": delivery_code.reissue_available(
+            order_state=order_state,
+            stop_status=_stop_status(stop),
+            code_state=state,
+        ),
+    }
 
 
 def _now() -> _dt.datetime:
@@ -243,20 +301,14 @@ class OrderService:
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         events = await self.orders.events(order_id)
-        # F1: PoD delivery code for the owner, only while a stop is active.
-        # Hidden before assignment (no route yet) and after terminal states.
-        delivery_otp: str | None = None
+        # F1/034: the delivery code is owner-only and only while the latest
+        # stop is active. Expired/locked/unavailable rows expose state + reissue,
+        # never a fallback code. Delivered rows are "used".
+        stop = await self.orders.stop_delivery_state(order_id)
+        delivery = _delivery_view(order["state"], stop)
         stops_ahead: int | None = None
         rider_info: dict | None = None
         if order["state"] in ("assigned", "dispatched"):
-            day = await self.orders.route_date_for_order(order_id)
-            if day is not None:
-                from app.services.vendor_service import pod_otp
-
-                # Stored random code when the stop has one (015); legacy
-                # deterministic code for pre-migration rows. Owner-only leg.
-                delivery_otp = await self.orders.stop_pod_otp(order_id) or pod_otp(order_id, day)
-
             try:
                 stop_row = (await self.orders._conn.execute(
                     "SELECT s.id, s.route_id, s.seq, r.vendor_id FROM stops s"
@@ -294,7 +346,7 @@ class OrderService:
         return {
             **order,
             "delivery_address": delivery_address,
-            "delivery_otp": delivery_otp,
+            **delivery,
             "stops_ahead": stops_ahead,
             "tracker": {"steps": ["placed", "packed", "dispatched", "delivered"], "current": order["state"]},
             "rider": rider_info,
@@ -306,6 +358,80 @@ class OrderService:
                 "payment_status": order["payment_status"],
             },
             "events": events,
+        }
+
+    async def reissue_delivery_code(self, user_id: str, order_id: str) -> dict:
+        """Owner reissue for expired/locked/unavailable, max 3/order/24h.
+
+        The code is re-minted and the expiry is reset to now + 24h. Concurrent
+        reissues serialize on WRITE_LOCK so the audit count is authoritative.
+        """
+        order = await self.orders.find_owned(order_id, user_id)
+        if order is None:
+            raise NotFoundError(message="Order not found.", details={"id": order_id})
+        if order["state"] != "dispatched":
+            raise ConflictError(
+                message="A delivery code can only be reissued after dispatch.",
+                details={"state": order["state"]},
+            )
+        stop = await self.orders.stop_delivery_state(order_id)
+        if stop is None or _stop_status(stop) != "pending":
+            raise NotFoundError(
+                message="This order has no active delivery stop.",
+                details={"order_id": order_id},
+            )
+        since = (delivery_code.now() - _dt.timedelta(
+            hours=delivery_code.REISSUE_WINDOW_HOURS)).isoformat()
+        with WRITE_LOCK:
+            # Re-check under the lock: a concurrent reissue may have just made
+            # the code active, and the audit count is the rate-limit truth.
+            fresh = await self.orders.stop_delivery_state(order_id)
+            current = delivery_code.state(
+                order_state=order["state"],
+                stop_status=_stop_status(fresh or stop),
+                code=(fresh or stop).get("pod_otp"),
+                code_expires_at=(fresh or stop).get("pod_otp_expires_at"),
+                attempts=int((fresh or stop).get("pod_attempts") or 0),
+            )
+            if current not in {"expired", "locked", "unavailable"}:
+                raise CodeActiveError(
+                    "The current delivery code is still active.",
+                    {"state": current},
+                )
+            row = (await self.orders._conn.execute(
+                "SELECT COUNT(*) c FROM audit_log"
+                " WHERE action = 'order.delivery_code_reissue' AND entity_id = ?"
+                " AND created_at >= ?",
+                (order_id, since),
+            )).fetchone()
+            used = int(row["c"]) if row is not None else 0
+            if used >= delivery_code.REISSUE_LIMIT:
+                raise RateLimitedError(
+                    "Delivery code reissue limit reached. Try again later or contact support.",
+                    {"retry_after_s": delivery_code.REISSUE_WINDOW_HOURS * 3600,
+                     "limit": delivery_code.REISSUE_LIMIT},
+                )
+            code = delivery_code.mint()
+            expiry = delivery_code.expires_at()
+            await self.orders._conn.execute(
+                "UPDATE stops SET pod_otp = ?, pod_otp_expires_at = ?,"
+                " pod_attempts = 0 WHERE id = ?",
+                (code, expiry, stop["id"]),
+            )
+            from app.services.dispatch_service import write_audit  # noqa: PLC0415
+
+            await write_audit(
+                self.orders._conn, actor=user_id, actor_role="user",
+                action="order.delivery_code_reissue", entity="orders",
+                entity_id=order_id, before=current, after="active",
+            )
+            self.orders._conn.commit()
+        return {
+            "reissued": True,
+            "delivery_otp": code,
+            "delivery_otp_expires_at": expiry,
+            "delivery_otp_state": "active",
+            "delivery_otp_reissue_available": False,
         }
 
     async def list(self, user_id: str, limit: int = 20, cursor: str | None = None) -> dict:
@@ -433,6 +559,9 @@ class OrderService:
             "window_start": d.get("window_start"),
             "window_end": d.get("window_end"),
             "delivery_otp": d["delivery_otp"],
+            "delivery_otp_expires_at": d["delivery_otp_expires_at"],
+            "delivery_otp_state": d["delivery_otp_state"],
+            "delivery_otp_reissue_available": d["delivery_otp_reissue_available"],
             "events": d["events"],
         }
 

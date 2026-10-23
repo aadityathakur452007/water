@@ -15,6 +15,7 @@ from app.db import get_connection, init_schema  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.jobs.scheduler import (  # noqa: E402
     collect_reminders,
+    purge_delivery_codes,
     purge_expired,
     run_due_subscriptions,
 )
@@ -22,7 +23,8 @@ from app.repositories.ledger_repo import LedgerRepo  # noqa: E402
 from app.services.subscription_service import SubscriptionService  # noqa: E402
 
 MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
-        "006_aftermath.sql", "007_ops.sql"]
+        "006_aftermath.sql", "007_ops.sql", "015_pod_otp.sql",
+        "027_pod_otp_lifecycle.sql"]
 DAY = "2026-09-29"
 
 
@@ -137,3 +139,51 @@ async def test_purge_deletes_only_expired_money_audit_survives():
     replay = await purge_expired(AsyncSqliteConn(c))  # idempotent: second run deletes nothing
     assert replay["idempotency_72h_deleted"] == replay["idempotency_30d_deleted"] == 0
     assert replay["audit_ops_deleted"] == replay["audit_money_deleted"] == 0
+
+
+async def test_purge_delivery_codes_expiry_and_closed_only():
+    c = _conn()
+    now = datetime.now(timezone.utc)
+    past = (now - timedelta(minutes=1)).isoformat()
+    future = (now + timedelta(hours=12)).isoformat()
+    c.execute(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill,"
+        " deposit_due, total, payment_mode, state, window_start, idempotency_key,"
+        " created_at) VALUES"
+        " ('od', 'u1', 'a1', '[]', 2, 1, 5600, 0, 5600, 'cod', 'dispatched',"
+        " '2026-10-01T08:00:00+00:00', 'seed:od', ?),"
+        " ('oc', 'u1', 'a1', '[]', 2, 1, 5600, 0, 5600, 'cod', 'cancelled',"
+        " '2026-10-01T08:00:00+00:00', 'seed:oc', ?)",
+        (now.isoformat(), now.isoformat()),
+    )
+    c.execute(
+        "INSERT INTO routes(id, date, vendor_id, zone, status)"
+        " VALUES ('rd', '2026-10-01', 'v1', 'z1', 'open')"
+    )
+    c.execute(
+        "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+        " empties_exp, version, status, pod_otp, pod_otp_expires_at, triple) VALUES"
+        " ('expired', 'rd', 'od', 'u1', 0, 2, 1, 1, 'pending', '111111', ?, '{}'),"
+        " ('closed', 'rd', 'od', 'u1', 1, 2, 1, 1, 'done', '222222', ?,"
+        "  '{\"pod\": {\"seal_ok\": true}}'),"
+        " ('tripled', 'rd', 'od', 'u1', 2, 2, 1, 1, 'done', '333333', ?, '{}'),"
+        " ('failed', 'rd', 'od', 'u1', 3, 2, 1, 1, 'failed', '444444', ?, '{}'),"
+        " ('cancelled', 'rd', 'oc', 'u1', 0, 2, 1, 1, 'pending', '555555', ?, '{}')",
+        (past, future, future, future, future),
+    )
+    c.commit()
+
+    out = await purge_delivery_codes(AsyncSqliteConn(c), now)
+    assert out == {"expired_cleared": 1, "terminal_cleared": 3}
+    rows = {r["id"]: r for r in c.execute(
+        "SELECT id, pod_otp, pod_otp_expires_at FROM stops"
+    ).fetchall()}
+    assert rows["expired"]["pod_otp"] is None
+    assert rows["expired"]["pod_otp_expires_at"] == past  # tombstone retained
+    assert rows["closed"]["pod_otp"] is None
+    assert rows["failed"]["pod_otp"] is None
+    assert rows["cancelled"]["pod_otp"] is None
+    # Triple but no PoD yet: the customer is still at the door, keep the code.
+    assert rows["tripled"]["pod_otp"] == "333333"
+    assert (await purge_delivery_codes(AsyncSqliteConn(c), now)) == {
+        "expired_cleared": 0, "terminal_cleared": 0}

@@ -4,8 +4,8 @@
 //
 // Ported from apps/user_app_legacy_flutter F4 with the donor status
 // treatment on tokens only — teal tracker + live banners, slate inset for
-// the delivery-code chip, tint schedule row. Frozen on purpose: the delivery
-// OTP reveal behavior + strings, every order/status string, and the
+// the delivery-code chip, tint schedule row. Frozen on purpose: the
+// delivery-code reveal behavior + strings, every order/status string, and the
 // verification/poll wiring (60s backoff → 300s cap).
 //
 // States.md covered: loading (tracker-shaped skeleton), error + retry,
@@ -18,6 +18,8 @@
 //
 // `onSupport` is the nullable S8 complaints door (no feature-folder import);
 // the rating sheet shows its complaint shortcut only when it is wired.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -43,15 +45,20 @@ class TrackingScreen extends StatefulWidget {
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
-class _TrackingScreenState extends State<TrackingScreen> {
+class _TrackingScreenState extends State<TrackingScreen>
+    with WidgetsBindingObserver {
   CancelReason _cancelReason = CancelReason.changedMind;
   RescheduleSlot? _slot;
   bool _ratingShown = false;
   bool _detailLoading = false;
+  DateTime _now = DateTime.now();
+  Timer? _codeTimer;
+  String? _reissueError;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _detailLoading = widget.controller.findById(widget.orderId) == null;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await widget.controller.refreshOrder(widget.orderId);
@@ -60,8 +67,44 @@ class _TrackingScreenState extends State<TrackingScreen> {
       }
       widget.controller.startTracking(widget.orderId);
       _maybeAutoRate();
+      _syncCodeTimer();
     });
-    widget.controller.addListener(_maybeAutoRate);
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  void _onControllerChanged() {
+    _maybeAutoRate();
+    _syncCodeTimer();
+  }
+
+  /// A 24h code needs a visible rollover while this screen stays open, but a
+  /// per-second timer would be wasteful. Recompute a few times a minute and
+  /// immediately on app resume.
+  void _syncCodeTimer() {
+    final order = widget.controller.findById(widget.orderId);
+    final needsTick =
+        order != null &&
+        order.deliveryCodeState == 'active' &&
+        order.deliveryCodeExpiresAt != null &&
+        order.deliveryCodeExpiresAt!.isAfter(DateTime.now());
+    if (!needsTick) {
+      _codeTimer?.cancel();
+      _codeTimer = null;
+      return;
+    }
+    _codeTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+      _syncCodeTimer();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    setState(() => _now = DateTime.now());
+    _syncCodeTimer();
+    widget.controller.refreshOrder(widget.orderId);
   }
 
   /// Detail-only retry: re-read this order instead of the whole list.
@@ -71,6 +114,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
     await widget.controller.refreshOrder(widget.orderId);
     if (!mounted) return;
     setState(() => _detailLoading = false);
+  }
+
+  Future<void> _reissueCode() async {
+    if (widget.controller.reissueBusy) return;
+    setState(() => _reissueError = null);
+    final result = await widget.controller.reissueDeliveryCode(widget.orderId);
+    if (!mounted) return;
+    if (result.ok) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('New code ready.')));
+      return;
+    }
+    setState(() => _reissueError = result.message);
   }
 
   void _maybeAutoRate() {
@@ -93,7 +150,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   @override
   void dispose() {
-    widget.controller.removeListener(_maybeAutoRate);
+    WidgetsBinding.instance.removeObserver(this);
+    _codeTimer?.cancel();
+    widget.controller.removeListener(_onControllerChanged);
     widget.controller.stopTracking();
     super.dispose();
   }
@@ -325,6 +384,15 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _HeaderCard(order: order),
+                  if (widget.controller.detailFailed) ...[
+                    const SizedBox(height: 12),
+                    _StaleBanner(
+                      offline: widget.controller.detailOffline,
+                      server: widget.controller.detailServerError,
+                      busy: _detailLoading,
+                      onRetry: _retryDetail,
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   if (order.state == OrderState.cancelled)
                     _FlatBanner(text: ordersStringsHi['cancelledBanner']!)
@@ -354,13 +422,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     const SizedBox(height: 12),
                     _RiderCard(order: order, onCall: () => _callRider(order)),
                   ],
-                  // F1: delivery code the rider asks for at the door.
-                  // Renders only when the server sends it (assigned/dispatched).
-                  if (order.deliveryOtp != null &&
-                      order.deliveryOtp!.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    _DeliveryCodeRow(code: order.deliveryOtp!),
-                  ],
+                  ..._deliveryCodeSection(order),
                   const SizedBox(height: 12),
                   _BillRow(
                     order: order,
@@ -402,6 +464,45 @@ class _TrackingScreenState extends State<TrackingScreen> {
         ),
       ),
     );
+  }
+
+  /// The delivery code is the single secret shown only on tracking. `none`
+  /// hides the whole chip; every other state gets explicit copy.
+  List<Widget> _deliveryCodeSection(Order order) {
+    var state = order.deliveryCodeStateAt(_now);
+    if (state == 'active' &&
+        (order.deliveryOtp == null || order.deliveryOtp!.isEmpty)) {
+      state = 'unavailable';
+    }
+    if (state == 'none') return const [];
+
+    final locallyExpired =
+        state == 'expired' && order.deliveryCodeState == 'active';
+    final needsNewCode = const {
+      'expired',
+      'locked',
+      'unavailable',
+    }.contains(state);
+    // The server gate is authoritative; a local 24h rollover also offers the
+    // action so the user is never stuck waiting for a poll.
+    final canReissue =
+        order.state == OrderState.dispatched &&
+        needsNewCode &&
+        (order.deliveryCodeReissueAvailable || locallyExpired);
+
+    return [
+      const SizedBox(height: 12),
+      _DeliveryCodeCard(
+        state: state,
+        code: order.deliveryOtp,
+        expiresAt: order.deliveryCodeExpiresAt,
+        now: _now,
+        busy: widget.controller.reissueBusy,
+        showReissue: canReissue,
+        error: _reissueError,
+        onReissue: _reissueCode,
+      ),
+    ];
   }
 }
 
@@ -877,63 +978,229 @@ class _RiderCard extends StatelessWidget {
   }
 }
 
-class _DeliveryCodeRow extends StatelessWidget {
-  const _DeliveryCodeRow({required this.code});
-  final String code;
+class _DeliveryCodeCard extends StatelessWidget {
+  const _DeliveryCodeCard({
+    required this.state,
+    required this.code,
+    required this.expiresAt,
+    required this.now,
+    required this.busy,
+    required this.showReissue,
+    required this.error,
+    required this.onReissue,
+  });
+
+  final String state;
+  final String? code;
+  final DateTime? expiresAt;
+  final DateTime now;
+  final bool busy;
+  final bool showReissue;
+  final String? error;
+  final VoidCallback onReissue;
+
+  static const _title = 'Delivery code / डिलीवरी कोड';
 
   @override
   Widget build(BuildContext context) {
-    // Donor security-PIN chip — slate inset box, teal pin icon, loose
-    // letter-spacing on the digits. Display logic + strings are FROZEN.
+    final active = state == 'active';
+    final icon = switch (state) {
+      'expired' => Icons.lock_clock_outlined,
+      'locked' => Icons.lock_outline,
+      'unavailable' => Icons.help_outline,
+      'used' => Icons.check_circle_outline,
+      _ => Icons.key_outlined,
+    };
+    final iconColor = switch (state) {
+      'locked' => ShodashaTheme.danger,
+      'used' => ShodashaTheme.success,
+      'expired' => ShodashaTheme.muted,
+      _ => ShodashaTheme.teal,
+    };
+    final headline = switch (state) {
+      'expired' => 'Code expired',
+      'locked' => 'Too many wrong attempts',
+      'unavailable' => 'Code unavailable',
+      'used' => 'Delivery complete — code used.',
+      _ => _title,
+    };
+    final support = switch (state) {
+      'expired' => 'This code can no longer be used. Get a new one.',
+      'locked' => 'For your safety this code is locked. Get a new one.',
+      'unavailable' =>
+        'We could not find a code for this delivery. Get a new one.',
+      'used' => 'The rider completed this delivery with your code.',
+      _ => null,
+    };
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: ShodashaTheme.surface,
-        border: Border.all(color: ShodashaTheme.border),
+        border: Border.all(
+          color: state == 'locked'
+              ? ShodashaTheme.danger.withValues(alpha: 0.35)
+              : ShodashaTheme.border,
+        ),
         borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
       ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: ShodashaTheme.bg,
-          border: Border.all(color: ShodashaTheme.border),
-          borderRadius: BorderRadius.circular(ShodashaTheme.radius / 2),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.key_outlined, size: 18, color: ShodashaTheme.teal),
-            const SizedBox(width: 8),
-            Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: active ? ShodashaTheme.tealTint : ShodashaTheme.bg,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 18, color: iconColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      style: TextStyle(
+                        fontSize: active ? 11 : 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: active ? 0.5 : 0,
+                        color: active ? ShodashaTheme.muted : ShodashaTheme.ink,
+                      ),
+                    ),
+                    if (support != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        support,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: ShodashaTheme.muted,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (active && code != null && code!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.bg,
+                border: Border.all(color: ShodashaTheme.border),
+                borderRadius: BorderRadius.circular(ShodashaTheme.radius / 2),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Delivery code / डिलीवरी कोड',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                      color: ShodashaTheme.muted,
+                  Semantics(
+                    label:
+                        'Delivery code ${code!.split('').join(' ')}. '
+                        'Tell this code to the rider at delivery.',
+                    child: ExcludeSemantics(
+                      child: Text(
+                        code!,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          color: ShodashaTheme.teal,
+                          letterSpacing: 6,
+                        ),
+                      ),
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
-                    '$code — rider ko batayein',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    _secondary(expiresAt, now),
                     style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: ShodashaTheme.teal,
-                      letterSpacing: 2,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: ShodashaTheme.muted,
                     ),
                   ),
                 ],
               ),
             ),
           ],
-        ),
+          if (showReissue) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: ShodashaTheme.minTarget,
+              child: OutlinedButton.icon(
+                onPressed: busy ? null : onReissue,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: ShodashaTheme.teal,
+                  side: const BorderSide(color: ShodashaTheme.border),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                  ),
+                ),
+                icon: busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: ShodashaTheme.teal,
+                        ),
+                      )
+                    : const Icon(Icons.refresh, size: 18),
+                label: Text(
+                  busy ? 'Getting a new code…' : 'Get new code',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ],
+          if (error != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 16,
+                  color: ShodashaTheme.danger,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    error!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: ShodashaTheme.danger,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
+  }
+
+  /// Minute precision is enough for a 24h code; the screen recomputes on
+  /// resume and on the 30s rollover tick.
+  static String _secondary(DateTime? expiresAt, DateTime now) {
+    if (expiresAt == null) return 'Rider will ask at delivery.';
+    final left = expiresAt.difference(now);
+    if (left.isNegative) return 'Expiring now…';
+    if (left.inHours >= 1) {
+      return 'Expires in ${left.inHours}h ${left.inMinutes % 60}m';
+    }
+    if (left.inMinutes >= 1) return 'Expires in ${left.inMinutes}m';
+    return 'Expires in under a minute';
   }
 }
 
@@ -988,6 +1255,57 @@ class _BillRow extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StaleBanner extends StatelessWidget {
+  const _StaleBanner({
+    required this.offline,
+    required this.server,
+    required this.busy,
+    required this.onRetry,
+  });
+
+  final bool offline;
+  final bool server;
+  final bool busy;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = offline
+        ? 'No internet — showing the last update.'
+        : server
+        ? 'Server problem — showing the last update.'
+        : 'Could not refresh — showing the last update.';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.bg,
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+        border: Border.all(color: ShodashaTheme.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.history, size: 18, color: ShodashaTheme.muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12.5,
+                height: 1.3,
+                color: ShodashaTheme.muted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: busy ? null : onRetry,
+            child: const Text('Retry'),
+          ),
+        ],
       ),
     );
   }
