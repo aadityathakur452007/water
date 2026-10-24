@@ -32,22 +32,30 @@ class PaymentService:
         order = await self.orders.find_owned(order_id, user_id)
         if order is None:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
+        if order.get("state") in ("cancelled", "rejected"):
+            raise ConflictError(message="Order cannot be paid.", details={"id": order_id})
         if order.get("payment_mode") != "upi":
             raise ValidationError(message="Order is not a UPI order.", details={})
         if order.get("payment_status") in ("paid_upi", "paid_cash"):
             raise ConflictError(message="Order is already paid.", details={"id": order_id})
-        created = self.provider.create_intent(order)
-        payment = await self.payments.create_intent(
-            order_id, int(order["total"]), idempotency_key.strip(),
-            provider_ref=created["provider_ref"],
-        )
-        return {"payment": payment, "link": created["link"],
-                "provider_ref": created["provider_ref"]}
+        reserved = await self.payments.reserve_intent(
+            order_id, int(order["total"]), idempotency_key.strip())
+        if "payment" in reserved:  # replay: same link, provider not called again
+            return reserved
+        try:
+            created = self.provider.create_intent(order)
+        except Exception:
+            await self.payments.fail_intent(reserved["payment_id"], idempotency_key.strip())
+            raise
+        return await self.payments.attach_intent(
+            reserved["payment_id"], idempotency_key.strip(),
+            created["provider_ref"], created["link"])
 
     # -- webhook ingest (verify → reconcile → best-effort FCM note) ------
 
     async def webhook_ingest(self, raw_body: bytes, signature: str | None) -> dict:
         from app.adapters.upi import IgnoredWebhook  # noqa: PLC0415 (avoid cycle)
+        from app.services.subscription_service import SubscriptionService  # noqa: PLC0415
 
         try:
             event = self.provider.verify_webhook(raw_body, signature)
@@ -55,9 +63,23 @@ class PaymentService:
             return {"ok": True, "ignored": True, "details": e.details}
         if event.get("status") == "declined":
             return {"ok": True, "declined": True, "provider_ref": event.get("provider_ref")}
+        ref = str(event.get("provider_ref", ""))
+        amount = int(event.get("amount", 0))
+        billing = SubscriptionService(self.payments.conn)
+        charge = await billing.find_charge_by_ref(ref)
+        if charge is not None:
+            self.payments.assert_payee(str(event.get("payee", "")))
+            settled = await billing.settle_charge(ref, amount)
+            self._notify_paid({"order_id": f"sub:{settled['subscription_id']}",
+                               "provider_ref": ref})
+            return {"ok": True, "charge": settled}
+        dues_intent = await self.payments.find_dues_intent_by_ref(ref)
+        if dues_intent is not None:
+            self.payments.assert_payee(str(event.get("payee", "")))
+            settled = await self.payments.settle_dues_intent(dues_intent, amount)
+            return {"ok": True, "dues_intent": settled}
         payment = await self.payments.apply_webhook(
-            str(event.get("provider_ref", "")), int(event.get("amount", 0)),
-            str(event.get("payee", "")), order_id=event.get("order_id"),
+            ref, amount, str(event.get("payee", "")), order_id=event.get("order_id"),
         )
         if not payment.pop("_duplicate", False):
             self._notify_paid(payment)  # best-effort; never fails the webhook
@@ -108,38 +130,74 @@ class PaymentService:
     # -- dues-pay intent (settles ledger dues over UPI) ---------------------
 
     async def dues_intent(self, user_id: str, idempotency_key: str) -> dict:
-        """Intent row for the current full dues (no order): the signed webhook
-        settles it like any intent (dues branch, no order flip)."""
+        """Reserve a dues intent, then mint the Razorpay order. This never
+        writes the synthetic 'dues:<user>' order id that broke the FK live."""
         if not idempotency_key or not str(idempotency_key).strip():
             raise ValidationError(message="Idempotency-Key header required.", details={})
         dues = int((await self.get_dues(user_id))["dues"])
         if dues <= 0:
             raise ValidationError(message="No dues to pay.", details={})
-        created = self.provider.create_intent({"id": f"dues-{user_id}", "total": dues})
-        payment = await self.payments.create_dues_intent(
-            user_id, dues, idempotency_key.strip(), created["provider_ref"])
-        return {"payment": payment, "link": created["link"],
-                "provider_ref": created["provider_ref"]}
+        key = idempotency_key.strip()
+        reserved = await self.payments.reserve_dues_intent(user_id, dues, key)
+        if "intent" in reserved:  # replay
+            return {**reserved, "payment": reserved["intent"]}
+        try:
+            created = self.provider.create_intent(
+                {"id": reserved["intent_id"], "total": dues})
+        except Exception:
+            await self.payments.fail_dues_intent(reserved["intent_id"], user_id, key)
+            raise
+        out = await self.payments.attach_dues_intent(
+            reserved["intent_id"], user_id, key, created["provider_ref"], created["link"])
+        return {**out, "payment": out["intent"]}
+
+    # -- monthly prepaid top-up intent -------------------------------------
+
+    async def subscription_intent(self, user_id: str, sub_id: str,
+                                  idempotency_key: str) -> dict:
+        """Reserve one prepaid top-up, then mint the provider order."""
+        from app.services.subscription_service import SubscriptionService  # noqa: PLC0415
+
+        key = (idempotency_key or "").strip()
+        if not key:
+            raise ValidationError(message="Idempotency-Key header required.", details={})
+        billing = SubscriptionService(self.payments.conn)
+        reserved = await billing.begin_charge(user_id, sub_id, key)
+        if "charge" in reserved:  # replay: same link, provider not called again
+            return reserved
+        try:
+            created = self.provider.create_intent(
+                {"id": reserved["charge_id"], "total": int(reserved["amount"])})
+        except Exception:
+            await billing.fail_charge(reserved["charge_id"], user_id, key)
+            raise
+        return await billing.attach_charge(
+            reserved["charge_id"], user_id, key,
+            created["provider_ref"], created["link"])
 
     # -- dues / invoice reads ----------------------------------------------
 
     async def get_dues(self, user_id: str) -> dict:
         led = await self.ledger.get(user_id)
         rows = (await self.payments._conn.execute(
-            "SELECT id, total, payment_status FROM orders WHERE user_id=? AND payment_status IN"
-            " ('unpaid','link_sent','partial_dues')",
+            "SELECT id, total, payment_status FROM orders WHERE user_id=?"
+            " AND state NOT IN ('cancelled','rejected')"
+            " AND payment_status IN ('unpaid','link_sent','partial_dues')"
+            " ORDER BY created_at, id",
             (user_id,),
         )).fetchall()
         lines = []
-        link_pending = 0
+        order_due = 0
         for r in rows:
             paid = await self.payments.paid_sum_for_order(r["id"])
             due = max(0, int(r["total"]) - int(paid))
+            # COD remainders are already carried in ledger.dues; including
+            # them again here would double-count the same rupees.
+            if not await self.payments._dues_posted(r["id"]):
+                order_due += due
             lines.append({"order_id": r["id"], "total": int(r["total"]),
                           "paid": int(paid), "due": due, "status": r["payment_status"]})
-            if r["payment_status"] == "link_sent":
-                link_pending += int(r["total"])
-        dues = int(led["dues"]) + link_pending  # COD remainders live in ledger; UPI links pending
+        dues = int(led["dues"]) + int(order_due)
         vpa = self.agency_vpa
         if vpa is None:
             from app.adapters.upi import agency_vpa as _vpa  # noqa: PLC0415

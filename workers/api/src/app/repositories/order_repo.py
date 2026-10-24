@@ -442,7 +442,13 @@ class OrderRepo:
                     details={"from": from_state, "to": "cancelled"},
                 )
             try:
-                await self._conn.execute("UPDATE orders SET state = 'cancelled' WHERE id = ?", (order_id,))
+                await self._conn.execute(
+                    "UPDATE orders SET state = 'cancelled', payment_status = 'unpaid' WHERE id = ?",
+                    (order_id,))
+                # Any still-open link is dead the moment the order dies.
+                await self._conn.execute(
+                    "UPDATE payments SET status = 'failed' WHERE order_id = ? AND status = 'link_sent'",
+                    (order_id,))
                 await self._clear_stop_codes(order_id)
                 await self._event(order_id, from_state, "cancelled", _actor_id(actor), _role(actor), "cancel settled")
                 if int(order["deposit_due"]) > 0:  # compensating reversal of the deposit entry
@@ -451,16 +457,28 @@ class OrderRepo:
                         ref=f"order:{order_id}", actor=_actor_id(actor),
                         reason="cancel void: deposit reversed", commit=False,
                     )
+                paid_rows = (await self._conn.execute(
+                    "SELECT id, amount, provider_ref FROM payments WHERE order_id=?"
+                    " AND status IN ('paid','partial')", (order_id,))).fetchall()
+                paid_total = sum(int(p["amount"]) for p in paid_rows)
+                credit_total = sum(int(p["amount"]) for p in paid_rows
+                                   if str(p.get("provider_ref") or "").startswith("subcredit:"))
+                real_total = paid_total - credit_total
+                if credit_total > 0:
+                    # Prepaid credit goes back to the wallet, not the bank —
+                    # unless the plan itself is gone, then it is a real refund.
+                    from app.services.subscription_service import SubscriptionService  # noqa: PLC0415
+
+                    restored = await SubscriptionService(self._conn).restore_order_credit(
+                        order_id, commit=False)
+                    real_total += credit_total - int(restored)
                 refund = None
-                if order["payment_status"] in PAID_STATUSES:  # money moved -> refund row
-                    paid = (await self._conn.execute(
-                        "SELECT COALESCE(SUM(amount),0) s FROM payments WHERE order_id=?"
-                        " AND status IN ('paid','partial')", (order_id,))).fetchone()["s"]
+                if real_total > 0:  # only money actually collected
                     refund = {
                         "id": uuid.uuid4().hex,
                         "order_id": order_id,
-                        "payment_id": order_id,  # payments slice migrates this to payments.id
-                        "amount": int(paid),  # actually collected, never the full bill
+                        "payment_id": order_id,
+                        "amount": int(real_total),
                         "method": order["payment_mode"],
                         "status": "pending",
                         "created_at": _now(),

@@ -48,6 +48,11 @@ class ResumeTooSoonError(AppError):
     status_code = 422
 
 
+class InsufficientCreditError(AppError):
+    code = "INSUFFICIENT_CREDIT"
+    status_code = 409
+
+
 def _now() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
 
@@ -101,7 +106,7 @@ PAYMENT_METHODS = ("upi", "cod")
 
 
 async def _ensure_billing_mode(conn: Conn) -> None:
-    """026 convergence: 012 ALTER on old DBs (PRAGMA + conditional ALTER).
+    """026/028 convergence: apply-once ALTERs for old DBs (PRAGMA + conditional).
 
     Precedent: vendor_profile ensure convergence (ADR-065) — ALTER is
     apply-once, CREATE would no-op on the real table. Keeps :memory: test DBs
@@ -112,12 +117,16 @@ async def _ensure_billing_mode(conn: Conn) -> None:
         names = {str(dict(r).get("name", "")) for r in cols}
     except Exception:
         return
-    if "billing_mode" not in names:
+    for name, ddl in (
+        ("billing_mode", "TEXT NOT NULL DEFAULT 'per_delivery'"),
+        ("billing_status", "TEXT NOT NULL DEFAULT 'active'"),
+        ("credit_balance_paise", "INTEGER NOT NULL DEFAULT 0"),
+        ("refund_upi", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if name in names:
+            continue
         try:
-            await conn.execute(
-                "ALTER TABLE subscriptions ADD COLUMN billing_mode"
-                " TEXT NOT NULL DEFAULT 'per_delivery'"
-            )
+            await conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {name} {ddl}")  # noqa: S608
             conn.commit()
         except Exception:
             try:
@@ -180,7 +189,10 @@ class SubscriptionService:
         quote = pricing.compute_quote([{"sku": sku, "qty": q}], 0, rates,
                                       deposit_already_paid_paise=paid)
         return {"water_bill": quote["water_bill"], "deposit_due": quote["deposit_due"],
-                "total": quote["total"], "rate_version": quote["rate_version"]}
+                "total": quote["total"], "rate_version": quote["rate_version"],
+                # Monthly prepaid charges water only; the jar deposit stays a
+                # first-delivery charge so cancelling cannot strand it.
+                "monthly_topup_paise": int(quote["water_bill"]) * 30}
 
     # -- create / list ----------------------------------------------------
 
@@ -209,10 +221,15 @@ class SubscriptionService:
             raise SubValidationError(
                 message="billing_mode must be per_delivery, monthly_prepaid or monthly_postpaid.",
                 details={"billing_mode": billing_mode})
+        if billing_mode in ("monthly_prepaid", "monthly_postpaid") and payment_method != "upi":
+            raise SubValidationError(
+                message="Monthly plans are paid by UPI.",
+                details={"billing_mode": billing_mode, "payment_method": payment_method})
         key = (idempotency_key or "").strip()
         scoped = f"POST /v1/subscriptions:{key}" if key else ""
         idem_phash = hashlib.sha256(json.dumps(
-            {"a": address_id, "q": qty, "s": schedule, "r": recurrence},
+            {"a": address_id, "q": qty, "s": schedule, "r": recurrence,
+             "p": payment_method, "b": billing_mode},
             sort_keys=True).encode()).hexdigest() if key else ""
         if key:
             # Double-tap guard: same sheet-open key replays the minted row.
@@ -245,6 +262,7 @@ class SubscriptionService:
             "recurrence": recurrence,
             "payment_method": payment_method,
             "billing_mode": billing_mode,
+            "billing_status": "pending_payment" if billing_mode == "monthly_prepaid" else "active",
             "status": "active",
         }
         with WRITE_LOCK:
@@ -252,10 +270,13 @@ class SubscriptionService:
                 await self._conn.execute(
                     "INSERT INTO subscriptions(id, user_id, address_id, qty, sku_mix, window,"
                     " next_run, schedule_type, recurrence, payment_method, billing_mode,"
+                    " billing_status, credit_balance_paise,"
                     " tier, discount_pct, perks, status, hold_from, hold_to)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'active', NULL, NULL)",
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0,"
+                    " NULL, NULL, NULL, 'active', NULL, NULL)",
                     (sub["id"], user_id, address_id, qty, sub["sku_mix"], sub["window"],
-                     next_run, schedule, recurrence, sub["payment_method"], sub["billing_mode"]),
+                     next_run, schedule, recurrence, sub["payment_method"], sub["billing_mode"],
+                     sub["billing_status"]),
                 )
                 self._conn.commit()
             except Exception:
@@ -284,68 +305,350 @@ class SubscriptionService:
         rows = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY rowid", (user_id,)
         )).fetchall()
-        out = []
-        for r in rows:
-            d = _row(r)
-            if d.get("canceled_at"):
-                d["status"] = "canceled"
-            d.setdefault("billing_mode", "per_delivery")
-            d.setdefault("payment_method", "cod")
-            d["due_today_paise"] = _due_today(d.get("qty"), d.get("sku_mix"))
-            d["monthly_estimate_paise"] = _monthly_estimate(d.get("qty"), d.get("sku_mix"))
-            out.append(d)
-        return out
+        return [self._decorate_sub(_row(r)) for r in rows]
 
     async def get_owned(self, user_id: str, sub_id: str) -> dict | None:
         await _ensure_billing_mode(self._conn)
         row = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE id = ? AND user_id = ?", (sub_id, user_id)
         )).fetchone()
-        if row is None:
-            return None
-        d = _row(row)
+        return self._decorate_sub(_row(row)) if row is not None else None
+
+    @staticmethod
+    def _decorate_sub(d: dict) -> dict:
         if d.get("canceled_at"):
             d["status"] = "canceled"
         d.setdefault("billing_mode", "per_delivery")
         d.setdefault("payment_method", "cod")
+        d.setdefault("billing_status", "active")
+        d.setdefault("credit_balance_paise", 0)
+        due_today = _due_today(d.get("qty"), d.get("sku_mix"))
+        d["due_today_paise"] = due_today
+        d["monthly_estimate_paise"] = _monthly_estimate(d.get("qty"), d.get("sku_mix"))
+        d["low_balance"] = bool(
+            d.get("billing_mode") == "monthly_prepaid"
+            and not d.get("canceled_at")
+            and int(d.get("credit_balance_paise") or 0) < due_today
+        )
         return d
 
-    # -- cancel -----------------------------------------------------------
+    # -- monthly prepaid billing ------------------------------------------
+
+    async def begin_charge(self, user_id: str, sub_id: str, idem_key: str) -> dict:
+        """Reserve one prepaid top-up BEFORE calling Razorpay.
+
+        One open charge per plan (partial unique index) makes a double tap
+        return the same link instead of minting two provider orders.
+        """
+        from app.repositories.payment_repo import (  # noqa: PLC0415 (lazy, cycle-safe)
+            IntentPendingError, PayloadMismatchError, _intent_link as _link, _stale,
+        )
+
+        key = (idem_key or "").strip()
+        if not key:
+            raise SubValidationError(message="Idempotency-Key header required.", details={})
+        sub = await self.get_owned(user_id, sub_id)
+        if sub is None:
+            raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
+        if sub.get("canceled_at"):
+            raise SubValidationError(message="Cannot top up a canceled subscription.",
+                                     details={"id": sub_id})
+        if sub.get("billing_mode") != "monthly_prepaid":
+            raise SubValidationError(message="Subscription is not monthly prepaid.",
+                                     details={"id": sub_id})
+        if sub.get("payment_method") != "upi":
+            raise SubValidationError(message="Prepaid top-ups are paid by UPI.", details={})
+        amount = int((await self.estimate_first_cycle(
+            user_id, int(sub["qty"]), sub.get("sku_mix")))["monthly_topup_paise"])
+        if amount <= 0:
+            raise SubValidationError(message="Nothing to charge.", details={})
+        scoped = f"POST /v1/payments/subscription-intent:{key}"
+        phash = hashlib.sha256(f"{sub_id}:{amount}".encode()).hexdigest()
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with WRITE_LOCK:
+            stored = (await self._conn.execute(
+                "SELECT payload_hash, result, created_at FROM idempotency_keys"
+                " WHERE user_id=? AND scoped_key=?", (user_id, scoped))).fetchone()
+            if stored is not None:
+                if stored["payload_hash"] != phash:
+                    raise PayloadMismatchError(
+                        message="Idempotency-Key was already used with a different payload.",
+                        details={"subscription_id": sub_id})
+                result = json.loads(stored["result"] or "{}")
+                if result.get("pending"):
+                    cached = (await self._conn.execute(
+                        "SELECT * FROM subscription_charges WHERE id=?",
+                        (result.get("charge_id"),))).fetchone()
+                    if cached is not None and cached.get("provider_ref"):
+                        charge = dict(cached)
+                        result = {"charge": charge,
+                                  "link": charge.get("provider_link") or _link(
+                                      str(charge["provider_ref"]), int(charge["amount"])),
+                                  "provider_ref": charge["provider_ref"]}
+                        await self._conn.execute(
+                            "UPDATE idempotency_keys SET result=? WHERE user_id=? AND scoped_key=?",
+                            (json.dumps(result), user_id, scoped))
+                        self._conn.commit()
+                        return result
+                    if not _stale(stored["created_at"]):
+                        raise IntentPendingError(
+                            message="Payment link is still being created.",
+                            details={"subscription_id": sub_id})
+                    await self._conn.execute(
+                        "DELETE FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                        (user_id, scoped))
+                    await self._conn.execute(
+                        "DELETE FROM subscription_charges WHERE id=? AND status='pending'",
+                        (result.get("charge_id"),))
+                else:
+                    return result
+            open_row = (await self._conn.execute(
+                "SELECT * FROM subscription_charges WHERE subscription_id=?"
+                " AND status IN ('pending','link_sent') ORDER BY created_at DESC LIMIT 1",
+                (sub_id,))).fetchone()
+            if open_row is not None:
+                charge = dict(open_row)
+                if charge["status"] == "link_sent" and charge.get("provider_ref"):
+                    result = {"charge": charge,
+                              "link": charge.get("provider_link") or _link(
+                                  str(charge["provider_ref"]), int(charge["amount"])),
+                              "provider_ref": charge["provider_ref"]}
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO idempotency_keys(user_id, scoped_key, order_id,"
+                        " payload_hash, result, created_at) VALUES (?,?,?,?,?,?)",
+                        (user_id, scoped, charge["id"], phash, json.dumps(result), now))
+                    self._conn.commit()
+                    return result
+                if not _stale(charge["created_at"]):
+                    raise IntentPendingError(
+                        message="A top-up is already being created.",
+                        details={"subscription_id": sub_id})
+                await self._conn.execute(
+                    "UPDATE subscription_charges SET status='failed' WHERE id=?", (charge["id"],))
+            cid = uuid.uuid4().hex
+            try:
+                await self._conn.execute(
+                    "INSERT INTO subscription_charges(id, subscription_id, user_id, amount,"
+                    " provider_ref, provider_link, status, created_at, verified_at)"
+                    " VALUES (?,?,?,?,NULL,NULL,'pending',?,NULL)",
+                    (cid, sub_id, user_id, amount, now))
+                await self._conn.execute(
+                    "INSERT INTO idempotency_keys(user_id, scoped_key, order_id, payload_hash, result,"
+                    " created_at) VALUES (?,?,?,?,?,?)",
+                    (user_id, scoped, cid, phash,
+                     json.dumps({"pending": True, "charge_id": cid}), now))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return {"charge_id": cid, "amount": amount, "subscription_id": sub_id}
+
+    async def attach_charge(self, charge_id: str, user_id: str, idem_key: str,
+                            provider_ref: str, link: str) -> dict:
+        scoped = f"POST /v1/payments/subscription-intent:{(idem_key or '').strip()}"
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "UPDATE subscription_charges SET provider_ref=?, provider_link=?,"
+                    " status='link_sent' WHERE id=? AND provider_ref IS NULL",
+                    (provider_ref, link, charge_id))
+                charge = dict((await self._conn.execute(
+                    "SELECT * FROM subscription_charges WHERE id=?", (charge_id,))).fetchone())
+                result = {"charge": charge, "link": link, "provider_ref": provider_ref}
+                await self._conn.execute(
+                    "UPDATE idempotency_keys SET result=? WHERE user_id=? AND scoped_key=?",
+                    (json.dumps(result), user_id, scoped))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return result
+
+    async def fail_charge(self, charge_id: str, user_id: str, idem_key: str) -> None:
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "DELETE FROM subscription_charges WHERE id=? AND status='pending'", (charge_id,))
+                await self._conn.execute(
+                    "DELETE FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                    (user_id, f"POST /v1/payments/subscription-intent:{(idem_key or '').strip()}"))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    async def find_charge_by_ref(self, provider_ref: str) -> dict | None:
+        row = (await self._conn.execute(
+            "SELECT * FROM subscription_charges WHERE provider_ref=?", (provider_ref,))).fetchone()
+        return dict(row) if row is not None else None
+
+    async def settle_charge(self, provider_ref: str, amount: int) -> dict:
+        from app.repositories.payment_repo import AmountMismatchError  # noqa: PLC0415
+
+        with WRITE_LOCK:
+            charge = await self.find_charge_by_ref(provider_ref)
+            if charge is None:
+                raise SubNotFoundError(message="Top-up intent not found.", details={})
+            if charge["status"] == "paid":
+                return {**charge, "_duplicate": True}
+            if int(amount) != int(charge["amount"]):
+                raise AmountMismatchError(message="Amount does not match the top-up.",
+                                          details={"expected": int(charge["amount"])})
+            sub = (await self._conn.execute(
+                "SELECT * FROM subscriptions WHERE id=?", (charge["subscription_id"],))).fetchone()
+            if sub is None:
+                raise SubNotFoundError(message="Subscription not found.", details={})
+            now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+            try:
+                if sub.get("canceled_at") or sub.get("billing_status") == "canceled":
+                    await self._conn.batch([
+                        ("UPDATE subscription_charges SET status='paid', verified_at=? WHERE id=?",
+                         (now, charge["id"])),
+                        ("INSERT OR IGNORE INTO refunds(id, order_id, subscription_id, payment_id,"
+                         " amount, method, upi_id, status, claimed_by, claimed_at, attempts,"
+                         " created_at, done_at)"
+                         " VALUES (?, NULL, ?, ?, ?, 'upi', ?, 'pending', NULL, NULL, 0, ?, NULL)",
+                         (uuid.uuid4().hex, charge["subscription_id"], f"charge:{charge['id']}",
+                          int(amount), str(sub.get("refund_upi") or ""), now)),
+                    ])
+                    self._conn.commit()
+                    return {**charge, "status": "paid", "refund_queued": True,
+                            "credited_paise": 0}
+                # One atomic batch: ledger entry + balance recomputed from the
+                # ledger (never a blind increment, so a retry cannot double-credit).
+                await self._conn.batch([
+                    ("INSERT OR IGNORE INTO subscription_credit_entries(id, subscription_id, user_id,"
+                     " delta, kind, ref, created_at) VALUES (?,?,?,?,?,?,?)",
+                     (uuid.uuid4().hex, charge["subscription_id"], charge["user_id"],
+                      int(amount), "topup", f"charge:{charge['id']}", now)),
+                    ("UPDATE subscriptions SET credit_balance_paise = (SELECT COALESCE(SUM(delta), 0)"
+                     " FROM subscription_credit_entries WHERE subscription_id = ?),"
+                     " billing_status='active' WHERE id=?",
+                     (charge["subscription_id"], charge["subscription_id"])),
+                    ("UPDATE subscription_charges SET status='paid', verified_at=? WHERE id=?",
+                     (now, charge["id"])),
+                ])
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return {**charge, "status": "paid", "credited_paise": int(amount)}
+
+    async def settle_prepaid_order(self, sub_id: str, order_id: str, amount: int) -> dict:
+        """Debit one delivery from prepaid credit and mark the order paid.
+
+        Runs once per order: the credit entry ref is UNIQUE, so a retry cannot
+        debit twice. Deposit (container plans) stays on the order as dues.
+        """
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with WRITE_LOCK:
+            sub = (await self._conn.execute(
+                "SELECT * FROM subscriptions WHERE id=?", (sub_id,))).fetchone()
+            if sub is None or sub.get("canceled_at"):
+                raise SubValidationError(message="Subscription cannot be charged.",
+                                         details={"id": sub_id})
+            balance = int(sub.get("credit_balance_paise") or 0)
+            if balance < int(amount):
+                raise InsufficientCreditError(
+                    message="Prepaid balance is too low for this delivery.",
+                    details={"balance": balance, "needed": int(amount)})
+            try:
+                await self._conn.batch([
+                    ("INSERT OR IGNORE INTO subscription_credit_entries(id, subscription_id, user_id,"
+                     " delta, kind, ref, created_at) VALUES (?,?,?,?,?,?,?)",
+                     (uuid.uuid4().hex, sub_id, str(sub["user_id"]), -int(amount), "order",
+                      f"order:{order_id}", now)),
+                    # Balance is always the ledger sum: a replayed debit is a no-op.
+                    ("UPDATE subscriptions SET credit_balance_paise = (SELECT COALESCE(SUM(delta), 0)"
+                     " FROM subscription_credit_entries WHERE subscription_id = ?) WHERE id=?",
+                     (sub_id, sub_id)),
+                    ("INSERT OR IGNORE INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+                     " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                     (uuid.uuid4().hex, order_id, str(sub["user_id"]), int(amount), "upi",
+                      f"subcredit:{sub_id}:{order_id}", "paid", now, now)),
+                    ("UPDATE orders SET payment_status = CASE WHEN"
+                     " (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = ?"
+                     "  AND status IN ('paid','partial')) >= total"
+                     " THEN 'paid_upi' ELSE 'partial_dues' END WHERE id=?",
+                     (order_id, order_id)),
+                ])
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            fresh = (await self._conn.execute(
+                "SELECT credit_balance_paise FROM subscriptions WHERE id=?", (sub_id,))).fetchone()
+            return {"subscription_id": sub_id, "order_id": order_id,
+                    "debited_paise": int(amount),
+                    "credit_balance_paise": int(fresh["credit_balance_paise"]) if fresh else 0}
+
+    async def restore_order_credit(self, order_id: str, commit: bool = True) -> int:
+        """Return a canceled prepaid order's water cost to the plan wallet.
+
+        Returns 0 when the plan itself is gone — the caller then treats the
+        amount as a real refund instead of inventing wallet money.
+        """
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with WRITE_LOCK:
+            rows = (await self._conn.execute(
+                "SELECT amount, provider_ref FROM payments WHERE order_id=?"
+                " AND provider_ref LIKE 'subcredit:%' AND status IN ('paid','partial')",
+                (order_id,))).fetchall()
+            if not rows:
+                return 0
+            total = sum(int(r["amount"]) for r in rows)
+            try:
+                sub_id = str(rows[0]["provider_ref"]).split(":")[1]
+            except (IndexError, TypeError):
+                return 0
+            sub = (await self._conn.execute(
+                "SELECT canceled_at, billing_status FROM subscriptions WHERE id=?",
+                (sub_id,))).fetchone()
+            if sub is None or sub.get("canceled_at") or sub.get("billing_status") == "canceled":
+                return 0
+            cur_rows = await self._conn.batch([
+                ("INSERT OR IGNORE INTO subscription_credit_entries(id, subscription_id, user_id,"
+                 " delta, kind, ref, created_at)"
+                 " SELECT ?, id, user_id, ?, 'order_refund', ?, ? FROM subscriptions WHERE id=?",
+                 (uuid.uuid4().hex, int(total), f"order:{order_id}", now, sub_id)),
+                ("UPDATE subscriptions SET credit_balance_paise = (SELECT COALESCE(SUM(delta), 0)"
+                 " FROM subscription_credit_entries WHERE subscription_id = ?) WHERE id=?",
+                 (sub_id, sub_id)),
+                ("UPDATE payments SET status='failed' WHERE order_id=?"
+                 " AND provider_ref LIKE 'subcredit:%'", (order_id,)),
+            ])
+            if not cur_rows:
+                return 0
+            if commit:
+                self._conn.commit()
+            return int(total)
+
 
     async def cancel(self, user_id: str, sub_id: str, reason: str = "", upi_id: str = "") -> dict:
+        """Stop future deliveries and refund ONLY collected prepaid credit.
+
+        No invented 30-day proration, no ledger write-off: v1 has no
+        subscription-level prepaid money outside monthly_prepaid, and dues stay
+        owed until actually paid.
+        """
         sub = await self.get_owned(user_id, sub_id)
         if sub is None:
             raise SubNotFoundError(message="Subscription not found.", details={"id": sub_id})
         if sub.get("canceled_at") or sub.get("status") == "canceled":
             raise SubValidationError(message="Subscription is already canceled.", details={"id": sub_id})
 
-        delivered_row = (await self._conn.execute(
-            "SELECT COUNT(*) c FROM orders WHERE idempotency_key LIKE ? AND state = 'delivered'",
-            (f"sub:{sub_id}:%",),
-        )).fetchone()
-        delivered_count = int(delivered_row["c"]) if delivered_row else 0
         from app.services import pricing
-        rate = pricing.REFILL_PAISE if str(sub.get("sku_mix") or "").lower() != "container" else pricing.CONTAINER_PAISE
 
-        total_cycle_days = 30
-        used_cost_paise = delivered_count * int(sub.get("qty", 1)) * rate
-        cycle_total_paise = total_cycle_days * int(sub.get("qty", 1)) * rate
-        is_prepaid = str(sub.get("payment_method") or "").lower() in ("upi", "prepaid", "online")
-
-        unused_refund_paise = max(0, cycle_total_paise - used_cost_paise) if is_prepaid else 0
-
+        is_prepaid = str(sub.get("billing_mode") or "per_delivery") == "monthly_prepaid"
+        remaining = max(0, int(sub.get("credit_balance_paise") or 0)) if is_prepaid else 0
         from app.repositories.ledger_repo import LedgerRepo
-        ledger_repo = LedgerRepo(self._conn)
-        led = await ledger_repo.get(user_id)
+        led = await LedgerRepo(self._conn).get(user_id)
         held_jars = max(0, int(led.get("held", 0)))
-        dues = max(0, int(led.get("dues", 0)))
-
-        net_water_refund_paise = max(0, unused_refund_paise - dues)
-
         return_id = None
         deposit_rate = pricing.DEPOSIT_PAISE
         jars_to_return = min(held_jars, int(sub.get("qty", 1))) if held_jars > 0 else 0
         now_str = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        refund = None
 
         with WRITE_LOCK:
             try:
@@ -367,28 +670,34 @@ class SubscriptionService:
                             (return_id, user_id, jars_to_return, sub["address_id"], sla, now_str),
                         )
 
-                # Keep status='paused' for DB CHECK constraint, set canceled_at
-                try:
+                # Keep status='paused' for DB CHECK constraint, set canceled_at.
+                await self._conn.execute(
+                    "UPDATE subscriptions SET status = 'paused', canceled_at = ?, cancel_reason = ?,"
+                    " refund_amount_paise = ?, billing_status = 'canceled', credit_balance_paise = 0,"
+                    " refund_upi = ? WHERE id = ?",
+                    (now_str, reason or "Customer canceled subscription", remaining,
+                     (upi_id or "").strip(), sub_id),
+                )
+                if remaining > 0:
+                    refund = {
+                        "id": uuid.uuid4().hex,
+                        "amount": remaining,
+                        "status": "pending",
+                        "method": "upi",
+                    }
                     await self._conn.execute(
-                        "UPDATE subscriptions SET status = 'paused', canceled_at = ?, cancel_reason = ?,"
-                        " refund_amount_paise = ? WHERE id = ?",
-                        (now_str, reason or "Customer canceled subscription", net_water_refund_paise, sub_id),
+                        "INSERT INTO refunds(id, order_id, subscription_id, payment_id, amount,"
+                        " method, upi_id, status, claimed_by, claimed_at, attempts, created_at,"
+                        " done_at)"
+                        " VALUES (?, NULL, ?, ?, ?, 'upi', ?, 'pending', NULL, NULL, 0, ?, NULL)",
+                        (refund["id"], sub_id, f"subcancel:{sub_id}", remaining,
+                         (upi_id or "").strip(), now_str),
                     )
-                except Exception:
                     await self._conn.execute(
-                        "UPDATE subscriptions SET status = 'paused' WHERE id = ?", (sub_id,)
-                    )
-
-                if net_water_refund_paise > 0:
-                    await ledger_repo.apply_event(
-                        user_id,
-                        d_held=0,
-                        d_deposit=0,
-                        d_dues=-min(unused_refund_paise, dues),
-                        ref=f"sub-cancel:{sub_id}",
-                        actor=user_id,
-                        reason="Subscription unused water refund",
-                        commit=False,
+                        "INSERT INTO subscription_credit_entries(id, subscription_id, user_id,"
+                        " delta, kind, ref, created_at) VALUES (?,?,?,?,?,?,?)",
+                        (uuid.uuid4().hex, sub_id, user_id, -remaining, "cancel_refund",
+                         f"cancel:{sub_id}", now_str),
                     )
                 self._conn.commit()
             except Exception:
@@ -400,11 +709,16 @@ class SubscriptionService:
             "status": "canceled",
             "canceled_at": now_str,
             "is_prepaid": is_prepaid,
-            "unused_water_refund_paise": net_water_refund_paise,
+            "unused_water_refund_paise": remaining,
+            "refund": refund,
             "return_id": return_id,
             "jars_to_return": jars_to_return,
             "deposit_refund_expected_paise": jars_to_return * deposit_rate,
-            "message": "Subscription canceled. Unused water balance refunded. Bottle pickup scheduled.",
+            "message": (
+                "Subscription canceled. Future deliveries are stopped. "
+                "If a refund is due, we will process it to your UPI after pickup. "
+                "Nothing is refunded for deliveries that were never paid."
+            ),
         }
 
     # -- pause / resume / skip --------------------------------------------
@@ -514,13 +828,17 @@ class SubscriptionService:
         """
         tday = _parse_day(today) if today is not None else _now().date().isoformat()
         assert tday is not None, "today must be a date"
+        await _ensure_billing_mode(self._conn)
         resumed: list[dict] = []
         generated: list[dict] = []
+        low_balance: list[dict] = []
         with WRITE_LOCK:
             try:
                 paused = (await self._conn.execute(
                     "SELECT id, user_id FROM subscriptions"
-                    " WHERE status = 'paused' AND hold_to IS NOT NULL AND hold_to < ?",
+                    " WHERE status = 'paused' AND canceled_at IS NULL"
+                    " AND billing_status != 'pending_payment'"
+                    " AND hold_to IS NOT NULL AND hold_to < ?",
                     (tday,),
                 )).fetchall()
                 for p in paused:
@@ -532,7 +850,8 @@ class SubscriptionService:
                     resumed.append({"sub_id": p["id"], "user_id": p["user_id"]})
                 due = (await self._conn.execute(
                     "SELECT * FROM subscriptions"
-                    " WHERE status = 'active' AND next_run <> '' AND next_run <= ?",
+                    " WHERE status = 'active' AND canceled_at IS NULL AND next_run <> ''"
+                    " AND next_run <= ?",
                     (tday,),
                 )).fetchall()
                 for s in due:
@@ -542,12 +861,28 @@ class SubscriptionService:
                     if d.weekday() == 6 or await self._skipped(s["id"], d.isoformat()):
                         await self._advance_past(s, _dt.date.fromisoformat(tday))
                         continue
+                    billing = str(s.get("billing_mode") or "per_delivery")
+                    if str(s.get("billing_status") or "active") == "pending_payment":
+                        low_balance.append({
+                            "sub_id": s["id"], "user_id": s["user_id"],
+                            "reason": "payment_pending",
+                        })
+                        continue
+                    if billing == "monthly_prepaid":
+                        need = _due_today(s["qty"], s["sku_mix"])
+                        if int(s.get("credit_balance_paise") or 0) < need:
+                            low_balance.append({
+                                "sub_id": s["id"], "user_id": s["user_id"],
+                                "reason": "low_balance", "needed_paise": need,
+                                "balance_paise": int(s.get("credit_balance_paise") or 0),
+                            })
+                            continue
                     generated.append({
                         "sub_id": s["id"], "user_id": s["user_id"],
                         "address_id": s["address_id"], "qty": s["qty"],
                         "sku_mix": s["sku_mix"], "window": s["window"],
                         "payment_method": s.get("payment_method", "cod"),
-                        "billing_mode": s.get("billing_mode", "per_delivery"),
+                        "billing_mode": billing,
                         "date": d.isoformat(),
                     })
                     await self._advance_past(s, _dt.date.fromisoformat(tday))
@@ -555,7 +890,8 @@ class SubscriptionService:
             except Exception:
                 self._conn.rollback()
                 raise
-        return {"date": tday, "generated": generated, "resumed": resumed}
+        return {"date": tday, "generated": generated, "resumed": resumed,
+                "low_balance": low_balance}
 
     # -- internals --------------------------------------------------------
 

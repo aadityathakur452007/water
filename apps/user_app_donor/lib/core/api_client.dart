@@ -757,8 +757,11 @@ class ApiClient {
 
   // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
   /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
-  /// recurrence} + Idempotency-Key (double-tap → single row) →
-  /// server-minted subscription.
+  /// recurrence, billing_mode, payment_method} + Idempotency-Key
+  /// (double-tap → single row) → server-minted subscription.
+  ///
+  /// Monthly modes require UPI (server-enforced). Defaults preserve the
+  /// per-delivery cash plan the donor app shipped with.
   Future<Map<String, dynamic>> createSubscription({
     required String addressId,
     required int qty,
@@ -766,6 +769,8 @@ class ApiClient {
     required String window,
     required String scheduleType,
     String recurrence = '',
+    String billingMode = 'per_delivery',
+    String paymentMethod = 'cod',
     String? idempotencyKey,
   }) async =>
       (await send(
@@ -778,7 +783,24 @@ class ApiClient {
               'window': window,
               'schedule_type': scheduleType,
               'recurrence': recurrence,
+              'billing_mode': billingMode,
+              'payment_method': paymentMethod,
             },
+            idempotencyKey: idempotencyKey,
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /payments/subscription-intent {subscription_id} + Idempotency-Key
+  /// → {charge, link, provider_ref}. One prepaid top-up; retries replay the
+  /// same open charge instead of minting a second provider order.
+  Future<Map<String, dynamic>> subscriptionIntent({
+    required String subscriptionId,
+    required String idempotencyKey,
+  }) async =>
+      (await send(
+            'POST',
+            '/payments/subscription-intent',
+            body: {'subscription_id': subscriptionId},
             idempotencyKey: idempotencyKey,
           ))
           as Map<String, dynamic>;

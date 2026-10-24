@@ -87,18 +87,21 @@ const Map<String, String> subStrings = {
   'skipKeep': 'Keep delivery',
   'ok': 'OK',
   'saved': 'Done',
-  'cancelTitle': 'Cancel subscription',
+  'cancelTitle': 'Cancel this plan?',
   'cancelBody':
-      'Unused water (if prepaid) and the jar deposit are refunded '
-      'to your UPI after pickup. The server calculates the final amounts.',
+      "We'll stop future deliveries. If you paid for deliveries you won't "
+      'receive, we will calculate that refund after pickup. Jar deposits are '
+      'refunded when we collect the jars.',
   'cancelReason': 'Why are you cancelling?',
-  'cancelUpi': 'UPI ID for the refund',
+  'cancelUpi': 'UPI ID for any refund',
   'cancelUpiHint': 'e.g. 9876543210@upi',
-  'cancelConfirm': 'Cancel plan & schedule pickup',
-  'cancelDone': 'Subscription canceled',
+  'cancelConfirm': 'Cancel plan',
+  'cancelDone': 'Plan canceled',
   'cancelDoneBody':
-      'Your subscription is canceled. Bottle pickup is '
-      'scheduled and the refund is on its way.',
+      'Future deliveries are stopped. If a refund is due, we will process it '
+      'to your UPI after pickup. Nothing is refunded for deliveries that were '
+      'never paid.',
+  'cancelNoRefund': 'No refund is due because no deliveries were prepaid.',
   'planTitle': 'Build a delivery plan',
   'planEyebrow': 'NEW PLAN',
   'jarsPerDelivery': 'Jars per delivery',
@@ -110,8 +113,11 @@ const Map<String, String> subStrings = {
   'address': 'Delivery address',
   'noAddress': 'No saved address. Add one in Profile, then come back.',
   'estimateTitle': 'First delivery estimate',
+  'estimatePrepaidTitle': 'Monthly prepaid estimate',
   'estimateWater': 'Water',
   'estimateDeposit': 'Refundable jar deposit',
+  'estimateMonthlyTopup': 'Monthly water top-up',
+  'estimateDepositFirst': 'Refundable jar deposit (first delivery)',
   'estimateTotal': 'First delivery total',
   'estimateNote':
       'No payment is collected now. This is what the first delivery will '
@@ -123,6 +129,57 @@ const Map<String, String> subStrings = {
   'payloadMismatch':
       'The plan changed while submitting. Review it and try again.',
   'planStarted': 'Plan created. No payment was collected.',
+  'planStartedPrepaid':
+      'Plan created. Deliveries start after the monthly top-up is confirmed.',
+  'payment': 'Payment',
+  'billing': 'Billing',
+  'payCod': 'Cash on delivery',
+  'payUpi': 'UPI',
+  'billPerDelivery': 'Pay for each delivery',
+  'billPrepaid': 'Monthly prepaid',
+  'billPostpaid': 'Monthly bill',
+  'billPerDeliveryNote':
+      "No payment is collected now. You'll pay at each delivery.",
+  'billPrepaidNote':
+      "You'll pay one month of water up front by UPI. Each delivery is "
+      'deducted from that balance. The jar deposit is charged on the first '
+      'delivery.',
+  'billPostpaidNote':
+      'No payment is collected now. Deliveries add to your monthly bill, '
+      'paid by UPI at the end of the month.',
+  'monthlyNeedsUpi': 'Monthly plans are paid by UPI.',
+  'billingPending': 'Awaiting payment',
+  'prepaidBalance': 'Prepaid water balance',
+  'prepaidCovers':
+      'Covers water only. The jar deposit is charged on the first delivery.',
+  'addTopUp': 'Add monthly top-up',
+  'lowBalance': 'Prepaid balance is low. Add a top-up to resume deliveries.',
+  'billingPrepaid': 'Monthly prepaid',
+  'billingPostpaid': 'Monthly bill',
+  'billingPerDelivery': 'Per delivery',
+  'paymentUpi': 'UPI',
+  'paymentCod': 'Cash on delivery',
+  'topupTitle': 'Complete the monthly top-up',
+  'topupBody':
+      'Pay by UPI to start deliveries. Each delivery is deducted from this '
+      'balance. The jar deposit is charged separately on the first delivery.',
+  'topupStarted': 'Payment request created',
+  'topupPendingTitle': 'Waiting for payment',
+  'topupPendingBody':
+      "We'll start deliveries as soon as the provider confirms the payment. "
+      'This can take a minute.',
+  'topupCheck': 'Check payment',
+  'topupStillPending':
+      'Not confirmed yet. No deliveries start until the payment is confirmed.',
+  'topupConfirmed': 'Top-up confirmed. Deliveries are active.',
+  'topupFailed': 'Could not start the monthly top-up.',
+  'topupBusy': 'A payment link is already being created. Try again shortly.',
+  'topupCopy': 'Copy link',
+  'topupCopied': 'Payment link copied.',
+  'topupNoApp':
+      'Your UPI app did not open. Copy the link and pay in any UPI app.',
+  'topupOpen': 'Open UPI app',
+  'topupDone': 'Done',
   'addressFallback': 'Delivery address',
   'addJar': 'Add a jar',
   'removeJar': 'Remove a jar',
@@ -166,6 +223,11 @@ class SubscriptionEntry {
     this.nextRun,
     this.dueTodayPaise,
     this.monthlyEstimatePaise,
+    this.billingMode = 'per_delivery',
+    this.paymentMethod = 'cod',
+    this.billingStatus = 'active',
+    this.creditBalancePaise = 0,
+    this.lowBalance = false,
   });
 
   final String id;
@@ -189,6 +251,28 @@ class SubscriptionEntry {
 
   /// Server 30-day estimate (paise) — null when the field is absent.
   final int? monthlyEstimatePaise;
+
+  /// `per_delivery` | `monthly_prepaid` | `monthly_postpaid` (server value).
+  final String billingMode;
+
+  /// `upi` | `cod` (server value).
+  final String paymentMethod;
+
+  /// `active` | `pending_payment` | `canceled` (server value).
+  final String billingStatus;
+
+  /// Collected prepaid credit still available for water (paise, server-set).
+  final int creditBalancePaise;
+
+  /// Server warning that the prepaid balance no longer covers one delivery.
+  final bool lowBalance;
+
+  bool get isPrepaid => billingMode == 'monthly_prepaid';
+
+  /// Prepaid plan whose top-up has not been confirmed yet — never call this
+  /// active: no delivery will run until the server flips billing_status.
+  bool get awaitingPayment =>
+      !canceled && isPrepaid && billingStatus == 'pending_payment';
 
   static SubscriptionEntry fromApi(
     Map<String, dynamic> j, {
@@ -217,6 +301,11 @@ class SubscriptionEntry {
       nextRun: optional(j['next_run']),
       dueTodayPaise: (j['due_today_paise'] as num?)?.toInt(),
       monthlyEstimatePaise: (j['monthly_estimate_paise'] as num?)?.toInt(),
+      billingMode: (j['billing_mode'] ?? 'per_delivery').toString(),
+      paymentMethod: (j['payment_method'] ?? 'cod').toString(),
+      billingStatus: (j['billing_status'] ?? 'active').toString(),
+      creditBalancePaise: (j['credit_balance_paise'] as num?)?.toInt() ?? 0,
+      lowBalance: j['low_balance'] == true,
     );
   }
 }
@@ -228,12 +317,16 @@ class SubscriptionEstimate {
     required this.totalPaise,
     this.waterBillPaise,
     this.depositDuePaise,
+    this.monthlyTopupPaise,
     this.rateVersion = '',
   });
 
   final int totalPaise;
   final int? waterBillPaise;
   final int? depositDuePaise;
+
+  /// 30 days of water (server-computed); the prepaid amount, deposit excluded.
+  final int? monthlyTopupPaise;
   final String rateVersion;
 
   static SubscriptionEstimate fromApi(Map<String, dynamic> j) {
@@ -245,6 +338,7 @@ class SubscriptionEstimate {
       totalPaise: total,
       waterBillPaise: (j['water_bill'] as num?)?.toInt(),
       depositDuePaise: (j['deposit_due'] as num?)?.toInt(),
+      monthlyTopupPaise: (j['monthly_topup_paise'] as num?)?.toInt(),
       rateVersion: (j['rate_version'] ?? '').toString(),
     );
   }
@@ -407,6 +501,68 @@ class SubscriptionController extends ChangeNotifier {
     } finally {
       _busy = false;
       _notify();
+    }
+  }
+
+  /// Start (or replay) one prepaid top-up intent. The key stays stable per
+  /// plan until the server confirms payment, so a double tap cannot mint a
+  /// second provider order. Returns the server `{charge, link, provider_ref}`
+  /// or `{'error': message}`; launching the link is the screen's job.
+  final Map<String, String> _topUpKeys = {};
+
+  Future<Map<String, dynamic>?> topUp(String subId) async {
+    if (_busy) return null;
+    _busy = true;
+    _notify();
+    final key = _topUpKeys.putIfAbsent(subId, () => const Uuid().v4());
+    try {
+      return await _api.subscriptionIntent(
+        subscriptionId: subId,
+        idempotencyKey: key,
+      );
+    } on ApiException catch (e) {
+      return {
+        'error': e.code == 'INTENT_PENDING'
+            ? subStrings['topupBusy']
+            : e.isOffline
+            ? subStrings['offline']
+            : e.isServerError
+            ? 'Server problem — retry in a moment.'
+            : (e.message.isNotEmpty ? e.message : subStrings['topupFailed']),
+      };
+    } catch (_) {
+      return {'error': subStrings['topupFailed']};
+    } finally {
+      _busy = false;
+      _notify();
+    }
+  }
+
+  /// Re-reads the plan and reports whether the prepaid top-up landed.
+  /// Only `billing_status == 'active'` counts — `pending_payment` means the
+  /// provider has not confirmed yet, so no delivery will run.
+  Future<bool> confirmTopUp(String subId) async {
+    try {
+      final raw = await _api.listSubscriptions();
+      Map<String, dynamic>? row;
+      for (final item in raw.whereType<Map>()) {
+        final j = Map<String, dynamic>.from(item);
+        if ((j['id'] ?? '').toString() == subId) {
+          row = j;
+          break;
+        }
+      }
+      if (row == null) return false;
+      final active =
+          (row['billing_status'] ?? '') == 'active' &&
+          row['canceled_at'] == null;
+      if (active) {
+        _topUpKeys.remove(subId);
+        await load();
+      }
+      return active;
+    } catch (_) {
+      return false;
     }
   }
 

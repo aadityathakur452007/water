@@ -38,6 +38,8 @@ from app.services.payment_service import PaymentService  # noqa: E402
 
 MIG4 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 MIG5 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
+MIG22 = (API_ROOT / "src" / "app" / "db" / "migrations" / "022_vendor_leaves_and_sub_cancel.sql").read_text()
+MIG28 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
 WINDOW = "2026-10-01T08:00:00+00:00"
 
 
@@ -53,6 +55,8 @@ def _conn():
     c = get_connection(":memory:")
     c.executescript(MIG4)
     c.executescript(MIG5)
+    c.executescript(MIG22)
+    c.executescript(MIG28)
     return c
 
 
@@ -157,9 +161,17 @@ async def test_webhook_wrong_amount_rejected():
 async def test_double_claim_refund_one_winner():
     c = _conn()
     o = await _order(c, mode="upi")
+    now = datetime.now(timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref, status,"
+        " created_at, verified_at) VALUES ('p-paid', ?, 'u1', ?, 'upi', 'upi_paid_test',"
+        " 'paid', ?, ?)",
+        (o["id"], o["total"], now, now),
+    )
     c.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?", (o["id"],))
     c.commit()
     outcome = await _osvc(c).cancel("u1", o["id"], "changed mind", "c1")
+    assert outcome["refund"]["amount"] == o["total"]  # only money actually collected
     rid = outcome["refund"]["id"]
     s = _svc(c)
     first = await s.claim_refund("admin-1", rid)
@@ -242,14 +254,15 @@ def _client(c, user="u1", role="user"):
 
 async def test_router_intent_dues_invoice_cod():
     c = _conn()
-    await _order(c, mode="upi", key="rk1")
+    o1 = await _order(c, mode="upi", key="rk1")
     o2 = await _order(c, user="u1", mode="cod", key="rk2")
     client = _client(c)
     assert client.post("/v1/payments/upi-intent", json={}).status_code in (400, 422)
     r = client.get("/v1/billing/dues")
     assert r.status_code == 200 and "dues" in r.json()
     cod = client.post(f"/v1/orders/{o2['id']}/cod-confirm")
-    assert cod.status_code == 200 and cod.json()["dues"] == o2["total"]
+    # BOTH open orders are real dues; the COD one lives in the ledger.
+    assert cod.status_code == 200 and cod.json()["dues"] == o1["total"] + o2["total"]
     inv = client.get(f"/v1/invoices/{o2['id']}")
     assert inv.status_code == 200 and inv.json()["total"] == o2["total"]
 

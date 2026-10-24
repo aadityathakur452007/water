@@ -15,6 +15,7 @@
 Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 7 tabs; ADR-056 consolidated to 4 tabs + More drawer): vendor OTP login → duty (off-guard confirmed) → today route (search→customers, stock header, sync chip) → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch (loading branch) → earnings → support queue + verify → drawer (stock log, profile, WhatsApp, logout). See `Feature_docs/vendor-app/spec.md`.
 - 016 dashboard (branch 016-vendor-dashboard, ADR-064): Route tab top composes one screen — TodayStrip (`summarizeToday` pure fold over `RouteStop`s: distinct users, jars, UPI/COD collect paid-excluded) + one CTA per state (Sync backlog → Triple first-pending → all-done text) + inline money (`EarningsController` reuse: jama cash/upi + flagged-hold, display-only) + can-ledger rows (`CustomersController`: held/dues nonzero-only). Backend: `placed_pool(vendor_id)` zone-scoped (zones/vendor_zones instr match; unzoned admin-only) + `today_customers` gains `held`/`dues` via `ledger.get`. No new tabs/endpoints/tables/packages.
 - Production customer auth/deploy (2026-10-24, ADR-132): Cloudflare Worker `water` at `https://water.adityathakur452007.workers.dev` (version `07e98028-2434-4487-aad1-be52938f97cb`); D1 `shodasha` at schema 027 after backfilling 002-023 bookkeeping and applying 024-027. `POST /v1/auth/user/register` validates name/phone/password/device, hashes with PBKDF2-HMAC-SHA256 at the Cloudflare WebCrypto maximum 100,000 iterations, inserts `users`, then `_issue_session`; `POST /v1/auth/user/login` finds the phone, verifies the stored cost/salt, uses `DUMMY_HASH` for unknown/empty-password timing, and issues the same session pair. Existing users with empty `password_hash` fail closed until admin reset. Live checks: catalog 200, empty login 400 VALIDATION, register/login 200, wrong password 401 UNAUTH; the temporary user was removed and 9 production users remain.
+- Audit verification (2026-10-24, read-only, ADR-133): live auth flows and webhook fail-closed behavior match the above. Money/subscription tracing found five P0s that change no routes but invalidate release promises: dues UPI 500s on the `payments.order_id` FK after creating the provider order; canceled `link_sent` orders stay payable, countable as dues, and settleable by webhook; cancellation writes off dues/claims refunds with zero payments; the production cron handler creates no subscription orders; same-key intent retries return a provider ref absent from `payments`. Full call/evidence map: `Feature_docs/platform-audit/2026-10-24-auth-upi-subscriptions-vendor-audit.md`. No code or user flow changed in this audit; destructive live testing stopped after the dues 500 and local SQLite carried the rest.
 
 ```
 VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
@@ -1212,6 +1213,116 @@ Logout -> wipe local store/prefs/state first -> fire-and-forget revoke (3s cap)
 - Production blocker: `/v1/catalog` is 200 but `/v1/auth/user/login` is 404 until the
   owner deploys the 034+ Worker. The artifact is debug-signed until owner keystore
   secrets are wired; no push/merge/deploy happened.
+
+## 036 — P0 money fixes + monthly billing (2026-10-24, ADR-134)
+
+### Billing modes
+
+| Mode | Money at activation | Per delivery | Cancel |
+|---|---|---|---|
+| `per_delivery` | none (COD or UPI) | normal order payment | no prepaid balance |
+| `monthly_prepaid` | `qty × rate × 30` by UPI (water only) | debit `water_bill` from credit; `paid_upi` or `partial_dues` | refund remaining credit to `refund_upi` |
+| `monthly_postpaid` | none | accrue real order dues | dues stay owed |
+
+Monthly modes are UPI-only (server rejects COD). The jar deposit is never part of
+the prepaid top-up: it is charged on the first delivery and refunded on pickup.
+
+### Create → top-up → activation
+
+```
+plan_builder_sheet
+ └─ POST /subscriptions {address_id, qty, sku_mix, schedule_type,
+                         billing_mode, payment_method} + Idempotency-Key
+     └─ SubscriptionService.create
+         ├─ validate address/schedule/mode; monthly => payment_method=upi
+         ├─ insert subscriptions (billing_status='pending_payment' for prepaid)
+         └─ return first_cycle_estimate + monthly_topup_paise (qty×rate×30)
+
+POST /payments/subscription-intent {subscription_id} + Idempotency-Key
+ └─ PaymentService.subscription_intent
+     ├─ SubscriptionService.begin_charge
+     │   ├─ same key => replay stored charge (no provider call)
+     │   └─ else reserve subscription_charges row (status pending)
+     ├─ provider.create_intent (first attempt only)
+     └─ attach_charge -> store provider_ref + provider_link
+
+provider webhook -> PaymentService.webhook_ingest
+ └─ find_charge_by_ref -> settle_charge
+     ├─ append subscription_credit_entries(+amount) once per charge
+     └─ billing_status='active' (idempotent; providers may retry)
+```
+
+The app polls `GET /subscriptions` and only treats `billing_status='active'` as
+confirmed. `pending_payment` is rendered as `Awaiting payment`; no delivery is
+generated in that state.
+
+### Dues payment
+
+```
+GET /billing/dues -> PaymentService.get_dues (ledger dues, real value)
+POST /payments/dues-intent + Idempotency-Key
+ └─ reserve_dues_intent (dues_intents row, amount frozen)
+    -> provider.create_intent -> attach_dues_intent(provider_ref, link)
+    -> same key replay returns the stored intent/link, provider not called
+
+webhook -> settle_dues_intent(provider_ref, amount)
+ └─ clear open orders' unpaid amounts first, then the ledger remainder;
+    any over-capture is queued as a refund, never kept
+```
+
+### Subscription scheduler
+
+```
+entry.py scheduled() -> cron_tick(D1Conn(env.DB))
+ └─ run_due_subscriptions
+     ├─ resume holds whose hold_to passed
+     ├─ billing_status='pending_payment' -> low_balance[{reason: payment_pending}]
+     ├─ monthly_prepaid balance < qty×rate -> low_balance[{reason: low_balance}]
+     ├─ otherwise create the delivery order (idempotent per sub/date key)
+     │   ├─ prepaid: append -water_bill credit entry, record synthetic
+     │   │   subcredit:<sub_id>:<order_id> payment, paid_upi/partial_dues
+     │   └─ postpaid: order stays unpaid; amount joins ledger dues
+     └─ return {date, generated, resumed, low_balance}
+```
+
+### Cancel and late capture
+
+```
+POST /subscriptions/{id}/cancel {reason, upi_id}
+ └─ SubscriptionService.cancel
+     ├─ stop future runs; status='paused' + canceled_at (DB CHECK allows only active|paused)
+     ├─ remaining = SUM(subscription_credit_entries.delta)
+     ├─ refunds row (order_id NULL, subscription_id, upi_id) iff remaining > 0
+     ├─ billing_status='canceled', credit_balance_paise=0
+     └─ never clears ledger dues; deposit refund stays tied to pickup
+```
+
+```
+POST /orders/{id}/cancel
+ └─ order_repo.cancel
+     ├─ void open payment links; canceled order is unpayable
+     └─ refund only collected payments (never uncollected dues)
+
+webhook for an already-canceled order
+ └─ mark payment captured + queue pending refund
+     └─ order stays un-paid (never paid_upi/paid_cash)
+```
+
+### New/changed API surface
+
+- `POST /v1/payments/subscription-intent` — `{subscription_id}` + `Idempotency-Key`; returns `{charge, link, provider_ref}`.
+- `POST /v1/payments/dues-intent` — no body; Idempotency-Key required; backed by `dues_intents`.
+- `POST /v1/subscriptions/{sub_id}/cancel` — accepts `{reason, upi_id}`; returns refund fields for the confirmation sheet.
+- `GET /v1/subscriptions` rows now include `billing_mode`, `payment_method`, `billing_status`, `credit_balance_paise`, `low_balance`, `monthly_estimate_paise`.
+- `POST /v1/subscriptions/estimate` now also returns `monthly_topup_paise` (water × 30, deposit excluded).
+- `GET /v1/admin/refunds` now returns `upi_id` and `subscription_id`.
+
+### Donor app flow
+
+- Plan builder: schedule chips → billing chips (`Pay for each delivery` / `Monthly prepaid` / `Monthly bill`) → payment chips (COD disabled for monthly) → server estimate. Prepaid shows the monthly top-up plus first-delivery deposit; the CTA says the top-up is paid by UPI now.
+- After create, a prepaid plan immediately opens the top-up dialog: creates/replays the intent, launches/copies the UPI link, polls up to 5×3s, and never claims success while the server says `pending_payment`.
+- Plan card: `Awaiting payment` pill, prepaid balance row, low-balance warning, `Add monthly top-up`. Skip is hidden while awaiting payment.
+- Cancel sheet: reason + UPI (helper says "only if a refund is due after pickup"); result shows real refund amounts and `No refund is due because no deliveries were prepaid.` when zero.
 
 ## Update Protocol (MANDATORY)
 

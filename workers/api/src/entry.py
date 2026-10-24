@@ -36,7 +36,14 @@ class Default(WorkerEntrypoint):
 
     async def scheduled(self, controller, env, ctx):
         set_worker_env(env)
-        # Phase-B done: jobs (app/jobs/scheduler.py) are async over the Conn
-        # facade and could run on D1Conn(env.DB) here. This tick stays a
-        # logged no-op until the cron wiring is tested against real D1.
-        print("water: cron tick received, scheduler async-ready, wiring pending.")
+        # Real tick: due subscriptions, reminders, retention purges. Errors
+        # propagate so Cloudflare marks the invocation failed (and retries).
+        from app.db_d1 import D1Conn
+        from app.jobs.scheduler import cron_tick
+
+        summary = await cron_tick(D1Conn(env.DB))
+        try:
+            print(f"water: cron tick {summary}")
+        finally:
+            gc.collect(1)
+        return summary

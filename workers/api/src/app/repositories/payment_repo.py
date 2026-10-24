@@ -52,8 +52,30 @@ class OverpayError(AppError):
     status_code = 422
 
 
+class IntentPendingError(AppError):
+    code = "INTENT_PENDING"
+    status_code = 409
+
+
 def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+
+def _stale(created_at: object, minutes: int = 10) -> bool:
+    """True when a pending reservation is old enough to be safely retried."""
+    try:
+        created = _dt.datetime.fromisoformat(str(created_at))
+    except (TypeError, ValueError):
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=_dt.timezone.utc)
+    return _dt.datetime.now(_dt.timezone.utc) - created > _dt.timedelta(minutes=minutes)
+
+
+def _intent_link(provider_ref: str, amount: int) -> str:
+    """Rebuild the UPI deep link for an already-minted provider order."""
+    return (f"upi://pay?pa={_agency_vpa()}&pn=Shodasha&am={int(amount) / 100:.2f}"
+            f"&tr={provider_ref}&cu=INR")
 
 
 def _agency_vpa() -> str:
@@ -77,6 +99,10 @@ def _payload_hash(order_id: str, amount: int) -> str:
 class PaymentRepo:
     def __init__(self, conn: Conn):
         self._conn = conn
+
+    @property
+    def conn(self) -> Conn:
+        return self._conn
 
     # -- reads ----------------------------------------------------------
 
@@ -130,13 +156,19 @@ class PaymentRepo:
         ).fetchone()
         return row is not None
 
-    # -- intent (idempotent, scoped key) --------------------------------
+    # -- intent (reserve locally BEFORE the provider call) ----------------
 
-    async def create_intent(self, order_id: str, amount: int, idem_key: str,
-                      provider_ref: str | None = None) -> dict:
+    async def reserve_intent(self, order_id: str, amount: int, idem_key: str) -> dict:
+        """Reserve the idempotency key + payment row, then let the caller mint
+        the provider order. Same key replays the stored link; a concurrent
+        request gets 409 INTENT_PENDING instead of a second Razorpay order."""
         if not idem_key or not str(idem_key).strip():
             raise ValidationError(message="Idempotency-Key header required.", details={})
         order = await self._order(order_id)
+        if order["state"] in ("cancelled", "rejected"):
+            raise ConflictError(message="Order cannot be paid.", details={"id": order_id})
+        if order["payment_status"] in ("paid_upi", "paid_cash"):
+            raise ConflictError(message="Order is already paid.", details={"id": order_id})
         if int(amount) != int(order["total"]):
             raise AmountMismatchError(message="Amount does not match the frozen bill.",
                                       details={"expected": int(order["total"])})
@@ -145,7 +177,8 @@ class PaymentRepo:
         with WRITE_LOCK:
             stored = (
                 await self._conn.execute(
-                    "SELECT payload_hash, result FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                    "SELECT payload_hash, result, created_at FROM idempotency_keys"
+                    " WHERE user_id=? AND scoped_key=?",
                     (order["user_id"], scoped),
                 )
             ).fetchone()
@@ -154,40 +187,147 @@ class PaymentRepo:
                     raise PayloadMismatchError(
                         message="Idempotency-Key was already used with a different payload.",
                         details={"order_id": order_id})
-                return json.loads(stored["result"])
-            ref = provider_ref or f"upi_{uuid.uuid4().hex[:12]}"
+                result = json.loads(stored["result"] or "{}")
+                if result.get("pending"):
+                    cached = (await self._conn.execute(
+                        "SELECT * FROM payments WHERE id=?",
+                        (result.get("payment_id"),))).fetchone()
+                    if cached is not None and cached.get("provider_ref"):
+                        # Provider succeeded, cache write didn't: rebuild the
+                        # same link instead of minting a second Razorpay order.
+                        payment = dict(cached)
+                        result = {"payment": payment,
+                                  "link": _intent_link(str(payment["provider_ref"]),
+                                                       int(payment["amount"])),
+                                  "provider_ref": payment["provider_ref"]}
+                        await self._conn.execute(
+                            "UPDATE idempotency_keys SET result=? WHERE user_id=? AND scoped_key=?",
+                            (json.dumps(result), order["user_id"], scoped))
+                        self._conn.commit()
+                        return result
+                    if not _stale(stored["created_at"]):
+                        raise IntentPendingError(
+                            message="Payment link is still being created.",
+                            details={"order_id": order_id})
+                    # Stale reservation: drop BOTH rows. Leaving the link_sent
+                    # payment behind would block the retry forever (open_row).
+                    await self._conn.execute(
+                        "DELETE FROM payments WHERE id=? AND status='link_sent'",
+                        (result.get("payment_id"),))
+                    await self._conn.execute(
+                        "UPDATE orders SET payment_status='unpaid'"
+                        " WHERE id=? AND payment_status='link_sent'", (order_id,))
+                    await self._conn.execute(
+                        "DELETE FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                        (order["user_id"], scoped))
+                else:
+                    return result
+            open_row = (await self._conn.execute(
+                "SELECT * FROM payments WHERE order_id=? AND status='link_sent' LIMIT 1",
+                (order_id,))).fetchone()
+            if open_row is not None:
+                payment = dict(open_row)
+                if not payment.get("provider_ref"):
+                    if not _stale(payment["created_at"]):
+                        raise IntentPendingError(message="A payment link is already open.",
+                                                 details={"order_id": order_id})
+                    await self._conn.execute(
+                        "DELETE FROM payments WHERE id=? AND status='link_sent'",
+                        (payment["id"],))
+                    await self._conn.execute(
+                        "UPDATE orders SET payment_status='unpaid'"
+                        " WHERE id=? AND payment_status='link_sent'", (order_id,))
+                else:
+                    # Replay the live link for a new key: one order, one
+                    # provider intent, no duplicate Razorpay order.
+                    result = {"payment": payment,
+                              "link": _intent_link(str(payment["provider_ref"]),
+                                                   int(payment["amount"])),
+                              "provider_ref": payment["provider_ref"]}
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO idempotency_keys(user_id, scoped_key, order_id,"
+                        " payload_hash, result, created_at) VALUES (?,?,?,?,?,?)",
+                        (order["user_id"], scoped, order_id, phash, json.dumps(result), _now()))
+                    self._conn.commit()
+                    return result
             pid = uuid.uuid4().hex
             try:
                 await self._conn.execute(
                     "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
-                    " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, NULL)",
-                    (pid, order_id, order["user_id"], int(amount), "upi", ref, "link_sent", _now()),
+                    " status, created_at, verified_at) VALUES (?,?,?,?,?,NULL,'link_sent',?,NULL)",
+                    (pid, order_id, order["user_id"], int(amount), "upi", _now()),
                 )
-                await self._conn.execute("UPDATE orders SET payment_status='link_sent' WHERE id=?", (order_id,))
-                payment = dict((
-                    await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
-                ).fetchone())
+                await self._conn.execute(
+                    "UPDATE orders SET payment_status='link_sent' WHERE id=?", (order_id,))
                 await self._conn.execute(
                     "INSERT INTO idempotency_keys(user_id, scoped_key, order_id, payload_hash, result,"
                     " created_at) VALUES (?,?,?,?,?,?)",
-                    (order["user_id"], scoped, order_id, phash, json.dumps(payment), _now()),
+                    (order["user_id"], scoped, order_id, phash,
+                     json.dumps({"pending": True, "payment_id": pid}), _now()),
                 )
                 self._conn.commit()
-            except sqlite3.IntegrityError as e:  # concurrent same-ref race → return winner
+            except Exception:
                 self._conn.rollback()
-                dup = await self.find_by_provider_ref(ref)
-                if dup is not None:
-                    return dup
-                raise ConflictError(message="Payment already exists.", details={}) from e
-            return payment
+                raise
+            return {"payment_id": pid, "amount": int(amount), "user_id": order["user_id"]}
+
+    async def attach_intent(self, payment_id: str, idem_key: str, provider_ref: str,
+                            link: str) -> dict:
+        """Attach the provider ref/link to a reserved intent and cache the
+        replay response under the same idempotency key."""
+        with WRITE_LOCK:
+            row = (await self._conn.execute(
+                "SELECT order_id, user_id FROM payments WHERE id=?", (payment_id,))).fetchone()
+            if row is None:
+                raise NotFoundError(message="Payment intent not found.", details={})
+            scoped = f"{INTENT_ENDPOINT}:{idem_key.strip()}"
+            try:
+                await self._conn.execute(
+                    "UPDATE payments SET provider_ref=? WHERE id=? AND provider_ref IS NULL",
+                    (provider_ref, payment_id))
+                payment = dict((await self._conn.execute(
+                    "SELECT * FROM payments WHERE id=?", (payment_id,))).fetchone())
+                result = {"payment": payment, "link": link, "provider_ref": provider_ref}
+                await self._conn.execute(
+                    "UPDATE idempotency_keys SET result=? WHERE user_id=? AND scoped_key=?",
+                    (json.dumps(result), row["user_id"], scoped))
+                self._conn.commit()
+            except sqlite3.IntegrityError as e:
+                self._conn.rollback()
+                raise ConflictError(message="Payment reference already exists.", details={}) from e
+            except Exception:
+                self._conn.rollback()
+                raise
+            return result
+
+    async def fail_intent(self, payment_id: str, idem_key: str) -> None:
+        """Provider failed before returning: drop the reservation so the same
+        key can retry. No money moved, so no audit row is owed."""
+        with WRITE_LOCK:
+            row = (await self._conn.execute(
+                "SELECT order_id, user_id FROM payments WHERE id=?", (payment_id,))).fetchone()
+            if row is None:
+                self._conn.rollback()
+                return
+            try:
+                await self._conn.execute(
+                    "DELETE FROM payments WHERE id=? AND status='link_sent'", (payment_id,))
+                await self._conn.execute(
+                    "UPDATE orders SET payment_status='unpaid' WHERE id=? AND payment_status='link_sent'",
+                    (row["order_id"],))
+                await self._conn.execute(
+                    "DELETE FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                    (row["user_id"], f"{INTENT_ENDPOINT}:{idem_key.strip()}"))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     # -- webhook (C16: duplicate ref → existing, no second credit) -------
 
     async def apply_webhook(self, provider_ref: str, amount: int, payee: str,
                       order_id: str | None = None) -> dict:
-        if payee != _agency_vpa():
-            raise PayeeMismatchError(message="Collection must go to the agency account.",
-                                     details={"expected_payee": "agency"})
+        self.assert_payee(payee)
         with WRITE_LOCK:
             existing = await self.find_by_provider_ref(provider_ref)
             if existing is not None and existing["status"] == "paid":
@@ -197,8 +337,6 @@ class PaymentRepo:
             if int(amount) != int(existing["amount"]):
                 raise AmountMismatchError(message="Amount does not match the intent.",
                                           details={"expected": int(existing["amount"])})
-            if str(existing.get("order_id") or "").startswith("dues:"):
-                return await self._settle_dues_intent(existing, int(amount))
             order = await self._order(existing["order_id"])
             if int(amount) != int(order["total"]):
                 raise AmountMismatchError(message="Amount does not match the frozen bill.",
@@ -208,14 +346,45 @@ class PaymentRepo:
                     "UPDATE payments SET status='paid', verified_at=? WHERE id=?",
                     (_now(), existing["id"]),
                 )
+                if order["state"] in ("cancelled", "rejected"):
+                    # Money arrived after the order died: record the capture
+                    # and queue the exact refund. Never resurrect the order.
+                    refund_id = uuid.uuid4().hex
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO refunds(id, order_id, payment_id,"
+                        " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
+                        " VALUES (?,?,?,?,?,'pending',NULL,NULL,0,?,NULL)",
+                        (refund_id, order["id"], existing["id"], int(amount),
+                         str(existing.get("method") or "upi"), _now()),
+                    )
+                    self._conn.commit()
+                    return {**dict((await self._conn.execute(
+                        "SELECT * FROM payments WHERE id=?", (existing["id"],))).fetchone()),
+                        "_refund_queued": True}
+                if order["payment_status"] in ("paid_upi", "paid_cash"):
+                    # A second capture for an already-settled order is a
+                    # duplicate payment, not extra revenue.
+                    refund_id = uuid.uuid4().hex
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO refunds(id, order_id, payment_id,"
+                        " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
+                        " VALUES (?,?,?,?,?,'pending',NULL,NULL,0,?,NULL)",
+                        (refund_id, order["id"], existing["id"], int(amount),
+                         str(existing.get("method") or "upi"), _now()),
+                    )
+                    self._conn.commit()
+                    return {**dict((await self._conn.execute(
+                        "SELECT * FROM payments WHERE id=?", (existing["id"],))).fetchone()),
+                        "_refund_queued": True}
                 await self._conn.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?",
                                    (order["id"],))
-                led = LedgerRepo(self._conn)
-                dues = int((await led.get(order["user_id"]))["dues"])
-                if dues > 0:  # reconcile what COD-confirm posted; UPI-only stays zero
-                    await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
-                                    ref=f"order:{order['id']}", actor="upi-webhook",
-                                    reason="upi paid", commit=False)
+                if await self._dues_posted(order["id"]):
+                    led = LedgerRepo(self._conn)
+                    dues = int((await led.get(order["user_id"]))["dues"])
+                    if dues > 0:  # clear only what this order posted
+                        await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
+                                        ref=f"order:{order['id']}", actor="upi-webhook",
+                                        reason="upi paid", commit=False)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -225,32 +394,79 @@ class PaymentRepo:
                                            (existing["id"],))
             ).fetchone())
 
-    async def _settle_dues_intent(self, intent: dict, amount: int) -> dict:
-        """Settle a dues-pay intent: flip paid + clear ledger dues (no order
-        row exists for dues intents). Caller holds WRITE_LOCK."""
-        led = LedgerRepo(self._conn)
-        dues = int((await led.get(str(intent["user_id"])))["dues"])
-        try:
-            await self._conn.execute(
-                "UPDATE payments SET status='paid', verified_at=? WHERE id=?",
-                (_now(), intent["id"]),
-            )
-            if dues > 0:  # clear what the ledger holds, never more
-                await led.apply_event(str(intent["user_id"]), d_dues=-min(dues, amount),
-                                ref=f"dues:{intent['id']}", actor="upi-webhook",
-                                reason="dues upi paid", commit=False)
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
-        return dict((
-            await self._conn.execute("SELECT * FROM payments WHERE id=?", (intent["id"],))
-        ).fetchone())
+    async def settle_dues_intent(self, intent: dict, amount: int) -> dict:
+        """Settle a dues intent against real open-order dues first, then the
+        ledger remainder. Any over-capture is queued for refund, never kept."""
+        with WRITE_LOCK:
+            fresh = (await self._conn.execute(
+                "SELECT * FROM dues_intents WHERE id=?", (intent["id"],))).fetchone()
+            if fresh is None:
+                raise NotFoundError(message="Dues intent not found.", details={})
+            if fresh["status"] == "paid":
+                return {**dict(fresh), "_duplicate": True}
+            if int(amount) != int(fresh["amount"]):
+                raise AmountMismatchError(message="Amount does not match the intent.",
+                                          details={"expected": int(fresh["amount"])})
+            remaining = int(amount)
+            user_id = str(fresh["user_id"])
+            try:
+                orders = (await self._conn.execute(
+                    "SELECT id, total FROM orders WHERE user_id=? AND state NOT IN ('cancelled','rejected')"
+                    " AND payment_status IN ('unpaid','link_sent','partial_dues') ORDER BY created_at, id",
+                    (user_id,))).fetchall()
+                for o in orders:
+                    if await self._dues_posted(str(o["id"])):
+                        # This remainder already lives in ledger.dues; paying it
+                        # here as well would double-charge the same rupees.
+                        continue
+                    paid = await self.paid_sum_for_order(str(o["id"]))
+                    due = max(0, int(o["total"]) - int(paid))
+                    if due <= 0 or remaining <= 0:
+                        continue
+                    alloc = min(due, remaining)
+                    await self._conn.execute(
+                        "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+                        " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (uuid.uuid4().hex, str(o["id"]), user_id, int(alloc), "upi",
+                         f"dues:{fresh['id']}:{o['id']}", "paid", _now(), _now()))
+                    status = "paid_upi" if int(paid) + alloc >= int(o["total"]) else "partial_dues"
+                    await self._conn.execute(
+                        "UPDATE orders SET payment_status=? WHERE id=?", (status, str(o["id"])))
+                    await self._conn.execute(
+                        "UPDATE payments SET status='failed' WHERE order_id=? AND status='link_sent'",
+                        (str(o["id"]),))
+                    remaining -= alloc
+                led = LedgerRepo(self._conn)
+                ledger_dues = int((await led.get(user_id))["dues"])
+                if remaining > 0 and ledger_dues > 0:
+                    pay = min(ledger_dues, remaining)
+                    await led.apply_event(user_id, d_dues=-pay, ref=f"dues:{fresh['id']}",
+                                          actor="upi-webhook", reason="dues upi paid", commit=False)
+                    remaining -= pay
+                await self._conn.execute(
+                    "UPDATE dues_intents SET status='paid', verified_at=? WHERE id=?",
+                    (_now(), fresh["id"]))
+                if remaining > 0:
+                    await self._conn.execute(
+                        "INSERT OR IGNORE INTO refunds(id, order_id, subscription_id, payment_id,"
+                        " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
+                        " VALUES (?,NULL,NULL,?,?,'upi','pending',NULL,NULL,0,?,NULL)",
+                        (uuid.uuid4().hex, f"dues:{fresh['id']}", int(remaining), _now()))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            saved = dict((await self._conn.execute(
+                "SELECT * FROM dues_intents WHERE id=?", (fresh["id"],))).fetchone())
+            if remaining > 0:
+                saved["_refund_queued"] = True
+            else:
+                saved["_duplicate"] = False
+            return saved
 
-    async def create_dues_intent(self, user_id: str, amount: int, idem_key: str,
-                           provider_ref: str) -> dict:
-        """Dues-pay intent row (no order): reuses the intent idempotency shape
-        with a dues-scoped key + payload hash over (user, amount)."""
+    async def reserve_dues_intent(self, user_id: str, amount: int, idem_key: str) -> dict:
+        """Reserve a dues intent locally before Razorpay. Dues no longer touch
+        payments.order_id, so the old FK violation cannot recur."""
         if not idem_key or not str(idem_key).strip():
             raise ValidationError(message="Idempotency-Key header required.", details={})
         if int(amount) <= 0:
@@ -258,42 +474,105 @@ class PaymentRepo:
         scoped = f"POST /v1/payments/dues-intent:{idem_key.strip()}"
         phash = _payload_hash(f"dues:{user_id}", int(amount))
         with WRITE_LOCK:
-            stored = (
-                await self._conn.execute(
-                    "SELECT payload_hash, result FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
-                    (user_id, scoped),
-                )
-            ).fetchone()
+            stored = (await self._conn.execute(
+                "SELECT payload_hash, result, created_at FROM idempotency_keys"
+                " WHERE user_id=? AND scoped_key=?", (user_id, scoped))).fetchone()
             if stored is not None:
                 if stored["payload_hash"] != phash:
                     raise PayloadMismatchError(
                         message="Idempotency-Key was already used with a different payload.",
                         details={"user_id": user_id})
-                return json.loads(stored["result"])
-            pid = uuid.uuid4().hex
+                result = json.loads(stored["result"] or "{}")
+                if result.get("pending"):
+                    cached = (await self._conn.execute(
+                        "SELECT * FROM dues_intents WHERE id=?",
+                        (result.get("intent_id"),))).fetchone()
+                    if cached is not None and cached.get("provider_ref"):
+                        # Provider order exists; replay it instead of deleting
+                        # a live payment link the customer may already have.
+                        intent = dict(cached)
+                        result = {"intent": intent,
+                                  "link": intent.get("provider_link") or _intent_link(
+                                      str(intent["provider_ref"]), int(intent["amount"])),
+                                  "provider_ref": intent["provider_ref"]}
+                        await self._conn.execute(
+                            "UPDATE idempotency_keys SET result=? WHERE user_id=? AND scoped_key=?",
+                            (json.dumps(result), user_id, scoped))
+                        self._conn.commit()
+                        return result
+                    if not _stale(stored["created_at"]):
+                        raise IntentPendingError(message="Dues payment link is still being created.",
+                                                 details={})
+                    await self._conn.execute(
+                        "DELETE FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                        (user_id, scoped))
+                    await self._conn.execute(
+                        "DELETE FROM dues_intents WHERE id=? AND status='pending'",
+                        (result.get("intent_id"),))
+                else:
+                    return result
+            iid = uuid.uuid4().hex
             try:
                 await self._conn.execute(
-                    "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
-                    " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?, ?, NULL)",
-                    (pid, f"dues:{user_id}", user_id, int(amount), "upi",
-                     provider_ref, "link_sent", _now()),
-                )
-                payment = dict((
-                    await self._conn.execute("SELECT * FROM payments WHERE id=?", (pid,))
-                ).fetchone())
+                    "INSERT INTO dues_intents(id, user_id, amount, provider_ref, provider_link,"
+                    " status, created_at, verified_at) VALUES (?,?,?,NULL,NULL,'pending',?,NULL)",
+                    (iid, user_id, int(amount), _now()))
                 await self._conn.execute(
                     "INSERT INTO idempotency_keys(user_id, scoped_key, order_id, payload_hash, result,"
                     " created_at) VALUES (?,?,?,?,?,?)",
-                    (user_id, scoped, f"dues:{user_id}", phash, json.dumps(payment), _now()),
-                )
+                    (user_id, scoped, iid, phash,
+                     json.dumps({"pending": True, "intent_id": iid}), _now()))
                 self._conn.commit()
-            except sqlite3.IntegrityError as e:  # concurrent same-ref race → return winner
+            except Exception:
                 self._conn.rollback()
-                dup = await self.find_by_provider_ref(provider_ref)
-                if dup is not None:
-                    return dup
-                raise ConflictError(message="Payment already exists.", details={}) from e
-            return payment
+                raise
+            return {"intent_id": iid, "amount": int(amount)}
+
+    async def attach_dues_intent(self, intent_id: str, user_id: str, idem_key: str,
+                                 provider_ref: str, link: str) -> dict:
+        scoped = f"POST /v1/payments/dues-intent:{idem_key.strip()}"
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "UPDATE dues_intents SET provider_ref=?, provider_link=?, status='link_sent'"
+                    " WHERE id=? AND provider_ref IS NULL", (provider_ref, link, intent_id))
+                intent = dict((await self._conn.execute(
+                    "SELECT * FROM dues_intents WHERE id=?", (intent_id,))).fetchone())
+                result = {"intent": intent, "link": link, "provider_ref": provider_ref}
+                await self._conn.execute(
+                    "UPDATE idempotency_keys SET result=? WHERE user_id=? AND scoped_key=?",
+                    (json.dumps(result), user_id, scoped))
+                self._conn.commit()
+            except sqlite3.IntegrityError as e:
+                self._conn.rollback()
+                raise ConflictError(message="Payment reference already exists.", details={}) from e
+            except Exception:
+                self._conn.rollback()
+                raise
+            return result
+
+    async def fail_dues_intent(self, intent_id: str, user_id: str, idem_key: str) -> None:
+        with WRITE_LOCK:
+            try:
+                await self._conn.execute(
+                    "DELETE FROM dues_intents WHERE id=? AND status='pending'", (intent_id,))
+                await self._conn.execute(
+                    "DELETE FROM idempotency_keys WHERE user_id=? AND scoped_key=?",
+                    (user_id, f"POST /v1/payments/dues-intent:{idem_key.strip()}"))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    async def find_dues_intent_by_ref(self, provider_ref: str) -> dict | None:
+        row = (await self._conn.execute(
+            "SELECT * FROM dues_intents WHERE provider_ref=?", (provider_ref,))).fetchone()
+        return dict(row) if row is not None else None
+
+    def assert_payee(self, payee: str) -> None:
+        if payee != _agency_vpa():
+            raise PayeeMismatchError(message="Collection must go to the agency account.",
+                                     details={"expected_payee": "agency"})
 
     # -- vendor cash (paid_cash / partial_dues + ledger dues event) ------
 

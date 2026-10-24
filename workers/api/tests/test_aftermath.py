@@ -26,7 +26,9 @@ from app.services.subscription_service import (  # noqa: E402
     SubscriptionService,
 )
 
-MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "006_aftermath.sql"]
+MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "006_aftermath.sql",
+        "012_monthly.sql", "022_vendor_leaves_and_sub_cancel.sql",
+        "028_p0_money_monthly.sql"]
 
 
 def _conn():
@@ -171,7 +173,8 @@ async def test_process_due_generates_and_autoresumes_idempotently():
     assert {r["sub_id"] for r in out1["resumed"]} == {paused["id"]}
     assert (await svc.get_owned("u1", paused["id"]))["status"] == "active"
     out2 = await svc.process_due("2026-09-29")  # idempotent replay
-    assert out2 == {"date": "2026-09-29", "generated": [], "resumed": []}
+    assert out2 == {"date": "2026-09-29", "generated": [], "resumed": [],
+                    "low_balance": []}
     assert (await svc.get_owned("u1", due["id"]))["next_run"] > "2026-09-29"
 
 

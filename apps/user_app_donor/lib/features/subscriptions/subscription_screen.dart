@@ -84,6 +84,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       onAddAddress: widget.onAddAddress,
     );
     if (res == null || !mounted) return;
+    await _controller.load();
+    if (!mounted) return;
+    final id = (res['id'] ?? '').toString();
+    final prepaidPending =
+        (res['billing_mode'] ?? '') == 'monthly_prepaid' &&
+        (res['billing_status'] ?? '') == 'pending_payment';
+    if (prepaidPending && id.isNotEmpty) {
+      await _startTopUp(id);
+      return;
+    }
     final estimate = res['first_cycle_estimate'];
     final total = estimate is Map ? (estimate['total'] as num?)?.toInt() : null;
     _showMessage(
@@ -92,7 +102,52 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           : '${subStrings['planStarted']} First delivery estimate '
                 '${rupeesLabel(total)} — billed as usual.',
     );
+  }
+
+  /// One prepaid top-up: server intent → UPI app → poll the plan until the
+  /// webhook confirms. Never claims active while billing_status is pending.
+  Future<void> _startTopUp(String subId) async {
+    final res = await _controller.topUp(subId);
+    if (!mounted || res == null) return;
+    if (res.containsKey('error')) {
+      _showMessage(res['error'].toString());
+      return;
+    }
+    final link = (res['link'] ?? '').toString();
+    final ref = (res['provider_ref'] ?? '').toString();
+    final charge = res['charge'];
+    final amount = charge is Map ? (charge['amount'] as num?)?.toInt() : null;
+    if (link.isEmpty) {
+      _showMessage(subStrings['topupFailed']!);
+      return;
+    }
+    var launched = false;
+    try {
+      launched = await launchUrl(
+        Uri.parse(link),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!mounted) return;
+    final active = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _TopUpDialog(
+        link: link,
+        reference: ref,
+        amountPaise: amount,
+        launched: launched,
+        onCheck: () => _controller.confirmTopUp(subId),
+      ),
+    );
+    if (!mounted) return;
     await _controller.load();
+    if (!mounted) return;
+    _showMessage(
+      _copy(active == true ? 'topupConfirmed' : 'planStartedPrepaid'),
+    );
   }
 
   Future<void> _pauseSheet(SubscriptionEntry sub) async {
@@ -342,6 +397,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               message.isNotEmpty ? message : subStrings['cancelDoneBody']!,
               style: const TextStyle(fontSize: 13),
             ),
+            if ((water == null || water <= 0) &&
+                (jars == null || jars <= 0)) ...[
+              const SizedBox(height: 8),
+              Text(
+                subStrings['cancelNoRefund']!,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: ShodashaTheme.ink,
+                ),
+              ),
+            ],
             if (water != null && water > 0) ...[
               const SizedBox(height: 8),
               Text(
@@ -458,6 +525,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     _PlanCard(
                       sub: sub,
                       busy: c.busy,
+                      onTopUp: () => _startTopUp(sub.id),
                       onPause: () => _pauseSheet(sub),
                       onResume: () => _resumeSheet(sub),
                       onSkip: () => _skipToday(sub),
@@ -732,6 +800,7 @@ class _PlanCard extends StatelessWidget {
   const _PlanCard({
     required this.sub,
     required this.busy,
+    required this.onTopUp,
     required this.onPause,
     required this.onResume,
     required this.onSkip,
@@ -740,6 +809,7 @@ class _PlanCard extends StatelessWidget {
 
   final SubscriptionEntry sub;
   final bool busy;
+  final VoidCallback onTopUp;
   final VoidCallback onPause;
   final VoidCallback onResume;
   final VoidCallback onSkip;
@@ -747,6 +817,16 @@ class _PlanCard extends StatelessWidget {
 
   String get _skuLabel =>
       sub.skuMix == 'container' ? '20L jar + container' : '20L refill jar';
+
+  String get _billingLabel => switch (sub.billingMode) {
+    'monthly_prepaid' => subStrings['billingPrepaid']!,
+    'monthly_postpaid' => subStrings['billingPostpaid']!,
+    _ => subStrings['billingPerDelivery']!,
+  };
+
+  String get _paymentLabel => sub.paymentMethod == 'upi'
+      ? subStrings['paymentUpi']!
+      : subStrings['paymentCod']!;
 
   @override
   Widget build(BuildContext context) {
@@ -801,7 +881,12 @@ class _PlanCard extends StatelessWidget {
                 color: ShodashaTheme.muted,
               ),
             ),
-          if (!sub.paused && !sub.canceled && next != null) ...[
+          _DetailRow(label: subStrings['billing']!, value: _billingLabel),
+          _DetailRow(label: subStrings['payment']!, value: _paymentLabel),
+          if (!sub.paused &&
+              !sub.canceled &&
+              !sub.awaitingPayment &&
+              next != null) ...[
             const SizedBox(height: 2),
             Row(
               children: [
@@ -842,6 +927,46 @@ class _PlanCard extends StatelessWidget {
                 ),
               ),
             ),
+          if (!sub.canceled && sub.isPrepaid) ...[
+            const SizedBox(height: 6),
+            _MoneyRow(
+              label: subStrings['prepaidBalance']!,
+              paise: sub.creditBalancePaise,
+            ),
+          ],
+          if (!sub.canceled && sub.lowBalance) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.solarTint,
+                border: Border.all(color: ShodashaTheme.solarBorder),
+                borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.account_balance_wallet_outlined,
+                    size: 16,
+                    color: ShodashaTheme.solarDark,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      subStrings['lowBalance']!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: ShodashaTheme.onSolar,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (!sub.canceled) ...[
             if (due != null && due > 0) ...[
               const SizedBox(height: 6),
@@ -857,6 +982,15 @@ class _PlanCard extends StatelessWidget {
             Wrap(
               spacing: 4,
               children: [
+                if (sub.isPrepaid)
+                  TextButton.icon(
+                    onPressed: busy ? null : onTopUp,
+                    style: TextButton.styleFrom(
+                      foregroundColor: ShodashaTheme.blue,
+                    ),
+                    icon: const Icon(Icons.add_card, size: 16),
+                    label: Text(subStrings['addTopUp']!),
+                  ),
                 if (sub.paused)
                   TextButton(
                     onPressed: busy ? null : onResume,
@@ -873,7 +1007,7 @@ class _PlanCard extends StatelessWidget {
                     ),
                     child: Text(subStrings['pause']!),
                   ),
-                if (!sub.paused)
+                if (!sub.paused && !sub.awaitingPayment)
                   TextButton(
                     onPressed: busy ? null : onSkip,
                     style: TextButton.styleFrom(
@@ -908,6 +1042,12 @@ class _StatusPill extends StatelessWidget {
         ? (subStrings['canceled']!, ShodashaTheme.danger, ShodashaTheme.bg)
         : sub.paused
         ? (subStrings['paused']!, ShodashaTheme.muted, ShodashaTheme.bg)
+        : sub.awaitingPayment
+        ? (
+            subStrings['billingPending']!,
+            ShodashaTheme.solarDark,
+            ShodashaTheme.solarTint,
+          )
         : (subStrings['active']!, ShodashaTheme.teal, ShodashaTheme.tealTint);
     return Semantics(
       label: 'Status: $label',
@@ -930,6 +1070,39 @@ class _StatusPill extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 2),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: ShodashaTheme.muted,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: ShodashaTheme.ink,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _MoneyRow extends StatelessWidget {
@@ -1252,7 +1425,7 @@ class _CancelSheetState extends State<_CancelSheet> {
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               hintText: 'e.g. 9876543210@upi',
-              helperText: 'Refund is sent to this UPI ID after pickup.',
+              helperText: 'Used only if a refund is due after pickup.',
               errorText: _touched && !_upiOk
                   ? 'Enter a valid UPI ID, like 9876543210@upi.'
                   : null,
@@ -1271,5 +1444,189 @@ class _CancelSheetState extends State<_CancelSheet> {
         ],
       ),
     ),
+  );
+}
+
+/// Prepaid top-up: shows the real UPI link and polls the plan until the
+/// webhook flips `billing_status` to active. Closing early never claims
+/// success — the plan card keeps the truthful pending state.
+class _TopUpDialog extends StatefulWidget {
+  const _TopUpDialog({
+    required this.link,
+    required this.reference,
+    required this.amountPaise,
+    required this.launched,
+    required this.onCheck,
+  });
+
+  final String link;
+  final String reference;
+  final int? amountPaise;
+  final bool launched;
+  final Future<bool> Function() onCheck;
+
+  @override
+  State<_TopUpDialog> createState() => _TopUpDialogState();
+}
+
+class _TopUpDialogState extends State<_TopUpDialog> {
+  bool _checking = false;
+  String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _poll();
+    });
+  }
+
+  Future<void> _poll() async {
+    if (_checking) return;
+    setState(() {
+      _checking = true;
+      _notice = null;
+    });
+    for (var i = 0; i < 5; i++) {
+      final active = await widget.onCheck();
+      if (!mounted) return;
+      if (active) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+      if (i < 4) {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        if (!mounted) return;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _notice = subStrings['topupStillPending'];
+    });
+  }
+
+  Future<void> _open() async {
+    var ok = false;
+    try {
+      ok = await launchUrl(
+        Uri.parse(widget.link),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _notice = ok ? null : subStrings['topupNoApp'];
+    });
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.link));
+    if (!mounted) return;
+    setState(() => _notice = subStrings['topupCopied']);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    shape: ShodashaTheme.shape,
+    title: Text(
+      _checking
+          ? subStrings['topupPendingTitle']!
+          : subStrings['topupStarted']!,
+    ),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _checking
+              ? subStrings['topupPendingBody']!
+              : subStrings['topupBody']!,
+          style: const TextStyle(fontSize: 13, height: 1.4),
+        ),
+        if (widget.amountPaise != null) ...[
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Amount', style: TextStyle(fontSize: 13)),
+              Text(
+                rupeesLabel(widget.amountPaise!),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  color: ShodashaTheme.ink,
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (_checking) ...[
+          const SizedBox(height: 12),
+          const Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: ShodashaTheme.teal,
+                ),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Checking for confirmation…',
+                  style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+                ),
+              ),
+            ],
+          ),
+        ] else if (_notice != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            _notice!,
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+              color: ShodashaTheme.muted,
+            ),
+          ),
+        ],
+        if (widget.reference.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            '${subStrings['duesPayRef']}: ${widget.reference}',
+            style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+          ),
+        ],
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: _copy,
+        style: TextButton.styleFrom(foregroundColor: ShodashaTheme.blue),
+        child: Text(subStrings['topupCopy']!),
+      ),
+      if (!widget.launched)
+        TextButton(
+          onPressed: _open,
+          style: TextButton.styleFrom(foregroundColor: ShodashaTheme.blue),
+          child: Text(subStrings['topupOpen']!),
+        ),
+      TextButton(
+        onPressed: _checking ? null : _poll,
+        style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
+        child: Text(subStrings['topupCheck']!),
+      ),
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(false),
+        style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
+        child: Text(subStrings['topupDone']!),
+      ),
+    ],
   );
 }

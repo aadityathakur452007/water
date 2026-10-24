@@ -89,14 +89,17 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
     svc = _order_service(conn)
     created: list[dict] = []
     failed: list[dict] = []
+    low_balance: list[dict] = list(due.get("low_balance") or [])
     pending = list(due["generated"])
     total = len(pending)
+    sub_svc = SubscriptionService(conn)
     while pending:
         batch, pending = pending[:_SCHED_BATCH], pending[_SCHED_BATCH:]
         for d in batch:
             sku = str(d.get("sku_mix") or "refill").lower()
             items = [{"sku": sku if sku in ("refill", "container") else "refill", "qty": int(d["qty"])}]
             window_start = f"{d['date']}T{SUB_WINDOW_START}"
+            billing_mode = str(d.get("billing_mode") or "per_delivery")
             try:
                 from app.repositories.ledger_repo import LedgerRepo
                 led = await LedgerRepo(conn).get(str(d["user_id"]))
@@ -104,19 +107,27 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
                 q = pricing.compute_quote(items, 0, _rates(), address_id=d["address_id"],
                                           window_start=window_start, rate_version=pricing.RATE_VERSION,
                                           deposit_already_paid_paise=dep_paid)
+                payment_mode = "upi" if billing_mode in ("monthly_prepaid", "monthly_postpaid") \
+                    else (d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod")
                 payload = {
                     "items": items, "e": 0, "address_id": d["address_id"], "window_start": window_start,
                     "quote_hash": q["quote_hash"], "quote_total": q["total"],
                     "quote_rate_version": q["rate_version"],
                     "quote_expires_at": (_now() + _dt.timedelta(minutes=QUOTE_TTL_MIN)).isoformat(),
-                    "payment_mode": d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod",
+                    "payment_mode": payment_mode,
                 }
                 order = await svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
+                if billing_mode == "monthly_prepaid":
+                    await sub_svc.settle_prepaid_order(
+                        str(d["sub_id"]), str(order["id"]), int(q["water_bill"]))
                 created.append({"order_id": order["id"], "sub_id": d["sub_id"],
                                 "user_id": d["user_id"], "total": order["total"],
-                                "billing_mode": d.get("billing_mode", "per_delivery")})
+                                "billing_mode": billing_mode})
             except IdempotentReplayError as e:
                 order = (e.details or {}).get("order") or {}
+                if billing_mode == "monthly_prepaid" and order.get("id"):
+                    await sub_svc.settle_prepaid_order(
+                        str(d["sub_id"]), str(order["id"]), int(q["water_bill"]))
                 created.append({"order_id": order.get("id"), "sub_id": d["sub_id"],
                                 "user_id": d["user_id"], "total": order.get("total"), "replayed": True})
             except AppError as e:
@@ -126,9 +137,10 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
                 failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
                                "code": "SERVER", "message": str(e)[:200]})
         done = total - len(pending)
-        log.info("due_subscriptions date=%s progress=%d/%d created=%d failed=%d",
-                 date, done, total, len(created), len(failed))
-    return {"date": date, "created": created, "resumed": due["resumed"], "failed": failed}
+        log.info("due_subscriptions date=%s progress=%d/%d created=%d failed=%d low=%d",
+                 date, done, total, len(created), len(failed), len(low_balance))
+    return {"date": date, "created": created, "resumed": due["resumed"], "failed": failed,
+            "low_balance": low_balance}
 
 
 async def collect_reminders(conn: Conn, today: object = None) -> dict:
@@ -339,6 +351,17 @@ async def purge_delivery_codes(conn: Conn, now: _dt.datetime | None = None) -> d
             conn.rollback()
             return {"expired_cleared": 0, "terminal_cleared": 0}
     return {"expired_cleared": expired_cleared, "terminal_cleared": terminal_cleared}
+
+
+async def cron_tick(conn: Conn, today: object = None,
+                    now: _dt.datetime | None = None) -> dict:
+    """One production cron invocation: run every job and log the summary."""
+    summary = await run_all(conn, today, now)
+    try:
+        log.info("cron tick %s", json.dumps(summary, default=str))
+    except Exception:  # noqa: BLE001, S110 — logging must never fail the tick
+        pass
+    return summary
 
 
 async def run_all(conn: Conn, today: object = None,

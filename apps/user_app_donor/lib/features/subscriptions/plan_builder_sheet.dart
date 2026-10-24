@@ -9,9 +9,9 @@
 // Create payload mirrors the legacy checkout: `sku_mix` is the dominant SKU
 // (the calculator builds refill plans), `window` stays empty because the
 // server scheduler owns the delivery window (`SUB_WINDOW_START`) — inventing a
-// client slot would be a fake promise. The payment/billing mode fields are not
-// sent because the ported ApiClient.createSubscription contract does not carry
-// them (server default: per-delivery COD).
+// client slot would be a fake promise. Billing mode and payment method are
+// explicit: monthly modes require UPI (server-enforced), and prepaid plans are
+// created `pending_payment` until a real top-up intent is confirmed.
 //
 // States.md: addresses/estimate loading (skeleton/bar) → error + retry; submit
 // pending → server error copy or success pop; no amount is ever computed here.
@@ -71,6 +71,8 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
 
   int _qty = 1;
   String _schedule = 'daily';
+  String _billing = 'per_delivery';
+  String _payment = 'cod';
 
   /// Regenerated whenever the payload changes so a retry of the same payload
   /// replays, and a changed payload never hits PAYLOAD_MISMATCH (legacy
@@ -208,6 +210,27 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
     });
   }
 
+  void _setBilling(String value) {
+    if (value == _billing) return;
+    setState(() {
+      _billing = value;
+      // Monthly modes are UPI-only; keep the form valid without a dead state.
+      if (_billing != 'per_delivery') _payment = 'upi';
+      _idemKey = const Uuid().v4();
+    });
+  }
+
+  void _setPayment(String value) {
+    if (value == _payment || !_paymentAllowed(value)) return;
+    setState(() {
+      _payment = value;
+      _idemKey = const Uuid().v4();
+    });
+  }
+
+  bool _paymentAllowed(String value) =>
+      value == 'upi' || _billing == 'per_delivery';
+
   void _setAddress(String value) {
     if (value == _addressId) return;
     setState(() {
@@ -231,6 +254,8 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         window: '', // scheduler-owned window (see file header)
         scheduleType: _schedule,
         recurrence: '',
+        billingMode: _billing,
+        paymentMethod: _payment,
         idempotencyKey: _idemKey,
       );
       if (!mounted) return;
@@ -343,6 +368,14 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                   const SizedBox(height: 8),
                   _scheduleChips(),
                   const SizedBox(height: 16),
+                  _eyebrow(subStrings['billing']!),
+                  const SizedBox(height: 8),
+                  _billingChips(),
+                  const SizedBox(height: 16),
+                  _eyebrow(subStrings['payment']!),
+                  const SizedBox(height: 8),
+                  _paymentChips(),
+                  const SizedBox(height: 16),
                   _eyebrow(subStrings['address']!),
                   const SizedBox(height: 8),
                   _addressSection(),
@@ -366,11 +399,10 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                     onPressed: canSubmit ? _submit : null,
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  const Text(
-                    'No payment is collected now. The first delivery is billed '
-                    'as usual.',
+                  Text(
+                    _paymentSummary,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 11.5,
                       height: 1.35,
                       color: ShodashaTheme.muted,
@@ -461,22 +493,102 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         ('alternate', 'alternate'),
         ('weekly', 'weekly'),
       ])
-        ChoiceChip(
-          label: Text(subStrings[entry.$2]!),
-          selected: _schedule == entry.$1,
-          selectedColor: ShodashaTheme.tealTint,
-          checkmarkColor: ShodashaTheme.teal,
-          labelStyle: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: _schedule == entry.$1
-                ? ShodashaTheme.tealDeep
-                : ShodashaTheme.ink,
-          ),
-          onSelected: _submitting ? null : (_) => _setSchedule(entry.$1),
+        _choiceChip(
+          subStrings[entry.$2]!,
+          _schedule == entry.$1,
+          _submitting ? null : () => _setSchedule(entry.$1),
         ),
     ],
   );
+
+  Widget _billingChips() => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      for (final entry in const [
+        ('per_delivery', 'billPerDelivery'),
+        ('monthly_prepaid', 'billPrepaid'),
+        ('monthly_postpaid', 'billPostpaid'),
+      ])
+        _choiceChip(
+          subStrings[entry.$2]!,
+          _billing == entry.$1,
+          _submitting ? null : () => _setBilling(entry.$1),
+        ),
+    ],
+  );
+
+  Widget _paymentChips() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _choiceChip(
+            subStrings['payUpi']!,
+            _payment == 'upi',
+            _submitting ? null : () => _setPayment('upi'),
+          ),
+          _choiceChip(
+            subStrings['payCod']!,
+            _payment == 'cod',
+            _submitting || !_paymentAllowed('cod')
+                ? null
+                : () => _setPayment('cod'),
+          ),
+        ],
+      ),
+      if (_billing != 'per_delivery')
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            subStrings['monthlyNeedsUpi']!,
+            style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+          ),
+        ),
+    ],
+  );
+
+  Widget _choiceChip(String label, bool selected, VoidCallback? onSelected) =>
+      ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        selectedColor: ShodashaTheme.tealTint,
+        checkmarkColor: ShodashaTheme.teal,
+        labelStyle: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: onSelected == null
+              ? ShodashaTheme.muted
+              : selected
+              ? ShodashaTheme.tealDeep
+              : ShodashaTheme.ink,
+        ),
+        onSelected: onSelected == null ? null : (_) => onSelected(),
+      );
+
+  String get _paymentSummary {
+    final estimate = _estimate;
+    if (_billing == 'monthly_prepaid') {
+      final topup = estimate?.monthlyTopupPaise;
+      return topup == null || topup <= 0
+          ? subStrings['billPrepaidNote']!
+          : '${rupeesLabel(topup)} by UPI now covers 30 days of water.';
+    }
+    if (_billing == 'monthly_postpaid') {
+      return subStrings['billPostpaidNote']!;
+    }
+    final due = estimate?.waterBillPaise;
+    if (due == null || due <= 0) {
+      return subStrings['billPerDeliveryNote']!;
+    }
+    final deposit = (estimate?.depositDuePaise ?? 0) > 0
+        ? ' plus the one-time jar deposit'
+        : '';
+    return "No payment is collected now. You'll pay ${rupeesLabel(due)} per "
+        'delivery$deposit.';
+  }
 
   Widget _addressSection() {
     if (_loadingAddresses) {
@@ -602,7 +714,9 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                subStrings['estimateTitle']!,
+                _billing == 'monthly_prepaid'
+                    ? subStrings['estimatePrepaidTitle']!
+                    : subStrings['estimateTitle']!,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
@@ -634,47 +748,70 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
           ),
         ] else if (_estimate != null) ...[
           const SizedBox(height: 8),
-          if (_estimate!.waterBillPaise != null)
-            _estimateRow(
-              subStrings['estimateWater']!,
-              _estimate!.waterBillPaise!,
-            ),
-          if (_estimate!.depositDuePaise != null)
-            _estimateRow(
-              subStrings['estimateDeposit']!,
-              _estimate!.depositDuePaise!,
-            ),
-          const Divider(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                subStrings['estimateTotal']!,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: ShodashaTheme.ink,
-                ),
+          if (_billing == 'monthly_prepaid') ...[
+            if (_estimate!.monthlyTopupPaise != null)
+              _estimateRow(
+                subStrings['estimateMonthlyTopup']!,
+                _estimate!.monthlyTopupPaise!,
               ),
-              Text(
-                rupeesLabel(_estimate!.totalPaise),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.3,
-                  color: ShodashaTheme.ink,
-                ),
+            if ((_estimate!.depositDuePaise ?? 0) > 0)
+              _estimateRow(
+                subStrings['estimateDepositFirst']!,
+                _estimate!.depositDuePaise!,
               ),
+            if (_estimate!.monthlyTopupPaise != null) ...[
+              const Divider(height: 14),
+              _totalRow(subStrings['dueToday']!, _estimate!.monthlyTopupPaise!),
             ],
-          ),
+          ] else ...[
+            if (_estimate!.waterBillPaise != null)
+              _estimateRow(
+                subStrings['estimateWater']!,
+                _estimate!.waterBillPaise!,
+              ),
+            if (_estimate!.depositDuePaise != null)
+              _estimateRow(
+                subStrings['estimateDeposit']!,
+                _estimate!.depositDuePaise!,
+              ),
+            const Divider(height: 14),
+            _totalRow(subStrings['estimateTotal']!, _estimate!.totalPaise),
+          ],
         ],
         const SizedBox(height: 6),
         Text(
-          subStrings['estimateNote']!,
+          _billing == 'monthly_prepaid'
+              ? subStrings['billPrepaidNote']!
+              : _billing == 'monthly_postpaid'
+              ? subStrings['billPostpaidNote']!
+              : subStrings['estimateNote']!,
           style: const TextStyle(fontSize: 10.5, color: ShodashaTheme.muted),
         ),
       ],
     ),
+  );
+
+  Widget _totalRow(String label, int paise) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: ShodashaTheme.ink,
+        ),
+      ),
+      Text(
+        rupeesLabel(paise),
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w900,
+          letterSpacing: -0.3,
+          color: ShodashaTheme.ink,
+        ),
+      ),
+    ],
   );
 
   Widget _estimateRow(String label, int paise) => Padding(
