@@ -1266,7 +1266,9 @@ POST /payments/dues-intent + Idempotency-Key
     -> same key replay returns the stored intent/link, provider not called
 
 webhook -> settle_dues_intent(provider_ref, amount)
- └─ clear open orders' unpaid amounts first, then the ledger remainder;
+ └─ allocate to open orders: payment row, order paid_upi/partial_dues;
+    orders whose rupees already sit in ledger.dues reduce the ledger once
+ └─ then clear any remaining ledger dues (canceled-order dues included);
     any over-capture is queued as a refund, never kept
 ```
 
