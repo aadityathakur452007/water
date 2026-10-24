@@ -109,6 +109,13 @@ async def test_dues_intent_fk_on_has_no_synthetic_order(rzp):
     res = await s.webhook_ingest(body, sig)
     assert res["ok"] and res["dues_intent"]["status"] == "paid"
     assert (await s.get_dues("u1"))["dues"] == 0
+    # The order that posted those dues is settled too, so the door cannot
+    # collect the same rupees a second time.
+    row = raw.execute("SELECT payment_status FROM orders WHERE id=?", (o["id"],)).fetchone()
+    assert row["payment_status"] == "paid_upi"
+    paid = raw.execute("SELECT COUNT(*) c, COALESCE(SUM(amount),0) a FROM payments"
+                       " WHERE order_id=?", (o["id"],)).fetchone()
+    assert paid["c"] == 1 and paid["a"] == o["total"]
 
 
 async def test_same_key_and_new_key_replay_never_mint_two_provider_orders(rzp):
@@ -280,10 +287,17 @@ async def test_postpaid_delivery_posts_real_dues_once(rzp):
     await repo._post_postpaid_dues(dict(order_row))
     assert (await led.get("u1"))["dues"] == total
 
-    # Month-end dues payment clears it through the real intent path.
+    # Month-end dues payment clears it through the real intent path and also
+    # closes the delivered order (no door-side double collection).
     out = await _svc(raw).dues_intent("u1", "postpaid-pay")
     assert int(out["payment"]["amount"]) == total
     assert out["link"]
+    body, sig = signed_event(out["provider_ref"], total, order_id=None)
+    res = await _svc(raw).webhook_ingest(body, sig)
+    assert res["dues_intent"]["status"] == "paid"
+    assert (await led.get("u1"))["dues"] == 0
+    row = raw.execute("SELECT payment_status FROM orders WHERE id=?", (order_id,)).fetchone()
+    assert row["payment_status"] == "paid_upi"
 
 
 async def test_postpaid_cancel_before_delivery_owes_nothing(rzp):

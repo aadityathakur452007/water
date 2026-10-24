@@ -410,15 +410,13 @@ class PaymentRepo:
             remaining = int(amount)
             user_id = str(fresh["user_id"])
             try:
+                led = LedgerRepo(self._conn)
+                ledger_dues = int((await led.get(user_id))["dues"])
                 orders = (await self._conn.execute(
                     "SELECT id, total FROM orders WHERE user_id=? AND state NOT IN ('cancelled','rejected')"
                     " AND payment_status IN ('unpaid','link_sent','partial_dues') ORDER BY created_at, id",
                     (user_id,))).fetchall()
                 for o in orders:
-                    if await self._dues_posted(str(o["id"])):
-                        # This remainder already lives in ledger.dues; paying it
-                        # here as well would double-charge the same rupees.
-                        continue
                     paid = await self.paid_sum_for_order(str(o["id"]))
                     due = max(0, int(o["total"]) - int(paid))
                     if due <= 0 or remaining <= 0:
@@ -435,9 +433,17 @@ class PaymentRepo:
                     await self._conn.execute(
                         "UPDATE payments SET status='failed' WHERE order_id=? AND status='link_sent'",
                         (str(o["id"]),))
+                    if await self._dues_posted(str(o["id"])):
+                        # These rupees already sit in ledger.dues: move them
+                        # off the ledger exactly once as the order is marked
+                        # paid, otherwise the door could collect them twice.
+                        pay = min(alloc, ledger_dues)
+                        if pay > 0:
+                            await led.apply_event(
+                                user_id, d_dues=-pay, ref=f"dues:{fresh['id']}:{o['id']}",
+                                actor="upi-webhook", reason="dues upi paid", commit=False)
+                            ledger_dues -= pay
                     remaining -= alloc
-                led = LedgerRepo(self._conn)
-                ledger_dues = int((await led.get(user_id))["dues"])
                 if remaining > 0 and ledger_dues > 0:
                     pay = min(ledger_dues, remaining)
                     await led.apply_event(user_id, d_dues=-pay, ref=f"dues:{fresh['id']}",
