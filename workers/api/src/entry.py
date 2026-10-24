@@ -35,6 +35,11 @@ class Default(WorkerEntrypoint):
             gc.collect(1)
 
     async def scheduled(self, controller, env, ctx):
+        # The runtime hands ``scheduled`` the env as an argument, but it arrives
+        # as None in production (verified via ``wrangler tail``: AttributeError
+        # on ``env.DB``). The entrypoint instance always carries the bindings,
+        # so prefer ``self.env`` and keep the argument only as a fallback.
+        env = getattr(self, "env", None) or env
         set_worker_env(env)
         # Real tick: due subscriptions, reminders, retention purges. Errors
         # propagate so Cloudflare marks the invocation failed (and retries).
