@@ -26,7 +26,7 @@ INSERT OR IGNORE INTO _qa_cleanup_20261024(id) VALUES
   ('d784605287334025b751bff39fe7ed77'),
   ('d1fbcbb835304001a65b703a305e0123'),
   ('c81129c8066b48cdbeb538582e94a874'),
-  ('1f28f492a81f466a8264b39adb24084e'),
+  ('1f28b492a81f466a8264b39adb24084e'),
   ('33fd62b3bb5b4e6d93ccf746ef381e32'),
   ('ccc2d063aefc4153af293c1ccffba126'),
   ('7d714fda16a34fb689d9a9c2b1c307a4'),
@@ -162,7 +162,7 @@ SELECT 'remaining_qa' AS check_name, COUNT(*) AS value
   FROM users
  WHERE id IN ('69af983e97af40f2aeb4e2c2f2b4ba33','d784605287334025b751bff39fe7ed77',
               'd1fbcbb835304001a65b703a305e0123','c81129c8066b48cdbeb538582e94a874',
-              '1f28f492a81f466a8264b39adb24084e','33fd62b3bb5b4e6d93ccf746ef381e32',
+              '1f28b492a81f466a8264b39adb24084e','33fd62b3bb5b4e6d93ccf746ef381e32',
               'ccc2d063aefc4153af293c1ccffba126','7d714fda16a34fb689d9a9c2b1c307a4',
               '7e8efe44c7ad4a25a68823927263adc0')
 UNION ALL

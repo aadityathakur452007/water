@@ -1336,8 +1336,10 @@ webhook for an already-canceled order
 
 ### Closeout — QA cleanup + demo-door shutdown (owner-run, 2026-10-24)
 
-Two reviewed SQL scripts close the production-only leftovers. They are not run
-automatically; the 2026-10-24 session had no authenticated `wrangler` session.
+Two reviewed SQL scripts closed the production-only leftovers on 2026-10-24
+after `wrangler login`. The pre-flight caught a one-character allowlist typo
+(`1f28f492…` vs the real `1f28b492…`); the corrected script was dry-run against
+the fresh 18-user production backup before remote execution.
 
 ```
 workers/api/scripts/cleanup_qa_20261024.sql
@@ -1354,13 +1356,19 @@ workers/api/scripts/disable_demo_login.sql
   └─ verify flag=0, demo_codes=0
 ```
 
-Owner runbook (in `workers/api`, after `npx wrangler login`):
+Executed runbook (in `workers/api`):
 
 ```
 npx wrangler d1 export shodasha --remote --output qa-backup-20261024.sql
 npx wrangler d1 execute shodasha --remote --file scripts/cleanup_qa_20261024.sql
 npx wrangler d1 execute shodasha --remote --file scripts/disable_demo_login.sql
 ```
+
+Result: users **18 → 9**, QA ids **0**, `demo-user-1`/`demo-vendor-1`/admin
+intact, the postpaid QA order deleted, `demo_login_enabled=0`, `demo_codes=0`,
+`foreign_key_check` **0 violations**, live demo login **401**, catalog **200**.
+Backup: `%TEMP%\opencode\shodasha_pre_closeout_20261024.sql`, SHA256
+`A7C99F21C52C4CD3228A608C7A8E5C78E57E01FF7F4AFEB9871A632BE50A120D`.
 
 Both scripts are idempotent. The cleanup script keeps `demo-user-1`,
 `demo-vendor-1`, the admin, and every pre-existing customer; the demo accounts
