@@ -522,7 +522,7 @@ class AuthService:
         Create-only: an existing phone gets 409 ACCOUNT_EXISTS and never a
         session. There is no OTP migration or account-claim path. The password
         is hashed after the conflict check so a rejected request does not burn
-        600k PBKDF2 iterations.
+        100k PBKDF2 iterations.
         """
         clean_name = (name or "").strip()
         if not clean_name or len(clean_name) > 100:

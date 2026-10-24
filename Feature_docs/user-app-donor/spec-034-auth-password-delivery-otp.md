@@ -49,17 +49,27 @@ Recommended values are marked **R**. Each alternative changes the design materia
 
 ### 3.1 Workers plan and password hashing
 
-- **R — Workers Paid + PBKDF2-HMAC-SHA256 at 600,000 iterations.**
+> **Production update (2026-10-24, ADR-132):** Cloudflare's WebCrypto rejects
+> PBKDF2 above **100,000 iterations**. The 600,000 target below cannot execute
+> on this Worker; the owner explicitly approved a fixed **100,000** parameter.
+> See §6.3 for the implemented values.
+
+- **R — Workers Paid + PBKDF2-HMAC-SHA256 at 600,000 iterations (original target; production cap is 100,000).**
   - Python Workers run in Pyodide. `hashlib.pbkdf2_hmac` is not reliably available
     there; use WebCrypto `crypto.subtle.deriveBits` in Workers and
     `hashlib.pbkdf2_hmac` locally.
-  - 600k iterations is roughly 200–300 ms of CPU, which exceeds the Workers Free
-    10 ms CPU limit. Deploying password auth on Free will fail closed/hit CPU limits.
+  - The original 600k estimate was roughly 200–300 ms of CPU, which exceeds the
+    Workers Free 10 ms CPU limit. The runtime's actual hard cap is 100k (see the
+    production update above).
   - If the project must stay on Workers Free, password auth needs a different
     architecture (external auth service or a non-Workers auth endpoint). That is
     outside this spec.
-- Alternative: lower iterations. **Rejected** — a runtime-selectable lower cost is a
-  downgrade path and is weaker than current OWASP guidance.
+- Alternative: lower iterations. **Rejected in the original design** — a
+  runtime-selectable lower cost is a downgrade path and is weaker than current
+  OWASP guidance. **Superseded 2026-10-24:** Cloudflare's WebCrypto hard-caps
+  PBKDF2 at 100,000 iterations, so the owner approved an explicit, fixed 100,000
+  (ADR-132). This is a documented runtime maximum, not a runtime-selectable
+  downgrade.
 
 ### 3.2 Optional email validation
 
@@ -259,12 +269,15 @@ form's optional contact phone.
 New module: `workers/api/src/app/core/passwords.py`.
 
 - Algorithm: PBKDF2-HMAC-SHA256.
-- Iterations: 600,000.
+- Iterations: 100,000 (Cloudflare WebCrypto maximum; see §3.1 production update).
 - Salt: 16 random bytes from `secrets.token_bytes` (local/Workers Python) or
   `crypto.getRandomValues` where needed.
 - Derived key: 32 bytes.
 - Encoding:
-  `pbkdf2_sha256$600000$<base64url(salt)>$<base64url(dk)>`.
+  `pbkdf2_sha256$100000$<base64url(salt)>$<base64url(dk)>`.
+- Cloudflare WebCrypto rejects PBKDF2 above 100,000 iterations; the original
+  600,000 target cannot execute on this Worker. The 100,000 value is explicit
+  and fixed (ADR-132).
 - Verify parses the encoded cost and salt, re-derives, and uses
   `hmac.compare_digest`.
 - Workers path: WebCrypto `crypto.subtle.deriveBits` with `PBKDF2`, `SHA-256`.

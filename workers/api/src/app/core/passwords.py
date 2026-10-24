@@ -1,10 +1,11 @@
 """Password hashing for customer auth (034).
 
-PBKDF2-HMAC-SHA256 at 600,000 iterations, 16-byte salt, 32-byte key. Local
+PBKDF2-HMAC-SHA256 at 100,000 iterations, 16-byte salt, 32-byte key. Local
 Python/tests use ``hashlib``; Cloudflare Python Workers use WebCrypto because
 the Workers runtime does not expose OpenSSL's PBKDF2 implementation. The
-parameters are server-side constants — never client-selected — and there is no
-silent downgrade path.
+parameters are server-side constants — never client-selected. Cloudflare's
+WebCrypto implementation rejects iteration counts above 100,000, so this is the
+runtime maximum, documented explicitly rather than silently downgraded.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import secrets
 import sys
 
 ALGORITHM = "pbkdf2_sha256"
-ITERATIONS = 600_000
+ITERATIONS = 100_000
 SALT_BYTES = 16
 KEY_BYTES = 32
 MAX_PASSWORD_CHARS = 128
@@ -25,8 +26,8 @@ MIN_PASSWORD_CHARS = 8
 # Precomputed with the same parameters. Used only to equalize login timing for
 # an unknown phone / empty hash; it is not a real account credential.
 DUMMY_HASH = (
-    "pbkdf2_sha256$600000$I8utLCCQbNJC-SOzWDloIw$"
-    "zEQaApz25MEMB6cwsbxZhiXMdMMlOdhooQWsgSXvVXI"
+    "pbkdf2_sha256$100000$c2hvZGFzaGEtZHVtbXkhIQ$"
+    "gF45v-hUQdcfMOSG1Pl_Wn31M0n9tetNGpji2_fXJSg"
 )
 
 
@@ -49,24 +50,28 @@ async def _derive(password: str, salt: bytes, iterations: int, key_bytes: int) -
         )
 
     # Cloudflare Python Workers (Pyodide): WebCrypto is the only PBKDF2 path.
-    from js import crypto  # type: ignore[import-not-found]  # noqa: PLC0415
-    from pyodide.ffi import to_js, to_py  # type: ignore[import-not-found]  # noqa: PLC0415
+    from js import Object, crypto  # type: ignore[import-not-found]  # noqa: PLC0415
+    from pyodide.ffi import to_js  # type: ignore[import-not-found]  # noqa: PLC0415
 
     key = await crypto.subtle.importKey(
         "raw", to_js(password.encode("utf-8"), create_pyproxies=False),
-        "PBKDF2", False, ["deriveBits"],
+        "PBKDF2", False, to_js(["deriveBits"], create_pyproxies=False),
     )
     bits = await crypto.subtle.deriveBits(
-        {
-            "name": "PBKDF2",
-            "salt": to_js(salt, create_pyproxies=False),
-            "iterations": iterations,
-            "hash": "SHA-256",
-        },
+        to_js(
+            {
+                "name": "PBKDF2",
+                "salt": to_js(salt, create_pyproxies=False),
+                "iterations": iterations,
+                "hash": "SHA-256",
+            },
+            dict_converter=Object.fromEntries,
+            create_pyproxies=False,
+        ),
         key,
         key_bytes * 8,
     )
-    return bytes(to_py(bits))
+    return bytes(bits.to_py())
 
 
 async def hash_password(password: str) -> str:

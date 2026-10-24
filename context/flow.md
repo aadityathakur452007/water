@@ -14,6 +14,7 @@
 
 Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 7 tabs; ADR-056 consolidated to 4 tabs + More drawer): vendor OTP login → duty (off-guard confirmed) → today route (search→customers, stock header, sync chip) → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch (loading branch) → earnings → support queue + verify → drawer (stock log, profile, WhatsApp, logout). See `Feature_docs/vendor-app/spec.md`.
 - 016 dashboard (branch 016-vendor-dashboard, ADR-064): Route tab top composes one screen — TodayStrip (`summarizeToday` pure fold over `RouteStop`s: distinct users, jars, UPI/COD collect paid-excluded) + one CTA per state (Sync backlog → Triple first-pending → all-done text) + inline money (`EarningsController` reuse: jama cash/upi + flagged-hold, display-only) + can-ledger rows (`CustomersController`: held/dues nonzero-only). Backend: `placed_pool(vendor_id)` zone-scoped (zones/vendor_zones instr match; unzoned admin-only) + `today_customers` gains `held`/`dues` via `ledger.get`. No new tabs/endpoints/tables/packages.
+- Production customer auth/deploy (2026-10-24, ADR-132): Cloudflare Worker `water` at `https://water.adityathakur452007.workers.dev` (version `07e98028-2434-4487-aad1-be52938f97cb`); D1 `shodasha` at schema 027 after backfilling 002-023 bookkeeping and applying 024-027. `POST /v1/auth/user/register` validates name/phone/password/device, hashes with PBKDF2-HMAC-SHA256 at the Cloudflare WebCrypto maximum 100,000 iterations, inserts `users`, then `_issue_session`; `POST /v1/auth/user/login` finds the phone, verifies the stored cost/salt, uses `DUMMY_HASH` for unknown/empty-password timing, and issues the same session pair. Existing users with empty `password_hash` fail closed until admin reset. Live checks: catalog 200, empty login 400 VALIDATION, register/login 200, wrong password 401 UNAUTH; the temporary user was removed and 9 production users remain.
 
 ```
 VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
@@ -955,9 +956,10 @@ POST /v1/admin/users/{id}/password-reset
 POST /v1/auth/otp/start|verify → 410 OTP_RETIRED (no body validation)
 ```
 
-Passwords: PBKDF2-HMAC-SHA256, 600,000 iterations, 16-byte salt, 32-byte key,
+Passwords: PBKDF2-HMAC-SHA256, 100,000 iterations (Cloudflare WebCrypto maximum;
+the original 600k target cannot run there), 16-byte salt, 32-byte key,
 constant-time compare; unknown phones still verify a dummy hash. Local Python uses
-`hashlib`; Cloudflare uses WebCrypto (Workers Paid). Parameters are server constants.
+`hashlib`; Cloudflare uses WebCrypto. Parameters are server constants.
 
 ### Delivery-code lifecycle
 

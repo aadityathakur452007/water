@@ -135,7 +135,7 @@ async def test_register_new_user_unverified_plus_session():
         (PHONE_N,)).fetchone()
     assert row["role"] == "user" and row["kyc_status"] == "unverified"
     assert row["name"] == "Naya User" and row["email"] == "naya@gmail.com"
-    assert row["password_hash"].startswith("pbkdf2_sha256$600000$")
+    assert row["password_hash"].startswith("pbkdf2_sha256$100000$")
 
 
 async def test_register_duplicate_is_409_and_never_overwrites():
