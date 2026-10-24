@@ -1,5 +1,6 @@
 """P0 money regressions: FK-on dues, one-provider-call replay, canceled-order
 capture, honest cancel accounting, real monthly prepaid billing, cron tick."""
+import hashlib
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,8 +29,10 @@ from app.services.subscription_service import SubscriptionService  # noqa: E402
 
 MIGS = [
     "002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
-    "006_aftermath.sql", "012_monthly.sql", "021_return_upi.sql",
-    "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql",
+    "006_aftermath.sql", "007_ops.sql", "010_config_audit.sql",
+    "012_monthly.sql", "015_pod_otp.sql",
+    "021_return_upi.sql", "022_vendor_leaves_and_sub_cancel.sql",
+    "027_pod_otp_lifecycle.sql", "028_p0_money_monthly.sql",
 ]
 WINDOW = "2026-09-01T08:00:00+00:00"
 DAY = "2026-09-29"
@@ -311,3 +314,73 @@ async def test_postpaid_cancel_before_delivery_owes_nothing(rzp):
     order_id = run["created"][0]["order_id"]
     await _osvc(raw).cancel("u1", order_id, "test cancel", "cancel-1")
     assert (await LedgerRepo(AsyncSqliteConn(raw)).get("u1"))["dues"] == 0
+
+
+def _session(raw, uid: str, role: str, token: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    raw.execute(
+        "INSERT INTO sessions(id, user_id, token_hash, refresh_hash, role, device_fp,"
+        " family_id, expires_at, created_at) VALUES (?, ?, ?, ?, ?, 'd', 'f', ?, ?)",
+        (f"ses-{uid}", uid, hashlib.sha256(token.encode()).hexdigest(),
+         hashlib.sha256(f"r:{token}".encode()).hexdigest(), role, future, now))
+    raw.commit()
+
+
+def _client(raw):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_db_conn
+    from app.api.v1.vendor import router
+    from app.core.errors import register_exception_handlers
+
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(router, prefix="/v1")
+    conn = raw if isinstance(raw, AsyncSqliteConn) else AsyncSqliteConn(raw)
+    app.dependency_overrides[get_db_conn] = lambda: conn
+    return TestClient(app)
+
+
+async def test_real_pod_route_posts_postpaid_dues_once(rzp):
+    """The HTTP door a rider actually calls posts dues on delivery, once."""
+    raw = _conn()
+    conn = AsyncSqliteConn(raw)
+    now = datetime.now(timezone.utc).isoformat()
+    raw.execute("INSERT INTO users(id, phone, role, created_at)"
+                " VALUES ('v1', '+919000000002', 'vendor', ?)", (now,))
+    raw.commit()
+
+    sub = await SubscriptionService(conn).create("u1", {
+        "address_id": "a1", "qty": 1, "schedule_type": "daily", "next_run": DAY,
+        "payment_method": "upi", "billing_mode": "monthly_postpaid",
+    })
+    run = await run_due_subscriptions(conn, DAY)
+    order_id = run["created"][0]["order_id"]
+    total = int(raw.execute("SELECT total FROM orders WHERE id=?", (order_id,)).fetchone()["total"])
+    for state in ("accepted", "picked", "packed", "assigned", "dispatched"):
+        await OrderRepo(conn).transition(order_id, state, {"id": "sys", "role": "system"},
+                                         "pod route test")
+    raw.execute("INSERT INTO routes(id, date, vendor_id, zone, status)"
+                " VALUES ('r1', ?, 'v1', '', 'open')", (DAY,))
+    raw.execute("INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+                " empties_exp, version, status, pod_otp, pod_otp_expires_at)"
+                " VALUES ('s1', 'r1', ?, 'u1', 1, 1, 0, 1, 'pending', '482910', ?)",
+                (order_id, (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()))
+    raw.commit()
+    _session(raw, "v1", "vendor", "tok-vendor")
+
+    client = _client(raw)
+    h = {"Authorization": "Bearer tok-vendor"}
+    ok = client.post("/v1/vendor/stops/s1/pod",
+                     json={"delivery_otp": "482910", "seal_ok": True}, headers=h)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "done"
+    led = LedgerRepo(conn)
+    assert (await led.get("u1"))["dues"] == total
+
+    replay = client.post("/v1/vendor/stops/s1/pod",
+                         json={"delivery_otp": "000000"}, headers=h)
+    assert replay.status_code == 200 and replay.json().get("replay") is True
+    assert (await led.get("u1"))["dues"] == total

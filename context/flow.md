@@ -1296,6 +1296,12 @@ POD / admin transition -> delivered
      └─ dues then cleared by POST /payments/dues-intent
 ```
 
+The rider door is `POST /v1/vendor/stops/{stop_id}/pod` (vendor session +
+delivery code). Regression `tests/test_p0_money.py::test_real_pod_route_posts_postpaid_dues_once`
+drives that real FastAPI route with a seeded vendor, route/stop and delivery code,
+then replays the close: the order reaches `delivered`, dues post once, and the
+replay does not post again.
+
 ### Cancel and late capture
 
 ```
@@ -1327,6 +1333,38 @@ webhook for an already-canceled order
 - `GET /v1/subscriptions` rows now include `billing_mode`, `payment_method`, `billing_status`, `credit_balance_paise`, `low_balance`, `monthly_estimate_paise`.
 - `POST /v1/subscriptions/estimate` now also returns `monthly_topup_paise` (water × 30, deposit excluded).
 - `GET /v1/admin/refunds` now returns `upi_id` and `subscription_id`.
+
+### Closeout — QA cleanup + demo-door shutdown (owner-run, 2026-10-24)
+
+Two reviewed SQL scripts close the production-only leftovers. They are not run
+automatically; the 2026-10-24 session had no authenticated `wrangler` session.
+
+```
+workers/api/scripts/cleanup_qa_20261024.sql
+  └─ explicit 9-id allowlist (never a name/phone pattern)
+     ├─ pre-flight: every id must have role='user'
+     ├─ delete subscription/order children, then orders/subscriptions
+     ├─ delete ledger/address/session/phone-keyed rows
+     ├─ delete the users only when role='user'
+     └─ verify remaining_qa=0, users_total=9, demo_user=1
+
+workers/api/scripts/disable_demo_login.sql
+  ├─ config.demo_login_enabled='0'
+  ├─ DELETE FROM demo_codes
+  └─ verify flag=0, demo_codes=0
+```
+
+Owner runbook (in `workers/api`, after `npx wrangler login`):
+
+```
+npx wrangler d1 export shodasha --remote --output qa-backup-20261024.sql
+npx wrangler d1 execute shodasha --remote --file scripts/cleanup_qa_20261024.sql
+npx wrangler d1 execute shodasha --remote --file scripts/disable_demo_login.sql
+```
+
+Both scripts are idempotent. The cleanup script keeps `demo-user-1`,
+`demo-vendor-1`, the admin, and every pre-existing customer; the demo accounts
+remain available for local QA after the production door is closed.
 
 ### Donor app flow
 
