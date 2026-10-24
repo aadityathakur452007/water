@@ -343,6 +343,8 @@ class OrderRepo:
             try:
                 await self._conn.execute("UPDATE orders SET state = ? WHERE id = ?", (to_state, order_id))
                 await self._event(order_id, from_state, to_state, _actor_id(actor), _role(actor), reason)
+                if to_state == "delivered":
+                    await self._post_postpaid_dues(order)
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
@@ -353,6 +355,41 @@ class OrderRepo:
                 )
             ).fetchone()
         return _row(updated)
+
+    async def _post_postpaid_dues(self, order: dict) -> None:
+        """Monthly postpaid: a delivered order becomes real ledger dues.
+
+        Scheduler-created orders carry ``POST /v1/orders:sub:<sub_id>:<date>``.
+        Only ``monthly_postpaid`` plans accrue here — prepaid was already
+        debited from subscription credit at creation, and per-delivery orders
+        collect per order. Idempotent on the order's dues event, so a retried
+        PoD or admin transition cannot double-bill.
+        """
+        key = str(order.get("idempotency_key") or "")
+        if ":sub:" not in key:
+            return
+        sub_id = key.split(":sub:", 1)[1].split(":", 1)[0]
+        sub = (await self._conn.execute(
+            "SELECT billing_mode FROM subscriptions WHERE id = ? AND user_id = ?",
+            (sub_id, order["user_id"]),
+        )).fetchone()
+        if sub is None or str(sub.get("billing_mode")) != "monthly_postpaid":
+            return
+        posted = (await self._conn.execute(
+            "SELECT 1 FROM ledger_events WHERE ref_type='order' AND ref_id=?"
+            " AND kind='dues' AND d_dues>0 LIMIT 1", (order["id"],))).fetchone()
+        if posted is not None:
+            return
+        paid = (await self._conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE order_id=?"
+            " AND status IN ('paid','partial')", (order["id"],))).fetchone()
+        due = int(order["total"]) - int(paid["paid"] if paid is not None else 0)
+        if due <= 0:
+            return
+        await LedgerRepo(self._conn).apply_event(
+            order["user_id"], d_dues=due, ref=f"order:{order['id']}",
+            actor="system", reason="postpaid delivery", commit=False,
+        )
 
     async def update_window(self, order_id: str, window_start: str, window_end: str, actor: object) -> dict:
         with WRITE_LOCK:

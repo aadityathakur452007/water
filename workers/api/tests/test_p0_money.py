@@ -248,3 +248,52 @@ async def test_cron_tick_creates_one_order_then_noop(rzp):
     second = await cron_tick(conn, DAY)
     assert second["due"]["created"] == []
     assert raw.execute("SELECT COUNT(*) c FROM orders").fetchone()["c"] == 1
+
+
+async def _walk_to_delivered(raw, order_id: str) -> None:
+    repo = OrderRepo(AsyncSqliteConn(raw))
+    for state in ("accepted", "picked", "packed", "assigned", "dispatched", "delivered"):
+        await repo.transition(order_id, state, {"id": "sys", "role": "system"}, "test walk")
+
+
+async def test_postpaid_delivery_posts_real_dues_once(rzp):
+    raw = _conn()
+    conn = AsyncSqliteConn(raw)
+    subs = SubscriptionService(conn)
+    sub = await subs.create("u1", {
+        "address_id": "a1", "qty": 1, "schedule_type": "daily", "next_run": DAY,
+        "payment_method": "upi", "billing_mode": "monthly_postpaid",
+    })
+    assert sub["billing_status"] == "active"
+    run = await run_due_subscriptions(conn, DAY)
+    assert len(run["created"]) == 1 and not run["failed"]
+    order_id = run["created"][0]["order_id"]
+    total = int(raw.execute("SELECT total FROM orders WHERE id=?", (order_id,)).fetchone()["total"])
+    led = LedgerRepo(AsyncSqliteConn(raw))
+    assert (await led.get("u1"))["dues"] == 0  # nothing owed before delivery
+
+    await _walk_to_delivered(raw, order_id)
+    assert (await led.get("u1"))["dues"] == total
+    # A retried close (or a second caller) cannot double-post.
+    repo = OrderRepo(AsyncSqliteConn(raw))
+    order_row = raw.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+    await repo._post_postpaid_dues(dict(order_row))
+    assert (await led.get("u1"))["dues"] == total
+
+    # Month-end dues payment clears it through the real intent path.
+    out = await _svc(raw).dues_intent("u1", "postpaid-pay")
+    assert int(out["payment"]["amount"]) == total
+    assert out["link"]
+
+
+async def test_postpaid_cancel_before_delivery_owes_nothing(rzp):
+    raw = _conn()
+    conn = AsyncSqliteConn(raw)
+    sub = await SubscriptionService(conn).create("u1", {
+        "address_id": "a1", "qty": 1, "schedule_type": "daily", "next_run": DAY,
+        "payment_method": "upi", "billing_mode": "monthly_postpaid",
+    })
+    run = await run_due_subscriptions(conn, DAY)
+    order_id = run["created"][0]["order_id"]
+    await _osvc(raw).cancel("u1", order_id, "test cancel", "cancel-1")
+    assert (await LedgerRepo(AsyncSqliteConn(raw)).get("u1"))["dues"] == 0

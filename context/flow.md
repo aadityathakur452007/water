@@ -1222,7 +1222,7 @@ Logout -> wipe local store/prefs/state first -> fire-and-forget revoke (3s cap)
 |---|---|---|---|
 | `per_delivery` | none (COD or UPI) | normal order payment | no prepaid balance |
 | `monthly_prepaid` | `qty × rate × 30` by UPI (water only) | debit `water_bill` from credit; `paid_upi` or `partial_dues` | refund remaining credit to `refund_upi` |
-| `monthly_postpaid` | none | accrue real order dues | dues stay owed |
+| `monthly_postpaid` | none | order stays unpaid; dues post on delivery | delivered dues stay owed |
 
 Monthly modes are UPI-only (server rejects COD). The jar deposit is never part of
 the prepaid top-up: it is charged on the first delivery and refunded on pickup.
@@ -1273,7 +1273,7 @@ webhook -> settle_dues_intent(provider_ref, amount)
 ### Subscription scheduler
 
 ```
-entry.py scheduled() -> cron_tick(D1Conn(env.DB))
+entry.py scheduled() -> self.env (runtime passes env=None) -> cron_tick(D1Conn(env.DB))
  └─ run_due_subscriptions
      ├─ resume holds whose hold_to passed
      ├─ billing_status='pending_payment' -> low_balance[{reason: payment_pending}]
@@ -1281,8 +1281,17 @@ entry.py scheduled() -> cron_tick(D1Conn(env.DB))
      ├─ otherwise create the delivery order (idempotent per sub/date key)
      │   ├─ prepaid: append -water_bill credit entry, record synthetic
      │   │   subcredit:<sub_id>:<order_id> payment, paid_upi/partial_dues
-     │   └─ postpaid: order stays unpaid; amount joins ledger dues
+     │   └─ postpaid: order stays unpaid; dues post when delivery completes
      └─ return {date, generated, resumed, low_balance}
+```
+
+```
+POD / admin transition -> delivered
+ └─ OrderRepo.transition
+     ├─ read orders.idempotency_key = POST /v1/orders:sub:<sub_id>:<date>
+     ├─ plan must be monthly_postpaid for the same user
+     ├─ post total - paid as ledger dues (event ref order:<id>), once
+     └─ dues then cleared by POST /payments/dues-intent
 ```
 
 ### Cancel and late capture
