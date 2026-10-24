@@ -1,15 +1,18 @@
-// Donor wallet screen, backed by the real jar ledger.
-//
-// The donor hero showed a fake ₹450 balance and an "Add Money" button, and
-// the transaction list was hardcoded. The backend has no wallet balance/top-up;
-// it has deposits, held jars, dues and receipts. This screen shows those, with
-// the donor card/list grammar. No invented money.
+// Donor wallet: the real jar ledger (deposits, held jars, dues) plus the
+// latest receipts. No invented balance and no top-up button — the backend has
+// neither. Cached rows stay visible, marked stale, when a refresh fails.
 
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants/app_constants.dart';
 import '../../core/money.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_card.dart';
+import '../../shared/ui/app_icon_button.dart';
+import '../../shared/ui/app_state_view.dart';
+import '../../shared/ui/section_header.dart';
 import '../returns/return_sheet.dart';
 import '../returns/returns_controller.dart';
 import 'payment_history_screen.dart';
@@ -38,6 +41,7 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
   List<PaymentRecord> _payments = const [];
   bool _paymentsLoading = true;
   String? _paymentsError;
+  bool _pushing = false;
 
   @override
   void initState() {
@@ -88,164 +92,204 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
       if (!mounted) return;
       setState(() {
         _paymentsError = e.isOffline
-            ? 'No internet — check your connection and retry.'
+            ? 'No internet — showing the receipts already loaded.'
             : e.isServerError
-            ? 'Server problem — retry in a moment.'
-            : 'Could not load recent receipts';
+            ? 'Server problem — showing the receipts already loaded.'
+            : 'Could not refresh receipts.';
         _paymentsLoading = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _paymentsError = 'Could not load recent receipts';
+        _paymentsError = 'Could not refresh receipts.';
         _paymentsLoading = false;
       });
     }
   }
 
   Future<void> _openReturnSheet() async {
+    final held = _controller.ledger?.heldJars ?? 0;
+    if (held <= 0) return;
     final request = await showModalBottomSheet<ReturnRequest>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.surface,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radiusSheet),
+        ),
       ),
-      builder: (_) =>
-          ReturnSheet(api: widget.api, pickAddress: widget.pickAddress),
+      builder: (_) => ReturnSheet(
+        api: widget.api,
+        pickAddress: widget.pickAddress,
+        heldJars: held,
+      ),
     );
     if (!mounted || request == null) return;
-    // The sheet already showed request id, SLA and refund; just refresh the
-    // ledger so the new return is reflected.
-    _load();
+    await _load();
   }
 
-  void _openPayments() {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => PaymentHistoryScreen(api: widget.api),
-      ),
-    );
+  Future<void> _openPayments() async {
+    if (_pushing) return;
+    _pushing = true;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => PaymentHistoryScreen(api: widget.api),
+        ),
+      );
+    } finally {
+      _pushing = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
+        backgroundColor: ShodashaTheme.surface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        shape: const Border(bottom: BorderSide(color: ShodashaTheme.border)),
         title: const Text(
-          'SHODASHA WALLET',
+          'Wallet',
           style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 16,
-            color: Colors.white,
-            letterSpacing: 1.1,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: ShodashaTheme.ink,
+            letterSpacing: -0.2,
           ),
         ),
-        backgroundColor: AppColors.primary,
-        elevation: 0,
-        automaticallyImplyLeading: false,
         actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh, color: Colors.white),
+          AppIconButton(
+            icon: Icons.refresh_rounded,
+            tooltip: 'Refresh wallet',
+            onPressed: _controller.isRefreshing ? null : _load,
           ),
+          const SizedBox(width: AppSpacing.xs),
         ],
       ),
       body: ListenableBuilder(
         listenable: _controller,
         builder: (context, _) {
+          final c = _controller;
+          final ledger = c.ledger;
+          if (c.status == WalletStatus.loading && ledger == null) {
+            return ListView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              children: [
+                AppStateView.loading(
+                  lines: 4,
+                  message: 'Loading your jar ledger',
+                ),
+              ],
+            );
+          }
+          if (c.status == WalletStatus.error && ledger == null) {
+            return AppStateView.error(
+              isNetwork: c.isOffline,
+              title: c.isOffline ? null : 'Could not load your wallet',
+              message: c.errorMessage,
+              onRetry: _load,
+            );
+          }
           return RefreshIndicator(
+            color: ShodashaTheme.tealDeep,
             onRefresh: _load,
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(AppConstants.defaultPadding),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.xxl,
+              ),
               children: [
-                if (_controller.status == WalletStatus.loading ||
-                    _controller.status == WalletStatus.initial)
-                  const _WalletSkeleton()
-                else if (_controller.status == WalletStatus.error)
-                  _WalletError(
+                if (c.isOffline)
+                  AppBanner.offline(
                     message:
-                        _controller.errorMessage ??
-                        'Could not load your ledger',
+                        'Showing the ledger from your last successful refresh.',
                     onRetry: _load,
                   )
-                else if (_controller.ledger != null)
-                  _ledgerBody(_controller.ledger!),
-                const SizedBox(height: 12),
-                _actionTile(
-                  icon: Icons.receipt_long_outlined,
-                  color: const Color(0xFF0284C7),
-                  title: 'Payments & deposits',
-                  subtitle: 'UPI and cash receipts, plus deposit refunds',
-                  onTap: _openPayments,
-                ),
-                const SizedBox(height: 10),
-                _actionTile(
-                  icon: Icons.recycling_outlined,
-                  color: AppColors.primary,
-                  title: 'Return empty jars',
-                  subtitle: 'Request a pickup and refund of your deposit',
-                  onTap: _openReturnSheet,
-                ),
-                if ((_controller.ledger?.duesPaise ?? 0) > 0) ...[
-                  const SizedBox(height: 10),
+                else if (c.isStale)
+                  AppBanner.stale(
+                    message: c.isServerError
+                        ? 'Server problem — showing your last ledger.'
+                        : 'Could not refresh — showing your last ledger.',
+                    onRetry: _load,
+                  ),
+                if (ledger != null) ...[
+                  if (c.isOffline || c.isStale)
+                    const SizedBox(height: AppSpacing.sm),
+                  if (ledger.duesPaise > 0) ...[
+                    _duesCard(ledger.duesPaise),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  _ledgerBody(ledger),
+                  const SizedBox(height: AppSpacing.md),
                   _actionTile(
-                    icon: Icons.payments_outlined,
-                    color: AppColors.money,
-                    title: 'Outstanding dues',
-                    subtitle:
-                        '${formatInr(_controller.ledger!.duesPaise)} — pay from Subscriptions',
-                    onTap: widget.onOpenSubscriptions,
+                    icon: Icons.receipt_long_outlined,
+                    color: ShodashaTheme.blue,
+                    title: 'Payments & deposits',
+                    subtitle: 'UPI and cash receipts, plus deposit refunds',
+                    onTap: _openPayments,
                   ),
-                ],
-                const SizedBox(height: 22),
-                const Text(
-                  'RECENT TRANSACTIONS',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (_paymentsLoading)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (_paymentsError != null)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _paymentsError!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
+                  const SizedBox(height: AppSpacing.sm),
+                  if (ledger.heldJars > 0)
+                    _actionTile(
+                      icon: Icons.recycling_outlined,
+                      color: ShodashaTheme.tealDeep,
+                      title: 'Return empty jars',
+                      subtitle:
+                          '${ledger.heldJars} ${ledger.heldJars == 1 ? 'jar' : 'jars'} '
+                          'ready — request a pickup and refund',
+                      onTap: _openReturnSheet,
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppSpacing.xs,
+                        vertical: AppSpacing.sm,
+                      ),
+                      child: Text(
+                        'No empty jars to return yet.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: ShodashaTheme.muted,
                         ),
                       ),
-                      TextButton(
-                        onPressed: _loadPayments,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  )
-                else if (_payments.isEmpty)
-                  const Text(
-                    'No receipts yet.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
                     ),
-                  )
-                else
-                  ..._payments.map(_paymentTile),
-                const SizedBox(height: 24),
+                  SectionHeader(
+                    title: 'Recent receipts',
+                    trailing: _payments.isEmpty
+                        ? null
+                        : TextButton(
+                            onPressed: _openPayments,
+                            child: const Text('See all'),
+                          ),
+                  ),
+                  if (_paymentsLoading && _payments.isEmpty)
+                    AppStateView.loading(lines: 2, message: 'Loading receipts')
+                  else if (_paymentsError != null)
+                    AppBanner.stale(
+                      message: _paymentsError!,
+                      onRetry: _loadPayments,
+                    )
+                  else if (_payments.isEmpty)
+                    AppStateView.empty(
+                      icon: Icons.receipt_outlined,
+                      title: 'No receipts yet',
+                      message:
+                          'Payments and deposit refunds will appear here after '
+                          'your first delivery.',
+                    )
+                  else
+                    ..._payments.map(_paymentTile),
+                ],
               ],
             ),
           );
@@ -256,110 +300,73 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
 
   Widget _ledgerBody(LedgerSnapshot ledger) {
     if (ledger.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-              child: const Icon(
-                Icons.water_drop_outlined,
-                color: AppColors.primary,
-                size: 26,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'No jars with you yet',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'When your first 20L jar is delivered, its refundable deposit '
-              'and any dues will appear here.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.4,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
+      return AppStateView.empty(
+        icon: Icons.water_drop_outlined,
+        title: 'No jars with you yet',
+        message:
+            'When your first 20L jar is delivered, its refundable deposit and '
+            'any dues will appear here.',
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.2),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            color: ShodashaTheme.tealDeep,
+            borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'REFUNDABLE DEPOSIT',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.8),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
+                  Expanded(
+                    child: Text(
+                      'Refundable deposit',
+                      style: TextStyle(
+                        color: ShodashaTheme.surface,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   Icon(
-                    Icons.account_balance_wallet,
-                    color: Colors.white.withValues(alpha: 0.8),
+                    Icons.account_balance_wallet_outlined,
+                    color: Colors.white.withValues(alpha: 0.85),
+                    size: 22,
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: AppSpacing.sm),
               Text(
                 formatInr(ledger.depositHeldPaise),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 32,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.6,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: AppSpacing.xs),
               Text(
                 'Refunded after your jars are collected.',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: ShodashaTheme.surface, fontSize: 12),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: AppSpacing.md),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
+                  horizontal: AppSpacing.sm,
+                  vertical: AppSpacing.xs,
                 ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
                 ),
                 child: Text(
-                  '${ledger.heldJars} ${ledger.heldJars == 1 ? 'jar' : 'jars'} with you',
+                  '${ledger.heldJars} '
+                  '${ledger.heldJars == 1 ? 'jar' : 'jars'} with you',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -370,26 +377,20 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-          ),
+        const SizedBox(height: AppSpacing.md),
+        AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'CAN SECURITY LEDGER',
+                'Deposit details',
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: ShodashaTheme.ink,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               _row('Jars with you', '${ledger.heldJars}'),
               _row('Deposit paid', formatInr(ledger.depositPaidPaise)),
               if (ledger.depositRefundedPaise > 0)
@@ -409,25 +410,72 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
     );
   }
 
+  Widget _duesCard(int duesPaise) {
+    return AppCard(
+      borderColor: ShodashaTheme.solarBorder,
+      color: ShodashaTheme.solarTint,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 20,
+                color: ShodashaTheme.warning,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  '${formatInr(duesPaise)} in outstanding dues',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.onSolar,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          const Text(
+            'Clear dues to keep cash on delivery available and avoid holds on '
+            'future jars.',
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.4,
+              color: ShodashaTheme.onSolar,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppButton(
+            label: 'Review dues',
+            kind: AppButtonKind.money,
+            height: 48,
+            onPressed: widget.onOpenSubscriptions,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _row(String label, String value, {bool emphasis = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
             ),
           ),
           Text(
             value,
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w900,
-              color: emphasis ? const Color(0xFFB91C1C) : AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              color: emphasis ? ShodashaTheme.danger : ShodashaTheme.ink,
             ),
           ),
         ],
@@ -442,129 +490,170 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.border),
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.12),
-          child: Icon(icon, color: color, size: 22),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 14,
-            color: AppColors.textPrimary,
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 21),
           ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
-        trailing: const Icon(
-          Icons.chevron_right,
-          color: Color(0xFF94A3B8),
-          size: 20,
-        ),
-        onTap: onTap,
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: ShodashaTheme.muted,
+            size: 20,
+          ),
+        ],
       ),
     );
   }
 
   Widget _paymentTile(PaymentRecord p) {
-    final date = p.dateIso == null
-        ? '—'
-        : DateTime.tryParse(
-                p.dateIso!,
-              )?.toLocal().toString().split(' ').first ??
-              '—';
-    final isCredit = p.isRefund || p.depositPaise > 0 && p.amountPaise == 0;
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.border),
-      ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: isCredit
-              ? const Color(0xFFDCFCE7)
-              : const Color(0xFFFEE2E2),
-          child: Icon(
-            isCredit ? Icons.arrow_downward : Icons.arrow_outward,
-            color: isCredit ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
-            size: 18,
-          ),
+    final date = _shortDate(p.dateIso);
+    final isCredit = p.isRefund || (p.depositPaise > 0 && p.amountPaise == 0);
+    final title = p.isRefund
+        ? 'Deposit refund'
+        : '${_methodLabel(p.method)} payment';
+    final detail = [
+      if (p.jarsCount > 0)
+        '${p.jarsCount} ${p.jarsCount == 1 ? 'jar' : 'jars'}',
+      ?date,
+    ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: AppCard(
+        onTap: _openPayments,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
         ),
-        title: Text(
-          p.isRefund
-              ? 'Deposit refund'
-              : '${p.method} payment · ${p.jarsCount} jar${p.jarsCount == 1 ? '' : 's'}',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
-        ),
-        subtitle: Text(
-          date,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-        ),
-        trailing: Text(
-          formatInr(p.amountPaise),
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 14,
-            color: isCredit ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
-          ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isCredit
+                    ? ShodashaTheme.greenTint
+                    : ShodashaTheme.blueTint,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isCredit
+                    ? Icons.arrow_downward_rounded
+                    : Icons.arrow_outward_rounded,
+                color: isCredit
+                    ? ShodashaTheme.successDark
+                    : ShodashaTheme.blue,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13.5,
+                      color: ShodashaTheme.ink,
+                    ),
+                  ),
+                  if (detail.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      detail,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: ShodashaTheme.muted,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              isCredit
+                  ? '+${formatInr(p.amountPaise)}'
+                  : formatInr(p.amountPaise),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: isCredit ? ShodashaTheme.successDark : ShodashaTheme.ink,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-}
 
-class _WalletSkeleton extends StatelessWidget {
-  const _WalletSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 180,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-    );
+  static String? _shortDate(String? iso) {
+    final d = iso == null ? null : DateTime.tryParse(iso);
+    if (d == null) return null;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final local = d.toLocal();
+    return '${local.day} ${months[local.month - 1]} ${local.year}';
   }
-}
 
-class _WalletError extends StatelessWidget {
-  const _WalletError({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.cloud_off, color: AppColors.textSecondary),
-          const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center),
-          TextButton(onPressed: onRetry, child: const Text('Try again')),
-        ],
-      ),
-    );
+  static String _methodLabel(String method) {
+    final m = method.trim();
+    if (m.isEmpty) return 'Payment';
+    if (m.toLowerCase() == 'upi') return 'UPI';
+    if (m.toLowerCase() == 'cod') return 'Cash';
+    return m[0].toUpperCase() + m.substring(1);
   }
 }

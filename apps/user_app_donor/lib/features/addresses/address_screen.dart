@@ -24,7 +24,7 @@ import 'selected_address_store.dart';
 
 /// English copy for the v1 app (ADR-120).
 const Map<String, String> addressStrings = {
-  'title': 'SAVED ADDRESSES',
+  'title': 'Saved addresses',
   'addTitle': 'New address',
   'editTitle': 'Edit address',
   'emptyTitle': 'No addresses yet',
@@ -68,7 +68,7 @@ const Map<String, String> addressStrings = {
   'saved': 'Address saved',
   'deleted': 'Address deleted',
   'retry': 'Retry',
-  'savedHeader': 'SAVED DELIVERY ADDRESSES',
+  'savedHeader': 'Saved delivery addresses',
   'savedCount': 'saved',
   'serviceNo':
       "We don't deliver to this pincode yet. You can still save it "
@@ -97,6 +97,8 @@ bool isValidOptionalPhone(String raw) {
   }
   return RegExp(r'^[6-9]\d{9}$').hasMatch(digits);
 }
+
+enum _ServiceCheck { unchecked, checking, serviceable, notServiceable, unknown }
 
 enum AddrType { home, office }
 
@@ -430,6 +432,8 @@ class _AddressScreenState extends State<AddressScreen> {
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
@@ -765,7 +769,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool _locating = false;
   bool _allowPop = false;
   String? _locateError;
-  String? _serviceNote;
+  _ServiceCheck _serviceState = _ServiceCheck.unchecked;
 
   final _labelFocus = FocusNode();
   final _pincodeFocus = FocusNode();
@@ -853,6 +857,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     _area = TextEditingController(text: e?.area ?? '');
     _type = e?.type ?? AddrType.home;
     _lift = e?.lift ?? false;
+    if (e != null) _serviceState = _ServiceCheck.unknown;
     if (e != null && (e.lat != 0 || e.lng != 0)) {
       _lat = e.lat;
       _lng = e.lng;
@@ -880,7 +885,18 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   bool get _lineOk => _line.text.trim().length >= 6;
   bool get _phoneOk => isValidOptionalPhone(_phone.text);
   bool get _mapOk => _lat != null && _lng != null;
-  bool get _valid => _pinOk && _labelOk && _lineOk && _phoneOk && _mapOk;
+  bool get _serviceOk =>
+      _serviceState != _ServiceCheck.notServiceable &&
+      _serviceState != _ServiceCheck.checking &&
+      _serviceState != _ServiceCheck.unchecked;
+  bool get _valid =>
+      _pinOk && _labelOk && _lineOk && _phoneOk && _mapOk && _serviceOk;
+
+  String? get _serviceNote => switch (_serviceState) {
+    _ServiceCheck.notServiceable => addressStrings['serviceNo'],
+    _ServiceCheck.unknown => addressStrings['serviceUnknown'],
+    _ => null,
+  };
 
   bool _stepOk(int step) {
     switch (step) {
@@ -898,17 +914,21 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
     if (_step < 2) {
       if (!_stepOk(_step)) return;
       if (_step == 1) {
+        setState(() => _serviceState = _ServiceCheck.checking);
         final serviceable = await widget.controller.checkServiceable(
           _pincode.text.trim(),
         );
         if (!mounted) return;
         setState(() {
-          _serviceNote = serviceable == false
-              ? addressStrings['serviceNo']
-              : serviceable == null
-              ? addressStrings['serviceUnknown']
-              : null;
+          _serviceState = serviceable == false
+              ? _ServiceCheck.notServiceable
+              : serviceable == true
+              ? _ServiceCheck.serviceable
+              : _ServiceCheck.unknown;
         });
+        if (_serviceState == _ServiceCheck.notServiceable) {
+          return; // stay on the address step; save is blocked
+        }
       }
       setState(() => _step++);
       return;
@@ -933,7 +953,16 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       _lineFocus.requestFocus();
       return;
     }
-    if (!_valid) return;
+    if (!_valid) {
+      if (!_serviceOk) {
+        setState(
+          () => _saveError = _serviceState == _ServiceCheck.notServiceable
+              ? addressStrings['serviceNo']
+              : 'Check delivery availability for this pincode first.',
+        );
+      }
+      return;
+    }
     FocusScope.of(context).unfocus();
     String? clean(TextEditingController t) {
       final v = t.text.trim();
@@ -1093,7 +1122,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                     builder: (context, _) => Stepper(
                       type: StepperType.vertical,
                       currentStep: _step,
-                      onStepTapped: (i) => setState(() => _step = i),
+                      onStepTapped: (i) {
+                        // No forward jumps: serviceability must be checked on
+                        // the address step before the pin/save step.
+                        if (i <= _step) setState(() => _step = i);
+                      },
                       onStepContinue: _onContinue,
                       onStepCancel: () {
                         if (_step > 0) setState(() => _step--);
@@ -1116,7 +1149,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                     backgroundColor: ShodashaTheme.teal,
                                     foregroundColor: ShodashaTheme.surface,
                                   ),
-                                  onPressed: c.busy
+                                  onPressed:
+                                      c.busy ||
+                                          _serviceState ==
+                                              _ServiceCheck.checking
                                       ? null
                                       : details.onStepContinue,
                                   child: c.busy && last
@@ -1242,7 +1278,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                 keyboardType: TextInputType.number,
                                 textInputAction: TextInputAction.next,
                                 maxLength: 6,
-                                onChanged: (_) => setState(() {}),
+                                onChanged: (_) => setState(() {
+                                  _serviceState = _ServiceCheck.unchecked;
+                                  _saveError = null;
+                                }),
                                 decoration: InputDecoration(
                                   labelText: addressStrings['pincode'],
                                   counterText: '',
@@ -1317,6 +1356,29 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                   labelText: addressStrings['landmark'],
                                 ),
                               ),
+                              if (_serviceState == _ServiceCheck.checking)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Checking delivery availability…',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: ShodashaTheme.muted,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               if (_serviceNote != null)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
@@ -1324,17 +1386,28 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      const Icon(
-                                        Icons.info_outline,
+                                      Icon(
+                                        _serviceState ==
+                                                _ServiceCheck.notServiceable
+                                            ? Icons.error_outline
+                                            : Icons.info_outline,
                                         size: 16,
-                                        color: ShodashaTheme.blue,
+                                        color:
+                                            _serviceState ==
+                                                _ServiceCheck.notServiceable
+                                            ? ShodashaTheme.danger
+                                            : ShodashaTheme.blue,
                                       ),
                                       const SizedBox(width: 6),
                                       Expanded(
                                         child: Text(
                                           _serviceNote!,
-                                          style: const TextStyle(
-                                            color: ShodashaTheme.blue,
+                                          style: TextStyle(
+                                            color:
+                                                _serviceState ==
+                                                    _ServiceCheck.notServiceable
+                                                ? ShodashaTheme.danger
+                                                : ShodashaTheme.blue,
                                             fontSize: 12,
                                           ),
                                         ),

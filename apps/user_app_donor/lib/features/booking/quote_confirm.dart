@@ -73,13 +73,13 @@ class _ConfirmSheet extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    r.attention
-                        ? (r.isSubscription
-                              ? 'Plan created'
-                              : 'Order placed — payment pending')
+                    r.isSubscription
+                        ? 'Plan created'
+                        : r.attention
+                        ? 'Order placed — payment pending'
                         : 'Order confirmed',
                     style: const TextStyle(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       fontSize: 20,
                       letterSpacing: -0.3,
                     ),
@@ -141,7 +141,16 @@ class _ConfirmSheet extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 13),
                     ),
-                  if (!r.attention)
+                  if (r.isSubscription)
+                    const Text(
+                      'No payment was collected. Your first delivery is '
+                      'billed as usual.',
+                      style: TextStyle(
+                        color: ShodashaTheme.muted,
+                        fontSize: 13,
+                      ),
+                    )
+                  else if (!r.attention)
                     const Text(
                       'The rider name and call button appear once assigned.',
                       style: TextStyle(

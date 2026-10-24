@@ -996,6 +996,221 @@ never logged, never put in a URL, and other users get 404 like a missing order.
 `ApiException.isOffline == (code == 'NETWORK')`; 5xx is `isServerError` and must
 not drive the offline strip. Demo login remains server-gated QA, not customer proof.
 
+## 035 — Premium UI states and release foundation (branch 035-premium-ui-states-release, ADR-129)
+
+WS1 added the shared foundation under `apps/user_app_donor`. WS2–WS5 have since
+migrated every donor screen to it; the final wiring is in the last 035 section below.
+Existing screens still import the donor constants facade only where compatibility
+names remain.
+
+```
+core/theme.dart (ONE token source)
+ ├─ ShodashaTheme: palette + radius + minTarget + text/button/input themes
+ │    ├─ money CTA fill = greenDark; structure teal; white-on-teal = tealDeep
+ │    └─ semantic: successDark · warning · link · skeleton · danger
+ ├─ AppSpacing: xs 4 · sm 8 · md 12 · lg 16 · xl 24 · xxl 32
+ ├─ kMaxContentWidth = 560
+ └─ AppMotion: fast 150ms · normal 180ms · slow 220ms
+      └─ AppMotion.reduce(context) → MediaQuery.disableAnimationsOf(context)
+
+core/constants/app_constants.dart (compatibility facade)
+ ├─ AppColors.*      → ShodashaTheme.* (error→danger, primaryDark→tealDeep)
+ └─ AppConstants.*   → AppSpacing / kMaxContentWidth / minTarget / radius
+```
+
+```
+shared/ui/shared_ui.dart (barrel)
+ ├─ AppButton        kind: money|primary|secondary|danger|ghost; busy/disabled; ≥48dp
+ │    └─ money = greenDark, primary = tealDeep, busy blocks taps + keeps full fill
+ ├─ AppIconButton    48dp target, tooltip, selected/badge
+ ├─ AppCard          surface + border + radiusLg + AppSpacing.lg padding; optional onTap
+ ├─ AppSheet         safe-area sheet, title/close, scroll controller, sticky footer
+ │    └─ showAppSheet<T>() → showModalBottomSheet (dismissible/drag policy explicit)
+ ├─ AppStateView     loading | empty | error(isNetwork) | stale | content
+ │    └─ error/stale expose one retry action; no raw status codes cross this boundary
+ ├─ AppBanner        offline | stale | success (icon + text + optional retry)
+ ├─ StatusPill       label + tone neutral|info|success|warning|danger|solar + icon
+ ├─ SectionHeader    title + optional trailing, consistent vertical rhythm
+ └─ AppTextField     label/helper/error/counter, autofill, keyboard/action, focus
+```
+
+- Contract: later workstreams import `core/theme.dart` and `shared/ui/shared_ui.dart`;
+  they do not add screen-local hex, gradients, fonts, pill colours or one-off state
+  widgets. The donor `AppColors`/`AppConstants` names stay only as a temporary facade.
+- Money/state law: green remains money-CTA-only; `AppStateView.error(isNetwork:true)` is
+  the offline branch and `isNetwork:false` is the server branch, matching
+  `ApiException.isOffline == code == 'NETWORK'`; stale content must render `AppBanner`/
+  `AppStateView.stale`, never silently pass as fresh.
+- Motion: use `AppMotion` durations; callers pass reduced-motion-aware values through
+  `AppMotion.reduce(context)`. No new animation package.
+- Verification: `flutter test test/shared_ui_test.dart` **11/11** (buttons disabled/busy/
+  48dp, state variants + retry, banners, pill semantics, token contrast). WS1 did not run
+  the full suite or edit screens/workflows/Android; WS2 starts the migration.
+
+## 035 — WS6–WS8 engineering (branch 035-premium-ui-states-release, ADR-130)
+
+These are behavior/packaging changes under `apps/user_app_donor`; WS2-WS5 screen
+wiring landed after this engineering slice, so see the final 035 section for the
+current screen-level flow.
+
+### Request path and session recovery
+
+```
+send(method, path, authed: true)
+ └─ GET single-flight key = "GET <uri>|" + tokenFingerprint
+      fingerprint = "<length>-<FNV-1a 32-bit hex>"   (raw bearer never in key/log)
+      clearInflight() on login/logout/auth-boundary
+ └─ _sendWithRetry (network/408/429/5xx rules unchanged)
+      └─ HTTP response 401/403
+           ├─ authed && notifyUnauthorized && !refreshed
+           │    └─ await onUnauthorized()            // AuthController.recoverSession
+           │         ├─ one shared in-flight POST /auth/refresh
+           │         │    {refresh_token, device:{id}}     (unauthed, no auto-retry)
+           │         ├─ true  → persist rotated pair, retry original request ONCE
+           │         └─ false → forceLogout(sessionExpired:true); rethrow original
+           └─ refreshed already / hook null / unauthed → rethrow (no loop)
+```
+
+- `refreshSession()` is the only `/auth/refresh` caller. A failed or malformed refresh
+  (including transient network failure) forces logout with the expiry notice: the app
+  never keeps a session it cannot prove.
+- Cold restore: expired access + stored refresh → one `recoverSession()`; success
+  authenticates, failure lands on login with the one-shot expiry notice.
+- `logout()`: increment generation → wipe local store/prefs/state (`isLoggingOut`
+  single-run) → fire-and-forget `POST /auth/logout` with the captured bearer and
+  `notifyUnauthorized:false`, capped at 3s. A slow or failed revoke never blocks exit.
+- Auth-management calls (logout) must not recurse into the refresh hook; everything else
+  authed is eligible for exactly one transparent retry.
+
+### Read cache
+
+```
+catalog({allowStale}) / windows({date,pincode,allowStale})
+ └─ key = "GET <full uri>"          (date + pincode are part of the key)
+      fresh ≤45s       → return cached
+      else fetch       → store on success
+      fetch fails (NETWORK/5xx) && allowStale && cached ≤5min
+                       → return stale value (screen MUST label it)
+      otherwise        → rethrow
+```
+
+No cache for wallet, orders, ledger, delivery code, session, complaints or money calls.
+Default `allowStale: false`, so a failed refresh is never silently masked.
+
+### Packaging and release
+
+- Android: `Shodasha` label; INTERNET + fine/coarse location; optional location/GPS
+  features; `<queries>` for `tel`/`mailto`/`https`/`upi`; debug-only cleartext; no
+  notification/background-location/alarm/contacts/SMS/phone-state permissions.
+- `ci.yml` matrix adds `app: donor` / `apps/user_app_donor` / `Shodasha (customer
+  parity)`; user + vendor legs unchanged.
+- `release.yml` builds user, vendor and donor into one tag with `fail-fast: true`.
+  Donor uses the production Worker URL + Razorpay publishable test key, 2 ABIs
+  (`android-arm,android-arm64`), and fails if the APK exceeds 40,000,000 bytes.
+  Download, existence check, rename, SHA256SUMS, release body and `files:` all include
+  the donor APK. Without owner keystore secrets the published APKs are debug-signed;
+  the workflow says so explicitly.
+- Release base URL guard: `kReleaseMode` + loopback host → `ArgumentError`.
+
+## 035 — WS2–WS5 screen migration + final verification (branch 035-premium-ui-states-release, ADR-131)
+
+All donor screens now import `core/theme.dart` and `shared/ui/shared_ui.dart`; the
+runtime map below is the current shipped flow.
+
+```
+DonorShell (5 tabs: Home / Orders / Plans / Wallet / Profile)
+ ├─ Home (CustomerHomeScreen)
+ │   ├─ shell load: catalog + addresses + ledger (auth only; guest stays zero-network)
+ │   ├─ mode cards: Instant order -> checkout sheet; Subscribe -> Plans tab
+ │   ├─ address bar -> AddressScreen; search -> product detail sheet
+ │   ├─ first-run/no-address states -> Add address CTA
+ │   └─ featured products -> server catalog rates only
+ ├─ Orders (MyOrdersScreen)
+ │   ├─ active / past sections; server status labels in sentence case
+ │   ├─ active: Track order; delivered: View bill + View details
+ │   ├─ rejected/failed: View bill + Get help
+ │   └─ pagination: next_cursor + single-flight loadMore + stale/offline banner
+ ├─ Plans (SubscriptionScreen + plan builder)
+ │   ├─ server-only slots/quote; no fabricated 08:00 fallback
+ │   ├─ plan create is not an online payment: “Plan created / no charge collected”
+ │   └─ dues: launch returned UPI deep link; Copy link + Wallet fallback
+ ├─ Wallet (DonorWalletScreen)
+ │   ├─ dues above hero; real ledger snapshot only (no fake ₹0 flash)
+ │   ├─ stale ledger retained with label; pull-to-refresh
+ │   ├─ receipts + payment history; return action hidden when held = 0
+ │   └─ zero-held / zero-dues / empty states
+ └─ Profile (DonorProfileScreen + support)
+     ├─ identity load skeleton/error/stale; dirty baseline + save guard
+     ├─ support complaint picker, validation, deadline, stale retention
+     └─ expired-window recovery offers Call + WhatsApp
+```
+
+### Auth and session flow
+
+```
+LoginScreen (mobile + password; no customer OTP)
+ ├─ register -> AuthGate; demo door remains server-gated QA
+ ├─ login 401 -> generic wrong-credentials copy (no account oracle)
+ ├─ 429 -> server retry window; offline vs 5xx split
+ └─ AuthGate -> DonorShell
+
+authed 401/403 -> ApiClient once -> AuthController.recoverSession()
+ ├─ POST /auth/refresh (single-flight) -> persist rotated pair -> retry original once
+ └─ failure -> forceLogout(sessionExpired) -> Login + one-shot notice
+
+Logout -> wipe local store/prefs/state first -> fire-and-forget revoke (3s cap)
+```
+
+### Orders / tracking / returns
+
+- `OrdersController.load()` / `loadMore()` keep cached rows on NETWORK/5xx with
+  `isOffline` + stale banner; 4xx shows the error state. Money/ledger/order reads are
+  never cached by `ApiClient`.
+- `TrackingScreen` reads `GET /orders/{id}`: delivery code only when server returns
+  `active`; expired/locked/unavailable/used states have their own copy; reissue is
+  server-authorized; reschedule starts with no slot selected; cancel/reschedule failures
+  get specific snackbars; polling pauses when the app is backgrounded and resumes on
+  foreground.
+- Rating maps `ALREADY_RATED`/409 to already-rated; failures keep the sheet open.
+- Returns validate the refund VPA and map 401/403 to a sign-in recovery action.
+
+### Booking / addresses / subscriptions
+
+- Checkout windows come only from `GET /windows`; a failed/empty response shows
+  retry/empty state, never a fabricated slot. Quote invalidation is explicit; 401/403
+  shows “Sign in again”; no-address shows an Add-address CTA.
+- Map pin fixes keep coordinates on geocode timeout; address serviceability unknown is
+  labelled, not guessed; unsaved edits trigger a dirty guard.
+- Plan builder is capped at 10 jars, submit locks while in flight, and requires a
+  loaded non-error estimate. Creating a plan does not collect money.
+- Dues payment launches the server-returned UPI link; if unavailable, Copy link and
+  Wallet fallback remain.
+
+### Wallet / profile / support
+
+- Wallet renders only `GET /ledger/me`; loading is a skeleton, all-zero is the honest
+  empty state, and a failed refresh keeps stale data labelled.
+- Profile load/edit is generation-guarded; save errors stay inline; sign-out wipes
+  identity.
+- Support uses delivered orders for the complaint picker, validates the deadline,
+  and offers Call + WhatsApp when the response window has expired.
+
+### Verification / release flow
+
+- `dart format --output=none --set-exit-if-changed lib test` → 67 files, 0 changed.
+- `flutter analyze` → No issues found.
+- `flutter test` → **59/59**.
+- `flutter build web --release` → success; Playwright mocked `/v1/**` smoke at
+  **360×800** and **390×844** → login, home, orders, tracking without overflow.
+  (The 360 `Subscriptions` wrap is fixed by the `Plans` nav label.)
+- `flutter build apk --release --target-platform android-arm,android-arm64` with the
+  production Worker URL + Razorpay test key → **38,405,077 bytes**; under the
+  40,000,000-byte gate. Package `com.shodasha.shodasha_donor`, label `Shodasha`;
+  only arm/arm64 engines; manifest has no NFC/phone-state/`POST_NOTIFICATIONS`.
+- Production blocker: `/v1/catalog` is 200 but `/v1/auth/user/login` is 404 until the
+  owner deploys the 034+ Worker. The artifact is debug-signed until owner keystore
+  secrets are wired; no push/merge/deploy happened.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:

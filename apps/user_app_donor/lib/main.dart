@@ -60,7 +60,7 @@ class _ShodashaDonorAppState extends State<ShodashaDonorApp> {
     _api = ApiClient(
       deviceId: _deviceId,
       accessTokenGetter: () => _auth.session?.accessToken,
-      onUnauthorized: () => _auth.forceLogout(sessionExpired: true),
+      onUnauthorized: () => _auth.recoverSession(),
     );
     _auth = AuthController(
       api: ApiBackedAuthApi(_api),
@@ -87,6 +87,8 @@ class _ShodashaDonorAppState extends State<ShodashaDonorApp> {
     final authed = _auth.isAuthenticated;
     if (authed == _wasAuthenticated) return;
     _wasAuthenticated = authed;
+    // Auth boundary: never let user B join a GET started by user A.
+    _api.clearInflight();
     if (authed) return;
     _booking.resetUserScoped();
     _addresses.reset();
@@ -118,7 +120,7 @@ class _ShodashaDonorAppState extends State<ShodashaDonorApp> {
       );
     }
     return MaterialApp(
-      title: 'Shodasha Donor',
+      title: 'Shodasha',
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,
       theme: buildShodashaTheme(),

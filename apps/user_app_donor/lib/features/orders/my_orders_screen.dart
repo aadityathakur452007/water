@@ -1,11 +1,14 @@
 // Donor orders screen, backed by the real cursor-paged OrdersController.
-// The donor screen only listed a local `activeOrders` list; this one keeps
-// the "LIVE DELIVERIES" grammar and also shows real closed orders so the
-// customer can retrieve bills. No local status/PIN/rider data is used.
+// Active and past orders share one card grammar; the empty state offers the
+// first-order path, and pagination failures stay in the footer.
 
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_constants.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_state_view.dart';
+import '../../shared/ui/section_header.dart';
 import 'bill_screen.dart';
 import 'order_card.dart';
 import 'orders_controller.dart';
@@ -16,16 +19,20 @@ class DonorOrdersScreen extends StatefulWidget {
     super.key,
     required this.controller,
     this.onSupport,
+    this.onStartOrder,
   });
 
   final OrdersController controller;
   final VoidCallback? onSupport;
+  final VoidCallback? onStartOrder;
 
   @override
   State<DonorOrdersScreen> createState() => _DonorOrdersScreenState();
 }
 
 class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
+  bool _pushing = false;
+
   @override
   void initState() {
     super.initState();
@@ -36,46 +43,53 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
     }
   }
 
-  Future<void> _track(Order order) async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => TrackingScreen(
-          controller: widget.controller,
-          orderId: order.id,
-          onSupport: widget.onSupport,
-        ),
-      ),
-    );
+  Future<void> _push(Widget page) async {
+    if (_pushing) return;
+    _pushing = true;
+    try {
+      await Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute<void>(builder: (_) => page));
+    } finally {
+      _pushing = false;
+    }
   }
 
-  void _bill(Order order) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => BillScreen(order: order)),
-    );
-  }
+  void _track(Order order) => _push(
+    TrackingScreen(
+      controller: widget.controller,
+      orderId: order.id,
+      onSupport: widget.onSupport,
+    ),
+  );
+
+  void _bill(Order order) => _push(BillScreen(order: order));
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
+        backgroundColor: ShodashaTheme.surface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shape: const Border(bottom: BorderSide(color: ShodashaTheme.border)),
         title: const Text(
-          'MY WATER ORDERS',
+          'My orders',
           style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 16,
-            color: Colors.white,
-            letterSpacing: 1.1,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: ShodashaTheme.ink,
+            letterSpacing: -0.2,
           ),
         ),
-        backgroundColor: AppColors.primary,
-        elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Refresh orders',
             onPressed: widget.controller.load,
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: const Icon(Icons.refresh_rounded, color: ShodashaTheme.ink),
           ),
+          const SizedBox(width: AppSpacing.xs),
         ],
       ),
       body: ListenableBuilder(
@@ -83,11 +97,18 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
         builder: (context, _) {
           final c = widget.controller;
           if (c.status == OrdersListStatus.loading && c.totalCount == 0) {
-            return const _OrdersSkeleton();
+            return ListView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              children: [
+                AppStateView.loading(lines: 4, message: 'Loading your orders'),
+              ],
+            );
           }
           if (c.status == OrdersListStatus.error && c.totalCount == 0) {
-            return _OrdersError(
-              message: c.errorMessage ?? 'Could not load orders.',
+            return AppStateView.error(
+              isNetwork: c.isOffline,
+              title: c.isOffline ? null : 'Could not load orders',
+              message: c.errorMessage,
               onRetry: c.load,
             );
           }
@@ -95,65 +116,80 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
           final active = all.where(_isActive).toList();
           final closed = all.where((o) => !_isActive(o)).toList();
           return RefreshIndicator(
+            color: ShodashaTheme.tealDeep,
             onRefresh: c.refresh,
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(AppConstants.defaultPadding),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.xxl,
+              ),
               children: [
                 if (c.isOffline)
-                  const _StaleNote(
-                    message: 'Offline — showing the orders already loaded.',
+                  AppBanner.offline(
+                    message: 'New orders may not appear until you reconnect.',
+                    onRetry: c.refresh,
                   )
-                else if (c.errorMessage != null && !c.loadMoreFailed)
-                  _StaleNote(
+                else if (c.errorMessage != null)
+                  AppBanner.stale(
                     message: c.isServerError
                         ? 'Server problem — showing the orders already loaded.'
                         : 'Could not refresh — showing the orders already loaded.',
                     onRetry: c.load,
                   ),
-                _sectionTitle('LIVE DELIVERIES'),
-                const SizedBox(height: 10),
-                if (active.isEmpty)
-                  const _EmptyBlock(
-                    icon: Icons.local_shipping_outlined,
-                    title: 'No active deliveries right now.',
-                    hint: 'Your next order will appear here with live status.',
-                  )
-                else
-                  ...active.map(
-                    (o) => DonorOrderCard(
-                      order: o,
-                      onTrack: () => _track(o),
-                      onBill: () => _bill(o),
+                if (all.isEmpty) ...[
+                  const SizedBox(height: AppSpacing.xl),
+                  AppStateView.empty(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'No orders yet',
+                    message:
+                        'Your first 20L jar is a few taps away. Every delivery '
+                        'shows up here with live status.',
+                    actionLabel: widget.onStartOrder == null
+                        ? null
+                        : 'Book water',
+                    onAction: widget.onStartOrder,
+                  ),
+                ] else ...[
+                  SectionHeader(
+                    title: 'Active',
+                    padding: const EdgeInsets.only(
+                      top: AppSpacing.xs,
+                      bottom: AppSpacing.sm,
                     ),
                   ),
-                if (closed.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  _sectionTitle('PAST ORDERS'),
-                  const SizedBox(height: 10),
-                  ...closed.map(
-                    (o) => DonorOrderCard(
-                      order: o,
-                      onTrack: () => _track(o),
-                      onBill: () => _bill(o),
-                    ),
-                  ),
+                  if (active.isEmpty)
+                    AppStateView.empty(
+                      icon: Icons.local_shipping_outlined,
+                      title: 'No active deliveries',
+                      message:
+                          'Your next order will appear here with live status.',
+                    )
+                  else
+                    ...active.map(_card),
+                  if (closed.isNotEmpty) ...[
+                    SectionHeader(title: 'Past orders'),
+                    ...closed.map(_card),
+                  ],
                 ],
                 if (c.hasMore) ...[
-                  const SizedBox(height: 4),
-                  OutlinedButton(
+                  const SizedBox(height: AppSpacing.md),
+                  AppButton(
+                    label: 'Load older orders',
+                    kind: AppButtonKind.secondary,
+                    busy: c.loadingMore,
                     onPressed: c.loadingMore ? null : c.loadMore,
-                    child: Text(
-                      c.loadingMore ? 'Loading…' : 'Load older orders',
-                    ),
                   ),
                 ],
-                if (c.loadMoreFailed)
-                  TextButton(
-                    onPressed: c.retryLoadMore,
-                    child: const Text('Could not load more — retry'),
+                if (c.loadMoreFailed) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  AppBanner.stale(
+                    message: c.loadMoreError ?? 'Could not load more orders.',
+                    onRetry: c.retryLoadMore,
                   ),
-                const SizedBox(height: 24),
+                ],
               ],
             ),
           );
@@ -162,152 +198,17 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
     );
   }
 
+  Widget _card(Order o) => DonorOrderCard(
+    order: o,
+    onTrack: () => _track(o),
+    onBill: () => _bill(o),
+    onSupport: widget.onSupport,
+  );
+
   static bool _isActive(Order o) => !{
     OrderState.delivered,
     OrderState.cancelled,
     OrderState.rejected,
     OrderState.failed,
   }.contains(o.state);
-
-  Widget _sectionTitle(String text) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w900,
-        color: AppColors.textSecondary,
-        letterSpacing: 0.8,
-      ),
-    );
-  }
-}
-
-class _StaleNote extends StatelessWidget {
-  const _StaleNote({required this.message, this.onRetry});
-
-  final String message;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: EdgeInsets.fromLTRB(10, 6, onRetry == null ? 10 : 4, 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF9C3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFDE047)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF713F12)),
-            ),
-          ),
-          if (onRetry != null)
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyBlock extends StatelessWidget {
-  const _EmptyBlock({
-    required this.icon,
-    required this.title,
-    required this.hint,
-  });
-
-  final IconData icon;
-  final String title;
-  final String hint;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: AppColors.textSecondary, size: 30),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            hint,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OrdersError extends StatelessWidget {
-  const _OrdersError({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.cloud_off,
-              size: 36,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(height: 10),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 10),
-            ElevatedButton(onPressed: onRetry, child: const Text('Try again')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OrdersSkeleton extends StatelessWidget {
-  const _OrdersSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: List.generate(
-        3,
-        (_) => Container(
-          height: 180,
-          margin: const EdgeInsets.only(bottom: 14),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.border),
-          ),
-        ),
-      ),
-    );
-  }
 }

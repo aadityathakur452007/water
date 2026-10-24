@@ -18,6 +18,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_icon_button.dart';
 import '../addresses/address_screen.dart';
 import 'booking_controller.dart';
 import 'checkout_service.dart';
@@ -34,6 +36,7 @@ Future<void> showCheckoutSheet(
   required AddressEntry? address,
   required VoidCallback onChangeAddress,
   required ValueChanged<CheckoutResult> onDone,
+  VoidCallback? onSignIn,
 }) {
   controller.refreshIdempotencyKey();
   return showModalBottomSheet<void>(
@@ -56,6 +59,7 @@ Future<void> showCheckoutSheet(
       address: address,
       onChangeAddress: onChangeAddress,
       onDone: onDone,
+      onSignIn: onSignIn,
     ),
   );
 }
@@ -104,6 +108,7 @@ class _CheckoutSheet extends StatefulWidget {
     required this.address,
     required this.onChangeAddress,
     required this.onDone,
+    this.onSignIn,
   });
 
   final BookingController controller;
@@ -112,6 +117,7 @@ class _CheckoutSheet extends StatefulWidget {
   final AddressEntry? address;
   final VoidCallback onChangeAddress;
   final ValueChanged<CheckoutResult> onDone;
+  final VoidCallback? onSignIn;
 
   @override
   State<_CheckoutSheet> createState() => _CheckoutSheetState();
@@ -121,6 +127,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   int _step = 0;
   _Phase _phase = _Phase.form;
   String _error = '';
+  bool _needsSignIn = false;
 
   bool _loadingSlots = false;
   bool _slotsFailed = false;
@@ -140,6 +147,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   String _estimateError = '';
 
   bool _editSchedule = false;
+  bool _advancing = false;
   final Set<DateTime> _customDays = {};
   DateTime _focusedDay = DateTime.now();
 
@@ -231,23 +239,24 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     }
   }
 
-  /// Valid window_start: server slot when loaded; otherwise the fixed
-  /// morning promise on a serviceable day. Never blank.
+  /// Valid window_start from the selected server slot. Empty until the real
+  /// windows load — the client never fabricates an 08:00 promise.
   String get _windowStart {
-    if (_slots.isNotEmpty) {
-      return '${_slotDate}T${_slots[_slotIdx].start}:00';
-    }
-    final day = _slotDate.isNotEmpty
-        ? _slotDate
-        : ApiClient.dateOnly(nextServiceableDay(DateTime.now()));
-    return '${day}T08:00:00';
+    if (_slots.isEmpty) return '';
+    final idx = _slotIdx.clamp(0, _slots.length - 1);
+    return '${_slotDate}T${_slots[idx].start}:00';
+  }
+
+  String get _selectedSlotLabel {
+    if (_slots.isEmpty) return '';
+    final idx = _slotIdx.clamp(0, _slots.length - 1);
+    return '${_slots[idx].start}–${_slots[idx].end}';
   }
 
   String get _windowLabel {
     if (_isOnce) {
-      return _slotDate.isEmpty
-          ? kFixedWindowLabel
-          : '$_slotDate • $kFixedWindowLabel';
+      if (_slots.isEmpty) return 'Delivery window not selected';
+      return '${_slotDateLabel(_slotDate)} • $_selectedSlotLabel';
     }
     if (_isCustom) {
       final days = _customDays.toList()..sort();
@@ -305,6 +314,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   Future<void> _loadQuote() async {
     final addr = widget.address;
     if (!_isOnce || addr == null || _quoteLoading) return;
+    if (_windowStart.isEmpty) {
+      setState(() {
+        _quote = null;
+        _quoteError = _loadingSlots
+            ? 'Loading delivery windows…'
+            : _slotsFailed
+            ? 'Delivery windows did not load. Retry before paying.'
+            : 'Choose a delivery window before paying.';
+      });
+      return;
+    }
     setState(() {
       _quoteLoading = true;
       _quoteError = '';
@@ -346,7 +366,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   void _next() {
-    if (!_stepValid || _step >= _payStepIdx) return;
+    if (_advancing || !_stepValid || _step >= _payStepIdx) return;
+    _advancing = true;
     if (_step == 0 && _isOnce && !_loadingSlots && _slotsFailed) {
       _loadSlots();
     }
@@ -358,6 +379,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         _fetchEstimate();
       }
     }
+    // Release the guard after this frame so one tap can only advance once.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _advancing = false;
+    });
   }
 
   void _back() {
@@ -370,6 +395,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       if (_quote == null ||
           _quoteLoading ||
           _quoteError.isNotEmpty ||
+          _loadingSlots ||
+          _slots.isEmpty ||
+          _windowStart.isEmpty ||
           _slotsFailed ||
           _unserviceable) {
         return false;
@@ -387,6 +415,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     setState(() {
       _phase = _Phase.paying;
       _error = '';
+      _needsSignIn = false;
       _recovery = _Recovery.none;
       _placed = null;
     });
@@ -470,6 +499,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       setState(() {
         _phase = _Phase.error;
         _recovery = _Recovery.retry;
+        _needsSignIn = e.statusCode == 401 || e.statusCode == 403;
         _error = checkoutErrorFor(e);
       });
     } catch (_) {
@@ -480,6 +510,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         _error = 'Something went wrong. Please retry.';
       });
     }
+  }
+
+  void _signIn() {
+    final callback = widget.onSignIn;
+    Navigator.of(context).pop();
+    callback?.call();
   }
 
   Future<void> _collectUpi(CheckoutResult result) async {
@@ -625,7 +661,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     final placed = _placed;
     if (placed == null) return;
     // Shell's onDone pops this sheet and shows the confirmation/pending view.
-    widget.onDone(placed);
+    // If we got here from a payment error, the sheet must say pending, never
+    // "Order confirmed".
+    widget.onDone(placed.isSubscription ? placed : placed.asPending());
   }
 
   Future<void> _verifyOrPollPayment(CheckoutResult pending) async {
@@ -721,7 +759,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final busy = _phase == _Phase.paying || _loadingSlots;
+    // Only an in-flight payment blocks leaving. Window loading must never trap
+    // the user inside checkout.
+    final busy = _phase == _Phase.paying;
     return PopScope(
       canPop: _allowPop || !_paying,
       onPopInvokedWithResult: (didPop, _) {
@@ -753,12 +793,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                     Expanded(
                       child: _StepHeader(step: _step, titles: _titles),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: ShodashaTheme.muted,
-                      ),
-                      tooltip: 'Close',
+                    AppIconButton(
+                      icon: Icons.close_rounded,
+                      tooltip: 'Close checkout',
+                      color: ShodashaTheme.muted,
                       onPressed: busy
                           ? null
                           : () => Navigator.of(context).pop(),
@@ -797,26 +835,29 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                   children: [
                     if (_step > 0)
                       Expanded(
-                        child: OutlinedButton(
+                        child: AppButton(
+                          label: 'Back',
+                          kind: AppButtonKind.secondary,
                           onPressed: busy ? null : _back,
-                          child: const Text('Back'),
                         ),
                       ),
                     if (_step > 0) const SizedBox(width: 12),
                     Expanded(
                       flex: 2,
                       child: _step < _payStepIdx
-                          ? ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: ShodashaTheme.teal,
-                                foregroundColor: ShodashaTheme.surface,
-                              ),
-                              onPressed: (_stepValid && !busy) ? _next : null,
-                              child: const Text('Next'),
+                          ? AppButton(
+                              label: 'Next',
+                              onPressed: (_stepValid && !busy && !_advancing)
+                                  ? _next
+                                  : null,
                             )
-                          : ElevatedButton(
+                          : AppButton(
+                              label: _payLabel,
+                              kind: _isOnce
+                                  ? AppButtonKind.money
+                                  : AppButtonKind.primary,
+                              busy: busy,
                               onPressed: _canPay(busy) ? _pay : null,
-                              child: Text(_payLabel),
                             ),
                     ),
                   ],
@@ -832,12 +873,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   String get _payLabel {
     if (_isOnce) {
       final total = c.serverTotalPaise;
-      return total == null ? 'PAY' : 'PAY • ${rupeesLabel(total)}';
+      return total == null ? 'Pay' : 'Pay ${rupeesLabel(total)}';
     }
-    final total = _subTotal;
-    if (total != null) return 'PAY • ${rupeesLabel(total)}';
-    if (_estimateLoading) return 'PAY';
-    return 'PAY';
+    // No online subscription payment is collected in this flow. Never imply
+    // the first cycle was charged.
+    return _estimateLoading ? 'Loading plan…' : 'Start plan';
   }
 
   Widget _scheduleStep() {
@@ -1009,8 +1049,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'The first cycle is paid online. Later cycles follow your '
-                    'delivery schedule.',
+                    'No payment is collected here. Your plan starts now and '
+                    'the first delivery is billed as usual.',
                     style: TextStyle(fontSize: 13),
                   ),
                 ),
@@ -1019,15 +1059,21 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           ),
         if (_phase == _Phase.paying) ...[
           const SizedBox(height: 12),
-          const Row(
+          Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
               SizedBox(width: 12),
-              Text('Placing your order…'),
+              Expanded(
+                child: Text(
+                  _placed == null
+                      ? 'Placing your order…'
+                      : 'Order placed — confirming payment…',
+                ),
+              ),
             ],
           ),
         ],
@@ -1067,7 +1113,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         spacing: 8,
                         runSpacing: 4,
                         children: [
-                          if (_recovery == _Recovery.retry) ...[
+                          if (_needsSignIn) ...[
+                            OutlinedButton(
+                              onPressed: busy ? null : _signIn,
+                              child: const Text('Sign in again'),
+                            ),
+                          ] else if (_recovery == _Recovery.retry) ...[
                             OutlinedButton(
                               onPressed: busy ? null : _pay,
                               child: const Text('Retry'),
@@ -1125,9 +1176,15 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   Widget _scheduleRecap() {
-    final when = _slotDate.isEmpty
-        ? kFixedWindowLabel
-        : '$_slotDate • $kFixedWindowLabel';
+    final when = _loadingSlots
+        ? 'Loading delivery windows…'
+        : _unserviceable
+        ? 'This address is not serviceable'
+        : _slotsFailed
+        ? 'Delivery window unavailable'
+        : _slots.isEmpty
+        ? 'No delivery windows for this day'
+        : '${_slotDateLabel(_slotDate)} • $_selectedSlotLabel';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1162,12 +1219,14 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                 ),
               ),
               TextButton(
-                onPressed: () => setState(() => _editSchedule = !_editSchedule),
-                child: const Text('Change'),
+                onPressed: _loadingSlots
+                    ? null
+                    : () => setState(() => _editSchedule = !_editSchedule),
+                child: const Text('Change time'),
               ),
             ],
           ),
-          if (_editSchedule) ...[const SizedBox(height: 8), _scheduleChips()],
+          if (_editSchedule) ...[const SizedBox(height: 8), _slotChooser()],
           if (_unserviceable)
             const Padding(
               padding: EdgeInsets.only(top: 8),
@@ -1191,6 +1250,57 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             ),
           if (_slotsFailed) _slotsFailureRow(),
         ],
+      ),
+    );
+  }
+
+  void _selectSlot(int index) {
+    if (index == _slotIdx) return;
+    setState(() {
+      _slotIdx = index;
+      // A quote is bound to its window; force a fresh server quote.
+      _quote = null;
+      _quoteError = '';
+    });
+    if (_step == _payStepIdx) _loadQuote();
+  }
+
+  Widget _slotChooser() {
+    if (_slots.isEmpty) {
+      return Text(
+        _loadingSlots
+            ? 'Loading the next available times…'
+            : 'No times to choose yet. Retry below or change the address.',
+        style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+      );
+    }
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _slots.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, i) {
+          final slot = _slots[i];
+          final selected = i == _slotIdx;
+          return ChoiceChip(
+            label: Text('${slot.start}–${slot.end}'),
+            selected: selected,
+            showCheckmark: false,
+            materialTapTargetSize: MaterialTapTargetSize.padded,
+            backgroundColor: ShodashaTheme.bg,
+            selectedColor: ShodashaTheme.tealTint,
+            side: BorderSide(
+              color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
+            ),
+            labelStyle: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? ShodashaTheme.tealDeep : ShodashaTheme.ink,
+            ),
+            onSelected: (_) => _selectSlot(i),
+          );
+        },
       ),
     );
   }
@@ -1351,12 +1461,43 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
-      child: Text(
-        'First cycle ${rupeesLabel(total)}',
-        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'First delivery ${rupeesLabel(total)}',
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Billed as usual — nothing is charged now.',
+            style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+          ),
+        ],
       ),
     );
   }
+}
+
+String _slotDateLabel(String isoDate) {
+  final d = DateTime.tryParse(isoDate);
+  if (d == null) return isoDate;
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
 }
 
 /// Date-only equality (no collection helpers).
@@ -1520,7 +1661,10 @@ class _AddressRow extends StatelessWidget {
                     ],
                   ),
           ),
-          TextButton(onPressed: onChange, child: const Text('Change')),
+          TextButton(
+            onPressed: onChange,
+            child: Text(a == null ? 'Add address' : 'Change'),
+          ),
         ],
       ),
     );

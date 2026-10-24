@@ -19,7 +19,7 @@ void main() {
       MaterialApp(home: DonorLoginScreen(controller: controller)),
     );
 
-    expect(find.textContaining('SHODASHA'), findsWidgets);
+    expect(find.textContaining('Shodasha'), findsWidgets);
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Mobile number'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
@@ -74,7 +74,7 @@ void main() {
       MaterialApp(home: DonorLoginScreen(controller: controller)),
     );
 
-    final signIn = find.widgetWithText(ElevatedButton, 'Sign in');
+    final signIn = find.text('Sign in').last;
     await tester.ensureVisible(signIn);
     await tester.tap(signIn);
     await tester.pumpAndSettle();
@@ -108,7 +108,7 @@ void main() {
     await tester.enterText(fields.at(0), '98765 43210');
     await tester.enterText(fields.at(1), 'water123');
 
-    final signIn = find.widgetWithText(ElevatedButton, 'Sign in');
+    final signIn = find.text('Sign in').last;
     await tester.ensureVisible(signIn);
     await tester.tap(signIn);
     await tester.pumpAndSettle();
@@ -160,6 +160,10 @@ class _StubAuthApi implements AuthApi {
     required String code,
     required String deviceId,
   }) async => throw UnimplementedError();
+
+  @override
+  Future<AuthSession> refresh({required String refreshToken}) async =>
+      throw UnimplementedError();
 
   @override
   Future<void> logout(String accessToken) async {}

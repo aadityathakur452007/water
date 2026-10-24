@@ -124,6 +124,8 @@ class ProfileController extends ChangeNotifier {
       });
       if (gen != _generation) return null;
       _user = (res['user'] as Map<String, dynamic>?) ?? res;
+      _status = ProfileStatus.loaded;
+      _errorMessage = null;
       return null;
     } on ApiException catch (e) {
       if (e.code == 'NETWORK') return kProfileOfflineError;

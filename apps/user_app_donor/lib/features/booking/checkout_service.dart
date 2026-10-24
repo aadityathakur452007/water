@@ -94,6 +94,27 @@ class CheckoutResult {
     attentionMessage: '',
   );
 
+  /// The row exists but payment confirmation is still outstanding. Used by the
+  /// recovery flow so the confirmation sheet never claims a paid order.
+  CheckoutResult asPending() => CheckoutResult(
+    orderId: orderId,
+    totalPaise: totalPaise,
+    windowLabel: windowLabel,
+    isSubscription: isSubscription,
+    providerRef: providerRef,
+    upiLink: upiLink,
+    subscriptionId: subscriptionId,
+    waterPaise: waterPaise,
+    depositPaise: depositPaise,
+    capsPaise: capsPaise,
+    addressLabel: addressLabel,
+    upiPending: upiPending,
+    attention: true,
+    attentionMessage:
+        'Payment is not confirmed yet. Your order is placed — check Orders '
+        'before paying again.',
+  );
+
   /// Real Razorpay ref → open the gateway; otherwise use the server link.
   bool get needsGateway =>
       providerRef.startsWith('order_') || providerRef.startsWith('rzp_');

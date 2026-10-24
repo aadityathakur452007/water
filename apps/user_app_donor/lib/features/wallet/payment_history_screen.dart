@@ -10,6 +10,8 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_state_view.dart';
 
 /// One receipt row from GET /v1/payments/me. Field names mirror the server
 /// (payment_repo.list_user_payments) — no rupee doubles, integer paise only.
@@ -94,7 +96,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       return;
     }
     setState(() {
-      _loading = true;
+      _loading = _payments.isEmpty;
       _error = null;
       _isAuthError = false;
     });
@@ -162,7 +164,21 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Payments & deposits')),
+      backgroundColor: ShodashaTheme.bg,
+      appBar: AppBar(
+        backgroundColor: ShodashaTheme.surface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shape: const Border(bottom: BorderSide(color: ShodashaTheme.border)),
+        title: const Text(
+          'Payments & deposits',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: ShodashaTheme.ink,
+          ),
+        ),
+      ),
       body: _buildBody(),
     );
   }
@@ -174,12 +190,15 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: ShodashaTheme.teal),
+    if (_loading && _payments.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        children: [
+          AppStateView.loading(lines: 4, message: 'Loading your receipts'),
+        ],
       );
     }
-    if (_error != null) {
+    if (_error != null && _payments.isEmpty) {
       return _ErrorState(
         message: _error!,
         onRetry: _fetch,
@@ -189,22 +208,28 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     if (_payments.isEmpty) return const _EmptyState();
 
     return RefreshIndicator(
-      color: ShodashaTheme.teal,
+      color: ShodashaTheme.tealDeep,
       onRefresh: _fetch,
-      child: ListView.separated(
+      child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        // The server caps /payments/me with no cursor, so we can only show
-        // the newest page. Say so instead of faking a "load more" (P2-8).
-        itemCount: _payments.length + (_isCapped ? 1 : 0),
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          if (index == _payments.length) return const _CapNote();
-          return _PaymentCard(
-            payment: _payments[index],
-            date: _formatDate(_payments[index].dateIso),
-          );
-        },
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        children: [
+          if (_error != null) ...[
+            AppBanner.stale(message: _error!, onRetry: _fetch),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          for (final payment in _payments)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: _PaymentCard(
+                payment: payment,
+                date: _formatDate(payment.dateIso),
+              ),
+            ),
+          // The server caps /payments/me with no cursor, so we can only show
+          // the newest page. Say so instead of faking a "load more" (P2-8).
+          if (_isCapped) const _CapNote(),
+        ],
       ),
     );
   }

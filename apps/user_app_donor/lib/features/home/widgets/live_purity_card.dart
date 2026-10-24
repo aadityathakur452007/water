@@ -1,148 +1,122 @@
-// Donor purity card, minus the fake live telemetry. The donor screen rotated
-// invented TDS/pH/batch values from a local notifier; the API has no plant
-// telemetry endpoint, so this card keeps the visual and shows only the
-// product facts the rest of the app already relies on.
+// Donor purity card, minus fake live telemetry. The API has no plant telemetry
+// endpoint, so this card shows only product facts the rest of the app relies on.
 
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_constants.dart';
+import '../../../core/theme.dart';
+import '../../../shared/ui/app_card.dart';
+import '../../../shared/ui/status_pill.dart';
 
 class LivePurityCard extends StatelessWidget {
   const LivePurityCard({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppConstants.cardBorderRadius),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.sm,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(5),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.water_drop,
-                        color: AppColors.primary,
-                        size: 15,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Flexible(
-                      child: Text(
-                        'SHODASHA WATER QUALITY',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.4,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 2.5,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFDCFCE7),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Text(
-                  'LAB-TESTED',
-                  style: TextStyle(
-                    color: Color(0xFF15803D),
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Row(
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Expanded(
-                  child: _Chip(
-                    value: '9-Stage',
-                    title: 'PURIFICATION',
-                    sub: 'RO + UV + Ozone',
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.tealTint,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.water_drop_outlined,
+                    color: ShodashaTheme.tealDeep,
+                    size: 18,
                   ),
                 ),
-                _Divider(),
-                Expanded(
-                  child: _Chip(
-                    value: '20L',
-                    title: 'SEALED JAR',
-                    sub: 'Food-grade',
+                const SizedBox(width: AppSpacing.sm),
+                const Expanded(
+                  child: Text(
+                    'Water quality',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: ShodashaTheme.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                _Divider(),
-                Expanded(
-                  child: _Chip(
-                    value: 'On request',
-                    title: 'LAB REPORT',
-                    sub: 'Ask support',
-                  ),
+                const StatusPill(
+                  label: 'Lab-tested',
+                  tone: StatusPillTone.success,
+                  icon: Icons.verified_outlined,
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                vertical: AppSpacing.md,
+                horizontal: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.bg,
+                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                border: Border.all(color: ShodashaTheme.border),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _Fact(
+                      value: '9-stage',
+                      title: 'Purification',
+                      detail: 'RO + UV + Ozone',
+                    ),
+                  ),
+                  _FactDivider(),
+                  Expanded(
+                    child: _Fact(
+                      value: '20L',
+                      title: 'Sealed jar',
+                      detail: 'Food-grade',
+                    ),
+                  ),
+                  _FactDivider(),
+                  Expanded(
+                    child: _Fact(
+                      value: 'On request',
+                      title: 'Lab report',
+                      detail: 'Ask support',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _Divider extends StatelessWidget {
-  const _Divider();
+class _FactDivider extends StatelessWidget {
+  const _FactDivider();
 
   @override
   Widget build(BuildContext context) {
-    return Container(height: 28, width: 1, color: AppColors.border);
+    return Container(height: 44, width: 1, color: ShodashaTheme.border);
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({required this.value, required this.title, required this.sub});
+class _Fact extends StatelessWidget {
+  const _Fact({required this.value, required this.title, required this.detail});
 
   final String value;
   final String title;
-  final String sub;
+  final String detail;
 
   @override
   Widget build(BuildContext context) {
@@ -154,34 +128,34 @@ class _Chip extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w900,
-            fontSize: 13,
-            letterSpacing: -0.2,
+            color: ShodashaTheme.tealDeep,
+            fontWeight: FontWeight.w800,
+            fontSize: 14,
+            letterSpacing: -0.1,
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 3),
         Text(
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w800,
-            fontSize: 8.5,
-            letterSpacing: 0.2,
+            color: ShodashaTheme.ink,
+            fontWeight: FontWeight.w700,
+            fontSize: 11.5,
           ),
         ),
+        const SizedBox(height: 1),
         Text(
-          sub,
-          maxLines: 1,
+          detail,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 8,
-            fontWeight: FontWeight.w500,
+            color: ShodashaTheme.muted,
+            fontSize: 11,
+            height: 1.3,
           ),
         ),
       ],

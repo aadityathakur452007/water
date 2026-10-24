@@ -6,7 +6,10 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants/app_constants.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_card.dart';
+import '../../shared/ui/app_state_view.dart';
 import '../orders/orders_controller.dart';
 
 class DonorNotificationsScreen extends StatefulWidget {
@@ -14,10 +17,14 @@ class DonorNotificationsScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.orders,
+    this.onOpenOrder,
+    this.onOpenSubscriptions,
   });
 
   final ApiClient api;
   final OrdersController orders;
+  final void Function(String orderId)? onOpenOrder;
+  final VoidCallback? onOpenSubscriptions;
 
   @override
   State<DonorNotificationsScreen> createState() =>
@@ -54,8 +61,9 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
                 icon: Icons.autorenew,
                 title: 'Subscription ${_status(row)}',
                 body:
-                    '${(row['qty'] ?? 1)} x 20L · next delivery ${_date(row['next_run'])}',
+                    '${(row['qty'] ?? 1)} × 20L · next delivery ${_date(row['next_run'])}',
                 at: _parse(row['next_run']),
+                onTap: widget.onOpenSubscriptions,
               ),
         ];
         _loadingSubs = false;
@@ -86,24 +94,24 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: AppColors.primary,
+        backgroundColor: ShodashaTheme.tealDeep,
+        foregroundColor: ShodashaTheme.surface,
         elevation: 0,
         title: const Text(
-          'NOTIFICATIONS',
+          'Notifications',
           style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 16,
-            color: Colors.white,
-            letterSpacing: 1.1,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: ShodashaTheme.surface,
           ),
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Refresh notifications',
             onPressed: _refresh,
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -115,11 +123,14 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
                 for (final o in widget.orders.allOrders.take(20))
                   _Note(
                     icon: _orderIcon(o.state),
-                    title: 'Order #${o.id} · ${o.state.name}',
+                    title: 'Order #${o.id} · ${orderStateLabel(o.state)}',
                     body: o.itemSummary.isEmpty
                         ? 'Tap to see delivery details.'
                         : o.itemSummary,
                     at: o.createdAt,
+                    onTap: widget.onOpenOrder == null
+                        ? null
+                        : () => widget.onOpenOrder!(o.id),
                   ),
                 ..._subs,
               ]..sort((a, b) {
@@ -138,8 +149,15 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
               : 'Could not refresh order updates.';
           final banners = <Widget>[
             if (orderError != null)
-              _Banner(message: orderError, onRetry: _refresh),
-            if (_error != null) _Banner(message: _error!, onRetry: _refresh),
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: AppBanner.stale(message: orderError, onRetry: _refresh),
+              ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: AppBanner.stale(message: _error!, onRetry: _refresh),
+              ),
           ];
           final loading =
               (widget.orders.status == OrdersListStatus.initial ||
@@ -148,7 +166,7 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
               _loadingSubs && _subs.isEmpty;
 
           if (notes.isEmpty && banners.isEmpty && loading) {
-            return const Center(child: CircularProgressIndicator());
+            return AppStateView.loading(message: 'Loading updates');
           }
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -159,26 +177,10 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
                 ...banners,
                 if (banners.isNotEmpty) const SizedBox(height: 4),
                 if (notes.isEmpty && banners.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 100),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.notifications_none,
-                          size: 44,
-                          color: AppColors.textSecondary,
-                        ),
-                        SizedBox(height: 10),
-                        Text(
-                          'No order or subscription updates yet.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
+                  AppStateView.empty(
+                    title: 'No updates yet',
+                    message: 'Order and subscription updates will appear here.',
+                    icon: Icons.notifications_none_rounded,
                   )
                 else
                   for (final note in notes)
@@ -223,55 +225,20 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
   }
 }
 
-class _Banner extends StatelessWidget {
-  const _Banner({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF9C3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFDE047)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline, size: 17, color: Color(0xFF854D0E)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.35,
-                color: Color(0xFF713F12),
-              ),
-            ),
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
-    );
-  }
-}
-
 class _Note {
   const _Note({
     required this.icon,
     required this.title,
     required this.body,
     required this.at,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String body;
   final DateTime? at;
+  final VoidCallback? onTap;
 }
 
 class _NoteTile extends StatelessWidget {
@@ -285,26 +252,22 @@ class _NoteTile extends StatelessWidget {
     final date = at == null
         ? ''
         : '${at.day}/${at.month}/${at.year} ${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppCard(
+      onTap: note.onTap,
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            height: 38,
-            width: 38,
+            height: 40,
+            width: 40,
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
+              color: ShodashaTheme.tealTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
-            child: Icon(note.icon, color: AppColors.primary, size: 20),
+            child: Icon(note.icon, color: ShodashaTheme.tealDeep, size: 20),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -312,17 +275,18 @@ class _NoteTile extends StatelessWidget {
                 Text(
                   note.title,
                   style: const TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   note.body,
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
+                    fontSize: 12.5,
+                    height: 1.4,
+                    color: ShodashaTheme.muted,
                   ),
                 ),
                 if (date.isNotEmpty) ...[
@@ -330,14 +294,23 @@ class _NoteTile extends StatelessWidget {
                   Text(
                     date,
                     style: const TextStyle(
-                      fontSize: 10.5,
-                      color: Color(0xFF94A3B8),
+                      fontSize: 12,
+                      color: ShodashaTheme.muted,
                     ),
                   ),
                 ],
               ],
             ),
           ),
+          if (note.onTap != null)
+            const Padding(
+              padding: EdgeInsets.only(left: 6, top: 8),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: ShodashaTheme.muted,
+              ),
+            ),
         ],
       ),
     );

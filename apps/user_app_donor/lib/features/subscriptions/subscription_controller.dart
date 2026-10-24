@@ -30,7 +30,7 @@ import '../../core/money.dart';
 
 /// Screen copy (English; keys match the legacy controller contract).
 const Map<String, String> subStrings = {
-  'title': 'WATER SUBSCRIPTION',
+  'title': 'Subscriptions',
   'emptyTitle': 'No subscription yet',
   'emptyHint':
       'Set a rhythm and your jars arrive without reordering. The '
@@ -50,7 +50,7 @@ const Map<String, String> subStrings = {
   'monthlyEstimate': 'Monthly estimate',
   'dueToday': 'Due today',
   'canceledNote': 'Canceled. Bottle pickup is scheduled by the server.',
-  'duesTitle': 'OUTSTANDING DUES',
+  'duesTitle': 'Outstanding dues',
   'payDues': 'Pay dues',
   'wallet': 'Wallet',
   'duesPayTitle': 'UPI payment request created',
@@ -99,8 +99,8 @@ const Map<String, String> subStrings = {
   'cancelDoneBody':
       'Your subscription is canceled. Bottle pickup is '
       'scheduled and the refund is on its way.',
-  'planTitle': 'Build a monthly plan',
-  'planEyebrow': 'MONTHLY PLAN',
+  'planTitle': 'Build a delivery plan',
+  'planEyebrow': 'NEW PLAN',
   'jarsPerDelivery': 'Jars per delivery',
   'jarSku': '20L refill jar',
   'rhythm': 'Delivery rhythm',
@@ -109,19 +109,20 @@ const Map<String, String> subStrings = {
   'weekly': 'Weekly',
   'address': 'Delivery address',
   'noAddress': 'No saved address. Add one in Profile, then come back.',
-  'estimateTitle': 'First-delivery estimate',
+  'estimateTitle': 'First delivery estimate',
   'estimateWater': 'Water',
   'estimateDeposit': 'Refundable jar deposit',
-  'estimateTotal': 'Total today',
+  'estimateTotal': 'First delivery total',
   'estimateNote':
-      'Live amount from the server. You pay per delivery after this.',
+      'No payment is collected now. This is what the first delivery will '
+      'cost, billed as usual.',
   'estimateFailed': 'Could not load the estimate.',
-  'starting': 'Starting…',
-  'createFailed': 'Could not start the plan.',
+  'starting': 'Creating plan…',
+  'createFailed': 'Could not create the plan.',
   'signedOutPlan': 'Sign in to start a plan.',
   'payloadMismatch':
       'The plan changed while submitting. Review it and try again.',
-  'planStarted': 'Plan started.',
+  'planStarted': 'Plan created. No payment was collected.',
   'addressFallback': 'Delivery address',
   'addJar': 'Add a jar',
   'removeJar': 'Remove a jar',
@@ -279,13 +280,18 @@ class SubscriptionController extends ChangeNotifier {
     _errorMessage = null;
     _notify();
     try {
-      final raw = await _api.listSubscriptions();
-      final labels = await _addressLabels();
+      // Independent reads run together; only the list/dues pair is needed for
+      // the first paint, but the labels must not serialize behind them.
+      final subsFuture = _api.listSubscriptions();
+      final labelsFuture = _addressLabels();
+      final duesFuture = _loadDues();
+      final raw = await subsFuture;
+      final labels = await labelsFuture;
       _items = raw
           .whereType<Map<String, dynamic>>()
           .map((j) => SubscriptionEntry.fromApi(j, addressLabels: labels))
           .toList();
-      await _loadDues();
+      await duesFuture;
       _status = SubStatus.loaded;
     } on ApiException catch (e) {
       _status = SubStatus.error;

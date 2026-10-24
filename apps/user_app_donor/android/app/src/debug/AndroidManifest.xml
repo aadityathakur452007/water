@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Local dev only (http://10.0.2.2:8787/v1). Release keeps the default
+         targetSdk cleartext ban; this file is never merged into release. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

@@ -94,6 +94,17 @@ class ReturnsController extends ChangeNotifier {
       _authError = e.statusCode == 401 || e.statusCode == 403;
       _error = _authError
           ? 'Session expired — log in again'
+          : e.statusCode == 429
+          ? 'Too many requests — try again in '
+                '${(e.retryAfterSeconds ?? 60).clamp(1, 3600)}s.'
+          : e.statusCode == 422
+          ? (e.message.isNotEmpty
+                ? e.message
+                : 'Check the number of jars and try again.')
+          : e.statusCode == 409
+          ? (e.message.isNotEmpty
+                ? e.message
+                : 'This pickup is already requested.')
           : e.isOffline
           ? 'No internet — try again'
           : e.isServerError

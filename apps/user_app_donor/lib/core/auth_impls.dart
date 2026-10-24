@@ -80,7 +80,40 @@ class ApiBackedAuthApi implements AuthApi {
 
   @override
   Future<void> logout(String accessToken) async {
-    await _api.send('POST', '/auth/logout', body: null, authed: true);
+    // The controller clears the local session first, so the live token getter
+    // is already empty. Send the captured token explicitly for the revoke.
+    await _api.send(
+      'POST',
+      '/auth/logout',
+      body: null,
+      authed: true,
+      bearerToken: accessToken,
+      notifyUnauthorized: false,
+    );
+  }
+
+  @override
+  Future<AuthSession> refresh({required String refreshToken}) async {
+    final raw = await _api.refreshSession(refreshToken: refreshToken);
+    final map = _requireMap(raw, 'refresh');
+    final access = (map['access_token'] ?? '').toString();
+    if (access.isEmpty) {
+      throw ApiException(
+        code: 'UNKNOWN',
+        message: 'Malformed refresh response',
+        statusCode: 0,
+      );
+    }
+    final rotated = (map['refresh_token'] ?? '').toString();
+    final expiresAt =
+        DateTime.tryParse((map['expires_at'] ?? '').toString()) ??
+        DateTime.now().add(const Duration(days: 30));
+    return AuthSession(
+      accessToken: access,
+      refreshToken: rotated.isEmpty ? refreshToken : rotated,
+      expiresAt: expiresAt,
+      role: (map['role'] ?? 'user').toString(),
+    );
   }
 
   @override

@@ -64,33 +64,64 @@ class WalletController extends ChangeNotifier {
   WalletStatus _status = WalletStatus.initial;
   LedgerSnapshot? _ledger;
   String? _errorMessage;
+  bool _refreshing = false;
+  bool _stale = false;
+  bool _isOffline = false;
+  bool _isServerError = false;
   bool _disposed = false;
 
   WalletStatus get status => _status;
   LedgerSnapshot? get ledger => _ledger;
   String? get errorMessage => _errorMessage;
+  bool get isRefreshing => _refreshing;
 
-  /// Single-flight: a second call while loading joins the first.
+  /// True when a refresh failed but the previous ledger is still on screen.
+  bool get isStale => _stale;
+  bool get isOffline => _isOffline;
+  bool get isServerError => _isServerError;
+
+  /// Single-flight: a second call while loading joins the first. A failed
+  /// refresh keeps the last good ledger visible and marks it stale.
   Future<void> load() async {
-    if (_status == WalletStatus.loading) return;
-    _status = WalletStatus.loading;
+    if (_refreshing) return;
+    _refreshing = true;
     _errorMessage = null;
+    if (_ledger == null) _status = WalletStatus.loading;
     _notify();
     try {
       _ledger = LedgerSnapshot.fromApi(await api.ledgerMe());
       _status = WalletStatus.loaded;
+      _stale = false;
+      _isOffline = false;
+      _isServerError = false;
     } on ApiException catch (e) {
-      _status = WalletStatus.error;
+      _isOffline = e.isOffline;
+      _isServerError = e.isServerError;
       _errorMessage = e.isOffline
           ? 'No internet — try again'
           : e.isServerError
           ? 'Server problem — try again'
           : 'Could not load your ledger';
+      if (_ledger == null) {
+        _status = WalletStatus.error;
+      } else {
+        _status = WalletStatus.loaded;
+        _stale = true;
+      }
     } catch (_) {
-      _status = WalletStatus.error;
+      _isOffline = false;
+      _isServerError = false;
       _errorMessage = 'Could not load your ledger';
+      if (_ledger == null) {
+        _status = WalletStatus.error;
+      } else {
+        _status = WalletStatus.loaded;
+        _stale = true;
+      }
+    } finally {
+      _refreshing = false;
+      _notify();
     }
-    _notify();
   }
 
   void _notify() {

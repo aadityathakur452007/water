@@ -13,6 +13,8 @@
 // (Public ctor param names are required — tests + wiring construct this
 // from other libraries, where private initializing formals are unusable.)
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,7 +41,7 @@ const Map<String, String> authStringsHi = {
   'phoneError':
       'Enter a valid 10-digit mobile number (digits only, starting 6–9)',
   'passwordLabel': 'Password',
-  'passwordHint': 'At least 8 characters, with a letter and a number',
+  'passwordHint': '8+ characters, letter + number',
   'passwordError':
       'Use 8–128 characters with at least one letter and one digit.',
   'passwordRequired': 'Enter your password.',
@@ -245,6 +247,9 @@ abstract class AuthApi {
 
   /// POST /auth/logout.
   Future<void> logout(String accessToken);
+
+  /// POST /auth/refresh → rotated access + refresh tokens.
+  Future<AuthSession> refresh({required String refreshToken});
 }
 
 /// Auth lifecycle: idle → verifying → authenticated.
@@ -279,6 +284,8 @@ class AuthController extends ChangeNotifier {
   AuthSession? _session;
   int _restoreGeneration = 0;
   bool _disposed = false;
+  bool _loggingOut = false;
+  Future<bool>? _recovering;
   DateTime? _rateLimitUntil;
 
   AuthStatus get status => _status;
@@ -300,6 +307,9 @@ class AuthController extends ChangeNotifier {
       _status == AuthStatus.authenticated &&
       _session != null &&
       !_session!.isExpired;
+
+  /// True while the local logout wipe is in progress (UI busy state).
+  bool get isLoggingOut => _loggingOut;
 
   /// Seconds left on a 429 wall (0 when none). Screens tick this locally.
   int get rateLimitSecondsRemaining {
@@ -474,31 +484,127 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Logout: revoke server-side (best-effort) + wipe local session.
-  /// Also clears user-scoped prefs so the next login never inherits the
-  /// previous user's delivery address. Manual logout never shows expiry copy.
+  /// Logout: wipe local session/prefs FIRST, then revoke server-side
+  /// fire-and-forget with a 3s cap. A slow network must never delay the user
+  /// leaving, and a failed revoke never strands a local token.
+  /// Manual logout never shows expiry copy. Repeated taps are ignored.
   Future<void> logout() async {
-    final token = _session?.accessToken;
-    if (token != null) {
-      try {
-        await _api.logout(token);
-      } catch (_) {
-        // Local wipe is authoritative — never strand a token on logout.
-      }
-    }
-    await _store.clear();
-    await _clearUserPrefs();
-    _reset();
-    _sessionNotice = null;
-    _status = AuthStatus.idle;
+    if (_loggingOut) return;
+    _loggingOut = true;
     _notify();
+    final token = _session?.accessToken;
+    _restoreGeneration++;
+    try {
+      try {
+        await _store.clear();
+      } catch (_) {
+        // Local state reset below is still authoritative.
+      }
+      await _clearUserPrefs();
+      _reset();
+      _sessionNotice = null;
+      _status = AuthStatus.idle;
+    } finally {
+      _loggingOut = false;
+      _notify();
+    }
+    if (token == null || token.isEmpty) return;
+    unawaited(() async {
+      try {
+        await _api.logout(token).timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // Best-effort revoke; the local session is already gone.
+      }
+    }());
+  }
+
+  /// One transparent refresh at most. Shares a single in-flight attempt so a
+  /// burst of 401s rotates once, persists the rotated pair, and returns true.
+  /// Never clears the local session before a successful refresh. Failure
+  /// forces the local session out with the expiry notice.
+  Future<bool> recoverSession() {
+    final pending = _recovering;
+    if (pending != null) return pending;
+    final fut = _recoverSession();
+    _recovering = fut;
+    unawaited(
+      fut.whenComplete(() {
+        if (identical(_recovering, fut)) _recovering = null;
+      }),
+    );
+    return fut;
+  }
+
+  Future<bool> _recoverSession() async {
+    final gen = _restoreGeneration;
+    try {
+      final refresh = await _store.readRefreshToken();
+      if (refresh == null || refresh.isEmpty) {
+        if (gen != _restoreGeneration) return false;
+        await forceLogout(sessionExpired: true);
+        return false;
+      }
+      final rotated = await _api.refresh(refreshToken: refresh);
+      if (gen != _restoreGeneration) return false;
+      if (rotated.accessToken.isEmpty) {
+        throw ApiException(
+          code: 'UNKNOWN',
+          message: 'Malformed refresh response',
+          statusCode: 0,
+        );
+      }
+      final role = rotated.role.isEmpty ? 'user' : rotated.role;
+      await _store.saveSession(
+        accessToken: rotated.accessToken,
+        refreshToken: rotated.refreshToken.isEmpty
+            ? refresh
+            : rotated.refreshToken,
+        expiresAtIso: rotated.expiresAt.toIso8601String(),
+        role: role,
+      );
+      if (gen != _restoreGeneration) {
+        // Logout raced the write: remove the resurrected pair, but never wipe
+        // a newer login that already replaced the session.
+        if (_session == null && _status == AuthStatus.idle) {
+          try {
+            await _store.clear();
+          } catch (_) {
+            // Best effort; the in-memory state is already logged out.
+          }
+        }
+        return false;
+      }
+      _session = AuthSession(
+        accessToken: rotated.accessToken,
+        refreshToken: rotated.refreshToken.isEmpty
+            ? refresh
+            : rotated.refreshToken,
+        expiresAt: rotated.expiresAt,
+        role: role,
+        newDeviceAlert: rotated.newDeviceAlert,
+        verified: rotated.verified,
+      );
+      _sessionNotice = null;
+      _status = AuthStatus.authenticated;
+      _notify();
+      return true;
+    } catch (_) {
+      if (gen != _restoreGeneration) return false;
+      await forceLogout(sessionExpired: true);
+      return false;
+    }
   }
 
   /// Local-only wipe (no server call): the global 401/403 hook
   /// (revoked/suspended/expired — must not call authed endpoints again,
   /// that would loop).
   Future<void> forceLogout({bool sessionExpired = false}) async {
-    await _store.clear();
+    _restoreGeneration++;
+    try {
+      await _store.clear();
+    } catch (_) {
+      // A keychain failure must not leave the in-memory session alive.
+    }
     await _clearUserPrefs();
     _reset();
     _status = AuthStatus.idle;
@@ -548,19 +654,21 @@ class AuthController extends ChangeNotifier {
     }
     final expiresAt = DateTime.tryParse(expiryIso);
     if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
-      await _store.clear(); // session expired → logged-out state (States.md)
+      // Access expired but refresh exists: try one rotation before forcing
+      // login. The local session is not cleared until the refresh fails.
+      final recovered = await recoverSession();
       if (gen != _restoreGeneration) return;
-      _sessionNotice = authStringsHi['sessionExpired'];
-      _status = AuthStatus.idle;
-    } else {
-      _session = AuthSession(
-        accessToken: access,
-        refreshToken: refresh,
-        expiresAt: expiresAt,
-        role: role ?? 'user',
-      );
-      _status = AuthStatus.authenticated;
+      if (recovered) return;
+      // recoverSession already set the idle state + expiry notice.
+      return;
     }
+    _session = AuthSession(
+      accessToken: access,
+      refreshToken: refresh,
+      expiresAt: expiresAt,
+      role: role ?? 'user',
+    );
+    _status = AuthStatus.authenticated;
     _notify();
   }
 

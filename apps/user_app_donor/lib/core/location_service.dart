@@ -1,13 +1,12 @@
 // LocationService: permission → one-shot fix → reverse-geocode (011_port).
-// Pure wrapper over geolocator + geocoding + permission_handler so unit
-// tests inject fakes and never touch GPS. UI only ever sees userMessage
-// (Hindi-first, matching addressStringsHi; no coords/stack leak).
+// Pure wrapper over geolocator + geocoding so unit tests inject fakes and
+// never touch GPS. UI only ever sees userMessage (Hindi-first, matching
+// addressStringsHi; no coords/stack leak).
 
 import 'dart:async';
 
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart' as ph;
 
 enum LocationErrorType {
   serviceDisabled,
@@ -76,9 +75,9 @@ class DefaultGeolocatorWrapper implements GeolocatorWrapper {
   @override
   Future<bool> openLocationSettings() => Geolocator.openLocationSettings();
 
-  /// Single app-settings entry point (notification prompt reuses it).
+  /// Single app-settings entry point (geolocator owns the platform call).
   @override
-  Future<bool> openAppSettings() => ph.openAppSettings();
+  Future<bool> openAppSettings() => Geolocator.openAppSettings();
 }
 
 /// Injectable seam over geocoding statics (tests inject fakes).

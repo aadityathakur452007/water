@@ -90,10 +90,11 @@ NEVER: entities/ → features/
 
 ## Auth and Access Model
 
-- D1 tables: `users` (phone, firebase_uid, role user/vendor/admin, kyc_status, language, suspended*), `sessions` (token/refresh hashes, role, device_fp, expiry, revocation). OTP verification is Firebase Auth's job (ADR-013) — no `otp_codes` table.
-- Flutter user/vendor: Firebase phone OTP → Workers verifies ID token → D1 session token in Secure Storage → Bearer on every Workers API call. Vendor role gate on delivery endpoints.
-- Super Admin web (Next.js): same Workers auth API (phone+OTP or email+password for admin seed), HttpOnly cookie session, middleware checks role=admin for /admin routes.
-- All auth writes go Workers → D1 binding (no direct D1 from clients). Secrets (OTP provider key) only in Workers vars.
+- D1 tables: `users` (phone, password hash for customers, role user/vendor/admin, kyc_status, language, suspended*), `sessions` (token/refresh hashes, role, device_fp, expiry, revocation).
+- Customer Flutter (`apps/user_app_donor`): mobile + password (034; PBKDF2, server-side hash) → D1 session tokens in Secure Storage → Bearer on every Workers API call. No customer OTP and no Firebase path; customer OTP routes return `410 OTP_RETIRED`.
+- Vendor Flutter: access-code login (role vendor) → session tokens in Secure Storage → Bearer; vendor role gate on delivery endpoints.
+- Super Admin web (Next.js): Workers auth API (admin access code/password) → HttpOnly cookie session; middleware checks role=admin for /admin routes.
+- All auth writes go Workers → D1 binding (no direct D1 from clients). Secrets only in Workers vars; demo login remains server-gated QA.
 
 ## Backend Boundaries (Workers + D1)
 

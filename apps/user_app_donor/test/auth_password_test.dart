@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shodasha_donor/core/api_client.dart';
 import 'package:shodasha_donor/features/auth/auth_controller.dart';
@@ -232,7 +234,122 @@ void main() {
       expect(controller.errorMessage, authStringsHi['notUser']);
     });
   });
+
+  group('session recovery', () {
+    test('rotates the stored pair and authenticates', () async {
+      final api = _FakeAuthApi()
+        ..refreshSession = _session(
+          accessToken: 'rotated-access',
+          refreshToken: 'rotated-refresh',
+        );
+      final store = InMemorySessionStore();
+      await _saveExpired(store);
+      final controller = _controller(api, store: store);
+
+      expect(await controller.recoverSession(), isTrue);
+
+      expect(api.refreshCalls, 1);
+      expect(api.refreshTokenSeen, 'old-refresh');
+      expect(await store.readAccessToken(), 'rotated-access');
+      expect(await store.readRefreshToken(), 'rotated-refresh');
+      expect(controller.isAuthenticated, isTrue);
+      expect(controller.sessionNotice, isNull);
+    });
+
+    test('coalesces concurrent recoveries into one refresh', () async {
+      final gate = Completer<void>();
+      final api = _FakeAuthApi()
+        ..refreshSession = _session(
+          accessToken: 'rotated-access',
+          refreshToken: 'rotated-refresh',
+        )
+        ..refreshGate = gate;
+      final store = InMemorySessionStore();
+      await _saveExpired(store);
+      final controller = _controller(api, store: store);
+
+      final first = controller.recoverSession();
+      final second = controller.recoverSession();
+      await Future<void>.delayed(Duration.zero);
+      expect(api.refreshCalls, 1);
+
+      gate.complete();
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+    });
+
+    test('failed refresh forces logout with the expiry notice', () async {
+      final api = _FakeAuthApi()
+        ..refreshError = ApiException(
+          code: 'UNAUTH',
+          message: 'Session expired.',
+          statusCode: 401,
+        );
+      final store = InMemorySessionStore();
+      await _saveExpired(store);
+      final controller = _controller(api, store: store);
+
+      expect(await controller.recoverSession(), isFalse);
+
+      expect(controller.isAuthenticated, isFalse);
+      expect(controller.status, AuthStatus.idle);
+      expect(controller.sessionNotice, authStringsHi['sessionExpired']);
+      expect(await store.readAccessToken(), isNull);
+      expect(await store.readRefreshToken(), isNull);
+    });
+
+    test('cold restore refreshes an expired access token', () async {
+      final api = _FakeAuthApi()
+        ..refreshSession = _session(
+          accessToken: 'restored-access',
+          refreshToken: 'restored-refresh',
+        );
+      final store = InMemorySessionStore();
+      await _saveExpired(store);
+      final controller = _controller(api, store: store);
+
+      expect(await controller.restoreSession(), isTrue);
+
+      expect(api.refreshCalls, 1);
+      expect(controller.isAuthenticated, isTrue);
+      expect(await store.readAccessToken(), 'restored-access');
+      expect(controller.sessionNotice, isNull);
+    });
+
+    test(
+      'logout wipes locally, is single-run, and revokes best-effort',
+      () async {
+        final gate = Completer<void>();
+        final api = _FakeAuthApi()..logoutGate = gate;
+        final store = InMemorySessionStore();
+        final controller = _controller(api, store: store);
+        await controller.login(rawPhone: '9876543210', password: 'water123');
+        expect(controller.isAuthenticated, isTrue);
+
+        final first = controller.logout();
+        final second = controller.logout();
+        await Future.wait([first, second]);
+
+        expect(controller.isAuthenticated, isFalse);
+        expect(controller.isLoggingOut, isFalse);
+        expect(await store.readAccessToken(), isNull);
+        expect(api.logoutCalls, 1);
+
+        gate.complete();
+        await Future<void>.delayed(Duration.zero);
+      },
+    );
+  });
 }
+
+Future<void> _saveExpired(InMemorySessionStore store) => store.saveSession(
+  accessToken: 'old-access',
+  refreshToken: 'old-refresh',
+  expiresAtIso: DateTime.now()
+      .subtract(const Duration(minutes: 1))
+      .toIso8601String(),
+  role: 'user',
+);
 
 AuthController _controller(_FakeAuthApi api, {SessionStore? store}) {
   return AuthController(
@@ -243,9 +360,13 @@ AuthController _controller(_FakeAuthApi api, {SessionStore? store}) {
   );
 }
 
-AuthSession _session({String role = 'user'}) => AuthSession(
-  accessToken: 'access-token',
-  refreshToken: 'refresh-token',
+AuthSession _session({
+  String role = 'user',
+  String accessToken = 'access-token',
+  String refreshToken = 'refresh-token',
+}) => AuthSession(
+  accessToken: accessToken,
+  refreshToken: refreshToken,
   expiresAt: DateTime.now().add(const Duration(days: 1)),
   role: role,
 );
@@ -260,8 +381,15 @@ class _FakeAuthApi implements AuthApi {
 
   AuthSession registerSession = _session();
   AuthSession loginSession = _session();
+  AuthSession refreshSession = _session();
   Object? registerError;
   Object? loginError;
+  Object? refreshError;
+  int refreshCalls = 0;
+  String? refreshTokenSeen;
+  Completer<void>? refreshGate;
+  int logoutCalls = 0;
+  Completer<void>? logoutGate;
 
   @override
   Future<AuthSession> register({
@@ -299,5 +427,19 @@ class _FakeAuthApi implements AuthApi {
   }) async => _session();
 
   @override
-  Future<void> logout(String accessToken) async {}
+  Future<void> logout(String accessToken) async {
+    logoutCalls += 1;
+    final gate = logoutGate;
+    if (gate != null) await gate.future;
+  }
+
+  @override
+  Future<AuthSession> refresh({required String refreshToken}) async {
+    refreshCalls += 1;
+    refreshTokenSeen = refreshToken;
+    final gate = refreshGate;
+    if (gate != null) await gate.future;
+    if (refreshError != null) throw refreshError!;
+    return refreshSession;
+  }
 }

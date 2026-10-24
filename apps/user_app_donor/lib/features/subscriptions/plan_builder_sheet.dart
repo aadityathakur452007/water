@@ -21,35 +21,53 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_icon_button.dart';
 import 'subscription_controller.dart';
 
 /// Opens the plan builder; resolves with the server create response (or null).
 Future<Map<String, dynamic>?> showPlanBuilderSheet(
   BuildContext context, {
   required ApiClient api,
+  VoidCallback? onSignIn,
+  VoidCallback? onAddAddress,
 }) => showModalBottomSheet<Map<String, dynamic>>(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,
+  isDismissible: false,
+  enableDrag: false,
+  backgroundColor: ShodashaTheme.surface,
   shape: const RoundedRectangleBorder(
     borderRadius: BorderRadius.vertical(
       top: Radius.circular(ShodashaTheme.radiusSheet),
     ),
   ),
-  builder: (_) => PlanBuilderSheet(api: api),
+  builder: (_) => PlanBuilderSheet(
+    api: api,
+    onSignIn: onSignIn,
+    onAddAddress: onAddAddress,
+  ),
 );
 
 class PlanBuilderSheet extends StatefulWidget {
-  const PlanBuilderSheet({super.key, required this.api});
+  const PlanBuilderSheet({
+    super.key,
+    required this.api,
+    this.onSignIn,
+    this.onAddAddress,
+  });
 
   final ApiClient api;
+  final VoidCallback? onSignIn;
+  final VoidCallback? onAddAddress;
 
   @override
   State<PlanBuilderSheet> createState() => _PlanBuilderSheetState();
 }
 
 class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
-  static const int _maxQty = 30; // backend: qty 1..30
+  static const int _maxQty = 10; // household cap for one delivery
 
   int _qty = 1;
   String _schedule = 'daily';
@@ -73,6 +91,16 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   String? _error;
 
   bool get _signedOut => !widget.api.hasToken;
+
+  void _signIn() {
+    Navigator.of(context).pop();
+    widget.onSignIn?.call();
+  }
+
+  void _addAddress() {
+    Navigator.of(context).pop();
+    widget.onAddAddress?.call();
+  }
 
   @override
   void initState() {
@@ -244,103 +272,113 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         _estimate != null &&
         !_estimateLoading &&
         _estimateError == null;
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+    return PopScope(
+      canPop: !_submitting,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: ShodashaTheme.border,
-                    borderRadius: BorderRadius.circular(2),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      subStrings['planEyebrow']!,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.4,
-                        color: ShodashaTheme.muted,
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        subStrings['planEyebrow']!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.4,
+                          color: ShodashaTheme.muted,
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: subStrings['close'],
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: ShodashaTheme.ink),
-                  ),
-                ],
-              ),
-              Text(
-                subStrings['planTitle']!,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.4,
-                  color: ShodashaTheme.ink,
+                    AppIconButton(
+                      icon: Icons.close,
+                      tooltip: subStrings['close']!,
+                      color: ShodashaTheme.ink,
+                      onPressed: _submitting
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 16),
-              if (_signedOut)
-                _SignedOutNote()
-              else ...[
-                _qtyCard(),
-                const SizedBox(height: 16),
-                _eyebrow(subStrings['rhythm']!),
-                const SizedBox(height: 8),
-                _scheduleChips(),
-                const SizedBox(height: 16),
-                _eyebrow(subStrings['address']!),
-                const SizedBox(height: 8),
-                _addressSection(),
-                const SizedBox(height: 16),
-                _estimateCard(),
-                if (_error != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    _error!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: ShodashaTheme.danger,
-                    ),
+                Text(
+                  subStrings['planTitle']!,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.4,
+                    color: ShodashaTheme.ink,
                   ),
-                ],
+                ),
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    // Plan start is not a charge — teal, never money green.
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: ShodashaTheme.teal,
-                      foregroundColor: ShodashaTheme.surface,
+                if (_signedOut)
+                  _SignedOutNote(
+                    onSignIn: widget.onSignIn == null ? null : _signIn,
+                  )
+                else ...[
+                  _qtyCard(),
+                  const SizedBox(height: 16),
+                  _eyebrow(subStrings['rhythm']!),
+                  const SizedBox(height: 8),
+                  _scheduleChips(),
+                  const SizedBox(height: 16),
+                  _eyebrow(subStrings['address']!),
+                  const SizedBox(height: 8),
+                  _addressSection(),
+                  const SizedBox(height: 16),
+                  _estimateCard(),
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _error!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: ShodashaTheme.danger,
+                      ),
                     ),
+                  ],
+                  const SizedBox(height: 16),
+                  AppButton(
+                    label: subStrings['startPlan']!,
+                    busy: _submitting,
                     onPressed: canSubmit ? _submit : null,
-                    child: Text(
-                      _submitting
-                          ? subStrings['starting']!
-                          : subStrings['startPlan']!,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  const Text(
+                    'No payment is collected now. The first delivery is billed '
+                    'as usual.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: ShodashaTheme.muted,
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -391,7 +429,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         ),
         IconButton(
           tooltip: subStrings['removeJar'],
-          onPressed: _qty > 1 ? () => _setQty(-1) : null,
+          onPressed: !_submitting && _qty > 1 ? () => _setQty(-1) : null,
           icon: const Icon(
             Icons.remove_circle_outline,
             color: ShodashaTheme.teal,
@@ -407,7 +445,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         ),
         IconButton(
           tooltip: subStrings['addJar'],
-          onPressed: _qty < _maxQty ? () => _setQty(1) : null,
+          onPressed: !_submitting && _qty < _maxQty ? () => _setQty(1) : null,
           icon: const Icon(Icons.add_circle_outline, color: ShodashaTheme.teal),
         ),
       ],
@@ -435,7 +473,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                 ? ShodashaTheme.tealDeep
                 : ShodashaTheme.ink,
           ),
-          onSelected: (_) => _setSchedule(entry.$1),
+          onSelected: _submitting ? null : (_) => _setSchedule(entry.$1),
         ),
     ],
   );
@@ -491,13 +529,29 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                subStrings['noAddress']!,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: ShodashaTheme.onSolar,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    subStrings['noAddress']!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: ShodashaTheme.onSolar,
+                    ),
+                  ),
+                  if (widget.onAddAddress != null)
+                    TextButton(
+                      onPressed: _addAddress,
+                      style: TextButton.styleFrom(
+                        foregroundColor: ShodashaTheme.tealDeep,
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 44),
+                        tapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                      child: const Text('Add address'),
+                    ),
+                ],
               ),
             ),
           ],
@@ -520,9 +574,11 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
             ),
           ),
       ],
-      onChanged: (v) {
-        if (v != null) _setAddress(v);
-      },
+      onChanged: _submitting
+          ? null
+          : (v) {
+              if (v != null) _setAddress(v);
+            },
     );
   }
 
@@ -646,7 +702,9 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
 }
 
 class _SignedOutNote extends StatelessWidget {
-  const _SignedOutNote();
+  const _SignedOutNote({this.onSignIn});
+
+  final VoidCallback? onSignIn;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -670,6 +728,14 @@ class _SignedOutNote extends StatelessWidget {
             ),
           ),
         ),
+        if (onSignIn != null)
+          TextButton(
+            onPressed: onSignIn,
+            style: TextButton.styleFrom(
+              foregroundColor: ShodashaTheme.tealDeep,
+            ),
+            child: const Text('Sign in'),
+          ),
       ],
     ),
   );

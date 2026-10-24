@@ -56,23 +56,23 @@ void main() {
     expect(_tabIcon(Icons.receipt_long_outlined), findsOneWidget);
     expect(_tabIcon(Icons.calendar_month_outlined), findsOneWidget);
     expect(_tabIcon(Icons.account_balance_wallet_outlined), findsOneWidget);
-    expect(_tabIcon(Icons.person_outline), findsOneWidget);
+    expect(_tabIcon(Icons.person_outline_rounded), findsOneWidget);
 
     await tester.tap(_tabIcon(Icons.receipt_long_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('MY WATER ORDERS'), findsOneWidget);
+    expect(find.text('My orders'), findsOneWidget);
 
     await tester.tap(_tabIcon(Icons.calendar_month_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('WATER SUBSCRIPTION'), findsOneWidget);
+    expect(find.text('Subscriptions'), findsWidgets);
 
     await tester.tap(_tabIcon(Icons.account_balance_wallet_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('SHODASHA WALLET'), findsOneWidget);
+    expect(find.text('Wallet'), findsWidgets);
 
-    await tester.tap(_tabIcon(Icons.person_outline));
+    await tester.tap(_tabIcon(Icons.person_outline_rounded));
     await tester.pumpAndSettle();
-    expect(find.text('MY PROFILE'), findsOneWidget);
+    expect(find.text('Profile'), findsWidgets);
 
     await tester.tap(_tabIcon(Icons.home_outlined));
     await tester.pumpAndSettle();
@@ -82,7 +82,7 @@ void main() {
 }
 
 Finder _tabIcon(IconData icon) => find.descendant(
-  of: find.byType(BottomNavigationBar),
+  of: find.byType(NavigationBar),
   matching: find.byIcon(icon),
 );
 
@@ -95,7 +95,7 @@ class _FakeApi extends ApiClient {
       );
 
   @override
-  Future<Map<String, dynamic>> catalog() async => {
+  Future<Map<String, dynamic>> catalog({bool allowStale = false}) async => {
     'skus': [
       {'id': 'refill', 'price_paise': 2800},
       {'id': 'container', 'price_paise': 3000},
@@ -170,6 +170,10 @@ class _FakeAuthApi implements AuthApi {
     required String code,
     required String deviceId,
   }) async => throw UnimplementedError();
+
+  @override
+  Future<AuthSession> refresh({required String refreshToken}) async =>
+      throw UnimplementedError();
 
   @override
   Future<void> logout(String accessToken) async {}

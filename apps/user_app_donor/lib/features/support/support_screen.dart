@@ -21,7 +21,41 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_icon_button.dart';
 import 'support_controller.dart';
+
+String _supportDate(DateTime value) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final d = value.toLocal();
+  return '${d.day} ${months[d.month - 1]}';
+}
+
+/// A delivered order the complaint form can point at. The shell maps the
+/// OrdersController rows into this tiny shape so Support does not reach into
+/// another feature's state.
+@immutable
+class SupportOrder {
+  const SupportOrder({required this.id, required this.label, this.deliveredAt});
+
+  final String id;
+  final String label;
+  final DateTime? deliveredAt;
+}
 
 /// Static FAQ copy — no money amounts, no invented delivery promises.
 const List<({String question, String answer})> _faqs = [
@@ -56,6 +90,7 @@ class SupportScreen extends StatefulWidget {
     this.controller,
     this.orderContext,
     this.openUrl,
+    this.orders = const [],
   });
 
   /// Authenticated transport from the shell — complaints carry the real
@@ -69,6 +104,9 @@ class SupportScreen extends StatefulWidget {
 
   /// Injectable for widget tests (defaults to url_launcher's external app).
   final Future<bool> Function(Uri url, {LaunchMode mode})? openUrl;
+
+  /// Delivered orders offered as the primary complaint target.
+  final List<SupportOrder> orders;
 
   @override
   State<SupportScreen> createState() => _SupportScreenState();
@@ -121,10 +159,34 @@ class _SupportScreenState extends State<SupportScreen> {
     );
   }
 
+  Future<void> _openCall() async {
+    final open = widget.openUrl ?? launchUrl;
+    bool ok = false;
+    try {
+      ok = await open(
+        Uri(scheme: 'tel', path: kSupportPhone),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      ok = false;
+    }
+    if (ok || !mounted) return;
+    unawaited(
+      Clipboard.setData(
+        ClipboardData(text: kSupportPhone),
+      ).then<void>((_) {}, onError: (_) {}),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Call did not open — number copied.')),
+    );
+  }
+
   Future<void> _openComplaintForm() async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
@@ -134,6 +196,8 @@ class _SupportScreenState extends State<SupportScreen> {
       builder: (_) => _ComplaintFormSheet(
         controller: _controller,
         onWhatsApp: _openWhatsApp,
+        onCall: _openCall,
+        orders: widget.orders,
       ),
     );
   }
@@ -143,34 +207,65 @@ class _SupportScreenState extends State<SupportScreen> {
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        title: const Text('PLANT HELP & SUPPORT'),
-        leading: const BackButton(color: ShodashaTheme.ink),
+        backgroundColor: ShodashaTheme.surface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shape: const Border(bottom: BorderSide(color: ShodashaTheme.border)),
+        leadingWidth: 56,
+        leading: AppIconButton(
+          icon: Icons.arrow_back_rounded,
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'Help & support',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: ShodashaTheme.ink,
+            letterSpacing: -0.2,
+          ),
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        children: [
-          _HelplineCard(phone: kSupportPhone, onWhatsApp: _openWhatsApp),
-          const _SectionLabel('COMMON QUESTIONS'),
-          for (final faq in _faqs)
-            _Faq(question: faq.question, answer: faq.answer),
-          const _SectionLabel('COMPLAINTS'),
-          _ComplaintEntryCard(onNewComplaint: _openComplaintForm),
-          const SizedBox(height: 20),
-          const Text(
-            'Your complaints',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: ShodashaTheme.ink,
+      body: RefreshIndicator(
+        color: ShodashaTheme.tealDeep,
+        onRefresh: _controller.load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.xxl,
+          ),
+          children: [
+            _HelplineCard(
+              phone: kSupportPhone,
+              onWhatsApp: _openWhatsApp,
+              onCall: _openCall,
             ),
-          ),
-          const SizedBox(height: 8),
-          ListenableBuilder(
-            listenable: _controller,
-            builder: (context, _) =>
-                _ComplaintsSection(controller: _controller),
-          ),
-        ],
+            const _SectionLabel('Common questions'),
+            for (final faq in _faqs)
+              _Faq(question: faq.question, answer: faq.answer),
+            const _SectionLabel('Complaints'),
+            _ComplaintEntryCard(onNewComplaint: _openComplaintForm),
+            const SizedBox(height: AppSpacing.xl),
+            const Text(
+              'Your complaints',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: ShodashaTheme.ink,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ListenableBuilder(
+              listenable: _controller,
+              builder: (context, _) =>
+                  _ComplaintsSection(controller: _controller),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -179,10 +274,15 @@ class _SupportScreenState extends State<SupportScreen> {
 /// Solid teal helpline banner (donor grammar, gradient flattened). The
 /// WhatsApp action is white-on-teal — green stays reserved for money CTAs.
 class _HelplineCard extends StatelessWidget {
-  const _HelplineCard({required this.phone, required this.onWhatsApp});
+  const _HelplineCard({
+    required this.phone,
+    required this.onWhatsApp,
+    required this.onCall,
+  });
 
   final String phone;
   final VoidCallback onWhatsApp;
+  final VoidCallback onCall;
 
   @override
   Widget build(BuildContext context) {
@@ -243,23 +343,38 @@ class _HelplineCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: onWhatsApp,
-              style: FilledButton.styleFrom(
-                backgroundColor: ShodashaTheme.surface,
-                foregroundColor: ShodashaTheme.teal,
-                minimumSize: const Size.fromHeight(ShodashaTheme.minTarget),
-                shape: ShodashaTheme.shape,
-                textStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
+          Row(
+            children: [
+              Expanded(
+                child: AppButton(
+                  label: 'WhatsApp',
+                  kind: AppButtonKind.secondary,
+                  icon: Icons.chat_bubble_outline,
+                  height: 48,
+                  onPressed: onWhatsApp,
                 ),
               ),
-              icon: const Icon(Icons.chat_bubble_outline, size: 18),
-              label: const Text('Chat on WhatsApp'),
-            ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: onCall,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ShodashaTheme.surface,
+                      side: const BorderSide(color: ShodashaTheme.surface),
+                      shape: ShodashaTheme.shape,
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    icon: const Icon(Icons.call_outlined, size: 18),
+                    label: const Text('Call'),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -279,10 +394,9 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
           color: ShodashaTheme.muted,
-          letterSpacing: 1.0,
         ),
       ),
     );
@@ -497,6 +611,13 @@ class _ComplaintsSection extends StatelessWidget {
     }
     return Column(
       children: [
+        if (controller.status == ComplaintStatus.error) ...[
+          AppBanner.stale(
+            message: controller.errorMessage ?? supportStrings['loadError']!,
+            onRetry: controller.load,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
         for (final complaint in controller.items)
           _ComplaintCard(complaint: complaint),
       ],
@@ -671,10 +792,14 @@ class _ComplaintFormSheet extends StatefulWidget {
   const _ComplaintFormSheet({
     required this.controller,
     required this.onWhatsApp,
+    required this.onCall,
+    this.orders = const [],
   });
 
   final SupportController controller;
   final Future<void> Function() onWhatsApp;
+  final Future<void> Function() onCall;
+  final List<SupportOrder> orders;
 
   @override
   State<_ComplaintFormSheet> createState() => _ComplaintFormSheetState();
@@ -692,8 +817,40 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
     return length >= 10 && length <= 500;
   }
 
-  bool get _orderOk => _orderCtrl.text.trim().isNotEmpty;
+  bool get _orderOk =>
+      RegExp(r'^[a-fA-F0-9]{32}$').hasMatch(_orderCtrl.text.trim());
   bool get _valid => _textOk && _orderOk;
+
+  SupportOrder? get _selectedOrder {
+    final id = _orderCtrl.text.trim();
+    for (final order in widget.orders) {
+      if (order.id == id) return order;
+    }
+    return null;
+  }
+
+  String get _deadline {
+    final base = _reason == 'water_quality'
+        ? 'Water-quality complaints can be raised within 24 hours of delivery.'
+        : 'General complaints can be raised within 3 days of delivery.';
+    final delivered = _selectedOrder?.deliveredAt;
+    if (delivered == null) return base;
+    final closes = delivered.add(
+      Duration(hours: _reason == 'water_quality' ? 24 : 72),
+    );
+    return '$base This order: ${_supportDate(delivered)} – '
+        '${_supportDate(closes)}.';
+  }
+
+  Future<void> _copyOrderId() async {
+    final id = _orderCtrl.text.trim();
+    if (id.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: id));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Order ID copied.')));
+  }
 
   @override
   void dispose() {
@@ -703,8 +860,9 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
   }
 
   Future<void> _submit() async {
+    if (_sending) return;
     setState(() => _touched = true);
-    if (!_valid || _sending) return;
+    if (!_valid) return;
     FocusScope.of(context).unfocus();
     setState(() => _sending = true);
     final error = await widget.controller.submit(
@@ -715,171 +873,236 @@ class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
     if (!mounted) return;
     setState(() => _sending = false);
     if (error == null) {
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Complaint submitted.')));
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Complaint submitted.')),
+      );
       return;
     }
     if (error == 'windowExpired') {
-      final openWhatsApp = await showDialog<bool>(
+      final action = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
           shape: ShodashaTheme.shape,
           title: const Text(
             'Complaint window closed',
-            style: TextStyle(fontWeight: FontWeight.w900),
+            style: TextStyle(fontWeight: FontWeight.w800),
           ),
           content: const Text(
-            'The complaint window for this order has closed. Message us on '
-            'WhatsApp and we will help.',
+            'The complaint window for this order has closed. Message or call '
+            'us and we will help.',
             style: TextStyle(height: 1.4),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.of(ctx).pop(),
               style: TextButton.styleFrom(foregroundColor: ShodashaTheme.muted),
               child: const Text('Close'),
             ),
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
+              onPressed: () => Navigator.of(ctx).pop('call'),
               style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
-              child: const Text('WhatsApp us'),
+              child: const Text('Call'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('whatsapp'),
+              style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
+              child: const Text('WhatsApp'),
             ),
           ],
         ),
       );
-      if (openWhatsApp == true && mounted) {
+      if (action != null && mounted) {
         Navigator.of(context).pop();
-        unawaited(widget.onWhatsApp());
+        if (action == 'whatsapp') {
+          unawaited(widget.onWhatsApp());
+        } else {
+          unawaited(widget.onCall());
+        }
       }
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(supportStrings[error] ?? supportStrings['sendError']!),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(supportStrings[error] ?? error)));
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 12,
-          bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _SheetHandle(),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'New complaint',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      color: ShodashaTheme.ink,
-                      letterSpacing: -0.3,
+    return PopScope(
+      canPop: !_sending,
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 12,
+            bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SheetHandle(),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'New complaint',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: ShodashaTheme.ink,
+                        letterSpacing: -0.3,
+                      ),
                     ),
                   ),
+                  AppIconButton(
+                    icon: Icons.close,
+                    tooltip: 'Close complaint',
+                    color: ShodashaTheme.muted,
+                    onPressed: _sending
+                        ? null
+                        : () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Share the order and what happened. We review every complaint.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: ShodashaTheme.muted,
                 ),
-                IconButton(
-                  tooltip: 'Close',
-                  onPressed: _sending
+              ),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<String>(
+                initialValue: _reason,
+                decoration: const InputDecoration(
+                  labelText: 'Reason',
+                  prefixIcon: Icon(Icons.tune),
+                ),
+                items: [
+                  for (final entry in kComplaintReasonLabels.entries)
+                    DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                ],
+                onChanged: (value) =>
+                    setState(() => _reason = value ?? _reason),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _deadline,
+                style: const TextStyle(
+                  fontSize: 12,
+                  height: 1.35,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (widget.orders.isNotEmpty) ...[
+                const Text(
+                  'Delivered orders',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 48,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: widget.orders.length,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(width: AppSpacing.sm),
+                    itemBuilder: (context, i) {
+                      final order = widget.orders[i];
+                      final selected = _orderCtrl.text.trim() == order.id;
+                      return ChoiceChip(
+                        label: Text(order.label),
+                        selected: selected,
+                        showCheckmark: false,
+                        materialTapTargetSize: MaterialTapTargetSize.padded,
+                        selectedColor: ShodashaTheme.tealTint,
+                        backgroundColor: ShodashaTheme.bg,
+                        side: BorderSide(
+                          color: selected
+                              ? ShodashaTheme.teal
+                              : ShodashaTheme.border,
+                        ),
+                        labelStyle: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: selected
+                              ? ShodashaTheme.tealDeep
+                              : ShodashaTheme.ink,
+                        ),
+                        onSelected: (_) =>
+                            setState(() => _orderCtrl.text = order.id),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextField(
+                key: const Key('complaint-order'),
+                controller: _orderCtrl,
+                enabled: !_sending,
+                textInputAction: TextInputAction.next,
+                style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
+                onChanged: (_) => setState(() => _touched = true),
+                decoration: InputDecoration(
+                  labelText: 'Order ID',
+                  hintText: '32-character order ID',
+                  prefixIcon: const Icon(Icons.receipt_long_outlined),
+                  errorText: _touched && !_orderOk
+                      ? 'Pick a delivered order or enter its full 32-character ID.'
+                      : null,
+                  suffixIcon: _orderCtrl.text.trim().isEmpty
                       ? null
-                      : () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close, color: ShodashaTheme.muted),
+                      : IconButton(
+                          tooltip: 'Copy order ID',
+                          onPressed: _copyOrderId,
+                          icon: const Icon(Icons.copy_rounded, size: 18),
+                        ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Share the order and what happened. We review every complaint.',
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.4,
-                color: ShodashaTheme.muted,
               ),
-            ),
-            const SizedBox(height: 18),
-            DropdownButtonFormField<String>(
-              initialValue: _reason,
-              decoration: const InputDecoration(
-                labelText: 'Reason',
-                prefixIcon: Icon(Icons.tune),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('complaint-text'),
+                controller: _textCtrl,
+                enabled: !_sending,
+                minLines: 3,
+                maxLines: 5,
+                maxLength: 500,
+                style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
+                onChanged: (_) => setState(() => _touched = true),
+                decoration: InputDecoration(
+                  labelText: 'What happened?',
+                  helperText: '10–500 characters',
+                  counterText: '${_textCtrl.text.trim().length}/500',
+                  alignLabelWithHint: true,
+                  errorText: _touched && !_textOk
+                      ? 'Write at least 10 characters.'
+                      : null,
+                ),
               ),
-              items: [
-                for (final entry in kComplaintReasonLabels.entries)
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-              ],
-              onChanged: (value) => setState(() => _reason = value ?? _reason),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('complaint-order'),
-              controller: _orderCtrl,
-              enabled: !_sending,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                labelText: 'Order ID',
-                hintText: 'A3F9',
-                prefixIcon: Icon(Icons.receipt_long_outlined),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('complaint-text'),
-              controller: _textCtrl,
-              enabled: !_sending,
-              minLines: 3,
-              maxLines: 5,
-              maxLength: 500,
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: 'What happened?',
-                helperText: '10–500 characters',
-                counterText: '',
-                alignLabelWithHint: true,
-                errorText: _touched && !_textOk
-                    ? 'Write at least 10 characters.'
-                    : null,
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
+              const SizedBox(height: 18),
+              AppButton(
                 key: const Key('complaint-submit'),
-                onPressed: (_sending || !_valid) ? null : _submit,
-                style: FilledButton.styleFrom(
-                  backgroundColor: ShodashaTheme.teal,
-                  foregroundColor: ShodashaTheme.surface,
-                  disabledBackgroundColor: ShodashaTheme.teal.withValues(
-                    alpha: 0.4,
-                  ),
-                  minimumSize: const Size.fromHeight(52),
-                  shape: ShodashaTheme.shape,
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                child: _sending
-                    ? const Text('Sending…')
-                    : const Text('Send complaint'),
+                label: 'Send complaint',
+                busy: _sending,
+                onPressed: _sending ? null : _submit,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -5,7 +5,8 @@
 // the offline banner on NETWORK (States.md), never raw status numbers.
 // Authed calls carry Bearer access token + X-Device-Id; `Idempotency-Key`
 // where the contract requires it (orders create/cancel/reschedule).
-// TODO(F1): base URL from --dart-define; real token getter from SessionStore.
+// 035: one transparent refresh retry on authed 401/403, TTL cache for public
+// catalog/windows reads only, and a release-mode loopback build guard.
 
 import 'dart:async';
 import 'dart:convert';
@@ -67,11 +68,21 @@ class ApiClient {
     // two small clients beats one clever shared one). The release pipeline
     // must pass an https SHODASHA_API_BASE:
     //   flutter build apk --release --dart-define=SHODASHA_API_BASE=https://<deploy-domain>/v1
-    // Localhost/127.0.0.1/10.0.2.2 stay allowed for dev runs.
+    // Loopback is allowed only for dev/test. A release build pointed at
+    // localhost would install but never reach a server, so it is a build bug.
+    final String host = (Uri.tryParse(baseUrl)?.host ?? '').toLowerCase();
     final bool loopback =
-        baseUrl.contains('localhost') ||
-        baseUrl.contains('127.0.0.1') ||
-        baseUrl.contains('10.0.2.2');
+        host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '10.0.2.2' ||
+        host == '::1';
+    if (kReleaseMode && loopback) {
+      throw ArgumentError.value(
+        baseUrl,
+        'baseUrl',
+        'Release builds must not use a loopback SHODASHA_API_BASE',
+      );
+    }
     if (!baseUrl.startsWith('https://') && !loopback) {
       throw ArgumentError.value(
         baseUrl,
@@ -94,15 +105,28 @@ class ApiClient {
   /// X-Device-Id (fraud graph, SEC-F01).
   final String deviceId;
 
-  /// Fired once per 401/403 response (suspended / revoked / expired).
-  /// The app clears the session and returns to login (never loops: the
-  /// hook must not itself call an authed endpoint).
-  final Future<void> Function()? onUnauthorized;
+  /// Fired at most once per authed request on 401/403.
+  ///
+  /// Returns true when the session was recovered (e.g. a refresh succeeded),
+  /// in which case the original request is retried once with the new token.
+  /// Returns false when the session is dead; the original error is rethrown.
+  /// Never called for unauthed login/refresh calls. The hook must not call an
+  /// authed endpoint itself (that would recurse), and the client never calls
+  /// it a second time for the same request.
+  final Future<bool> Function()? onUnauthorized;
 
   /// In-flight GET dedupe (single-flight): two callers, one socket.
   /// Cleanup uses then/onError (never whenComplete): whenComplete mints a
   /// derived future that rethrows unlistened and trips test-zone guards.
   final Map<String, Future<dynamic>> _inflight = {};
+
+  /// Public, non-user-scoped reads only (catalog/windows). 45s fresh window;
+  /// a stale entry survives up to 5 minutes for callers that explicitly opt
+  /// in to rendering it with a stale label. Never used for money/orders/
+  /// ledger/delivery-code/session/complaints.
+  static const Duration _readCacheTtl = Duration(seconds: 45);
+  static const Duration _readCacheMaxAge = Duration(minutes: 5);
+  final Map<String, _ReadCacheEntry> _readCache = {};
 
   /// Transport health for the shell banner: true only when the last attempt
   /// failed at the socket/timeout layer. Any HTTP response — including 4xx/5xx
@@ -118,12 +142,34 @@ class ApiClient {
   /// Whether a valid non-empty bearer token is available for authenticated calls.
   bool get hasToken => (_token ?? '').isNotEmpty;
 
-  Map<String, String> _headers({required bool authed, String? idempotencyKey}) {
+  /// Drop every in-flight GET join. Called at the auth boundary (login/logout)
+  /// so a request started as user A is never joined by user B. Keys also carry
+  /// a token fingerprint, so a missed boundary cannot leak across users.
+  void clearInflight() => _inflight.clear();
+
+  /// Non-reversible 32-bit FNV-1a fingerprint. The raw token never enters a
+  /// map key, log, or error message.
+  String _tokenFingerprint([String? explicitToken]) {
+    final token = explicitToken ?? _token ?? '';
+    if (token.isEmpty) return 'anon';
+    var hash = 0x811c9dc5;
+    for (final unit in token.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return '${token.length}-${hash.toRadixString(16).padLeft(8, '0')}';
+  }
+
+  Map<String, String> _headers({
+    required bool authed,
+    String? idempotencyKey,
+    String? bearerToken,
+  }) {
     final h = <String, String>{
       'Content-Type': 'application/json',
       'X-Device-Id': deviceId,
     };
-    final token = _token;
+    final token = bearerToken ?? _token;
     if (authed && token != null && token.isNotEmpty) {
       h['Authorization'] = 'Bearer $token';
     }
@@ -150,8 +196,9 @@ class ApiClient {
   ///   NETWORK/timeout, 408, 429, 5xx — and POSTs only when an
   ///   [idempotencyKey] is present or [retryPost] is set (caller guarantees
   ///   the operation is replay-safe: same key + same body). Never retries
-  ///   400/401/403/404/409.
-  /// - 401/403 fires [onUnauthorized] once (session revoked/suspended).
+  ///   400/404/409.
+  /// - Authed 401/403 asks [onUnauthorized] once; a true answer retries the
+  ///   request once with the rotated token. A second 401/403 is final.
   Future<dynamic> send(
     String method,
     String path, {
@@ -159,11 +206,16 @@ class ApiClient {
     Map<String, String>? query,
     bool authed = true,
     String? idempotencyKey,
+    String? bearerToken,
+    bool notifyUnauthorized = true,
     bool retryPost = false,
     Duration timeout = const Duration(seconds: 12),
   }) {
     if (method == 'GET') {
-      final key = 'GET ${_uri(path, query)}';
+      // Authed keys are token-scoped: user B must never join user A's request.
+      final key =
+          'GET ${_uri(path, query)}'
+          '${authed ? '|${_tokenFingerprint(bearerToken)}' : ''}';
       final flying = _inflight[key];
       if (flying != null) return flying;
       final fut = _sendWithRetry(
@@ -173,6 +225,8 @@ class ApiClient {
         query: query,
         authed: authed,
         idempotencyKey: idempotencyKey,
+        bearerToken: bearerToken,
+        notifyUnauthorized: notifyUnauthorized,
         retryPost: retryPost,
         timeout: timeout,
       );
@@ -196,9 +250,46 @@ class ApiClient {
       query: query,
       authed: authed,
       idempotencyKey: idempotencyKey,
+      bearerToken: bearerToken,
+      notifyUnauthorized: notifyUnauthorized,
       retryPost: retryPost,
       timeout: timeout,
     );
+  }
+
+  /// TTL cache for public reads. Returns the same successful shape as [send].
+  /// [allowStale] is opt-in: only a caller that renders a stale banner may ask
+  /// for an expired entry after a transport/server failure.
+  Future<Map<String, dynamic>> _cachedMapGet(
+    String path, {
+    Map<String, String>? query,
+    required bool allowStale,
+  }) async {
+    final key = 'GET ${_uri(path, query)}';
+    final cached = _readCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.storedAt) <= _readCacheTtl) {
+      return Map<String, dynamic>.from(cached.value);
+    }
+    try {
+      final value =
+          (await send('GET', path, query: query, authed: false))
+              as Map<String, dynamic>;
+      final now = DateTime.now();
+      _readCache.removeWhere(
+        (_, entry) => now.difference(entry.storedAt) > _readCacheMaxAge,
+      );
+      _readCache[key] = _ReadCacheEntry(value, now);
+      return value;
+    } on ApiException catch (e) {
+      final usable =
+          allowStale &&
+          cached != null &&
+          (e.isOffline || e.isServerError) &&
+          DateTime.now().difference(cached.storedAt) <= _readCacheMaxAge;
+      if (usable) return Map<String, dynamic>.from(cached.value);
+      rethrow;
+    }
   }
 
   bool _retryable(Object e) {
@@ -214,6 +305,8 @@ class ApiClient {
     Map<String, String>? query,
     bool authed = true,
     String? idempotencyKey,
+    String? bearerToken,
+    bool notifyUnauthorized = true,
     bool retryPost = false,
     Duration timeout = const Duration(seconds: 12),
   }) async {
@@ -225,6 +318,7 @@ class ApiClient {
         idempotencyKey != null ||
         retryPost;
     var attempt = 0;
+    var refreshed = false;
     while (true) {
       attempt += 1;
       try {
@@ -235,13 +329,28 @@ class ApiClient {
           query: query,
           authed: authed,
           idempotencyKey: idempotencyKey,
+          bearerToken: bearerToken,
           timeout: timeout,
         );
       } on ApiException catch (e) {
-        // Only an authed call proves the session is dead. A 401 from
-        // login/register is bad credentials, not an expired session.
-        if (authed && (e.statusCode == 401 || e.statusCode == 403)) {
-          await onUnauthorized?.call();
+        // Only an authed call proves the session may be recoverable. A 401
+        // from login/refresh is bad credentials, never a refresh trigger.
+        // One transparent retry at most: if the retried request is still
+        // rejected, the error is final (no second hook, no loop).
+        if (authed &&
+            notifyUnauthorized &&
+            (e.statusCode == 401 || e.statusCode == 403)) {
+          final hook = onUnauthorized;
+          if (refreshed || hook == null) rethrow;
+          refreshed = true;
+          var recovered = false;
+          try {
+            recovered = await hook();
+          } catch (_) {
+            recovered = false;
+          }
+          if (!recovered) rethrow;
+          continue;
         }
         final canRetry = retryableMethod && attempt < 3 && _retryable(e);
         if (!canRetry) rethrow;
@@ -263,6 +372,7 @@ class ApiClient {
     Map<String, String>? query,
     bool authed = true,
     String? idempotencyKey,
+    String? bearerToken,
     Duration timeout = const Duration(seconds: 12),
   }) async {
     final uri = _uri(path, query);
@@ -270,7 +380,11 @@ class ApiClient {
     try {
       final req = http.Request(method, uri)
         ..headers.addAll(
-          _headers(authed: authed, idempotencyKey: idempotencyKey),
+          _headers(
+            authed: authed,
+            idempotencyKey: idempotencyKey,
+            bearerToken: bearerToken,
+          ),
         );
       if (body != null) req.body = jsonEncode(body);
       resp = await _http
@@ -327,6 +441,23 @@ class ApiClient {
       details: details,
     );
   }
+
+  // ── Session refresh (§4.1) ────────────────────────────────────────────────
+  /// POST /auth/refresh {refresh_token, device} → rotated token pair.
+  /// Unauthed and never retried automatically: rotation is not replay-safe.
+  Future<Map<String, dynamic>> refreshSession({
+    required String refreshToken,
+  }) async =>
+      (await send(
+            'POST',
+            '/auth/refresh',
+            body: {
+              'refresh_token': refreshToken,
+              'device': {'id': deviceId},
+            },
+            authed: false,
+          ))
+          as Map<String, dynamic>;
 
   // ── Addresses (§4.3) ──────────────────────────────────────────────────────
   // NOTE (ADR-051 port): every typed method awaits [send] then casts the
@@ -461,22 +592,26 @@ class ApiClient {
       (await send('PATCH', '/auth/me', body: body)) as Map<String, dynamic>;
 
   // ── Catalog (§4.2 — guest-callable, prices never walled) ─────────────────
-  Future<Map<String, dynamic>> catalog() async =>
-      (await send('GET', '/catalog', authed: false)) as Map<String, dynamic>;
+  /// 45s TTL. [allowStale] is only for a screen that renders "Showing last
+  /// update"; the default never hides a failed refresh behind old prices.
+  Future<Map<String, dynamic>> catalog({bool allowStale = false}) =>
+      _cachedMapGet('/catalog', allowStale: allowStale);
 
   // ── Windows / quotes / orders (§4.2/§4.4 — 005-home-ux live checkout) ────
   /// GET /windows?date=YYYY-MM-DD&pincode= → {date, windows, serviceable}.
-  Future<Map<String, dynamic>> windows({String? date, String? pincode}) async =>
-      (await send(
-            'GET',
-            '/windows',
-            query: {
-              ...?date == null ? null : {'date': date},
-              ...?pincode == null ? null : {'pincode': pincode},
-            },
-            authed: false,
-          ))
-          as Map<String, dynamic>;
+  /// Cache key is the full URI, so date + pincode are part of the key.
+  Future<Map<String, dynamic>> windows({
+    String? date,
+    String? pincode,
+    bool allowStale = false,
+  }) => _cachedMapGet(
+    '/windows',
+    query: {
+      ...?date == null ? null : {'date': date},
+      ...?pincode == null ? null : {'pincode': pincode},
+    },
+    allowStale: allowStale,
+  );
 
   /// POST /quotes {items:[{sku,qty}], e, address_id, window_start}.
   Future<Map<String, dynamic>> createQuote({
@@ -686,4 +821,11 @@ class ApiClient {
       '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
+}
+
+class _ReadCacheEntry {
+  _ReadCacheEntry(this.value, this.storedAt);
+
+  final Map<String, dynamic> value;
+  final DateTime storedAt;
 }

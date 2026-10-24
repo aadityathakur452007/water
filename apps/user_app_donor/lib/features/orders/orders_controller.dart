@@ -93,6 +93,20 @@ enum OrderState {
   rejected,
 }
 
+/// User-facing lifecycle label. Raw enum names never reach the UI.
+String orderStateLabel(OrderState state) => switch (state) {
+  OrderState.placed => 'Placed',
+  OrderState.accepted => 'Accepted',
+  OrderState.picked => 'Jars picked',
+  OrderState.packed => 'Packed',
+  OrderState.assigned => 'Rider assigned',
+  OrderState.dispatched => 'Out for delivery',
+  OrderState.delivered => 'Delivered',
+  OrderState.failed => 'Delivery failed',
+  OrderState.cancelled => 'Cancelled',
+  OrderState.rejected => 'Rejected',
+};
+
 /// Parses server state strings (unknown → placed, never crash on new states).
 OrderState orderStateFromString(String raw) {
   switch (raw) {
@@ -166,15 +180,22 @@ class RescheduleSlot {
   int get hashCode => Object.hash(start, end);
 }
 
-/// Next serviceable day slots: tomorrow onward, 30-min slots 08:00–20:00.
-/// 014: all days water (no Sunday skip — matches booking + GET /windows).
-List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
-  var day = (from ?? DateTime.now()).add(const Duration(days: 1));
-  day = DateTime(day.year, day.month, day.day);
+/// Next 7 serviceable days, starting tomorrow.
+List<DateTime> nextServiceDays({int count = 7, DateTime? from}) {
+  final today = from ?? DateTime.now();
+  return List.generate(
+    count,
+    (i) => DateTime(today.year, today.month, today.day + i + 1),
+  );
+}
+
+/// 30-minute slots 08:00–20:00 on one serviceable day.
+List<RescheduleSlot> serviceSlotsForDay(DateTime day) {
+  final base = DateTime(day.year, day.month, day.day);
   final slots = <RescheduleSlot>[];
   for (var h = 8; h < 20; h++) {
     for (final m in [0, 30]) {
-      final start = day.add(Duration(hours: h, minutes: m));
+      final start = base.add(Duration(hours: h, minutes: m));
       slots.add(
         RescheduleSlot(
           start: start,
@@ -184,6 +205,13 @@ List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
     }
   }
   return slots;
+}
+
+/// Next serviceable day slots: tomorrow onward, 30-min slots 08:00–20:00.
+/// 014: all days water (no Sunday skip — matches booking + GET /windows).
+List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
+  final days = nextServiceDays(from: from);
+  return serviceSlotsForDay(days.first);
 }
 
 /// ₹ formatting: paise ints, 2dp ONLY when needed (5600 → ₹56, 5650 → ₹56.50).
@@ -279,6 +307,15 @@ class Order {
 
   bool get isPaid =>
       paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+
+  /// Human payment truth. Never turns a partial payment into a full due.
+  String get paymentLabel {
+    if (paymentStatus == 'paid_upi') return 'Paid via UPI';
+    if (paymentStatus == 'paid_cash') return 'Paid in cash';
+    if (paymentStatus == 'partial_dues') return 'Partly paid';
+    if (paymentStatus == 'refund_pending') return 'Refund pending';
+    return paymentMode == 'upi' ? 'UPI pending' : 'Cash due on delivery';
+  }
 
   /// Reorder possible only when the mix is known.
   bool get canReorder => refillQty + containerQty >= 1;
@@ -581,6 +618,21 @@ Order orderFromApi(Map<String, dynamic> json) {
   final rider = json['rider'] == null
       ? const <String, dynamic>{}
       : section(json['rider']);
+  final address = json['delivery_address'] == null
+      ? const <String, dynamic>{}
+      : json['delivery_address'] is Map
+      ? section(json['delivery_address'])
+      : const <String, dynamic>{};
+  final refund = json['refund'] == null
+      ? const <String, dynamic>{}
+      : json['refund'] is Map
+      ? section(json['refund'])
+      : const <String, dynamic>{};
+  final addressLabel = [address['label'], address['formatted']]
+      .whereType<Object>()
+      .map((v) => '$v'.trim())
+      .where((v) => v.isNotEmpty)
+      .join(' · ');
   final orderState = orderStateFromString('${json['state'] ?? 'placed'}');
   final rawCodeState = json['delivery_otp_state']?.toString() ?? '';
   final code = json['delivery_otp']?.toString();
@@ -612,10 +664,21 @@ Order orderFromApi(Map<String, dynamic> json) {
               ? (rider['stops_ahead'] as num).toInt()
               : null),
     itemSummary: parts.join(' + '),
+    addressLabel: addressLabel,
     waterBillPaise: paise(bill['water_bill'] ?? json['water_bill']),
     depositDuePaise: paise(bill['deposit_due'] ?? json['deposit_due']),
     capChargePaise: paise(bill['cap_charge'] ?? json['cap_charge']),
+    prevDuesPaise: paise(
+      bill['prev_dues'] ?? bill['previous_dues'] ?? json['prev_dues'],
+    ),
+    paymentsPaise: paise(
+      bill['payments'] ?? bill['paid'] ?? json['payments_paid'],
+    ),
     totalPaise: paise(bill['total'] ?? json['total']),
+    refundPending: '${refund['status'] ?? ''}' == 'pending',
+    refundAmountPaise: paise(refund['amount']),
+    rated: json['rated'] == true,
+    stars: json['stars'] is num ? (json['stars'] as num).toInt() : null,
     paymentMode: '${json['payment_mode'] ?? 'cod'}',
     paymentStatus:
         '${json['payment_status'] ?? bill['payment_status'] ?? 'unpaid'}',
@@ -730,6 +793,7 @@ class OrdersController extends ChangeNotifier {
   bool _isOffline = false;
   bool _isServerError = false;
   bool _loadMoreFailed = false;
+  String? _loadMoreError;
   bool _loadingMore = false;
   String? _cursor;
   bool _hasMore = false;
@@ -740,6 +804,8 @@ class OrdersController extends ChangeNotifier {
   bool _detailServerError = false;
 
   Timer? _pollTimer;
+  String? _trackingId;
+  bool _trackingPaused = false;
   int _pollSeconds = pollBaseSeconds;
   bool _disposed = false;
 
@@ -759,6 +825,7 @@ class OrdersController extends ChangeNotifier {
   bool get isOffline => _isOffline;
   bool get isServerError => _isServerError;
   bool get loadMoreFailed => _loadMoreFailed;
+  String? get loadMoreError => _loadMoreError;
   bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
   bool get actionBusy => _actionBusy;
@@ -828,6 +895,8 @@ class OrdersController extends ChangeNotifier {
     if (_status == OrdersListStatus.loading) return;
     _status = OrdersListStatus.loading;
     _errorMessage = null;
+    _loadMoreFailed = false;
+    _loadMoreError = null;
     _notify();
     final gen = _generation;
     try {
@@ -874,6 +943,7 @@ class OrdersController extends ChangeNotifier {
     }
     _loadingMore = true;
     _loadMoreFailed = false;
+    _loadMoreError = null;
     _notify();
     final gen = _generation;
     try {
@@ -888,10 +958,14 @@ class OrdersController extends ChangeNotifier {
       _cursor = page.nextCursor;
       _hasMore = page.nextCursor != null;
       _onPollSuccess();
-    } catch (_) {
+    } catch (e) {
       if (gen != _generation) return;
       _loadMoreFailed = true;
-      _errorMessage = ordersStringsHi['errorTitle'];
+      _loadMoreError = e is ApiException && e.isOffline
+          ? 'No internet — check your connection and retry.'
+          : e is ApiException && e.isServerError
+          ? 'Server problem — retry in a moment.'
+          : 'Could not load more orders.';
       _onPollError();
     } finally {
       if (gen == _generation) {
@@ -905,6 +979,7 @@ class OrdersController extends ChangeNotifier {
   Future<void> retryLoadMore() async {
     if (_loadingMore) return;
     _loadMoreFailed = false;
+    _loadMoreError = null;
     _notify();
     await loadMore();
   }
@@ -1128,21 +1203,41 @@ class OrdersController extends ChangeNotifier {
   /// Tracking poll: 60s tick with backoff to 300s (contract: no live dot,
   /// window + rider via poll + push; poll is the fallback).
   void startTracking(String id) {
-    stopTracking();
-    _pollTimer = Timer.periodic(Duration(seconds: _pollSeconds), (_) async {
-      if (_disposed) return;
-      await refreshOrder(id);
-      // Re-arm at the (possibly backed-off) cadence.
-      if (!_disposed && _pollTimer != null) {
-        stopTracking();
-        startTracking(id);
-      }
-    });
+    _trackingId = id;
+    _trackingPaused = false;
+    _armTracking();
+  }
+
+  /// Pause while the app is backgrounded; the id is kept so resume can re-arm.
+  void pauseTracking() {
+    _trackingPaused = true;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  void resumeTracking() {
+    if (_trackingId == null) return;
+    _trackingPaused = false;
+    _armTracking();
   }
 
   void stopTracking() {
+    _trackingId = null;
+    _trackingPaused = false;
     _pollTimer?.cancel();
     _pollTimer = null;
+  }
+
+  void _armTracking() {
+    _pollTimer?.cancel();
+    final id = _trackingId;
+    if (id == null || _trackingPaused || _disposed) return;
+    _pollTimer = Timer.periodic(Duration(seconds: _pollSeconds), (_) async {
+      if (_disposed || _trackingPaused) return;
+      await refreshOrder(id);
+      // Re-arm at the (possibly backed-off) cadence.
+      if (!_disposed) _armTracking();
+    });
   }
 
   @visibleForTesting

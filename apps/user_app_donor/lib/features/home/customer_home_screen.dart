@@ -5,7 +5,10 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants/app_constants.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_card.dart';
 import '../addresses/address_screen.dart';
 import '../booking/booking_controller.dart';
 import 'widgets/featured_products.dart';
@@ -24,6 +27,7 @@ class DonorHomeTab extends StatefulWidget {
     required this.onOpenAddresses,
     required this.onOpenNotifications,
     required this.onOpenProfile,
+    required this.onOpenSupport,
     required this.onOpenCart,
     required this.onSearch,
     required this.onOrderProduct,
@@ -37,6 +41,7 @@ class DonorHomeTab extends StatefulWidget {
   final VoidCallback onOpenAddresses;
   final VoidCallback onOpenNotifications;
   final VoidCallback onOpenProfile;
+  final VoidCallback onOpenSupport;
   final VoidCallback onOpenCart;
   final VoidCallback onSearch;
   final void Function({required int refill, required int container})
@@ -71,11 +76,24 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
       listenable: Listenable.merge([widget.booking, widget.addresses]),
       builder: (context, _) {
         final selected = widget.addresses.resolve();
+        final addressStatus = widget.addresses.status;
+        final ratesError = widget.booking.ratesError;
+        final ratesOffline =
+            ratesError != null && ratesError.toLowerCase().contains('internet');
+
         return Column(
           children: [
             DonorTopBar(
               addressLabel: selected?.label,
               addressDetail: selected?.addressLine,
+              addressLoading:
+                  addressStatus == AddrStatus.loading && selected == null,
+              addressError:
+                  addressStatus == AddrStatus.error && selected == null,
+              addressEmpty:
+                  addressStatus == AddrStatus.loaded &&
+                  widget.addresses.items.isEmpty,
+              onRetryAddress: widget.addresses.load,
               cartCount: widget.booking.totalJars,
               onAddressTap: widget.onOpenAddresses,
               onNotifications: widget.onOpenNotifications,
@@ -83,6 +101,16 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
               onCart: widget.onOpenCart,
               onSearch: widget.onSearch,
             ),
+            if (ratesOffline)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.sm,
+                  AppSpacing.lg,
+                  0,
+                ),
+                child: AppBanner.offline(onRetry: widget.booking.refreshRates),
+              ),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: () async {
@@ -96,7 +124,12 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                   padding: const EdgeInsets.only(bottom: 28),
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                        AppSpacing.md,
+                      ),
                       child: Row(
                         children: [
                           Expanded(
@@ -106,19 +139,20 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                                 Text(
                                   '$_greeting,',
                                   style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textSecondary,
+                                    fontSize: 14,
+                                    color: ShodashaTheme.muted,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                const SizedBox(height: 1),
+                                const SizedBox(height: 2),
                                 const Text(
                                   'Pure water, delivered.',
                                   style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -0.5,
-                                    color: AppColors.textPrimary,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.6,
+                                    height: 1.15,
+                                    color: ShodashaTheme.ink,
                                   ),
                                 ),
                               ],
@@ -126,27 +160,28 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
+                              horizontal: AppSpacing.sm,
                               vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFDCFCE7),
+                              color: ShodashaTheme.tealTint,
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: const Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  Icons.verified,
-                                  size: 14,
-                                  color: Color(0xFF15803D),
+                                  Icons.verified_outlined,
+                                  size: 16,
+                                  color: ShodashaTheme.tealDeep,
                                 ),
                                 SizedBox(width: 4),
                                 Text(
                                   'RO + UV',
                                   style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF15803D),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: ShodashaTheme.tealDeep,
                                   ),
                                 ),
                               ],
@@ -156,15 +191,32 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                      ),
                       child: ModeSelectionCards(
                         onInstantOrder: widget.onInstantOrder,
                         onSubscribe: widget.onSubscribe,
                       ),
                     ),
-                    const SizedBox(height: 22),
+                    if (widget.booking.ratesError != null &&
+                        widget.booking.rates != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          AppSpacing.md,
+                          AppSpacing.lg,
+                          0,
+                        ),
+                        child: AppBanner.stale(
+                          message: widget.booking.ratesError,
+                          onRetry: widget.booking.refreshRates,
+                        ),
+                      ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                      ),
                       child: FeaturedProductsShowcase(
                         rates: widget.booking.rates,
                         loading: widget.booking.ratesLoading,
@@ -173,65 +225,14 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                         onOrder: widget.onOrderProduct,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.sm),
                     const LivePurityCard(),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: AppSpacing.md),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.14),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.support_agent,
-                              color: AppColors.primary,
-                              size: 26,
-                            ),
-                            const SizedBox(width: 12),
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Need help with a delivery?',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    'Our Bhopal plant desk is one tap away.',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: widget.onOpenProfile,
-                              child: const Text(
-                                'PROFILE',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 11,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
                       ),
+                      child: _SupportCard(onTap: widget.onOpenSupport),
                     ),
                   ],
                 ),
@@ -240,6 +241,78 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
           ],
         );
       },
+    );
+  }
+}
+
+class _SupportCard extends StatelessWidget {
+  const _SupportCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      color: ShodashaTheme.tealTint,
+      borderColor: ShodashaTheme.teal.withValues(alpha: 0.22),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.surface,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: ShodashaTheme.teal.withValues(alpha: 0.22),
+              ),
+            ),
+            child: const Icon(
+              Icons.support_agent_rounded,
+              color: ShodashaTheme.tealDeep,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Need help with a delivery?',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Our Bhopal plant desk is one tap away.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          AppButton(
+            label: 'Support',
+            kind: AppButtonKind.ghost,
+            expand: false,
+            height: ShodashaTheme.minTarget,
+            onPressed: onTap,
+          ),
+        ],
+      ),
     );
   }
 }

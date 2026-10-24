@@ -1,9 +1,9 @@
-// Donor mode cards, with the local "instant order" sheet removed. Both cards
-// now navigate into the real checkout/subscription flows.
+// Donor mode cards. Both cards navigate into real checkout/subscription flows
+// and use Material press/focus feedback instead of raw GestureDetector.
 
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_constants.dart';
+import '../../../core/theme.dart';
 
 class ModeSelectionCards extends StatelessWidget {
   const ModeSelectionCards({
@@ -17,84 +17,138 @@ class ModeSelectionCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _card(
-            color: AppColors.primary,
-            glow: AppColors.primary.withValues(alpha: 0.25),
-            icon: Icons.bolt_rounded,
-            iconColor: Colors.white,
-            title: 'Instant Delivery',
-            subtitle: 'Get water within 45 mins',
-            titleColor: Colors.white,
-            subtitleColor: Colors.white70,
-            onTap: onInstantOrder,
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: _ModeCard(
+              ground: ShodashaTheme.tealDeep,
+              foreground: ShodashaTheme.surface,
+              icon: Icons.bolt_rounded,
+              eyebrow: 'One delivery',
+              title: 'Instant order',
+              subtitle: 'Pick a 30-min slot',
+              onTap: onInstantOrder,
+            ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _card(
-            color: AppColors.accent,
-            glow: AppColors.accent.withValues(alpha: 0.25),
-            icon: Icons.calendar_month_rounded,
-            iconColor: AppColors.textOnAccent,
-            title: 'Subscription',
-            subtitle: 'Daily / alternate schedule',
-            titleColor: AppColors.textOnAccent,
-            subtitleColor: const Color(0xFF78350F),
-            onTap: onSubscribe,
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: _ModeCard(
+              ground: ShodashaTheme.solarTint,
+              foreground: ShodashaTheme.ink,
+              icon: Icons.event_repeat_rounded,
+              eyebrow: 'Regular delivery',
+              title: 'Subscribe',
+              subtitle: 'Set a repeat plan',
+              onTap: onSubscribe,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
+}
 
-  Widget _card({
-    required Color color,
-    required Color glow,
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String subtitle,
-    required Color titleColor,
-    required Color subtitleColor,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(AppConstants.cardBorderRadius),
-          boxShadow: [
-            BoxShadow(color: glow, blurRadius: 8, offset: const Offset(0, 3)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: iconColor, size: 26),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: TextStyle(
-                color: titleColor,
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.ground,
+    required this.foreground,
+    required this.icon,
+    required this.eyebrow,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final Color ground;
+  final Color foreground;
+  final IconData icon;
+  final String eyebrow;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(ShodashaTheme.radiusLg);
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle',
+      child: Material(
+        color: ground,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: ShodashaTheme.minTarget * 2,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: foreground.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(icon, color: foreground, size: 20),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        Icons.arrow_outward_rounded,
+                        color: foreground.withValues(alpha: 0.85),
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    eyebrow,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 12.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: subtitleColor,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

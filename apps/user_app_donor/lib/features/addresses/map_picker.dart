@@ -12,9 +12,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 
-/// Fallback center (New Delhi) when location is completely unavailable.
-const LatLng kDefaultCenter = LatLng(28.6139, 77.2090);
+/// Neutral camera fallback when there is no pin and no GPS yet. This is only
+/// the viewport centre — it is never treated as a selected delivery pin.
+const LatLng kDefaultCenter = LatLng(21.1458, 79.0882);
 
 /// Pushes the picker; pops the chosen pin (null when dismissed).
 Future<LatLng?> pickMapPin(BuildContext context, {LatLng? initial}) {
@@ -34,7 +36,8 @@ class _MapPicker extends StatefulWidget {
 
 class _MapPickerState extends State<_MapPicker> {
   final MapController _map = MapController();
-  LatLng _pin = kDefaultCenter;
+  LatLng? _pin;
+  late LatLng _center;
   double _currentZoom = 15;
   bool _locating = false;
   String? _locateNote;
@@ -50,7 +53,9 @@ class _MapPickerState extends State<_MapPicker> {
     final initial = widget.initial;
     if (initial != null && (initial.latitude != 0 || initial.longitude != 0)) {
       _pin = initial;
+      _center = initial;
     } else {
+      _center = kDefaultCenter;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _locate();
       });
@@ -109,7 +114,10 @@ class _MapPickerState extends State<_MapPicker> {
         final last = await Geolocator.getLastKnownPosition();
         if (last != null && mounted) {
           final ll = LatLng(last.latitude, last.longitude);
-          setState(() => _pin = ll);
+          setState(() {
+            _pin = ll;
+            _center = ll;
+          });
           try {
             _map.move(ll, _currentZoom);
           } catch (_) {
@@ -131,6 +139,7 @@ class _MapPickerState extends State<_MapPicker> {
       if (!mounted) return;
       setState(() {
         _pin = ll;
+        _center = ll;
         _locateNote = null;
       });
       try {
@@ -152,12 +161,12 @@ class _MapPickerState extends State<_MapPicker> {
 
   void _zoomIn() {
     _currentZoom = (_currentZoom + 1).clamp(3.0, 18.0);
-    _map.move(_pin, _currentZoom);
+    _map.move(_pin ?? _center, _currentZoom);
   }
 
   void _zoomOut() {
     _currentZoom = (_currentZoom - 1).clamp(3.0, 18.0);
-    _map.move(_pin, _currentZoom);
+    _map.move(_pin ?? _center, _currentZoom);
   }
 
   @override
@@ -170,10 +179,11 @@ class _MapPickerState extends State<_MapPicker> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
-              initialCenter: _pin,
+              initialCenter: _center,
               initialZoom: _currentZoom,
+              onTap: (_, point) => setState(() => _pin = point),
               onPositionChanged: (pos, _) {
-                _pin = pos.center;
+                _center = pos.center;
                 _currentZoom = pos.zoom;
                 setState(() {});
               },
@@ -181,7 +191,7 @@ class _MapPickerState extends State<_MapPicker> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.shodasha.shodasha_app',
+                userAgentPackageName: 'com.shodasha.shodasha_donor',
                 reset: _tileReset.stream,
                 evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
                 errorTileCallback: (_, _, _) {
@@ -189,18 +199,34 @@ class _MapPickerState extends State<_MapPicker> {
                   setState(() => _tilesFailed = true);
                 },
               ),
+              if (_pin != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _pin!,
+                      width: 48,
+                      height: 48,
+                      child: const Icon(
+                        Icons.location_pin,
+                        size: 48,
+                        color: ShodashaTheme.danger,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.only(bottom: 40),
-              child: Icon(
-                Icons.location_pin,
-                size: 48,
-                color: ShodashaTheme.danger,
+          if (_pin == null)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 40),
+                child: Icon(
+                  Icons.add_location_alt_outlined,
+                  size: 44,
+                  color: ShodashaTheme.muted,
+                ),
               ),
             ),
-          ),
           Positioned(
             top: 12,
             left: 20,
@@ -230,8 +256,10 @@ class _MapPickerState extends State<_MapPicker> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    'Lat ${_pin.latitude.toStringAsFixed(5)}, '
-                    'Lng ${_pin.longitude.toStringAsFixed(5)}',
+                    _pin == null
+                        ? 'Tap the map to place your delivery pin'
+                        : 'Lat ${_pin!.latitude.toStringAsFixed(5)}, '
+                              'Lng ${_pin!.longitude.toStringAsFixed(5)}',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -388,16 +416,14 @@ class _MapPickerState extends State<_MapPicker> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: SizedBox(
-            height: 52,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ShodashaTheme.teal,
-                foregroundColor: ShodashaTheme.surface,
-              ),
-              onPressed: () => Navigator.of(context).pop(_pin),
-              child: const Text('Use this location'),
-            ),
+          child: AppButton(
+            label: _pin == null
+                ? 'Tap the map to select a pin'
+                : 'Use this location',
+            icon: Icons.location_on_outlined,
+            onPressed: _pin == null
+                ? null
+                : () => Navigator.of(context).pop(_pin),
           ),
         ),
       ),

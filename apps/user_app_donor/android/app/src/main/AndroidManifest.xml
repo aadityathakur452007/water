@@ -1,11 +1,26 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Network (release builds don't get the debug auto-grant) + map-pin
-         location for the OSM address picker (005-home-ux). -->
+         location for the OSM address picker (005-home-ux). Location hardware
+         is optional so Wi-Fi-only tablets can still install. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-feature android:name="android.hardware.location" android:required="false"/>
+    <uses-feature android:name="android.hardware.location.gps" android:required="false"/>
+    <!-- Razorpay's library manifest declares NFC + phone-state for optional
+         tap-to-pay/CRED paths this app never uses (spec 035 WS7). -->
+    <uses-permission android:name="android.permission.NFC" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_BASIC_PHONE_STATE" tools:node="remove"/>
+    <uses-feature android:name="android.hardware.nfc" android:required="false" tools:node="remove"/>
+    <queries>
+        <intent tools:node="remove">
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="credpay"/>
+        </intent>
+    </queries>
     <application
-        android:label="Shodasha Donor"
+        android:label="Shodasha"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -49,6 +64,23 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- url_launcher targets: dialer, mail, WhatsApp/OSM links, UPI apps. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="mailto"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="upi"/>
         </intent>
     </queries>
 </manifest>

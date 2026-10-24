@@ -12,6 +12,10 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/money.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_card.dart';
+import '../../shared/ui/app_sheet.dart';
+import '../../shared/ui/app_state_view.dart';
 import '../addresses/address_screen.dart';
 import '../auth/auth_controller.dart';
 import '../booking/booking_controller.dart';
@@ -21,6 +25,7 @@ import '../home/customer_home_screen.dart';
 import '../home/notifications_screen.dart';
 import '../orders/orders_controller.dart';
 import '../orders/my_orders_screen.dart';
+import '../orders/tracking_screen.dart';
 import '../profile/donor_profile_screen.dart';
 import '../profile/profile_controller.dart';
 import '../returns/return_sheet.dart';
@@ -64,6 +69,7 @@ class _DonorShellState extends State<DonorShell> {
   bool _wasOffline = false;
   bool _showRestored = false;
   bool _retrying = false;
+  bool _routeBusy = false;
   Timer? _restoredTimer;
 
   @override
@@ -76,7 +82,6 @@ class _DonorShellState extends State<DonorShell> {
         if (mounted) widget.addresses.load();
       });
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLedger());
   }
 
   @override
@@ -133,36 +138,70 @@ class _DonorShellState extends State<DonorShell> {
   }
 
   void _selectTab(DonorTab tab) {
+    if (_tab == tab && tab != DonorTab.wallet) return;
     setState(() {
       _tab = tab;
       _mounted.add(tab);
       if (tab == DonorTab.wallet) _walletTick++;
     });
-    if (tab == DonorTab.orders || tab == DonorTab.profile) {
-      widget.orders.load();
-    }
-    if (tab == DonorTab.wallet) _refreshLedger();
   }
 
-  void _openAddresses() {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => AddressScreen(controller: widget.addresses),
+  Future<void> _pushRoute(Widget page) async {
+    if (_routeBusy || !mounted) return;
+    _routeBusy = true;
+    try {
+      await Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute<void>(builder: (_) => page));
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  Future<void> _openAddresses() async {
+    await _pushRoute(AddressScreen(controller: widget.addresses));
+    if (mounted) await widget.addresses.load();
+  }
+
+  void _openSupport() {
+    final delivered = [
+      for (final order in widget.orders.allOrders)
+        if (order.state == OrderState.delivered)
+          SupportOrder(
+            id: order.id,
+            label:
+                '#${order.id.length > 8 ? order.id.substring(0, 8) : order.id}'
+                '${order.itemSummary.isEmpty ? '' : ' · ${order.itemSummary}'}',
+            deliveredAt: order.createdAt,
+          ),
+    ];
+    unawaited(_pushRoute(SupportScreen(api: widget.api, orders: delivered)));
+  }
+
+  void _openTracking(String orderId) {
+    unawaited(
+      _pushRoute(
+        TrackingScreen(
+          controller: widget.orders,
+          orderId: orderId,
+          onSupport: _openSupport,
+        ),
       ),
     );
   }
 
-  void _openSupport() {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => SupportScreen(api: widget.api)),
-    );
-  }
-
   void _openNotifications() {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            DonorNotificationsScreen(api: widget.api, orders: widget.orders),
+    unawaited(
+      _pushRoute(
+        DonorNotificationsScreen(
+          api: widget.api,
+          orders: widget.orders,
+          onOpenOrder: _openTracking,
+          onOpenSubscriptions: () {
+            Navigator.of(context).pop();
+            _selectTab(DonorTab.subscriptions);
+          },
+        ),
       ),
     );
   }
@@ -171,6 +210,20 @@ class _DonorShellState extends State<DonorShell> {
     if (widget.booking.totalJars == 0) {
       widget.booking.setRefill(1);
       widget.booking.setContainer(0);
+    }
+    _openCheckout();
+  }
+
+  void _openCart() {
+    if (widget.booking.totalJars == 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Your cart is empty. Pick a can to start an order.'),
+          ),
+        );
+      return;
     }
     _openCheckout();
   }
@@ -192,6 +245,7 @@ class _DonorShellState extends State<DonorShell> {
       );
       return;
     }
+    unawaited(_refreshLedger());
     await showCheckoutSheet(
       context,
       controller: c,
@@ -213,18 +267,17 @@ class _DonorShellState extends State<DonorShell> {
         );
         _refreshLedger();
       },
+      onSignIn: () => unawaited(widget.auth.forceLogout()),
     );
   }
 
   Future<void> _openSearch() async {
-    final picked = await showModalBottomSheet<_ProductPick>(
+    final picked = await showAppSheet<_ProductPick>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (sheetContext) => _SearchSheet(
+        booking: widget.booking,
+        onClose: () => Navigator.of(sheetContext).pop(),
       ),
-      builder: (_) => _SearchSheet(booking: widget.booking),
     );
     if (picked == null || !mounted) return;
     await _orderProduct(refill: picked.refill, container: picked.container);
@@ -306,48 +359,39 @@ class _DonorShellState extends State<DonorShell> {
             ),
           ),
         ),
-        bottomNavigationBar: ColoredBox(
-          color: AppColors.surface,
-          child: Center(
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Align(
             heightFactor: 1,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: _maxWidth),
-              child: BottomNavigationBar(
-                currentIndex: _tab.index,
-                onTap: (i) => _selectTab(DonorTab.values[i]),
-                type: BottomNavigationBarType.fixed,
-                backgroundColor: AppColors.surface,
-                selectedItemColor: AppColors.primary,
-                unselectedItemColor: AppColors.textSecondary,
-                selectedLabelStyle: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-                unselectedLabelStyle: const TextStyle(fontSize: 10),
-                items: const [
-                  BottomNavigationBarItem(
+              child: NavigationBar(
+                selectedIndex: _tab.index,
+                onDestinationSelected: (i) => _selectTab(DonorTab.values[i]),
+                destinations: const [
+                  NavigationDestination(
                     icon: Icon(Icons.home_outlined),
-                    activeIcon: Icon(Icons.home_rounded),
+                    selectedIcon: Icon(Icons.home_rounded),
                     label: 'Home',
                   ),
-                  BottomNavigationBarItem(
+                  NavigationDestination(
                     icon: Icon(Icons.receipt_long_outlined),
-                    activeIcon: Icon(Icons.receipt_long_rounded),
-                    label: 'My Orders',
+                    selectedIcon: Icon(Icons.receipt_long_rounded),
+                    label: 'Orders',
                   ),
-                  BottomNavigationBarItem(
+                  NavigationDestination(
                     icon: Icon(Icons.calendar_month_outlined),
-                    activeIcon: Icon(Icons.calendar_month_rounded),
-                    label: 'Subscriptions',
+                    selectedIcon: Icon(Icons.calendar_month_rounded),
+                    label: 'Plans',
                   ),
-                  BottomNavigationBarItem(
+                  NavigationDestination(
                     icon: Icon(Icons.account_balance_wallet_outlined),
-                    activeIcon: Icon(Icons.account_balance_wallet_rounded),
+                    selectedIcon: Icon(Icons.account_balance_wallet_rounded),
                     label: 'Wallet',
                   ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.person_outline),
-                    activeIcon: Icon(Icons.person_rounded),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
                     label: 'Profile',
                   ),
                 ],
@@ -377,17 +421,21 @@ class _DonorShellState extends State<DonorShell> {
       onOpenAddresses: _openAddresses,
       onOpenNotifications: _openNotifications,
       onOpenProfile: () => _selectTab(DonorTab.profile),
-      onOpenCart: _instantOrder,
+      onOpenSupport: _openSupport,
+      onOpenCart: _openCart,
       onSearch: _openSearch,
       onOrderProduct: _orderProduct,
     ),
     DonorTab.orders => DonorOrdersScreen(
       controller: widget.orders,
       onSupport: _openSupport,
+      onStartOrder: _instantOrder,
     ),
     DonorTab.subscriptions => SubscriptionScreen(
       api: widget.api,
       onOpenWallet: () => _selectTab(DonorTab.wallet),
+      onSignIn: () => unawaited(widget.auth.forceLogout()),
+      onAddAddress: _openAddresses,
     ),
     DonorTab.wallet => DonorWalletScreen(
       api: widget.api,
@@ -421,9 +469,10 @@ class _ProductPick {
 /// Search over the two real catalog SKUs. The donor search bar was decorative;
 /// this one returns a real selection and then opens the normal checkout.
 class _SearchSheet extends StatefulWidget {
-  const _SearchSheet({required this.booking});
+  const _SearchSheet({required this.booking, required this.onClose});
 
   final BookingController booking;
+  final VoidCallback onClose;
 
   @override
   State<_SearchSheet> createState() => _SearchSheetState();
@@ -450,49 +499,23 @@ class _SearchSheetState extends State<_SearchSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.viewInsetsOf(context).bottom + 24,
-      ),
+    return AppSheet(
+      title: 'Search water',
+      onClose: widget.onClose,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              height: 4,
-              width: 40,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Search water',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 10),
           TextField(
             controller: _query,
             autofocus: true,
+            textInputAction: TextInputAction.search,
             onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               hintText: 'Try “20L refill”',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: AppColors.background,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.border),
-              ),
+              prefixIcon: Icon(Icons.search_rounded),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSpacing.md),
           ListenableBuilder(
             listenable: widget.booking,
             builder: (context, _) {
@@ -500,50 +523,27 @@ class _SearchSheetState extends State<_SearchSheet> {
               if (rates == null) {
                 final error = widget.booking.ratesError;
                 if (error != null) {
-                  return Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.cloud_off,
-                          color: AppColors.textSecondary,
-                          size: 28,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          error,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        TextButton(
-                          onPressed: widget.booking.ratesLoading
-                              ? null
-                              : widget.booking.refreshRates,
-                          child: const Text('Try again'),
-                        ),
-                      ],
-                    ),
+                  return AppStateView.error(
+                    title: 'Search unavailable',
+                    message: error,
+                    onRetry: widget.booking.refreshRates,
                   );
                 }
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Center(child: CircularProgressIndicator()),
+                return AppStateView.loading(
+                  lines: 2,
+                  message: 'Loading products',
                 );
               }
               final q = _query.text.trim().toLowerCase();
               final items =
                   <({String title, String price, _ProductPick pick})>[
                         (
-                          title: '20L Refill Water Can',
+                          title: '20L refill can',
                           price: formatInr(rates.refillPaise),
                           pick: const _ProductPick(refill: 1, container: 0),
                         ),
                         (
-                          title: '20L Water Can + New Jar',
+                          title: '20L can + new jar',
                           price: formatInr(rates.containerPaise),
                           pick: const _ProductPick(refill: 0, container: 1),
                         ),
@@ -553,30 +553,65 @@ class _SearchSheetState extends State<_SearchSheet> {
                       )
                       .toList();
               if (items.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    'No matching can. Try “refill” or “jar”.',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
+                return AppStateView.empty(
+                  title: 'No matching can',
+                  message: 'Try “refill” or “jar”.',
+                  icon: Icons.search_off_rounded,
                 );
               }
               return Column(
                 children: [
                   for (final item in items)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.water_drop,
-                        color: AppColors.primary,
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: AppCard(
+                        onTap: () => Navigator.of(context).pop(item.pick),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: ShodashaTheme.minTarget,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.water_drop_outlined,
+                                color: ShodashaTheme.tealDeep,
+                              ),
+                              const SizedBox(width: AppSpacing.md),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      item.title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: ShodashaTheme.ink,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      item.price,
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        color: ShodashaTheme.muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: ShodashaTheme.muted,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      title: Text(
-                        item.title,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(item.price),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.of(context).pop(item.pick),
                     ),
                 ],
               );
@@ -599,26 +634,34 @@ class _OfflineStrip extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
+        color: ShodashaTheme.solarTint,
+        border: Border(bottom: BorderSide(color: ShodashaTheme.solar)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 2, AppSpacing.sm, 2),
       child: Row(
         children: [
           const Icon(
             Icons.cloud_off_outlined,
             size: 18,
-            color: AppColors.error,
+            color: ShodashaTheme.warning,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.sm),
           const Expanded(
             child: Text(
               'No internet — showing what was already loaded.',
-              style: TextStyle(fontSize: 12, color: AppColors.textPrimary),
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: ShodashaTheme.warning,
+              ),
             ),
           ),
           TextButton(
             onPressed: retrying ? null : onRetry,
+            style: TextButton.styleFrom(
+              foregroundColor: ShodashaTheme.warning,
+              minimumSize: const Size(48, ShodashaTheme.minTarget),
+            ),
             child: retrying
                 ? const SizedBox(
                     width: 16,
@@ -640,18 +683,25 @@ class _RestoredStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: const Color(0xFFDCFCE7),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: ShodashaTheme.greenTint,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.sm,
+      ),
       child: const Row(
         children: [
-          Icon(Icons.check_circle_outline, size: 18, color: Color(0xFF15803D)),
-          SizedBox(width: 8),
+          Icon(
+            Icons.check_circle_outline,
+            size: 18,
+            color: ShodashaTheme.successDark,
+          ),
+          SizedBox(width: AppSpacing.sm),
           Text(
             'Back online.',
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF15803D),
+              color: ShodashaTheme.successDark,
             ),
           ),
         ],

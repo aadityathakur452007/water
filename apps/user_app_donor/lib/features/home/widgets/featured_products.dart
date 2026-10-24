@@ -1,12 +1,15 @@
-// Donor featured-products list, fed by the server catalog. The donor page
-// hardcoded three products (including a pump that has no backend SKU) and
-// placed a local order. Here the two real SKUs are shown with server rates;
-// ordering opens the real quote -> order checkout.
+// Donor featured-products list, fed by the server catalog. Prices and deposit
+// come from GET /catalog; ordering opens the real quote -> order checkout.
+// Cards use Material press feedback, 48dp actions and readable labels.
 
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_constants.dart';
 import '../../../core/money.dart';
+import '../../../core/theme.dart';
+import '../../../shared/ui/app_button.dart';
+import '../../../shared/ui/app_card.dart';
+import '../../../shared/ui/app_state_view.dart';
+import '../../../shared/ui/section_header.dart';
 import '../../booking/booking_controller.dart';
 
 class FeaturedProductsShowcase extends StatelessWidget {
@@ -30,166 +33,169 @@ class FeaturedProductsShowcase extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
-          children: [
-            Expanded(
-              child: Text(
-                'FEATURED WATER CANS',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.textSecondary,
-                ),
-              ),
+        SectionHeader(
+          title: 'Featured water cans',
+          trailing: const Text(
+            'Server prices',
+            style: TextStyle(
+              fontSize: 12,
+              color: ShodashaTheme.tealDeep,
+              fontWeight: FontWeight.w700,
             ),
-            SizedBox(width: 8),
-            Text(
-              'Live server prices',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppColors.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+          ),
         ),
-        const SizedBox(height: 12),
         if (loading && rates == null)
           const _ProductsSkeleton()
         else if (error != null && rates == null)
-          _ProductsError(message: error!, onRetry: onRetry)
+          AppStateView.error(
+            title: 'Prices unavailable',
+            message: error,
+            onRetry: onRetry,
+          )
         else if (rates != null) ...[
-          _product(
-            title: '20L Refill Water Can',
-            subtitle: 'Bring your own jar · RO + UV',
+          _ProductCard(
+            title: '20L refill can',
+            subtitle: 'Bring your own jar · RO + UV purified',
             price: formatInr(rates!.refillPaise),
             tag: 'Bestseller',
-            icon: Icons.water_drop,
+            icon: Icons.water_drop_outlined,
+            actionLabel: 'Order',
             onTap: () => onOrder(refill: 1, container: 0),
           ),
-          const SizedBox(height: 12),
-          _product(
-            title: '20L Water Can + New Jar',
+          const SizedBox(height: AppSpacing.md),
+          _ProductCard(
+            title: '20L can + new jar',
             subtitle:
                 'Refundable deposit ${formatInr(rates!.depositPaise)} · '
                 'return the jar to get it back',
             price: formatInr(rates!.containerPaise),
             tag: 'First order',
-            icon: Icons.local_drink,
+            icon: Icons.local_drink_outlined,
+            actionLabel: 'Order',
             onTap: () => onOrder(refill: 0, container: 1),
           ),
         ],
       ],
     );
   }
+}
 
-  Widget _product({
-    required String title,
-    required String subtitle,
-    required String price,
-    required String tag,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
+class _ProductCard extends StatelessWidget {
+  const _ProductCard({
+    required this.title,
+    required this.subtitle,
+    required this.price,
+    required this.tag,
+    required this.icon,
+    required this.actionLabel,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final String price;
+  final String tag;
+  final IconData icon;
+  final String actionLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 52,
-            width: 52,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: AppColors.primary, size: 28),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 48,
+                width: 48,
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+                child: Icon(icon, color: ShodashaTheme.tealDeep, size: 26),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13.5,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              height: 1.25,
+                              color: ShodashaTheme.ink,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: ShodashaTheme.solarTint,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            tag,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: ShodashaTheme.warning,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.25),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        tag,
-                        style: const TextStyle(
-                          fontSize: 8.5,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textOnAccent,
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: ShodashaTheme.muted,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
                   price,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
+                    letterSpacing: -0.3,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
               ),
-            ),
-            onPressed: onTap,
-            child: const Text(
-              'Order Now',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
+              AppButton(
+                label: actionLabel,
+                kind: AppButtonKind.secondary,
+                expand: false,
+                height: ShodashaTheme.minTarget,
+                onPressed: onTap,
+              ),
+            ],
           ),
         ],
       ),
@@ -205,50 +211,15 @@ class _ProductsSkeleton extends StatelessWidget {
     return Column(
       children: List.generate(2, (i) {
         return Container(
-          height: 76,
-          margin: const EdgeInsets.only(bottom: 12),
+          height: 136,
+          margin: const EdgeInsets.only(bottom: AppSpacing.md),
           decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
+            color: ShodashaTheme.surface,
+            borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+            border: Border.all(color: ShodashaTheme.border),
           ),
         );
       }),
-    );
-  }
-}
-
-class _ProductsError extends StatelessWidget {
-  const _ProductsError({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.cloud_off, color: AppColors.textSecondary),
-          const SizedBox(height: 6),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Try again')),
-        ],
-      ),
     );
   }
 }

@@ -24,9 +24,41 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_card.dart';
+import '../../shared/ui/app_sheet.dart';
+import '../../shared/ui/app_state_view.dart';
+import '../../shared/ui/status_pill.dart';
 import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'rating_sheet.dart';
+
+String _dayLabel(DateTime d) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+}
+
+String _shortDayLabel(DateTime d) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return '${days[d.weekday - 1]} ${d.day}';
+}
+
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
 
 /// Order detail + tracker. Polls via [OrdersController.startTracking].
 class TrackingScreen extends StatefulWidget {
@@ -48,12 +80,12 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen>
     with WidgetsBindingObserver {
   CancelReason _cancelReason = CancelReason.changedMind;
-  RescheduleSlot? _slot;
   bool _ratingShown = false;
   bool _detailLoading = false;
   DateTime _now = DateTime.now();
   Timer? _codeTimer;
   String? _reissueError;
+  bool _pushingBill = false;
 
   @override
   void initState() {
@@ -101,10 +133,18 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) return;
-    setState(() => _now = DateTime.now());
-    _syncCodeTimer();
-    widget.controller.refreshOrder(widget.orderId);
+    if (state == AppLifecycleState.resumed) {
+      setState(() => _now = DateTime.now());
+      _syncCodeTimer();
+      widget.controller.resumeTracking();
+      widget.controller.refreshOrder(widget.orderId);
+      return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      widget.controller.pauseTracking();
+    }
   }
 
   /// Detail-only retry: re-read this order instead of the whole list.
@@ -230,66 +270,112 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Future<void> _confirmReschedule(Order order) async {
-    final slots = nextServiceSlots();
-    _slot = slots.first;
-    final ok = await showDialog<bool>(
+    final days = nextServiceDays();
+    if (days.isEmpty) return;
+    final picked = await showModalBottomSheet<DateTime>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: ShodashaTheme.bg,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-        ),
-        title: Text(
-          ordersStringsHi['rescheduleTitle']!,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-            color: ShodashaTheme.ink,
-          ),
-        ),
-        content: StatefulBuilder(
-          builder: (ctx, setD) => DropdownButtonFormField<RescheduleSlot>(
-            initialValue: _slot,
-            decoration: InputDecoration(
-              labelText: ordersStringsHi['windowLabel'],
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        var selectedDay = days.first;
+        RescheduleSlot? selected;
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            final slots = serviceSlotsForDay(selectedDay);
+            return AppSheet(
+              title: ordersStringsHi['rescheduleTitle']!,
+              onClose: () => Navigator.of(ctx).pop(),
+              footer: AppButton(
+                label: 'Confirm new time',
+                onPressed: selected == null
+                    ? null
+                    : () => Navigator.of(ctx).pop(selected!.start),
               ),
-            ),
-            items: [
-              for (final s in slots)
-                DropdownMenuItem(value: s, child: Text(s.label)),
-            ],
-            onChanged: (v) {
-              if (v != null) setD(() => _slot = v);
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            style: TextButton.styleFrom(
-              foregroundColor: ShodashaTheme.muted,
-              minimumSize: const Size(48, ShodashaTheme.minTarget),
-            ),
-            child: Text(ordersStringsHi['cancelKeep']!),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ShodashaTheme.ink,
-              foregroundColor: ShodashaTheme.bg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Choose a day',
+                    style: Theme.of(ctx).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final day in days) ...[
+                          ChoiceChip(
+                            label: Text(_shortDayLabel(day)),
+                            selected: _sameDay(day, selectedDay),
+                            showCheckmark: false,
+                            materialTapTargetSize: MaterialTapTargetSize.padded,
+                            selectedColor: ShodashaTheme.tealTint,
+                            backgroundColor: ShodashaTheme.bg,
+                            side: BorderSide(
+                              color: _sameDay(day, selectedDay)
+                                  ? ShodashaTheme.teal
+                                  : ShodashaTheme.border,
+                            ),
+                            labelStyle: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _sameDay(day, selectedDay)
+                                  ? ShodashaTheme.tealDeep
+                                  : ShodashaTheme.ink,
+                            ),
+                            onSelected: (_) => setSheet(() {
+                              selectedDay = day;
+                              selected = null;
+                            }),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    '${_dayLabel(selectedDay)} · choose a 30-min slot',
+                    style: Theme.of(ctx).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      for (final slot in slots)
+                        ChoiceChip(
+                          label: Text(slot.label),
+                          selected: selected == slot,
+                          showCheckmark: false,
+                          materialTapTargetSize: MaterialTapTargetSize.padded,
+                          selectedColor: ShodashaTheme.tealTint,
+                          backgroundColor: ShodashaTheme.bg,
+                          side: BorderSide(
+                            color: selected == slot
+                                ? ShodashaTheme.teal
+                                : ShodashaTheme.border,
+                          ),
+                          labelStyle: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: selected == slot
+                                ? ShodashaTheme.tealDeep
+                                : ShodashaTheme.ink,
+                          ),
+                          onSelected: (_) => setSheet(() => selected = slot),
+                        ),
+                    ],
+                  ),
+                ],
               ),
-            ),
-            child: Text(ordersStringsHi['rescheduleConfirm']!),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
-    if (ok != true || !mounted || _slot == null) return;
-    final done = await widget.controller.reschedule(order.id, _slot!.start);
+    if (picked == null || !mounted) return;
+    final done = await widget.controller.reschedule(order.id, picked);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -311,6 +397,18 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
   }
 
+  Future<void> _openBill(Order order) async {
+    if (_pushingBill) return;
+    _pushingBill = true;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(builder: (_) => BillScreen(order: order)),
+      );
+    } finally {
+      _pushingBill = false;
+    }
+  }
+
   Future<void> _callRider(Order order) async {
     final phone = order.riderPhone;
     if (phone == null || phone.isEmpty) return;
@@ -327,14 +425,20 @@ class _TrackingScreenState extends State<TrackingScreen>
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: ShodashaTheme.bg,
+        backgroundColor: ShodashaTheme.surface,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        shape: const Border(bottom: BorderSide(color: ShodashaTheme.border)),
+        leadingWidth: 56,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: ShodashaTheme.ink),
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back_rounded, color: ShodashaTheme.ink),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
           '#${widget.orderId}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w700,
@@ -357,35 +461,30 @@ class _TrackingScreenState extends State<TrackingScreen>
                 // spinner) — same blueTint rhythm as the orders list.
                 return const _TrackingSkeleton();
               }
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        ordersStringsHi['errorTitle']!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: ShodashaTheme.muted),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _retryDetail,
-                        child: Text(ordersStringsHi['retry']!),
-                      ),
-                    ],
-                  ),
-                ),
+              return AppStateView.error(
+                isNetwork: widget.controller.detailOffline,
+                title: widget.controller.detailOffline
+                    ? null
+                    : 'Could not load this order',
+                message: widget.controller.detailServerError
+                    ? 'Server problem — try again in a moment.'
+                    : null,
+                onRetry: _retryDetail,
               );
             }
             return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.xxl,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _HeaderCard(order: order),
                   if (widget.controller.detailFailed) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.sm),
                     _StaleBanner(
                       offline: widget.controller.detailOffline,
                       server: widget.controller.detailServerError,
@@ -393,7 +492,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                       onRetry: _retryDetail,
                     ),
                   ],
-                  const SizedBox(height: 16),
+                  ..._deliveryCodeSection(order),
+                  const SizedBox(height: AppSpacing.md),
                   if (order.state == OrderState.cancelled)
                     _FlatBanner(text: ordersStringsHi['cancelledBanner']!)
                   else if (order.state == OrderState.failed)
@@ -407,32 +507,24 @@ class _TrackingScreenState extends State<TrackingScreen>
                     _FourStepTracker(step: trackerStep(order.state))
                   else
                     _FlatBanner(text: ordersStringsHi['deliveredBanner']!),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.md),
                   _WindowCard(order: order),
                   if (order.stopsAhead != null &&
                       (order.state == OrderState.dispatched ||
                           order.state == OrderState.assigned)) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.sm),
                     _LiveStopsAheadBanner(
                       stopsAhead: order.stopsAhead!,
                       order: order,
                     ),
                   ],
                   if (order.riderName != null) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.sm),
                     _RiderCard(order: order, onCall: () => _callRider(order)),
                   ],
-                  ..._deliveryCodeSection(order),
-                  const SizedBox(height: 12),
-                  _BillRow(
-                    order: order,
-                    onOpen: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => BillScreen(order: order),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.sm),
+                  _BillRow(order: order, onOpen: () => _openBill(order)),
+                  const SizedBox(height: AppSpacing.md),
                   _ActionsFor(
                     order: order,
                     busy: widget.controller.actionBusy,
@@ -446,10 +538,11 @@ class _TrackingScreenState extends State<TrackingScreen>
                       onSupport: widget.onSupport,
                     ),
                     onCall: () => _callRider(order),
+                    onSupport: widget.onSupport,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   Text(
-                    '${ordersStringsHi['autoRefresh']}: '
+                    'Status updates automatically every '
                     '${widget.controller.pollSeconds}s',
                     style: const TextStyle(
                       fontSize: 12,
@@ -510,80 +603,144 @@ class _HeaderCard extends StatelessWidget {
   const _HeaderCard({required this.order});
   final Order order;
 
+  (StatusPillTone, IconData) get _tone => switch (order.state) {
+    OrderState.delivered => (
+      StatusPillTone.success,
+      Icons.check_circle_outline,
+    ),
+    OrderState.cancelled => (StatusPillTone.neutral, Icons.block_outlined),
+    OrderState.rejected ||
+    OrderState.failed => (StatusPillTone.danger, Icons.error_outline),
+    OrderState.dispatched || OrderState.assigned => (
+      StatusPillTone.warning,
+      Icons.local_shipping_outlined,
+    ),
+    _ => (StatusPillTone.info, Icons.schedule_outlined),
+  };
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      // Donor card grammar: white on the slate ground, hairline border.
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: ShodashaTheme.surface,
-        border: Border.all(color: ShodashaTheme.border),
-        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
-      ),
-      child: Row(
+    final (tone, icon) = _tone;
+    final title = order.itemSummary.isEmpty
+        ? 'Order #${order.id}'
+        : order.itemSummary;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  order.itemSummary.isEmpty
-                      ? '#${order.id}'
-                      : order.itemSummary,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: -0.2,
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                if (order.addressLabel.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              StatusPill(
+                label: orderStateLabel(order.state),
+                tone: tone,
+                icon: icon,
+              ),
+            ],
+          ),
+          if (order.addressLabel.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                const Icon(
+                  Icons.location_on_outlined,
+                  size: 16,
+                  color: ShodashaTheme.muted,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
                     order.addressLabel,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 13,
+                      height: 1.35,
                       color: ShodashaTheme.muted,
                     ),
                   ),
-                ],
+                ),
               ],
             ),
+          ],
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Divider(height: 1, color: ShodashaTheme.border),
           ),
-          Column(
+          Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                formatRupees(order.totalPaise),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.3,
-                  color: ShodashaTheme.ink,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      formatRupees(order.totalPaise),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Total bill',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: ShodashaTheme.muted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              // 015: payment mode + paid state badge (UPI/COD visibility).
-              // Money-state cue: token success when paid, muted when due.
-              Text(
-                order.isPaid
-                    ? '${order.paymentMode.toUpperCase()} • Paid'
-                    : '${order.paymentMode.toUpperCase()} • ${formatRupees(order.totalPaise - order.paymentsPaise)} due',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: order.isPaid
-                      ? ShodashaTheme.success
-                      : ShodashaTheme.muted,
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      order.paymentLabel,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: order.isPaid
+                            ? ShodashaTheme.successDark
+                            : ShodashaTheme.muted,
+                      ),
+                    ),
+                    if (order.refundPending) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '${ordersStringsHi['refundPending']!} • '
+                        '${formatRupees(order.refundAmountPaise)}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: ShodashaTheme.blue,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (order.refundPending)
-                Text(
-                  ordersStringsHi['refundPending']!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: ShodashaTheme.muted,
-                  ),
-                ),
             ],
           ),
         ],
@@ -999,7 +1156,7 @@ class _DeliveryCodeCard extends StatelessWidget {
   final String? error;
   final VoidCallback onReissue;
 
-  static const _title = 'Delivery code / डिलीवरी कोड';
+  static const _title = 'Delivery code';
 
   @override
   Widget build(BuildContext context) {
@@ -1211,50 +1368,54 @@ class _BillRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 015: tappable bill row (was dead Container) + vendor-collect note.
-    return InkWell(
+    return AppCard(
       onTap: onOpen,
-      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: ShodashaTheme.surface,
-          border: Border.all(color: ShodashaTheme.border),
-          borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${ordersStringsHi['viewBill']!} • '
-                    '${formatRupees(order.totalPaise)}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: ShodashaTheme.ink,
-                    ),
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: ShodashaTheme.muted),
-              ],
-            ),
-            if (order.paymentsPaise > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
                 child: Text(
-                  'Paid ${formatRupees(order.paymentsPaise)} to the vendor — confirm in the bill',
+                  '${ordersStringsHi['viewBill']!} • '
+                  '${formatRupees(order.totalPaise)}',
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: ShodashaTheme.muted,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
                   ),
                 ),
               ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: ShodashaTheme.muted,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            order.paymentLabel,
+            style: TextStyle(
+              fontSize: 12,
+              color: order.isPaid
+                  ? ShodashaTheme.successDark
+                  : ShodashaTheme.muted,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (order.paymentsPaise > 0) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Paid ${formatRupees(order.paymentsPaise)} to the vendor — '
+              'confirm in the bill',
+              style: const TextStyle(
+                fontSize: 12,
+                color: ShodashaTheme.muted,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -1354,6 +1515,7 @@ class _ActionsFor extends StatelessWidget {
     required this.onWhatsApp,
     required this.onRate,
     required this.onCall,
+    this.onSupport,
   });
 
   final Order order;
@@ -1363,141 +1525,151 @@ class _ActionsFor extends StatelessWidget {
   final VoidCallback onWhatsApp;
   final VoidCallback onRate;
   final VoidCallback onCall;
+  final VoidCallback? onSupport;
 
   @override
   Widget build(BuildContext context) {
     if (order.canCancel || order.canReschedule) {
-      return Row(
-        children: [
-          Expanded(
-            child: SizedBox(
-              height: ShodashaTheme.minTarget,
-              child: OutlinedButton(
-                onPressed: busy ? null : onCancel,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: ShodashaTheme.ink,
-                  side: const BorderSide(color: ShodashaTheme.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                  ),
-                ),
-                child: Text(ordersStringsHi['cancelTitle']!),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SizedBox(
-              height: ShodashaTheme.minTarget,
-              child: ElevatedButton(
-                onPressed: busy ? null : onReschedule,
-                style: ElevatedButton.styleFrom(
-                  // Schedule action → structure teal (not a money CTA).
-                  backgroundColor: ShodashaTheme.teal,
-                  foregroundColor: ShodashaTheme.surface,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                  ),
-                ),
-                child: Text(ordersStringsHi['rescheduleTitle']!),
-              ),
-            ),
-          ),
-        ],
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final stack = constraints.maxWidth < 380;
+          final cancel = order.canCancel
+              ? AppButton(
+                  label: 'Cancel',
+                  kind: AppButtonKind.secondary,
+                  onPressed: busy ? null : onCancel,
+                )
+              : null;
+          final reschedule = order.canReschedule
+              ? AppButton(
+                  label: 'Reschedule',
+                  onPressed: busy ? null : onReschedule,
+                )
+              : null;
+          if (stack) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ?cancel,
+                if (cancel != null && reschedule != null)
+                  const SizedBox(height: AppSpacing.sm),
+                ?reschedule,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              if (cancel != null) Expanded(child: cancel),
+              if (cancel != null && reschedule != null)
+                const SizedBox(width: AppSpacing.sm),
+              if (reschedule != null) Expanded(child: reschedule),
+            ],
+          );
+        },
       );
     }
     if (order.showWhatsAppOnly) {
-      return SizedBox(
-        height: ShodashaTheme.minTarget,
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: onWhatsApp,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: ShodashaTheme.teal,
-            foregroundColor: ShodashaTheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            ),
-          ),
-          child: Text(ordersStringsHi['whatsappHelp']!),
-        ),
+      return AppButton(
+        label: ordersStringsHi['whatsappHelp']!,
+        icon: Icons.chat_outlined,
+        onPressed: onWhatsApp,
       );
     }
     if (order.showHelpRow) {
+      final hasPhone = (order.riderPhone ?? '').trim().isNotEmpty;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: ShodashaTheme.surface,
-              border: Border.all(color: ShodashaTheme.border),
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: onCall,
-                    style: TextButton.styleFrom(
-                      foregroundColor: ShodashaTheme.teal,
-                      minimumSize: const Size(48, ShodashaTheme.minTarget),
-                    ),
-                    child: Text(ordersStringsHi['callRider']!),
-                  ),
-                ),
-                Expanded(
-                  child: TextButton(
-                    onPressed: onWhatsApp,
-                    style: TextButton.styleFrom(
-                      foregroundColor: ShodashaTheme.teal,
-                      minimumSize: const Size(48, ShodashaTheme.minTarget),
-                    ),
-                    child: Text(ordersStringsHi['whatsappHelp']!),
-                  ),
-                ),
-              ],
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final call = AppButton(
+                label: ordersStringsHi['callRider']!,
+                kind: AppButtonKind.secondary,
+                icon: Icons.call_outlined,
+                onPressed: hasPhone ? onCall : null,
+              );
+              final whatsapp = AppButton(
+                label: 'WhatsApp',
+                kind: AppButtonKind.secondary,
+                icon: Icons.chat_outlined,
+                onPressed: onWhatsApp,
+              );
+              if (constraints.maxWidth < 380) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    call,
+                    const SizedBox(height: AppSpacing.sm),
+                    whatsapp,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: call),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: whatsapp),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: ShodashaTheme.minTarget,
-            child: ElevatedButton(
-              onPressed: order.canRate ? onRate : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ShodashaTheme.teal,
-                foregroundColor: ShodashaTheme.surface,
-                disabledBackgroundColor: ShodashaTheme.teal.withValues(
-                  alpha: 0.3,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                ),
+          const SizedBox(height: AppSpacing.sm),
+          if (order.rated)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
               ),
-              child: Text(ordersStringsHi['rateTitle']!),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.greenSoft,
+                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                border: Border.all(color: ShodashaTheme.greenBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.star_rounded,
+                    size: 20,
+                    color: ShodashaTheme.successDark,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      order.stars == null
+                          ? 'Thanks for rating this delivery.'
+                          : 'You rated this delivery ${order.stars}/5.',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: ShodashaTheme.successDark,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            AppButton(
+              label: ordersStringsHi['rateTitle']!,
+              icon: Icons.star_outline_rounded,
+              onPressed: busy ? null : onRate,
             ),
-          ),
         ],
       );
     }
-    if (order.state == OrderState.failed) {
-      return SizedBox(
-        height: ShodashaTheme.minTarget,
-        child: OutlinedButton.icon(
-          onPressed: onWhatsApp,
-          icon: const Icon(Icons.support_agent, color: ShodashaTheme.teal),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: ShodashaTheme.teal,
-            side: const BorderSide(color: ShodashaTheme.teal),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            ),
-          ),
-          label: const Text('Talk to support / WhatsApp'),
-        ),
+    if (order.state == OrderState.rejected ||
+        order.state == OrderState.failed ||
+        order.state == OrderState.cancelled) {
+      final support = onSupport ?? onWhatsApp;
+      return AppButton(
+        label: order.state == OrderState.cancelled
+            ? 'Need help with this order?'
+            : 'Talk to support',
+        kind: AppButtonKind.secondary,
+        icon: Icons.support_agent_outlined,
+        onPressed: support,
       );
     }
-    // cancelled (and terminal rejected): no actions.
     return const SizedBox.shrink();
   }
 }

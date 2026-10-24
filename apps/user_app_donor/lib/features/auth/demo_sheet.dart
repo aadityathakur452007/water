@@ -13,6 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_sheet.dart';
 import 'auth_controller.dart';
 
 class UserDemoSheet extends StatefulWidget {
@@ -50,138 +52,98 @@ class _UserDemoSheetState extends State<UserDemoSheet> {
   @override
   Widget build(BuildContext context) {
     final error = widget.controller.errorMessage;
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 12,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ShodashaTheme.border,
-                  borderRadius: BorderRadius.circular(2),
+    return AppSheet(
+      title: 'Demo login',
+      onClose: _busy ? null : () => Navigator.of(context).pop(),
+      footer: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppButton(label: 'Login with demo', busy: _busy, onPressed: _login),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(
+            'If the demo door is closed, sign in with your mobile number and '
+            'password. Demo codes are checked only by the server.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: ShodashaTheme.muted,
+            ),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Seeded QA account. The server decides whether the demo door '
+            'is open.',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: ShodashaTheme.muted,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          OutlinedButton.icon(
+            onPressed: _busy
+                ? null
+                : () => setState(() {
+                    _phone.text = '+919000000001';
+                    _code.text = '111111';
+                  }),
+            icon: const Icon(Icons.auto_fix_high_outlined, size: 20),
+            label: const Text('Fill demo customer'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(48, ShodashaTheme.minTarget),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextField(
+            controller: _phone,
+            enabled: !_busy,
+            // 16px stops mobile browser auto-zoom.
+            style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
+            keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
+            ],
+            decoration: const InputDecoration(labelText: 'Mobile number'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextField(
+            controller: _code,
+            enabled: !_busy,
+            style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(labelText: 'Demo code'),
+          ),
+          if (error != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 18,
+                  color: ShodashaTheme.danger,
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Demo login',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.3,
-                color: ShodashaTheme.ink,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Seeded QA account. The server decides whether the demo door '
-              'is open.',
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.35,
-                color: ShodashaTheme.muted,
-              ),
-            ),
-            const SizedBox(height: 14),
-            OutlinedButton(
-              onPressed: _busy
-                  ? null
-                  : () => setState(() {
-                      _phone.text = '+919000000001';
-                      _code.text = '111111';
-                    }),
-              child: const Text('Fill demo customer'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _phone,
-              // WHY: 16px stops iOS auto-zoom (mobile-native §4).
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
-              ],
-              decoration: const InputDecoration(labelText: 'Mobile number'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _code,
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Demo code'),
-            ),
-            if (error != null) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    size: 16,
-                    color: ShodashaTheme.danger,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      error,
-                      style: const TextStyle(
-                        color: ShodashaTheme.danger,
-                        fontSize: 13,
-                      ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    error,
+                    style: const TextStyle(
+                      color: ShodashaTheme.danger,
+                      fontSize: 13,
+                      height: 1.4,
                     ),
                   ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 52,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _login,
-                style: ElevatedButton.styleFrom(
-                  // Auth action, not money → ink (green stays money-only).
-                  backgroundColor: ShodashaTheme.ink,
-                  foregroundColor: ShodashaTheme.bg,
-                  disabledBackgroundColor: ShodashaTheme.ink.withValues(
-                    alpha: 0.3,
-                  ),
-                  disabledForegroundColor: ShodashaTheme.surface,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                  ),
                 ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: ShodashaTheme.surface,
-                        ),
-                      )
-                    : const Text('Login with demo'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'If the demo door is closed, sign in above with your mobile '
-              'number and password. Demo codes are checked only by the server.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+              ],
             ),
           ],
-        ),
+        ],
       ),
     );
   }

@@ -5,7 +5,6 @@
 // SKU cross-link. No emojis, no gradients, locked tokens, 48dp targets.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme.dart';
 import 'booking_controller.dart';
@@ -305,15 +304,16 @@ class _SheetPhoto extends StatelessWidget {
       ),
     );
     if (MediaQuery.disableAnimationsOf(context)) return img;
-    return img
-        .animate()
-        .fade(duration: const Duration(milliseconds: 200))
-        .scale(
-          begin: const Offset(1.04, 1.04),
-          end: const Offset(1, 1),
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      tween: Tween(begin: 0, end: 1),
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.scale(scale: 1.04 - (0.04 * t), child: child),
+      ),
+      child: img,
+    );
   }
 }
 

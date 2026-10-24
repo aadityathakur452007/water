@@ -1,6 +1,6 @@
 name: ci
 
-# Fast feedback on every branch / PR, for BOTH apps. Never publishes a release.
+# Fast feedback on every branch / PR, for all three apps. Never publishes a release.
 # Release builds happen only in release.yml (push to main).
 on:
   push:
@@ -27,6 +27,11 @@ jobs:
           - app: vendor
             dir: apps/vendor_app
             label: Shodasha Vendor (delivery)
+          # Donor is the third side-by-side APK (spec 035). Same gates as
+          # the other legs; release publishing stays in release.yml.
+          - app: donor
+            dir: apps/user_app_donor
+            label: Shodasha (customer parity)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,7 +47,7 @@ jobs:
 
       # Pinned to the Flutter version the apps are developed and
       # release-verified with locally (flutter doctor: 3.44.9 stable).
-      # Per-app cache keys: the two pubspec.locks differ, so a shared key
+      # Per-app cache keys: the pubspec.locks differ, so a shared key
       # would let the legs overwrite each other's cache.
       - name: Set up Flutter 3.44.9
         uses: subosito/flutter-action@v2

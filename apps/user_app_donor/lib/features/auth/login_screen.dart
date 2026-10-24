@@ -13,6 +13,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import 'auth_controller.dart';
 import 'demo_sheet.dart';
 
@@ -87,7 +89,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting || _auth.rateLimitSecondsRemaining > 0) return;
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -133,9 +135,11 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.surface,
+      backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radiusSheet),
+        ),
       ),
       builder: (_) => UserDemoSheet(controller: _auth),
     );
@@ -205,28 +209,35 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
-      backgroundColor: AppColors.surface,
+      backgroundColor: ShodashaTheme.surface,
       body: SafeArea(
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.only(bottom: viewInsets + 24),
-          child: Column(
-            children: [
-              _hero(),
-              if (widget.notice != null)
-                _banner(widget.notice!, tone: _BannerTone.warning),
-              if (_localNotice != null)
-                _banner(_localNotice!, tone: _BannerTone.info),
-              const SizedBox(height: 18),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Form(
-                  key: _formKey,
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  child: AutofillGroup(child: _formBody()),
-                ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: kMaxContentWidth),
+              child: Column(
+                children: [
+                  _hero(),
+                  if (widget.notice != null)
+                    _banner(widget.notice!, tone: _BannerTone.warning),
+                  if (_localNotice != null)
+                    _banner(_localNotice!, tone: _BannerTone.info),
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.lg,
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      child: AutofillGroup(child: _formBody()),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -244,9 +255,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               : authStringsHi['signInTitle']!,
           style: const TextStyle(
             fontSize: 22,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w800,
             letterSpacing: -0.4,
-            color: AppColors.textPrimary,
+            color: ShodashaTheme.ink,
           ),
         ),
         const SizedBox(height: 4),
@@ -255,9 +266,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               ? authStringsHi['createSubtitle']!
               : authStringsHi['signInSubtitle']!,
           style: const TextStyle(
-            fontSize: 13,
-            height: 1.4,
-            color: AppColors.textSecondary,
+            fontSize: 14,
+            height: 1.45,
+            color: ShodashaTheme.muted,
           ),
         ),
         const SizedBox(height: 20),
@@ -326,8 +337,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         Text(
           authStringsHi['phoneHelper']!,
           style: const TextStyle(
-            fontSize: 11.5,
-            color: AppColors.textSecondary,
+            fontSize: 12.5,
+            height: 1.35,
+            color: ShodashaTheme.muted,
           ),
         ),
         const SizedBox(height: 14),
@@ -409,49 +421,21 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               child: Text(
                 authStringsHi['forgotPassword']!,
                 style: const TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 13,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
+                  color: ShodashaTheme.tealDeep,
                 ),
               ),
             ),
           ),
         const SizedBox(height: 6),
         _errorPanel(),
-        SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: ElevatedButton(
-            onPressed: _submitting ? null : _submit,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: AppColors.textOnPrimary,
-              disabledBackgroundColor: const Color(0xFF99F6E4),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            child: _submitting
-                ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: AppColors.textOnPrimary,
-                    ),
-                  )
-                : Text(
-                    create
-                        ? authStringsHi['createGo']!
-                        : authStringsHi['signInGo']!,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textOnPrimary,
-                    ),
-                  ),
-          ),
+        AppButton(
+          label: create
+              ? authStringsHi['createGo']!
+              : authStringsHi['signInGo']!,
+          busy: _submitting,
+          onPressed: _submit,
         ),
         const SizedBox(height: 10),
         Center(
@@ -469,7 +453,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
-                color: AppColors.primaryDark,
+                color: ShodashaTheme.tealDeep,
               ),
             ),
           ),
@@ -482,18 +466,18 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               child: Text(
                 authStringsHi['demoLogin']!,
                 style: const TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondary,
+                  color: ShodashaTheme.muted,
                 ),
               ),
             ),
           ),
           const Center(
             child: Text(
-              'Shodasha customer app • Password protected',
+              'Shodasha customer app · Password protected',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+              style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
             ),
           ),
         ] else ...[
@@ -504,9 +488,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               'Privacy Policy.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 11.5,
-                height: 1.35,
-                color: Color(0xFF94A3B8),
+                fontSize: 12,
+                height: 1.4,
+                color: ShodashaTheme.muted,
               ),
             ),
           ),
@@ -518,53 +502,50 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   Widget _hero() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.only(top: 18, bottom: 22, left: 20, right: 20),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFE8F5E9), Color(0xFFDCFCE7)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
+        color: ShodashaTheme.tealTint,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(36),
-          bottomRight: Radius.circular(36),
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
         ),
       ),
       child: Column(
         children: [
           Image.asset(
             'assets/images/login_hero.jpg',
-            height: 170,
+            height: 150,
             fit: BoxFit.contain,
             errorBuilder: (_, _, _) => const SizedBox(
-              height: 130,
+              height: 110,
               child: Icon(
                 Icons.water_drop_rounded,
-                size: 80,
-                color: AppColors.money,
+                size: 64,
+                color: ShodashaTheme.tealDeep,
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           const Text(
-            'SHODASHA MINERAL\nWATER SERVICE',
+            'Shodasha',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 21,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF14532D),
-              letterSpacing: 0.8,
-              height: 1.2,
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: ShodashaTheme.tealDeep,
+              letterSpacing: -0.5,
+              height: 1.1,
             ),
           ),
           const SizedBox(height: 6),
           const Text(
-            'Pure 20L mineral water delivered directly to your doorstep',
+            'Pure 20L mineral water delivered to your door',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 12.5,
-              color: Color(0xFF475569),
+              fontSize: 14,
+              color: ShodashaTheme.ink,
               fontWeight: FontWeight.w500,
+              height: 1.4,
             ),
           ),
         ],
@@ -578,8 +559,8 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
       text,
       style: const TextStyle(
         fontSize: 13,
-        fontWeight: FontWeight.w800,
-        color: Color(0xFF1E293B),
+        fontWeight: FontWeight.w700,
+        color: ShodashaTheme.ink,
       ),
     ),
   );
@@ -592,37 +573,37 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(fontSize: 13.5, color: Color(0xFF94A3B8)),
+      hintStyle: const TextStyle(fontSize: 14, color: ShodashaTheme.muted),
       prefixIcon:
           prefix ??
           (icon == null
               ? null
-              : Icon(icon, size: 20, color: AppColors.textSecondary)),
+              : Icon(icon, size: 20, color: ShodashaTheme.muted)),
       suffixIcon: suffix,
       filled: true,
-      fillColor: AppColors.background,
+      fillColor: ShodashaTheme.bg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        borderSide: const BorderSide(color: ShodashaTheme.border),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        borderSide: const BorderSide(color: ShodashaTheme.border),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        borderSide: const BorderSide(color: ShodashaTheme.tealDark, width: 2),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.error),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        borderSide: const BorderSide(color: ShodashaTheme.danger),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.error, width: 2),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        borderSide: const BorderSide(color: ShodashaTheme.danger, width: 2),
       ),
-      errorStyle: const TextStyle(fontSize: 11.5, height: 1.3),
+      errorStyle: const TextStyle(fontSize: 12, height: 1.35),
     );
   }
 
@@ -637,7 +618,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 14,
-              color: AppColors.textPrimary,
+              color: ShodashaTheme.ink,
             ),
           ),
           SizedBox(width: 8),
@@ -646,7 +627,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             thickness: 1,
             indent: 14,
             endIndent: 14,
-            color: Color(0xFFCBD5E1),
+            color: ShodashaTheme.border,
           ),
         ],
       ),
@@ -663,7 +644,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
       icon: Icon(
         visible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
         size: 20,
-        color: AppColors.textSecondary,
+        color: ShodashaTheme.muted,
       ),
     );
   }
@@ -678,14 +659,20 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFFEF2F2),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFFECACA)),
+          color: ShodashaTheme.danger.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          border: Border.all(
+            color: ShodashaTheme.danger.withValues(alpha: 0.28),
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.error_outline, size: 18, color: Color(0xFFB91C1C)),
+            const Icon(
+              Icons.error_outline,
+              size: 18,
+              color: ShodashaTheme.danger,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -694,9 +681,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                   Text(
                     message,
                     style: const TextStyle(
-                      fontSize: 12.5,
-                      height: 1.35,
-                      color: Color(0xFF7F1D1D),
+                      fontSize: 13,
+                      height: 1.4,
+                      color: ShodashaTheme.danger,
                     ),
                   ),
                   if (wait > 0)
@@ -705,9 +692,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                       child: Text(
                         'Try again in ${wait}s.',
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF7F1D1D),
+                          color: ShodashaTheme.danger,
                         ),
                       ),
                     ),
@@ -728,10 +715,12 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: warning ? const Color(0xFFFEF9C3) : const Color(0xFFE0F2FE),
-          borderRadius: BorderRadius.circular(12),
+          color: warning ? ShodashaTheme.solarTint : ShodashaTheme.etaTint,
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
           border: Border.all(
-            color: warning ? const Color(0xFFFDE047) : const Color(0xFFBAE6FD),
+            color: warning
+                ? ShodashaTheme.solar.withValues(alpha: 0.5)
+                : ShodashaTheme.link.withValues(alpha: 0.25),
           ),
         ),
         child: Row(
@@ -740,20 +729,16 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             Icon(
               warning ? Icons.info_outline : Icons.check_circle_outline,
               size: 18,
-              color: warning
-                  ? const Color(0xFF854D0E)
-                  : const Color(0xFF0369A1),
+              color: warning ? ShodashaTheme.warning : ShodashaTheme.link,
             ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 message,
                 style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.35,
-                  color: warning
-                      ? const Color(0xFF713F12)
-                      : const Color(0xFF075985),
+                  fontSize: 13,
+                  height: 1.4,
+                  color: warning ? ShodashaTheme.warning : ShodashaTheme.link,
                 ),
               ),
             ),

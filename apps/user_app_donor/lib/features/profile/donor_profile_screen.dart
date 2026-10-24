@@ -6,6 +6,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_card.dart';
+import '../../shared/ui/app_sheet.dart';
+import '../../shared/ui/app_state_view.dart';
 import '../addresses/address_screen.dart';
 import '../auth/auth_controller.dart';
 import 'edit_profile_sheet.dart';
@@ -38,6 +44,8 @@ class DonorProfileScreen extends StatefulWidget {
 }
 
 class _DonorProfileScreenState extends State<DonorProfileScreen> {
+  bool _loggingOut = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,9 +67,12 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.surface,
+      enableDrag: false,
+      backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radiusSheet),
+        ),
       ),
       builder: (_) => EditProfileSheet(controller: widget.controller),
     );
@@ -82,6 +93,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
   }
 
   Future<void> _logout() async {
+    if (_loggingOut) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -93,43 +105,50 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(48, ShodashaTheme.minTarget),
+            ),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: ShodashaTheme.danger,
+              foregroundColor: ShodashaTheme.surface,
+              minimumSize: const Size(48, ShodashaTheme.minTarget),
+            ),
             child: const Text('Log out'),
           ),
         ],
       ),
     );
-    if (ok == true) {
-      await widget.auth.logout();
-    }
+    if (ok != true || !mounted) return;
+    setState(() => _loggingOut = true);
+    await widget.auth.logout();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: AppColors.primary,
+        backgroundColor: ShodashaTheme.tealDeep,
+        foregroundColor: ShodashaTheme.surface,
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
-          'MY PROFILE',
+          'Profile',
           style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 16,
-            color: Colors.white,
-            letterSpacing: 1.1,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: ShodashaTheme.surface,
           ),
         ),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: 'Refresh profile',
             onPressed: _refresh,
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -275,41 +294,21 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                   ),
                 if (widget.controller.status == ProfileStatus.error &&
                     user != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF9C3),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFFDE047)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Showing saved profile — refresh failed.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF713F12),
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _refresh,
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  AppBanner.stale(
+                    message:
+                        widget.controller.errorMessage ??
+                        'Could not refresh your profile.',
+                    onRetry: _refresh,
                   ),
                 ],
-                const SizedBox(height: 20),
+                const SizedBox(height: AppSpacing.xl),
                 const Text(
-                  'ACCOUNT',
+                  'Account',
                   style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.8,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.muted,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -339,14 +338,13 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                   subtitle: 'Order and subscription updates',
                   onTap: widget.onOpenNotifications,
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: AppSpacing.xl),
                 const Text(
-                  'SUPPORT',
+                  'Support',
                   style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.8,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.muted,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -362,27 +360,15 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                   subtitle: 'RO + UV + Ozone · 20L sealed jars',
                   onTap: () => _showQuality(),
                 ),
-                const SizedBox(height: 18),
-                OutlinedButton.icon(
+                const SizedBox(height: AppSpacing.xl),
+                AppButton(
+                  label: _loggingOut ? 'Logging out…' : 'Log out',
+                  kind: AppButtonKind.danger,
+                  icon: Icons.logout_rounded,
+                  busy: _loggingOut,
                   onPressed: _logout,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    side: const BorderSide(color: AppColors.error),
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: const Icon(Icons.logout, size: 18),
-                  label: const Text(
-                    'LOG OUT',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: AppSpacing.xl),
               ],
             ),
           );
@@ -394,34 +380,27 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
   void _showQuality() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radiusSheet),
+        ),
       ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              'Water quality',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-            ),
-            SizedBox(height: 12),
-            Text(
-              'Every Shodasha 20L jar is purified through a 9-stage RO + UV + '
-              'ozone process and sealed in a food-grade jar. Batch lab reports '
-              'are available from support on request. The app does not display '
-              'live plant telemetry because the API does not expose it.',
-              style: TextStyle(
-                height: 1.5,
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            SizedBox(height: 16),
-          ],
+      builder: (ctx) => AppSheet(
+        title: 'Water quality',
+        onClose: () => Navigator.of(ctx).pop(),
+        footer: AppButton(
+          label: 'Close',
+          kind: AppButtonKind.secondary,
+          onPressed: () => Navigator.of(ctx).pop(),
+        ),
+        child: const Text(
+          'Every Shodasha 20L jar is purified through a 9-stage RO + UV + '
+          'ozone process and sealed in a food-grade jar. Batch lab reports '
+          'are available from support on request. The app does not display '
+          'live plant telemetry because the API does not expose it.',
+          style: TextStyle(height: 1.5, fontSize: 14, color: ShodashaTheme.ink),
         ),
       ),
     );
@@ -434,17 +413,14 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
           value,
           style: const TextStyle(
             fontSize: 16,
-            fontWeight: FontWeight.w900,
-            color: AppColors.primary,
+            fontWeight: FontWeight.w800,
+            color: ShodashaTheme.tealDeep,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 10.5,
-            color: AppColors.textSecondary,
-          ),
+          style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
         ),
       ],
     );
@@ -456,45 +432,62 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.border),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        leading: Container(
-          height: 38,
-          width: 38,
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: AppColors.primary, size: 20),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 14,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: const TextStyle(
-            fontSize: 11.5,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        trailing: const Icon(
-          Icons.chevron_right,
-          color: Color(0xFF94A3B8),
-          size: 20,
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: AppCard(
         onTap: onTap,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: ShodashaTheme.minTarget),
+          child: Row(
+            children: [
+              Container(
+                height: 40,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+                child: Icon(icon, color: ShodashaTheme.tealDeep, size: 20),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: ShodashaTheme.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: ShodashaTheme.muted,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -509,7 +502,7 @@ class _ProfileSkeleton extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: AppColors.border.withValues(alpha: 0.55),
+        color: ShodashaTheme.skeleton,
         borderRadius: BorderRadius.circular(8),
       ),
     );
@@ -517,9 +510,9 @@ class _ProfileSkeleton extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        color: ShodashaTheme.surface,
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+        border: Border.all(color: ShodashaTheme.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,7 +523,7 @@ class _ProfileSkeleton extends StatelessWidget {
                 width: 64,
                 height: 64,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFE2E8F0),
+                  color: ShodashaTheme.skeleton,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -561,29 +554,10 @@ class _ProfileError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.cloud_off, color: AppColors.textSecondary, size: 30),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
-        ],
-      ),
+    return AppStateView.error(
+      title: 'Profile unavailable',
+      message: message,
+      onRetry: onRetry,
     );
   }
 }

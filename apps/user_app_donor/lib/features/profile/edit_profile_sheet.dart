@@ -12,6 +12,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
+import '../../shared/ui/app_sheet.dart';
 import 'profile_controller.dart';
 
 class EditProfileSheet extends StatefulWidget {
@@ -33,6 +35,14 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   String? _emailError;
   String? _serverError;
   bool _saving = false;
+  String _initialName = '';
+  String _initialPhone = '';
+  String _initialEmail = '';
+
+  bool get _dirty =>
+      _nameCtrl.text.trim() != _initialName ||
+      _phoneCtrl.text.trim() != _initialPhone ||
+      _emailCtrl.text.trim() != _initialEmail;
 
   @override
   void initState() {
@@ -41,6 +51,42 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
     _nameCtrl = TextEditingController(text: (user?['name'] ?? '') as String);
     _phoneCtrl = TextEditingController(text: (user?['phone'] ?? '') as String);
     _emailCtrl = TextEditingController(text: (user?['email'] ?? '') as String);
+    _initialName = _nameCtrl.text.trim();
+    _initialPhone = _phoneCtrl.text.trim();
+    _initialEmail = _emailCtrl.text.trim();
+  }
+
+  Future<void> _requestClose() async {
+    if (_saving) return;
+    if (_dirty) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Discard changes?'),
+          content: const Text('Your unsaved profile changes will be lost.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(48, ShodashaTheme.minTarget),
+              ),
+              child: const Text('Keep editing'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: ShodashaTheme.danger,
+                foregroundColor: ShodashaTheme.surface,
+                minimumSize: const Size(48, ShodashaTheme.minTarget),
+              ),
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      );
+      if (discard != true || !mounted) return;
+    }
+    Navigator.of(context).pop(false);
   }
 
   @override
@@ -84,51 +130,33 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 12,
-          bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+    return PopScope(
+      canPop: !_saving && !_dirty,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || _saving) return;
+        await _requestClose();
+      },
+      child: AppSheet(
+        title: 'Edit profile',
+        onClose: _saving ? null : _requestClose,
+        footer: AppButton(
+          key: const Key('profile-save'),
+          label: 'Save changes',
+          busy: _saving,
+          onPressed: _save,
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SheetHandle(),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Edit profile',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      color: ShodashaTheme.ink,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Close',
-                  onPressed: _saving
-                      ? null
-                      : () => Navigator.of(context).pop(false),
-                  icon: const Icon(Icons.close, color: ShodashaTheme.muted),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
             const Text(
               'Keep your contact details up to date for delivery updates.',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 color: ShodashaTheme.muted,
                 height: 1.4,
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: AppSpacing.lg),
             TextField(
               key: const Key('profile-name'),
               controller: _nameCtrl,
@@ -145,7 +173,7 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
                 errorText: _nameError,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               key: const Key('profile-phone'),
               controller: _phoneCtrl,
@@ -164,7 +192,7 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
                 errorText: _phoneError,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               key: const Key('profile-email'),
               controller: _emailCtrl,
@@ -187,61 +215,10 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
               ),
             ),
             if (_serverError != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               _ServerError(message: _serverError!),
             ],
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('profile-save'),
-                onPressed: _saving ? null : _save,
-                style: FilledButton.styleFrom(
-                  backgroundColor: ShodashaTheme.teal,
-                  foregroundColor: ShodashaTheme.surface,
-                  disabledBackgroundColor: ShodashaTheme.teal.withValues(
-                    alpha: 0.4,
-                  ),
-                  minimumSize: const Size.fromHeight(52),
-                  shape: ShodashaTheme.shape,
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                child: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: ShodashaTheme.surface,
-                        ),
-                      )
-                    : const Text('Save changes'),
-              ),
-            ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Shared sheet drag handle (donor checkout chrome, no image assets).
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 40,
-        height: 4,
-        margin: const EdgeInsets.only(bottom: 14),
-        decoration: BoxDecoration(
-          color: ShodashaTheme.border,
-          borderRadius: BorderRadius.circular(2),
         ),
       ),
     );

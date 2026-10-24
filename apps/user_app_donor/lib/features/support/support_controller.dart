@@ -113,7 +113,7 @@ class SupportController extends ChangeNotifier {
     required String reasonCode,
     required String text,
   }) async {
-    if (_busy) return null;
+    if (_busy) return 'sendError';
     _busy = true;
     _lastError = null;
     _notify();
@@ -135,6 +135,15 @@ class SupportController extends ChangeNotifier {
     } on ApiException catch (e) {
       _lastError = e.code;
       if (e.statusCode == 422) return 'windowExpired';
+      if (e.statusCode == 404) {
+        return 'We could not find that order. Pick a delivered order and '
+            'retry.';
+      }
+      if (e.statusCode == 409) {
+        return e.message.isNotEmpty
+            ? e.message
+            : 'A complaint is already open for this order.';
+      }
       if (e.isServerError) return 'server';
       return e.code == 'NETWORK' ? 'offline' : supportStrings['sendError'];
     } catch (_) {

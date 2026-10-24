@@ -23,13 +23,13 @@ void main() {
       ),
     );
 
-    expect(find.text('2 x 20L Refill'), findsOneWidget);
-    expect(find.text('ASSIGNED'), findsOneWidget);
-    expect(find.text('TRACK ORDER'), findsOneWidget);
-    expect(find.text('VIEW BILL'), findsNothing);
+    expect(find.text('2 × 20L refill'), findsOneWidget);
+    expect(find.text('Rider assigned'), findsOneWidget);
+    expect(find.text('Track order'), findsOneWidget);
+    expect(find.text('View bill'), findsNothing);
     expect(find.textContaining('DELIVERY PIN'), findsNothing);
 
-    await tester.tap(find.text('TRACK ORDER'));
+    await tester.tap(find.text('Track order'));
     expect(tracked, isTrue);
     expect(billed, isFalse);
   });
@@ -57,12 +57,12 @@ void main() {
       ),
     );
 
-    expect(find.text('DELIVERED'), findsOneWidget);
-    expect(find.text('VIEW BILL'), findsOneWidget);
-    expect(find.text('TRACK ORDER'), findsNothing);
+    expect(find.text('Delivered'), findsOneWidget);
+    expect(find.text('View bill'), findsOneWidget);
+    expect(find.text('Track order'), findsNothing);
     expect(find.textContaining('DELIVERY PIN'), findsNothing);
 
-    await tester.tap(find.text('VIEW BILL'));
+    await tester.tap(find.text('View bill'));
     expect(billed, isTrue);
     expect(tracked, isFalse);
   });
