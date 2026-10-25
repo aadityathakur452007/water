@@ -2,6 +2,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
@@ -12,7 +14,10 @@ from app.repositories.ledger_repo import LedgerRepo  # noqa: E402
 from app.repositories.order_repo import OrderRepo  # noqa: E402
 from app.repositories.payment_repo import PaymentRepo  # noqa: E402
 from app.services.payment_service import PaymentService  # noqa: E402
-from app.services.subscription_service import SubscriptionService  # noqa: E402
+from app.services.subscription_service import (  # noqa: E402
+    SubValidationError,
+    SubscriptionService,
+)
 
 
 class _NoOpProvider:
@@ -80,6 +85,17 @@ async def test_invalid_billing_mode_rejected():
         assert getattr(e, "code", "") == "VALIDATION"
     else:
         raise AssertionError("expected VALIDATION")
+
+
+async def test_plan_qty_over_household_cap_rejected():
+    c = _conn()
+    _addr(c)
+    with pytest.raises(SubValidationError) as e:
+        await SubscriptionService(AsyncSqliteConn(c)).create("u1", {
+            "address_id": "a1", "qty": 11, "schedule_type": "daily",
+            "payment_method": "upi", "billing_mode": "monthly_prepaid"})
+    assert e.value.code == "VALIDATION" and e.value.details["max"] == 10
+    assert c.execute("SELECT COUNT(*) n FROM subscriptions").fetchone()["n"] == 0
 
 
 async def test_list_carries_mode_and_estimate():

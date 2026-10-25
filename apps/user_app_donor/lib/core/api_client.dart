@@ -755,6 +755,12 @@ class ApiClient {
   Future<Map<String, dynamic>> codConfirmApi(String id) async =>
       (await send('POST', '/orders/$id/cod-confirm')) as Map<String, dynamic>;
 
+  /// POST /orders/{id}/switch-to-cod → converts this unpaid UPI order to COD
+  /// in place, voids its open UPI link, and posts COD dues once. Repeat calls
+  /// replay the same order; an order with captured money is refused.
+  Future<Map<String, dynamic>> switchOrderToCod(String id) async =>
+      (await send('POST', '/orders/$id/switch-to-cod')) as Map<String, dynamic>;
+
   // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
   /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
   /// recurrence, billing_mode, payment_method} + Idempotency-Key

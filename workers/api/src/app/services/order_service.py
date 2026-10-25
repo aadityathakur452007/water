@@ -31,6 +31,7 @@ from app.services import delivery_code
 CREATE_ENDPOINT = "POST /v1/orders"
 MAX_JARS_PER_ORDER = 10  # EC-O03 hard stop; >10 = tanker-stop, contact support
 HOLD_BLOCK_LIMIT = 3  # VR-12: held > 3 blocks new orders until jars return
+COD_MAX_PAISE = 200000  # Rs 2,000: COD cap for one order and for carried dues
 RESCHEDULABLE = {"placed", "accepted", "picked", "packed"}  # pre-dispatch only
 
 
@@ -46,6 +47,11 @@ class OverLimitError(AppError):
 
 class HoldBlockedError(AppError):
     code = "HOLD_BLOCKED"
+    status_code = 422
+
+
+class CodNotAllowedError(AppError):
+    code = "COD_NOT_ALLOWED"
     status_code = 422
 
 
@@ -172,6 +178,10 @@ class OrderService:
         n = sum(i["qty"] for i in items)
         if n < 1 or e > n:
             raise ValidationError(message="Invalid items/empties.", details={"n": n, "e": e})
+        payment_mode = str(payload.get("payment_mode") or "cod").strip().lower()
+        if payment_mode not in ("upi", "cod"):
+            raise ValidationError(message="payment_mode must be upi or cod.",
+                                  details={"payment_mode": payment_mode})
 
         # Quote re-verification: recompute server-side, compare total + hash (C5).
         current_rv = str(getattr(self.pricing, "RATE_VERSION", "v1"))
@@ -184,6 +194,14 @@ class OrderService:
         # /quotes estimates (full deposit) don't STALE-loop the first waived order.
         led_now = await self.ledger.get(user_id)
         held_paid = int(led_now.get("deposit_paid", 0)) - int(led_now.get("deposit_refunded", 0))
+        held_jars = int(led_now.get("held", 0))
+        if e > held_jars:
+            # Returning more empties than the ledger says are with the customer
+            # would waive a deposit that was never paid.
+            raise ValidationError(
+                message="Returned empties cannot exceed jars on hold.",
+                details={"e": e, "held": held_jars},
+            )
         try:
             q = self.pricing.compute_quote(
                 items, e, self.rates,
@@ -220,6 +238,18 @@ class OrderService:
                 message="Too many jars held. Return empties to order again.",
                 details={"held": int(led_now.get("held", 0)), "max": HOLD_BLOCK_LIMIT},
             )
+        if payment_mode == "cod" and int(q["total"]) > COD_MAX_PAISE:
+            raise CodNotAllowedError(
+                message="Cash on Delivery is available only up to Rs 2,000. "
+                        "Choose UPI for this order.",
+                details={"total": int(q["total"]), "max": COD_MAX_PAISE},
+            )
+        if payment_mode == "cod" and int(led_now.get("dues", 0)) > COD_MAX_PAISE:
+            raise CodNotAllowedError(
+                message="Cash on Delivery is unavailable with dues over Rs 2,000. "
+                        "Pay your dues or choose UPI.",
+                details={"dues": int(led_now.get("dues", 0)), "max": COD_MAX_PAISE},
+            )
 
         # Freeze address snapshot so subsequent edits to the address book
         # never change the destination of active in-flight or dispatched orders.
@@ -253,7 +283,7 @@ class OrderService:
             "water_bill": q["water_bill"],
             "deposit_due": q["deposit_due"],
             "total": q["total"],
-            "payment_mode": payload.get("payment_mode", "cod"),
+            "payment_mode": payment_mode,
             "window_start": payload["window_start"],
             "window_end": window_end,
             "idempotency_key": scoped,

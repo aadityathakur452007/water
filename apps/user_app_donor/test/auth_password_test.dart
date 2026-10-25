@@ -298,6 +298,60 @@ void main() {
       expect(await store.readRefreshToken(), isNull);
     });
 
+    test('transient refresh failures keep the stored pair', () async {
+      for (final error in [
+        ApiException(code: 'NETWORK', message: 'offline', statusCode: 0),
+        ApiException(code: 'INTERNAL', message: 'down', statusCode: 503),
+        ApiException(
+          code: 'RATE_LIMITED',
+          message: 'slow down',
+          statusCode: 429,
+        ),
+      ]) {
+        final api = _FakeAuthApi()..refreshError = error;
+        final store = InMemorySessionStore();
+        await _saveExpired(store);
+        final controller = _controller(api, store: store);
+
+        expect(await controller.recoverSession(), isFalse);
+
+        expect(controller.isAuthenticated, isFalse);
+        expect(controller.sessionNotice, isNull);
+        expect(await store.readAccessToken(), 'old-access');
+        expect(await store.readRefreshToken(), 'old-refresh');
+      }
+    });
+
+    test('cold restore keeps the pair when the refresh is transient', () async {
+      final api = _FakeAuthApi()
+        ..refreshError = ApiException(
+          code: 'NETWORK',
+          message: 'offline',
+          statusCode: 0,
+        );
+      final store = InMemorySessionStore();
+      await _saveExpired(store);
+      final controller = _controller(api, store: store);
+
+      expect(await controller.restoreSession(), isTrue);
+      expect(controller.isAuthenticated, isFalse);
+      expect(controller.sessionNotice, isNull);
+      expect(await store.readAccessToken(), 'old-access');
+      expect(await store.readRefreshToken(), 'old-refresh');
+    });
+
+    test('default restore timeout outlasts the API refresh timeout', () {
+      final controller = AuthController(
+        api: _FakeAuthApi(),
+        store: InMemorySessionStore(),
+        deviceId: 'test-device',
+      );
+      expect(
+        controller.restoreTimeout,
+        greaterThan(const Duration(seconds: 12)),
+      );
+    });
+
     test('cold restore refreshes an expired access token', () async {
       final api = _FakeAuthApi()
         ..refreshSession = _session(

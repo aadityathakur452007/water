@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.services.order_service import COD_MAX_PAISE, CodNotAllowedError
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +113,36 @@ class PaymentService:
                                     ref=f"order:{order_id}", actor=user_id,
                                     reason="cod dues")
         return await self._bill(user_id, await self.orders.find_owned(order_id, user_id))
+
+    async def switch_to_cod(self, user_id: str, order_id: str) -> dict:
+        """Fallback for a live UPI order whose payment cannot start.
+
+        The SAME order becomes COD (no cancel/re-order), its open UPI link is
+        voided, and COD dues are posted exactly once. Repeated calls replay the
+        same state; an order with captured money is never converted.
+        """
+        order = await self.orders.find_owned(order_id, user_id)
+        if order is None:
+            raise NotFoundError(message="Order not found.", details={"id": order_id})
+        if order.get("payment_mode") == "cod":
+            return await self.cod_confirm(user_id, order_id)
+        if order.get("payment_mode") != "upi":
+            raise ValidationError(message="Order cannot be switched to COD.", details={})
+        if int(order["total"]) > COD_MAX_PAISE:
+            raise CodNotAllowedError(
+                message="Cash on Delivery is available only up to Rs 2,000. "
+                        "Choose UPI for this order.",
+                details={"total": int(order["total"]), "max": COD_MAX_PAISE},
+            )
+        led = await self.ledger.get(user_id)
+        if int(led.get("dues", 0)) > COD_MAX_PAISE:
+            raise CodNotAllowedError(
+                message="Cash on Delivery is unavailable with dues over Rs 2,000. "
+                        "Pay your dues first.",
+                details={"dues": int(led.get("dues", 0)), "max": COD_MAX_PAISE},
+            )
+        await self.payments.switch_to_cod(order_id, user_id)
+        return await self.cod_confirm(user_id, order_id)
 
     async def mark_cash(self, order_id: str, amount: int, actor_id: str) -> dict:
         return await self.payments.mark_paid_cash(order_id, int(amount), actor_id)

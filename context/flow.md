@@ -1382,6 +1382,78 @@ remain available for local QA after the production door is closed.
 - Plan card: `Awaiting payment` pill, prepaid balance row, low-balance warning, `Add monthly top-up`. Skip is hidden while awaiting payment.
 - Cancel sheet: reason + UPI (helper says "only if a refund is due after pickup"); result shows real refund amounts and `No refund is due because no deliveries were prepaid.` when zero.
 
+### Customer-flow hardening — session, replay, COD fallback, money guards (2026-10-25, ADR-138)
+
+```
+Cold start / 401 recovery
+  AuthGate._boot
+    └─ AuthController.restoreSession  (20s bound, > ApiClient 12s refresh)
+         └─ _restoreSession → read stored access/refresh
+              ├─ no refresh token → forceLogout(sessionExpired) → login
+              └─ refresh needed → ApiClient.refreshSession
+                   ├─ success → persist rotated pair → authenticated
+                   ├─ ApiException 401/403 → forceLogout(sessionExpired) → login
+                   └─ NETWORK / timeout / 429 / 5xx / storage
+                        └─ keep BOTH stored tokens, not authenticated
+                           (next 401 or cold start may rotate; no forced login)
+```
+
+```
+Checkout create/pay (once)
+  _CheckoutSheet._pay
+    ├─ guard: _placed != null → no-op (never create twice)
+    ├─ guard: c.holdBlocked → Pay disabled (server blocks all new orders)
+    └─ placeCheckout
+         ├─ createOrder(+Idempotency-Key)
+         │    └─ 409 IDEMPOTENT_REPLAY → reuse error.details.order
+         │         (same key; never surface the 409 as a retry loop)
+         ├─ UPI → upiIntent(same key)
+         │    ├─ success → gateway/server link → poll GET /orders/{id}
+         │    └─ failure → CheckoutResult.attention (order stays placed)
+         │         └─ _Recovery.created
+         │              ├─ Retry payment  → intent only, same key
+         │              ├─ Use Cash on Delivery
+         │              │    └─ POST /orders/{id}/switch-to-cod
+         │              │         └─ asCod() → onDone (cash due at door)
+         │              └─ Check Orders  → pending confirmation sheet
+         └─ slot change → c.refreshIdempotencyKey()
+              (window_start is part of the create payload)
+```
+
+```
+Server COD switch (in place, no cancel/re-order)
+  POST /v1/orders/{id}/switch-to-cod  (owner/user role)
+    └─ PaymentService.switch_to_cod
+         ├─ owned order? no → 404
+         ├─ already COD → cod_confirm (replay)
+         ├─ total > 200000 or ledger dues > 200000 → COD_NOT_ALLOWED 422
+         └─ PaymentRepo.switch_to_cod  [WRITE_LOCK]
+              ├─ cancelled/rejected → STATE_CONFLICT
+              ├─ order paid_upi/paid_cash/partial_dues → STATE_CONFLICT
+              ├─ any payments.status paid/partial → STATE_CONFLICT
+              ├─ open link_sent payments → failed
+              ├─ orders.payment_mode='cod', payment_status='unpaid'
+              └─ cod_confirm → ledger dues posted once (idempotent ref)
+```
+
+```
+Create-time money guards (server, ADR-138)
+  OrderService.create
+    ├─ payment_mode ∈ {upi, cod} (normalized; else VALIDATION)
+    ├─ e <= ledger.held (else VALIDATION: no waived deposit for jars not held)
+    ├─ held > 3 → HOLD_BLOCKED 422 (all modes)
+    ├─ COD total > Rs 2,000 → COD_NOT_ALLOWED 422
+    └─ COD carried dues > Rs 2,000 → COD_NOT_ALLOWED 422
+  SubscriptionService.create / SubCreateIn / SubEstimateIn
+    └─ qty <= 10 (else VALIDATION / 422)
+```
+
+New/changed API surface:
+- `POST /v1/orders/{order_id}/switch-to-cod` — no body, owner from session; converts an unpaid UPI order to COD in place, voids open links, posts dues once, refuses captured money.
+- `POST /v1/orders` now rejects non-`upi`/`cod` modes, `e > held`, COD totals/dues over Rs 2,000.
+- `POST /v1/subscriptions` and `/v1/subscriptions/estimate` now cap `qty` at 10.
+- `ApiClient.switchOrderToCod(id)`; `CheckoutResult.asCod()` / `payOnDelivery`; create `IDEMPOTENT_REPLAY` is consumed as the original order.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:

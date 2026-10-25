@@ -79,7 +79,7 @@ def _osvc(c) -> OrderService:
     return OrderService(OrderRepo(ac), LedgerRepo(ac), pricing, _rates())
 
 
-def _payload(items=None, e=1, mode="upi", **over) -> dict:
+def _payload(items=None, e=0, mode="upi", **over) -> dict:
     items = items if items is not None else [{"sku": "refill", "qty": 2}]
     q = pricing.compute_quote(items, e, _rates(), address_id="a1", window_start=WINDOW,
                               rate_version=pricing.RATE_VERSION)
@@ -211,6 +211,43 @@ async def test_cod_partial_cash_carried():
     res = await s.mark_cash(o["id"], half, "vendor-1")
     assert res["order"]["payment_status"] == "partial_dues"
     assert (await s.get_dues("u1"))["dues"] == o["total"] - half  # partials carried, never zeroed
+
+
+async def test_switch_unpaid_upi_to_cod_reuses_order_and_voids_link():
+    c = _conn()
+    s = _svc(c)
+    o = await _order(c, mode="upi")
+    intent = await s.intent("u1", o["id"], "switch-1")
+
+    bill = await s.switch_to_cod("u1", o["id"])
+
+    row = c.execute("SELECT payment_mode, payment_status FROM orders WHERE id=?",
+                    (o["id"],)).fetchone()
+    assert (row["payment_mode"], row["payment_status"]) == ("cod", "unpaid")
+    assert bill["dues"] == o["total"]
+    link = c.execute("SELECT status FROM payments WHERE id=?",
+                     (intent["payment"]["id"],)).fetchone()
+    assert link["status"] == "failed"
+    assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
+
+    again = await s.switch_to_cod("u1", o["id"])  # replay: same order, dues once
+    assert again["dues"] == o["total"]
+    assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
+
+
+async def test_switch_refuses_an_order_with_captured_money():
+    c = _conn()
+    s = _svc(c)
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "switch-paid")
+    raw, sig = signed_event(out["provider_ref"], o["total"], order_id=o["id"])
+    await s.webhook_ingest(raw, sig)
+
+    with pytest.raises(AppError) as e:
+        await s.switch_to_cod("u1", o["id"])
+    assert e.value.code == "STATE_CONFLICT"
+    row = c.execute("SELECT payment_mode FROM orders WHERE id=?", (o["id"],)).fetchone()
+    assert row["payment_mode"] == "upi"
 
 
 # -- adapter unit: failed event declines without settling -------------------

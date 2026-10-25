@@ -36,6 +36,7 @@ class CheckoutResult {
     this.capsPaise = 0,
     this.addressLabel = '',
     this.upiPending = false,
+    this.payOnDelivery = false,
     this.attention = false,
     this.attentionMessage = '',
   });
@@ -65,6 +66,9 @@ class CheckoutResult {
   /// says what happens next instead of going silent.
   final bool upiPending;
 
+  /// Cash is due at the door (COD checkout or a switch-to-COD fallback).
+  final bool payOnDelivery;
+
   /// The order/subscription exists but something after create did not
   /// complete (payment could not start, server response incomplete). The
   /// recovery flow must NEVER re-post create — only retry the payment step
@@ -90,6 +94,7 @@ class CheckoutResult {
     capsPaise: capsPaise,
     addressLabel: addressLabel,
     upiPending: upiPending,
+    payOnDelivery: payOnDelivery,
     attention: false,
     attentionMessage: '',
   );
@@ -109,10 +114,32 @@ class CheckoutResult {
     capsPaise: capsPaise,
     addressLabel: addressLabel,
     upiPending: upiPending,
+    payOnDelivery: payOnDelivery,
     attention: true,
     attentionMessage:
         'Payment is not confirmed yet. Your order is placed — check Orders '
         'before paying again.',
+  );
+
+  /// The created order, now payable in cash at the door. Used by the
+  /// switch-to-COD fallback so the confirmation sheet does not claim the
+  /// online payment is still pending.
+  CheckoutResult asCod() => CheckoutResult(
+    orderId: orderId,
+    totalPaise: totalPaise,
+    windowLabel: windowLabel,
+    isSubscription: isSubscription,
+    providerRef: providerRef,
+    upiLink: upiLink,
+    subscriptionId: subscriptionId,
+    waterPaise: waterPaise,
+    depositPaise: depositPaise,
+    capsPaise: capsPaise,
+    addressLabel: addressLabel,
+    upiPending: false,
+    payOnDelivery: true,
+    attention: false,
+    attentionMessage: '',
   );
 
   /// Real Razorpay ref → open the gateway; otherwise use the server link.
@@ -250,7 +277,7 @@ Future<CheckoutResult> placeCheckout({
     );
   }
 
-  Future<Map<String, dynamic>> createOnce(Map<String, dynamic> snapshot) {
+  Future<Map<String, dynamic>> createOnce(Map<String, dynamic> snapshot) async {
     final total = (snapshot['total'] as num?)?.toInt();
     final hash = (snapshot['quote_hash'] as String?) ?? '';
     final expires = (snapshot['expires_at'] as String?) ?? '';
@@ -259,21 +286,33 @@ Future<CheckoutResult> placeCheckout({
         'The server did not return a complete quote. Please retry.',
       );
     }
-    return api.createOrder(
-      items: orderItemsOf(
-        refill: controller.refillQty,
-        container: controller.containerQty,
-      ),
-      empties: controller.emptiesQty,
-      addressId: addressId,
-      windowStart: windowStart,
-      quoteHash: hash,
-      quoteTotal: total,
-      quoteRateVersion: (snapshot['rate_version'] as String?) ?? 'v1',
-      quoteExpiresAt: expires,
-      paymentMode: controller.paymentMode == PaymentMode.upi ? 'upi' : 'cod',
-      idempotencyKey: key,
-    );
+    try {
+      return await api.createOrder(
+        items: orderItemsOf(
+          refill: controller.refillQty,
+          container: controller.containerQty,
+        ),
+        empties: controller.emptiesQty,
+        addressId: addressId,
+        windowStart: windowStart,
+        quoteHash: hash,
+        quoteTotal: total,
+        quoteRateVersion: (snapshot['rate_version'] as String?) ?? 'v1',
+        quoteExpiresAt: expires,
+        paymentMode: controller.paymentMode == PaymentMode.upi ? 'upi' : 'cod',
+        idempotencyKey: key,
+      );
+    } on ApiException catch (e) {
+      // The first create committed but its response was lost. The server
+      // returns the ORIGINAL order on the same key — reuse it instead of
+      // surfacing a 409 that makes Retry loop forever.
+      if (e.code != 'IDEMPOTENT_REPLAY') rethrow;
+      final original = e.details?['order'];
+      if (original is Map) {
+        return {'order': Map<String, dynamic>.from(original)};
+      }
+      rethrow;
+    }
   }
 
   var snapshot = quote;
@@ -345,12 +384,12 @@ Future<CheckoutResult> placeCheckout({
     } catch (_) {
       attentionMessage =
           'Your order is placed. The payment could not be started — retry '
-          'payment or check Orders.';
+          'payment, use Cash on Delivery, or check Orders.';
     }
     if (attentionMessage.isEmpty && providerRef.isEmpty && upiLink.isEmpty) {
       attentionMessage =
           'Your order is placed. The payment could not be started — retry '
-          'payment or check Orders.';
+          'payment, use Cash on Delivery, or check Orders.';
     }
     // FAKE refs open the server link (never the gateway); the webhook has
     // not confirmed yet, so the confirm screen explains what happens next.
@@ -379,6 +418,7 @@ Future<CheckoutResult> placeCheckout({
     capsPaise: caps,
     addressLabel: addressLabel,
     upiPending: upiPending,
+    payOnDelivery: controller.paymentMode == PaymentMode.cod,
     attention: attentionMessage.isNotEmpty,
     attentionMessage: attentionMessage,
   );
@@ -405,7 +445,9 @@ String checkoutErrorFor(ApiException e) {
     case 'OVER_LIMIT':
       return 'Maximum 10 jars per household order. Reduce the quantity.';
     case 'HOLD_BLOCKED':
-      return 'More than 3 jars are on hold. Choose UPI or clear your dues.';
+      return 'More than 3 jars are on hold. Return empties before ordering again.';
+    case 'COD_NOT_ALLOWED':
+      return 'Cash on Delivery is unavailable for this order. Choose UPI.';
     case 'UNAUTH':
       return 'Please sign in again to continue.';
     case 'PAYLOAD_MISMATCH':

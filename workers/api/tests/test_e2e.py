@@ -111,7 +111,7 @@ def _auth(token):
 def _quote_payload(address_id):
     return {
         "items": [{"sku": "refill", "qty": 2}],
-        "e": 1,
+        "e": 0,
         "address_id": address_id,
         "window_start": WINDOW,
     }
@@ -120,7 +120,7 @@ def _quote_payload(address_id):
 def _order_payload(quote, address_id, mode="cod"):
     return {
         "items": [{"sku": "refill", "qty": 2}],
-        "e": 1,
+        "e": 0,
         "address_id": address_id,
         "window_start": WINDOW,
         "quote_hash": quote["quote_hash"],

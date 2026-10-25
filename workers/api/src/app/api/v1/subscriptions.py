@@ -23,7 +23,7 @@ _user = require_role("user")
 
 class SubCreateIn(BaseModel):
     address_id: str = Field(min_length=1)
-    qty: int = Field(ge=1, le=30)
+    qty: int = Field(ge=1, le=10)
     sku_mix: str = Field(default="refill", max_length=32)
     window: str = Field(default="", max_length=64)
     schedule_type: str = Field(default="daily", max_length=16)
@@ -59,7 +59,7 @@ async def create_subscription(payload: SubCreateIn, user=Depends(_user),
 
 
 class SubEstimateIn(BaseModel):
-    qty: int = Field(ge=1, le=30)
+    qty: int = Field(ge=1, le=10)
     sku_mix: str = Field(default="refill", max_length=32)
 
 

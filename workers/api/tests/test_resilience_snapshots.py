@@ -72,7 +72,7 @@ async def test_address_snapshot_preservation_on_edit():
     rates = {"refill": 8000, "container": 15000, "deposit": 15000}
     q = pricing.compute_quote(
         [{"sku": "refill", "qty": 1}],
-        1,
+        0,
         rates,
         address_id=addr_id,
         window_start="2026-10-15T08:00:00Z",
@@ -80,7 +80,7 @@ async def test_address_snapshot_preservation_on_edit():
     )
     order = await o_svc.create("u1", {
         "items": [{"sku": "refill", "qty": 1}],
-        "e": 1,
+        "e": 0,
         "address_id": addr_id,
         "window_start": "2026-10-15T08:00:00Z",
         "quote_hash": q["quote_hash"],

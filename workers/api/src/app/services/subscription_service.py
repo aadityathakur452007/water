@@ -31,6 +31,7 @@ SKIP_CUTOFF_HOUR = 18  # after 18:00 UTC a same-day skip is late (tunable, §8)
 # Phase 7 F4: the only schedules the runner understands (_advance steps
 # daily/alternate/weekly/custom; anything else stalls at step 0 forever).
 SCHEDULE_TYPES = ("daily", "alternate", "weekly", "custom")
+MAX_PLAN_JARS = 10  # same household hard stop as one-time orders
 
 
 class SubNotFoundError(AppError):
@@ -200,6 +201,10 @@ class SubscriptionService:
         qty = int(payload.get("qty", 0))
         if qty < 1:
             raise SubValidationError(message="Quantity must be >= 1.", details={})
+        if qty > MAX_PLAN_JARS:
+            raise SubValidationError(
+                message="Maximum 10 jars per plan. Reduce the quantity.",
+                details={"qty": qty, "max": MAX_PLAN_JARS})
         address_id = str(payload.get("address_id") or "").strip()
         if not address_id:
             raise SubValidationError(message="address_id required.", details={})

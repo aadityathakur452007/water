@@ -14,7 +14,7 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from app.core.errors import AppError, RateLimitedError  # noqa: E402
+from app.core.errors import AppError, RateLimitedError, ValidationError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.repositories.ledger_repo import HoldNegativeError, LedgerRepo  # noqa: E402
@@ -25,7 +25,9 @@ from app.repositories.order_repo import (  # noqa: E402
 )
 from app.services import pricing  # noqa: E402
 from app.services.order_service import (  # noqa: E402
+    COD_MAX_PAISE,
     CodeActiveError,
+    CodNotAllowedError,
     HoldBlockedError,
     IdempotentReplayError,
     OrderService,
@@ -68,7 +70,7 @@ def _svc(c) -> OrderService:
     return OrderService(OrderRepo(_w(c)), LedgerRepo(_w(c)), pricing, _rates())
 
 
-def _payload(items=None, e=1, **over) -> dict:
+def _payload(items=None, e=0, **over) -> dict:
     items = items if items is not None else [{"sku": "refill", "qty": 2}]
     q = pricing.compute_quote(items, e, _rates(), address_id="a1", window_start=WINDOW,
                               rate_version=pricing.RATE_VERSION)
@@ -137,6 +139,25 @@ async def test_over_limit_and_hold_blocked_422():
     with pytest.raises(HoldBlockedError) as e2:
         await s.create("u2", _payload(), "k2")
     assert e2.value.code == "HOLD_BLOCKED" and e2.value.status_code == 422
+
+
+async def test_returned_empties_cannot_exceed_ledger_held():
+    c = _conn()
+    with pytest.raises(ValidationError) as e:
+        await _svc(c).create(
+            "u1", _payload(items=[{"sku": "container", "qty": 2}], e=2), "k1")
+    assert e.value.code == "VALIDATION" and e.value.details["held"] == 0
+
+
+async def test_cod_refused_when_dues_exceed_cap_but_upi_still_allowed():
+    c = _conn()
+    await LedgerRepo(_w(c)).apply_event(
+        "u1", d_dues=COD_MAX_PAISE + 1, ref="test:dues", reason="dues over cap")
+    with pytest.raises(CodNotAllowedError) as e:
+        await _svc(c).create("u1", _payload(), "k1")
+    assert e.value.code == "COD_NOT_ALLOWED" and e.value.status_code == 422
+    upi = await _svc(c).create("u1", _payload(payment_mode="upi"), "k2")
+    assert upi["payment_mode"] == "upi"
 
 
 async def test_idempotent_replay_returns_same_order():

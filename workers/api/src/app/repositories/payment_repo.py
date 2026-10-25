@@ -323,6 +323,53 @@ class PaymentRepo:
                 self._conn.rollback()
                 raise
 
+    async def switch_to_cod(self, order_id: str, user_id: str) -> dict:
+        """Convert one unpaid UPI order to COD atomically (no cancel/re-order).
+
+        Naturally idempotent: a COD order is returned unchanged. An open UPI
+        link is marked failed so a customer cannot pay the same order twice;
+        any already-captured payment stays authoritative and blocks the move.
+        """
+        with WRITE_LOCK:
+            order = (await self._conn.execute(
+                "SELECT * FROM orders WHERE id=? AND user_id=?", (order_id, user_id))).fetchone()
+            if order is None:
+                self._conn.rollback()
+                raise NotFoundError(message="Order not found.", details={"id": order_id})
+            if order["state"] in ("cancelled", "rejected"):
+                self._conn.rollback()
+                raise ConflictError(message="Order cannot be paid.", details={"id": order_id})
+            if order["payment_mode"] == "cod":
+                self._conn.rollback()
+                return dict(order)
+            if order["payment_status"] in ("paid_upi", "paid_cash", "partial_dues"):
+                self._conn.rollback()
+                raise ConflictError(
+                    message="This order already has a payment. Pay the remaining balance instead.",
+                    details={"id": order_id, "payment_status": order["payment_status"]})
+            captured = (await self._conn.execute(
+                "SELECT 1 FROM payments WHERE order_id=? AND status IN ('paid','partial') LIMIT 1",
+                (order_id,))).fetchone()
+            if captured is not None:
+                self._conn.rollback()
+                raise ConflictError(
+                    message="This order already has a payment. Pay the remaining balance instead.",
+                    details={"id": order_id})
+            try:
+                await self._conn.execute(
+                    "UPDATE payments SET status='failed'"
+                    " WHERE order_id=? AND status='link_sent'", (order_id,))
+                await self._conn.execute(
+                    "UPDATE orders SET payment_mode='cod', payment_status='unpaid' WHERE id=?",
+                    (order_id,))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            fresh = (await self._conn.execute(
+                "SELECT * FROM orders WHERE id=?", (order_id,))).fetchone()
+            return dict(fresh)
+
     # -- webhook (C16: duplicate ref → existing, no second credit) -------
 
     async def apply_webhook(self, provider_ref: str, amount: int, payee: str,

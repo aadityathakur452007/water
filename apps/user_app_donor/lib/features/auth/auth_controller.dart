@@ -261,7 +261,9 @@ class AuthController extends ChangeNotifier {
     required AuthApi api,
     required SessionStore store,
     this.deviceId = 'pending-device-id',
-    this.restoreTimeout = const Duration(seconds: 5),
+    // Longer than ApiClient's 12s refresh timeout so a slow-but-alive
+    // refresh is not cut off (and never mistaken for a dead session).
+    this.restoreTimeout = const Duration(seconds: 20),
   }) : _api = api,
        _store = store;
 
@@ -520,8 +522,9 @@ class AuthController extends ChangeNotifier {
 
   /// One transparent refresh at most. Shares a single in-flight attempt so a
   /// burst of 401s rotates once, persists the rotated pair, and returns true.
-  /// Never clears the local session before a successful refresh. Failure
-  /// forces the local session out with the expiry notice.
+  /// Never clears the local session before a successful refresh. Only an
+  /// explicit auth rejection (401/403) ends the session; network, timeout,
+  /// 429, 5xx and storage failures keep the refresh token for the next try.
   Future<bool> recoverSession() {
     final pending = _recovering;
     if (pending != null) return pending;
@@ -588,12 +591,21 @@ class AuthController extends ChangeNotifier {
       _status = AuthStatus.authenticated;
       _notify();
       return true;
-    } catch (_) {
+    } catch (error) {
       if (gen != _restoreGeneration) return false;
+      if (!_isAuthRejection(error)) {
+        // Transient (offline/timeout/429/5xx/storage): keep the stored pair.
+        // A later 401 or the next cold start can still rotate it.
+        return false;
+      }
       await forceLogout(sessionExpired: true);
       return false;
     }
   }
+
+  static bool _isAuthRejection(Object error) =>
+      error is ApiException &&
+      (error.statusCode == 401 || error.statusCode == 403);
 
   /// Local-only wipe (no server call): the global 401/403 hook
   /// (revoked/suspended/expired — must not call authed endpoints again,

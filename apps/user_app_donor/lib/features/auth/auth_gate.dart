@@ -1,9 +1,10 @@
 // Donor auth gate: cold-start restore splash → donor login / customer shell.
 //
-// Login-first. Session restore keeps the 032 5s timeout so a hung keychain can
-// never strand the splash. 034 adds the one-shot session-expiry notice: a
-// forced 401/403 wipe explains why the user is back at login; manual logout
-// never gets that copy.
+// Login-first. Session restore is bounded by AuthController.restoreTimeout
+// (20s, above the 12s refresh timeout) so a slow keychain or refresh cannot
+// strand the splash. 034 adds the one-shot session-expiry notice: a forced
+// 401/403 wipe explains why the user is back at login; manual logout and
+// transient network failures never get that copy.
 
 import 'package:flutter/material.dart';
 

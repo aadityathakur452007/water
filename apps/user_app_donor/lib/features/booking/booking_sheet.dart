@@ -391,6 +391,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   bool _canPay(bool busy) {
     if (busy || widget.address == null || !_stepValid) return false;
+    // Once the server has minted a row, this sheet must never create another.
+    if (_placed != null) return false;
+    // >3 jars with the customer blocks every new order, not just COD.
+    if (c.holdBlocked) return false;
     if (_isOnce) {
       if (_quote == null ||
           _quoteLoading ||
@@ -411,13 +415,14 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   Future<void> _pay() async {
     final addr = widget.address;
     if (addr == null || !_stepValid) return;
+    // A placed row is only ever paid through _recoverPayment/_switchToCod.
+    if (_placed != null) return;
     if (!_canPay(_phase == _Phase.paying)) return;
     setState(() {
       _phase = _Phase.paying;
       _error = '';
       _needsSignIn = false;
       _recovery = _Recovery.none;
-      _placed = null;
     });
 
     // Address identity: the id the sheet opened with must still exist.
@@ -464,7 +469,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           _error = result.attentionMessage.isNotEmpty
               ? result.attentionMessage
               : 'Your order is placed. The payment could not be started — '
-                    'retry payment or check Orders.';
+                    'retry payment, use Cash on Delivery, or check Orders.';
         });
         return;
       }
@@ -529,7 +534,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         _error = result.attentionMessage.isNotEmpty
             ? result.attentionMessage
             : 'Your order is placed. The payment could not be started — '
-                  'retry payment or check Orders.';
+                  'retry payment, use Cash on Delivery, or check Orders.';
       });
       return;
     }
@@ -543,7 +548,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           _recovery = _Recovery.created;
           _error =
               'Your order is placed, but the payment link is missing. '
-              'Retry payment or check Orders.';
+              'Retry payment, use Cash on Delivery, or check Orders.';
         });
         return;
       }
@@ -563,7 +568,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           _recovery = _Recovery.created;
           _error =
               'Your order is placed. No UPI app opened — retry the '
-              'payment or check Orders.';
+              'payment, use Cash on Delivery, or check Orders.';
         });
         return;
       }
@@ -579,8 +584,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         _phase = _Phase.error;
         _recovery = _Recovery.created;
         _error =
-            'Your order is placed. Online payment is not set up in '
-            'this build — check Orders.';
+            'Your order is placed. Online payment is not available right '
+            'now — use Cash on Delivery or check Orders.';
       });
       return;
     }
@@ -613,6 +618,48 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     }
   }
 
+  /// COD fallback for a placed UPI order whose payment cannot start: the SAME
+  /// order is converted server-side. No second order, no new idempotency key.
+  Future<void> _switchToCod() async {
+    final placed = _placed;
+    if (placed == null || placed.isSubscription || _phase == _Phase.paying) {
+      return;
+    }
+    setState(() {
+      _phase = _Phase.paying;
+      _error = '';
+    });
+    try {
+      await widget.api.switchOrderToCod(placed.orderId);
+      if (!mounted) return;
+      final cod = placed.asCod();
+      _placed = cod;
+      _allowPop = true;
+      c.resetBookingSession();
+      widget.onDone(cod);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.error;
+        _recovery = _Recovery.created;
+        _error = e.code == 'COD_NOT_ALLOWED'
+            ? 'Cash on Delivery is unavailable for this order. Retry the '
+                  'UPI payment or check Orders.'
+            : 'Could not switch to Cash on Delivery. Retry the payment or '
+                  'check Orders.';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.error;
+        _recovery = _Recovery.created;
+        _error =
+            'Could not switch to Cash on Delivery. Retry the payment or '
+            'check Orders.';
+      });
+    }
+  }
+
   Future<void> _requestIntent() async {
     final placed = _placed;
     if (placed == null) return;
@@ -622,7 +669,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     });
     final String failCopy =
         'The payment link is still unavailable. Try '
-        'again or check Orders.';
+        'again, use Cash on Delivery, or check Orders.';
     try {
       final intent = await widget.api.upiIntent(
         orderId: placed.orderId,
@@ -710,8 +757,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       _recovery = _Recovery.created;
       _error = resp.message?.isNotEmpty == true
           ? resp.message!
-          : 'Your order is placed. Payment failed — retry payment or check '
-                'Orders.';
+          : 'Your order is placed. Payment failed — retry payment, use '
+                'Cash on Delivery, or check Orders.';
     });
   }
 
@@ -997,6 +1044,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   Widget _payStep(bool busy) {
     final codOk = c.codAllowed;
+    // The payment method is sealed once the row exists: switching then would
+    // only change the label while the server order keeps its mode.
+    final chipsFrozen = busy || _placed != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1014,25 +1064,37 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               _PayChip(
                 label: 'UPI',
                 selected: c.paymentMode == PaymentMode.upi,
-                onTap: () => setState(() => c.paymentMode = PaymentMode.upi),
+                enabled: !chipsFrozen,
+                onTap: chipsFrozen
+                    ? null
+                    : () => setState(() => c.paymentMode = PaymentMode.upi),
               ),
               const SizedBox(width: 8),
               _PayChip(
                 label: 'Cash on delivery',
                 selected: c.paymentMode == PaymentMode.cod,
-                enabled: codOk,
-                onTap: codOk
+                enabled: codOk && !chipsFrozen,
+                onTap: (codOk && !chipsFrozen)
                     ? () => setState(() => c.paymentMode = PaymentMode.cod)
                     : null,
               ),
             ],
           ),
-          if (!codOk)
+          if (!codOk && !c.holdBlocked)
             const Padding(
               padding: EdgeInsets.only(top: 8),
               child: Text(
-                'Cash on delivery is unavailable over Rs 2,000, with dues, '
-                'or with more than 3 jars on hold. Choose UPI.',
+                'Cash on delivery is unavailable over Rs 2,000 or with dues. '
+                'Choose UPI.',
+                style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+              ),
+            ),
+          if (c.holdBlocked)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'More than 3 jars are with you. Return empties before '
+                'ordering again.',
                 style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
               ),
             ),
@@ -1142,7 +1204,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                               onPressed: busy ? null : _recoverPayment,
                               child: const Text('Retry payment'),
                             ),
-                            ElevatedButton(
+                            if (_isOnce && codOk)
+                              ElevatedButton(
+                                onPressed: busy ? null : _switchToCod,
+                                child: const Text('Use Cash on Delivery'),
+                              ),
+                            OutlinedButton(
                               onPressed: busy ? null : _checkOrders,
                               child: const Text('Check Orders'),
                             ),
@@ -1262,6 +1329,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       _quote = null;
       _quoteError = '';
     });
+    // The create payload carries this window: a changed slot must use a new
+    // idempotency key or the server rejects it as PAYLOAD_MISMATCH.
+    c.refreshIdempotencyKey();
     if (_step == _payStepIdx) _loadQuote();
   }
 

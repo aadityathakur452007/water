@@ -73,10 +73,10 @@ def _order_payload():
              "deposit": s.deposit_per_jar_paise}
     items = [{"sku": "refill", "qty": 2}]
     window = "2026-10-01T08:00:00+00:00"
-    q = pricing.compute_quote(items, 1, rates, address_id="a1",
+    q = pricing.compute_quote(items, 0, rates, address_id="a1",
                               window_start=window, rate_version=pricing.RATE_VERSION)
     return {
-        "items": items, "e": 1, "address_id": "a1", "window_start": window,
+        "items": items, "e": 0, "address_id": "a1", "window_start": window,
         "quote_hash": q["quote_hash"], "quote_total": q["total"],
         "quote_rate_version": q["rate_version"],
         "quote_expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),

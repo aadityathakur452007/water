@@ -84,7 +84,11 @@ async def test_due_run_auto_resume_fires_and_skips_failures_individually():
     svc = SubscriptionService(AsyncSqliteConn(c))
     paused = await _sub(c, next_run="2026-09-25")
     await svc.pause("u1", paused["id"], "2026-09-24", "2026-09-26")  # hold_to < today
-    big = await _sub(c, user="u2", address_id="a2", next_run=DAY, qty=11)  # OVER_LIMIT: fails alone
+    big = await _sub(c, user="u2", address_id="a2", next_run=DAY)
+    # Legacy row: the create API now caps plans at 10, so seed the bad qty
+    # directly to keep the scheduler's per-plan failure isolation covered.
+    c.execute("UPDATE subscriptions SET qty=11 WHERE id=?", (big["id"],))
+    c.commit()
     out = await run_due_subscriptions(AsyncSqliteConn(c), DAY)
     assert {r["sub_id"] for r in out["resumed"]} == {paused["id"]}
     assert (await svc.get_owned("u1", paused["id"]))["status"] == "active"

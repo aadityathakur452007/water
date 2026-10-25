@@ -151,9 +151,12 @@ class _ConfirmSheet extends StatelessWidget {
                       ),
                     )
                   else if (!r.attention)
-                    const Text(
-                      'The rider name and call button appear once assigned.',
-                      style: TextStyle(
+                    Text(
+                      r.payOnDelivery
+                          ? 'Pay ${rupeesLabel(r.totalPaise)} in cash when the '
+                                'rider arrives.'
+                          : 'The rider name and call button appear once assigned.',
+                      style: const TextStyle(
                         color: ShodashaTheme.muted,
                         fontSize: 13,
                       ),
