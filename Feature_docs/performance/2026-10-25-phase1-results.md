@@ -1,7 +1,7 @@
-# Phase 1A results — P0 money/cron correctness
+# Phase 1 results — P0 money/cron correctness and read-path batching
 
 **Date:** 2026-10-25  
-**Status:** Implemented locally and verified on SQLite; staging apply blocked by the account's D1 free-tier daily row-write limit; production untouched.  
+**Status:** Phase 1A and Phase 1B implemented locally and verified on SQLite; staging apply blocked by the account's D1 free-tier daily row-write limit; production untouched.  
 **Spec:** `2026-10-25-phase1-p0-correctness-spec.md`  
 **Audit:** `2026-10-25-1000-user-capacity-audit.md`  
 **Phase 0 evidence:** `2026-10-25-phase0-results.md`
@@ -26,8 +26,9 @@ database is unchanged. No bypass was attempted. The apply must be retried after
 the quota resets at midnight UTC, then the Worker deploy and atomicity smoke can
 run.
 
-Phase 1B (vendor-route and dues N+1 batching) is deferred to a separate release
-so a read-path change cannot be confused with a money regression.
+Phase 1B (vendor-route and dues N+1 batching) was approved after Phase 1A and
+implemented in the same local release as a separate commit; see §9. It changes
+no schema and no money mutation.
 
 ## 2. What shipped
 
@@ -136,7 +137,8 @@ provider calls, no secrets in logs).
   is not met.
 - `water-staging` has **not** been redeployed with Phase 1A code.
 - The staging atomicity smoke has **not** run.
-- Phase 1B N+1 batching is **not** included.
+- Phase 1B read-path batching is implemented locally (§9) but has **not** been
+  staging-verified.
 - Production `water` / D1 `shodasha` remain untouched: no migration, deploy,
   write, or load test.
 - No real subscription-adoption data exists; the seed billing mix is synthetic.
@@ -158,3 +160,48 @@ provider calls, no secrets in logs).
 - Migration: `workers/api/src/app/db/migrations/029_p0_correctness.sql`
 - Tests: `workers/api/tests/test_p0_atomicity.py`, `test_d1_batch.py`,
   `test_indexes.py`, `test_scheduler.py`
+
+## 9. Phase 1B addendum — read-path N+1 batching (2026-10-25, ADR-142)
+
+Approved after Phase 1A: two read paths only, no migration, no API shape change,
+no write-path change.
+
+| Path | Before (Phase 0) | After (service level) | Change |
+|---|---|---|---|
+| `GET /v1/vendor/routes/today` | **85 statements / 162 rows** at the endpoint for 40 stops | **6 queries / 6 roundtrips / 42 rows** for a 40-stop route | 1 ledger `held` aggregate + 1 payments `paid` aggregate replace 2 reads per stop |
+| `GET /v1/billing/dues` | **15 statements / 14 rows** for ~6 open orders | **4 queries / 4 roundtrips / 40 rows** for 40 open orders | 1 paid-sum aggregate + 1 dues-posted aggregate replace 2 reads per open order |
+
+Implementation:
+
+- `LedgerRepo.held_for_customers(ids)` — `SELECT customer_id, held FROM ledger
+  WHERE customer_id IN (...)`, missing customer → `0`.
+- `PaymentRepo.paid_sums_for_orders(ids)` — `SUM(amount)` grouped by order,
+  status `paid`/`partial`, missing order → `0`.
+- `PaymentRepo.dues_posted_for_orders(ids)` — `DISTINCT ref_id` from
+  `ledger_events` where `ref_type='order'`, `kind='dues'`, `d_dues>0`.
+- Ids are deduped and empty ids dropped; an empty list skips the query. Chunks
+  of 90 keep every statement under D1's 100-bound-parameter cap.
+- `today_route` keeps the address-snapshot overlay and the `held > 3`
+  hold-block rule; `get_dues` keeps line order and the COD double-count guard.
+- Single-order helpers (`paid_sum_for_order`, `_dues_posted`, `get_invoice`,
+  `cod_confirm`) are untouched.
+
+Verification:
+
+- Targeted `test_vendor.py` + `test_payments.py`: **54 passed**.
+- Full backend suite: **443 passed in 23.00s**.
+- Ruff on every changed source/test file: **All checks passed**.
+- New tests: per-customer/per-order map parity, query count equal for 1 vs 40
+  stops, 95-customer chunk/dedupe, dues query count equal for 1 vs 40 open
+  orders, and a 95-order chunk test asserting exactly 6 dues statements
+  (1 ledger + 1 orders + 2 paid chunks + 2 posted chunks).
+- Measured with the observability `RequestMetrics` on seeded SQLite. Local
+  SQLite still does not model D1 network latency or row accounting, so staging
+  remains the proof.
+
+Not included: `_stop_field_cols` schema caching, `settle_dues_intent`
+allocation loop, admin/order-detail N+1, read `batch()`, any write-path change.
+
+Artifacts: `workers/api/src/app/repositories/{ledger_repo,payment_repo}.py`,
+`workers/api/src/app/services/{vendor_service,payment_service}.py`,
+`workers/api/tests/{test_vendor,test_payments}.py`.

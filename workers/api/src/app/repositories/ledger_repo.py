@@ -19,6 +19,8 @@ from app.db_d1 import AsyncSqliteConn, D1Conn
 
 Conn = D1Conn | AsyncSqliteConn
 
+_CHUNK = 90  # D1 allows 100 bound parameters per statement
+
 
 class HoldNegativeError(AppError):
     code = "HOLD_NEGATIVE"
@@ -71,6 +73,20 @@ class LedgerRepo:
                 "rate_override": None,
             }
         return dict(row)
+
+    async def held_for_customers(self, customer_ids: list[str]) -> dict[str, int]:
+        """Held-jar counts for many customers (chunked for D1's parameter cap)."""
+        ids = list(dict.fromkeys(c for c in customer_ids if c))
+        out: dict[str, int] = {}
+        for i in range(0, len(ids), _CHUNK):
+            chunk = ids[i:i + _CHUNK]
+            marks = ",".join("?" * len(chunk))
+            rows = (await self._conn.execute(
+                f"SELECT customer_id, held FROM ledger WHERE customer_id IN ({marks})",
+                tuple(chunk),
+            )).fetchall()
+            out.update({r["customer_id"]: int(r["held"]) for r in rows})
+        return out
 
     async def apply_event(
         self,

@@ -104,6 +104,21 @@ async def _order(c, user="u1", mode="upi", key="k1") -> dict:
     return await _osvc(c).create(user, _payload(mode=mode), key)
 
 
+def _add_open_orders(c, n: int, prefix: str = "open") -> list[str]:
+    """Insert n unpaid orders directly (dues query-count/chunk tests)."""
+    now = datetime.now(timezone.utc).isoformat()
+    ids = [f"{prefix}{i}" for i in range(n)]
+    c.executemany(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill,"
+        " deposit_due, total, payment_mode, payment_status, state, window_start,"
+        " idempotency_key, created_at) VALUES (?, 'u1', 'a1', '[]', 1, 0, 2800,"
+        " 0, 2800, 'upi', 'unpaid', 'placed', ?, ?, ?)",
+        [(oid, WINDOW, f"seed:{oid}", now) for oid in ids],
+    )
+    c.commit()
+    return ids
+
+
 # -- captured event → paid_upi + dues zeroed ---------------------------------
 
 async def test_captured_paid_upi_dues_zeroed():
@@ -217,6 +232,71 @@ async def test_cod_partial_cash_carried():
     res = await s.mark_cash(o["id"], half, "vendor-1")
     assert res["order"]["payment_status"] == "partial_dues"
     assert (await s.get_dues("u1"))["dues"] == o["total"] - half  # partials carried, never zeroed
+
+
+async def test_get_dues_query_count_independent_of_open_orders():
+    from app.core.observability import reset_metrics, start_metrics
+
+    async def count(c):
+        metrics, token = start_metrics()
+        try:
+            await _svc(c).get_dues("u1")
+        finally:
+            reset_metrics(token)
+        return metrics.db_queries, metrics.db_roundtrips
+
+    one = _conn()
+    _add_open_orders(one, 1)
+    many = _conn()
+    _add_open_orders(many, 40)
+
+    q1 = await count(one)
+    q40 = await count(many)
+    assert q1 == q40
+    assert q1[0] <= 6  # ledger + open orders + paid aggregate + dues-posted aggregate
+
+
+async def test_get_dues_chunks_paid_and_posted_aggregates():
+    from app.core.observability import reset_metrics, start_metrics
+
+    c = _conn()
+    ids = _add_open_orders(c, 95)
+    now = datetime.now(timezone.utc).isoformat()
+    for i, oid in enumerate(ids):
+        if i % 2 == 0:
+            c.execute(
+                "INSERT INTO payments(id, order_id, user_id, amount, method,"
+                " provider_ref, status, created_at) VALUES (?, ?, 'u1', 1000,"
+                " 'upi', ?, 'paid', ?)",
+                (f"pay{i}", oid, f"ref{i}", now),
+            )
+        if i % 3 == 0:
+            c.execute(
+                "INSERT INTO ledger_events(id, customer_id, kind, d_dues, ref_type,"
+                " ref_id, actor_id, reason, created_at) VALUES (?, 'u1', 'dues',"
+                " 2800, 'order', ?, 'system', 'cod dues', ?)",
+                (f"ev{i}", oid, now),
+            )
+    c.execute("INSERT INTO ledger(customer_id, dues) VALUES ('u1', 500)")
+    c.commit()
+
+    metrics, token = start_metrics()
+    try:
+        out = await _svc(c).get_dues("u1")
+    finally:
+        reset_metrics(token)
+
+    expected_order_due = sum(
+        2800 - (1000 if i % 2 == 0 else 0)
+        for i in range(95) if i % 3 != 0
+    )
+    assert out["dues"] == 500 + expected_order_due
+    assert len(out["lines"]) == 95
+    assert out["lines"][0] == {"order_id": "open0", "total": 2800, "paid": 1000,
+                               "due": 1800, "status": "unpaid"}
+    assert out["lines"][1]["paid"] == 0 and out["lines"][1]["due"] == 2800
+    assert metrics.db_queries == 6  # 1 ledger + 1 orders + 2 paid + 2 posted
+    assert metrics.db_roundtrips == 6
 
 
 async def test_switch_unpaid_upi_to_cod_reuses_order_and_voids_link():

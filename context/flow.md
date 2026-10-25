@@ -1501,7 +1501,23 @@ New schema (migration 029, additive): `orders.mutation_token`, `payments.settlem
 
 Webhook response shape: `POST /v1/webhooks/upi` strips `settlement_token`, `mutation_token`, and `refund_id` from payment/dues payloads; a dues duplicate is returned as top-level `duplicate` (not nested in `dues_intent`); `_refund_queued` is preserved. A cancel response keeps the cancel refund (`payment_id=order_id`); a late-capture refund is a separate row in the admin refunds list.
 
-Phase 1B (deferred, separate release): batch vendor-route ledger/paid-sum reads and dues paid-sum/dues-posted reads to 2–3 roundtrips.
+## Phase 1B — read-path N+1 batching (implemented locally, ADR-142)
+
+```
+VendorService.today_route
+  ├─ route + 2 pragma probes + stop rows (unchanged)
+  ├─ LedgerRepo.held_for_customers(stop customer_ids)   → 1 SELECT ... IN (chunk 90)
+  ├─ PaymentRepo.paid_sums_for_orders(stop order_ids)   → 1 GROUP BY ... IN (chunk 90)
+  └─ per-stop overlay reads the two maps (hold_blocked, paid_sum)
+
+PaymentService.get_dues
+  ├─ ledger.get(user) + open-orders SELECT (unchanged)
+  ├─ PaymentRepo.paid_sums_for_orders(order_ids)        → 1 GROUP BY ... IN (chunk 90)
+  ├─ PaymentRepo.dues_posted_for_orders(order_ids)      → 1 DISTINCT ... IN (chunk 90)
+  └─ lines / order_due / dues computed from the maps
+```
+
+Helpers dedupe and drop empty ids; an empty list issues no query. Chunk = 90 (D1's 100-parameter cap). Single-order `paid_sum_for_order`/`_dues_posted` stay for `get_invoice` and `cod_confirm`. No migration, no `batch()` for reads, no write-path change. Measured on seeded SQLite: route **6 queries / 6 roundtrips** for 40 stops (was 85 statements at the endpoint), dues **4 / 4** for 40 open orders (was 15).
 
 ## Update Protocol (MANDATORY)
 

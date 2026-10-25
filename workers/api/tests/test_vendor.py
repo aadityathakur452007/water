@@ -97,6 +97,26 @@ def _conn():
     return c
 
 
+def _add_route_stops(c, n: int) -> None:
+    """Append n distinct orders/stops to the seeded route (query-count tests)."""
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    for i in range(n):
+        oid, sid = f"xo{i}", f"xs{i}"
+        c.execute(
+            "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill,"
+            " deposit_due, total, payment_mode, state, window_start, idempotency_key,"
+            " created_at) VALUES (?, 'u1', 'a1', '[]', 1, 0, 2800, 0, 2800, 'cod',"
+            " 'placed', '2026-10-01T08:00Z', ?, ?)",
+            (oid, f"seed:{oid}", now),
+        )
+        c.execute(
+            "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+            " empties_exp, version, status) VALUES (?, 'r1', ?, 'u1', ?, 1, 0, 1, 'pending')",
+            (sid, oid, 10 + i),
+        )
+    c.commit()
+
+
 def _svc(c) -> VendorService:
     return VendorService(AsyncSqliteConn(c))
 
@@ -512,8 +532,6 @@ def _return(c, rid="ret1", qty=2, status="requested"):
 
 
 def test_return_pickup_ledger_and_isolation():
-    from app.repositories.ledger_repo import LedgerRepo
-
     c = _conn()
     _session(c, "v1", "vendor", "tok-vendor")
     _session(c, "v2", "vendor", "tok-v2")
@@ -622,6 +640,67 @@ async def test_today_route_carries_paid_sum():
     assert s2["paid_sum"] == 0  # no payments yet
     s4 = next(s for s in out["stops"] if s["id"] == "s4")
     assert s4["paid_sum"] == 0  # return stop, no order
+
+
+async def test_today_route_maps_held_and_paid_per_customer_and_order():
+    from app.repositories.ledger_repo import LedgerRepo
+
+    c = _conn()
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO users(id, phone, role, created_at) VALUES ('u2', '+915555555555', 'user', ?)",
+        (now,),
+    )
+    c.execute("UPDATE stops SET customer_id = 'u2' WHERE id = 's2'")
+    c.commit()
+    ledger = LedgerRepo(AsyncSqliteConn(c))
+    await ledger.apply_event("u1", d_held=4, ref="seed:u1", actor="t", reason="t")
+    await ledger.apply_event("u2", d_held=1, ref="seed:u2", actor="t", reason="t")
+    await _svc(c).cash_post("v1", "s1", 1000)  # o1 partial: 1000 of 20600
+
+    out = await _svc(c).today_route("v1", DAY)
+    by_id = {s["id"]: s for s in out["stops"]}
+    assert by_id["s1"]["hold_blocked"] is True and by_id["s1"]["paid_sum"] == 1000
+    assert by_id["s2"]["hold_blocked"] is False and by_id["s2"]["paid_sum"] == 0
+    assert by_id["s3"]["hold_blocked"] is True and by_id["s3"]["paid_sum"] == 0
+
+
+async def test_today_route_query_count_independent_of_stop_count():
+    from app.core.observability import reset_metrics, start_metrics
+
+    async def count(c):
+        metrics, token = start_metrics()
+        try:
+            await _svc(c).today_route("v1", DAY)
+        finally:
+            reset_metrics(token)
+        return metrics.db_queries, metrics.db_roundtrips
+
+    one = _conn()
+    one.execute("DELETE FROM stops WHERE id != 's1'")
+    one.commit()
+    many = _conn()
+    _add_route_stops(many, 36)  # 4 seeded + 36 = 40
+
+    q1 = await count(one)
+    q40 = await count(many)
+    assert q1 == q40
+    assert q1[0] <= 6  # route + 2 schema probes + stops + ledger + paid
+
+
+async def test_held_for_customers_chunks_and_dedupes():
+    from app.repositories.ledger_repo import LedgerRepo
+
+    c = _conn()
+    ids = [f"hc{i}" for i in range(95)]
+    c.executemany(
+        "INSERT INTO ledger(customer_id, held) VALUES (?, ?)",
+        [(cid, i % 5) for i, cid in enumerate(ids)],
+    )
+    c.commit()
+    got = await LedgerRepo(AsyncSqliteConn(c)).held_for_customers(ids + ["hc0", ""])
+    assert len(got) == 95
+    assert got["hc0"] == 0 and got["hc94"] == 4
 
 
 async def test_get_stop_carries_paid_sum():

@@ -332,6 +332,11 @@ class VendorService:
         from app.services.order_service import HOLD_BLOCK_LIMIT
         from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
 
+        held_by_customer = await self.ledger.held_for_customers(
+            [s["customer_id"] for s in stops if s.get("customer_id")])
+        paid_by_order = await PaymentRepo(self._conn).paid_sums_for_orders(
+            [s["order_id"] for s in stops if s.get("order_id")])
+
         for s in stops:
             # Address snapshot overlay: frozen address snapshot takes precedence
             # so customer address book edits do not drift an in-flight delivery stop
@@ -351,19 +356,14 @@ class VendorService:
                             s["customer_phone"] = snap.get("customer_phone") or snap.get("phone")
                 except Exception:
                     pass
-            held = 0
-            if s.get("customer_id"):
-                held = int((await self.ledger.get(s["customer_id"])).get("held", 0))
+            held = int(held_by_customer.get(s.get("customer_id"), 0))
             s["hold_blocked"] = held > HOLD_BLOCK_LIMIT
             if s["hold_blocked"]:
                 s["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
             # Phase 5 §5.2: paid-to-date per stop (return/pickup stops have no
             # order → 0). UI renders Collect total−paid_sum; never the full
             # total on partial/link_sent rows.
-            paid = 0
-            if s.get("order_id"):
-                paid = int(await PaymentRepo(self._conn).paid_sum_for_order(s["order_id"]))
-            s["paid_sum"] = paid
+            s["paid_sum"] = int(paid_by_order.get(s.get("order_id"), 0))
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
             "route": dict(route),

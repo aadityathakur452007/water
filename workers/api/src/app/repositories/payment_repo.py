@@ -26,6 +26,8 @@ Conn = D1Conn | AsyncSqliteConn
 
 INTENT_ENDPOINT = "POST /v1/payments/upi-intent"
 
+_CHUNK = 90  # D1 allows 100 bound parameters per statement
+
 
 class AmountMismatchError(AppError):
     code = "AMOUNT_MISMATCH"
@@ -154,6 +156,22 @@ class PaymentRepo:
         ).fetchone()
         return int(row["s"])
 
+    async def paid_sums_for_orders(self, order_ids: list[str]) -> dict[str, int]:
+        """Paid-to-date per order (chunked for D1's parameter cap)."""
+        ids = list(dict.fromkeys(o for o in order_ids if o))
+        out: dict[str, int] = {}
+        for i in range(0, len(ids), _CHUNK):
+            chunk = ids[i:i + _CHUNK]
+            marks = ",".join("?" * len(chunk))
+            rows = (await self._conn.execute(
+                "SELECT order_id, COALESCE(SUM(amount),0) AS paid FROM payments"
+                f" WHERE order_id IN ({marks}) AND status IN ('paid','partial')"
+                " GROUP BY order_id",
+                tuple(chunk),
+            )).fetchall()
+            out.update({r["order_id"]: int(r["paid"]) for r in rows})
+        return out
+
     async def list_user_payments(self, user_id: str, limit: int = 50) -> list[dict]:
         rows = (
             await self._conn.execute(
@@ -182,6 +200,21 @@ class PaymentRepo:
             )
         ).fetchone()
         return row is not None
+
+    async def dues_posted_for_orders(self, order_ids: list[str]) -> set[str]:
+        """Order ids that already have a positive dues ledger event."""
+        ids = list(dict.fromkeys(o for o in order_ids if o))
+        out: set[str] = set()
+        for i in range(0, len(ids), _CHUNK):
+            chunk = ids[i:i + _CHUNK]
+            marks = ",".join("?" * len(chunk))
+            rows = (await self._conn.execute(
+                "SELECT DISTINCT ref_id FROM ledger_events WHERE ref_type='order'"
+                f" AND kind='dues' AND d_dues>0 AND ref_id IN ({marks})",
+                tuple(chunk),
+            )).fetchall()
+            out.update(r["ref_id"] for r in rows)
+        return out
 
     # -- intent (reserve locally BEFORE the provider call) ----------------
 

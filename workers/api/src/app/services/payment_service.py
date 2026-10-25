@@ -235,17 +235,20 @@ class PaymentService:
             " ORDER BY created_at, id",
             (user_id,),
         )).fetchall()
+        order_ids = [r["id"] for r in rows]
+        paid_by_order = await self.payments.paid_sums_for_orders(order_ids)
+        dues_posted = await self.payments.dues_posted_for_orders(order_ids)
         lines = []
         order_due = 0
         for r in rows:
-            paid = await self.payments.paid_sum_for_order(r["id"])
-            due = max(0, int(r["total"]) - int(paid))
+            paid = int(paid_by_order.get(r["id"], 0))
+            due = max(0, int(r["total"]) - paid)
             # COD remainders are already carried in ledger.dues; including
             # them again here would double-count the same rupees.
-            if not await self.payments._dues_posted(r["id"]):
+            if r["id"] not in dues_posted:
                 order_due += due
             lines.append({"order_id": r["id"], "total": int(r["total"]),
-                          "paid": int(paid), "due": due, "status": r["payment_status"]})
+                          "paid": paid, "due": due, "status": r["payment_status"]})
         dues = int(led["dues"]) + int(order_due)
         vpa = self.agency_vpa
         if vpa is None:
