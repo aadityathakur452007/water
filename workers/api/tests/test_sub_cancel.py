@@ -13,9 +13,11 @@ from app.services.subscription_service import SubscriptionService, SubValidation
 from app.repositories.ledger_repo import LedgerRepo
 
 MIGS = [
-    "002_auth.sql", "003_addresses.sql", "004_orders.sql",
-    "006_aftermath.sql", "012_monthly.sql", "021_return_upi.sql",
+    "002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
+    "006_aftermath.sql", "010_config_audit.sql", "012_monthly.sql",
+    "019_rate_counters.sql", "021_return_upi.sql",
     "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql",
+    "029_p0_correctness.sql",
 ]
 
 

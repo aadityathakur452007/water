@@ -15,6 +15,7 @@ import logging
 
 from app.api.deps import get_settings
 from app.core.errors import error_envelope, get_trace_id
+from app.core.worker_env import env_get
 
 log = logging.getLogger(__name__)
 
@@ -83,11 +84,22 @@ def _throttled(request: Request, retry_after_s: int) -> JSONResponse:
     return _secure(response)
 
 
+def _throttle_limit() -> int:
+    """Settings default, overridable per Worker env (staging benchmark)."""
+    raw = env_get("THROTTLE_ANON_PER_MIN")
+    if raw:
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            pass
+    return get_settings().throttle_anon_per_min
+
+
 async def throttle_middleware(request: Request, call_next):
     path = request.url.path.rstrip("/") or "/"
     if request.method == "OPTIONS" or path not in _THROTTLED_PATHS:
         return await call_next(request)
-    limit = get_settings().throttle_anon_per_min
+    limit = _throttle_limit()
     host = request.client.host if request.client and request.client.host else "unknown"
     key = f"throttle:{host}:{path}"
     now = time.monotonic()
@@ -95,8 +107,8 @@ async def throttle_middleware(request: Request, call_next):
         hits = [t for t in _throttle_hits.get(key, []) if t > now - _THROTTLE_WINDOW_S]
         if len(hits) >= limit:
             retry = int(max(1, _THROTTLE_WINDOW_S - (now - hits[0])))
-            # Phase 8 §8.4: observability on limit hits (pairs with Phase 10 alerting).
-            log.warning("rate_limit edge_hit path=%s host=%s retry_after_s=%d", path, host, retry)
+            # Never log the client IP (Phase 0 redaction contract).
+            log.warning("rate_limit edge_hit path=%s retry_after_s=%d", path, retry)
             return _throttled(request, retry)
         hits.append(now)
         _throttle_hits[key] = hits

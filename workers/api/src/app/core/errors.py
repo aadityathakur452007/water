@@ -5,6 +5,7 @@ Trace id comes from the X-Trace-Id header (echoed) or is generated. Unknown
 errors map to a generic 500 — no stack traces, SQL, or secrets leak to clients.
 """
 
+import re
 import uuid
 
 from fastapi import FastAPI, Request
@@ -13,15 +14,26 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 TRACE_HEADER = "X-Trace-Id"
+_TRACE_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def safe_trace_id(raw: object) -> str:
+    """Return a log-safe trace id (never client-controlled control chars)."""
+    value = str(raw) if raw is not None else ""
+    if _TRACE_RE.match(value):
+        return value
+    return uuid.uuid4().hex[:16]
 
 
 def get_trace_id(request: Request) -> str:
-    header_trace = request.headers.get(TRACE_HEADER)
-    if header_trace:
-        return header_trace
+    # Middleware sanitizes the header once and stores the result on state;
+    # prefer it so the envelope and the response header always agree.
     state_trace = getattr(request.state, "trace_id", None)
     if state_trace:
-        return state_trace
+        return safe_trace_id(state_trace)
+    header_trace = request.headers.get(TRACE_HEADER)
+    if header_trace:
+        return safe_trace_id(header_trace)
     return uuid.uuid4().hex[:16]
 
 

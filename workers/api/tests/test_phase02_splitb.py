@@ -29,7 +29,9 @@ def _rzp(monkeypatch):
     stub_orders_api(monkeypatch)
 
 MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql", "007_ops.sql",
-        "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql"]
+        "019_rate_counters.sql",
+        "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql",
+        "029_p0_correctness.sql"]
 
 
 def _conn():

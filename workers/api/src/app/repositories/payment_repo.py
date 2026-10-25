@@ -96,6 +96,33 @@ def _payload_hash(order_id: str, amount: int) -> str:
     return hashlib.sha256(f"{order_id}:{int(amount)}".encode()).hexdigest()
 
 
+def _payment_guard(payment_id: str, token: str) -> tuple[str, tuple]:
+    """SQL condition only the batch that wrote ``settlement_token`` sees."""
+    return ("EXISTS (SELECT 1 FROM payments WHERE id = ? AND settlement_token = ?)",
+            (payment_id, token))
+
+
+def _refund_worthy(order_id: str) -> tuple[str, tuple]:
+    """A capture must be refunded when the order is dead, COD, or already paid."""
+    return (
+        "EXISTS (SELECT 1 FROM orders WHERE id = ?"
+        " AND (state IN ('cancelled','rejected') OR payment_mode = 'cod'"
+        " OR payment_status IN ('paid_upi','paid_cash')))",
+        (order_id,),
+    )
+
+
+def _can_mark_paid(order_id: str) -> tuple[str, tuple]:
+    """The only order state a normal UPI capture may settle."""
+    return (
+        "EXISTS (SELECT 1 FROM orders WHERE id = ?"
+        " AND state NOT IN ('cancelled','rejected')"
+        " AND payment_mode != 'cod'"
+        " AND payment_status NOT IN ('paid_upi','paid_cash'))",
+        (order_id,),
+    )
+
+
 class PaymentRepo:
     def __init__(self, conn: Conn):
         self._conn = conn
@@ -324,7 +351,7 @@ class PaymentRepo:
                 raise
 
     async def switch_to_cod(self, order_id: str, user_id: str) -> dict:
-        """Convert one unpaid UPI order to COD atomically (no cancel/re-order).
+        """Convert one unpaid UPI order to COD in one CAS batch (no cancel/re-order).
 
         Naturally idempotent: a COD order is returned unchanged. An open UPI
         link is marked failed so a customer cannot pay the same order twice;
@@ -355,17 +382,34 @@ class PaymentRepo:
                 raise ConflictError(
                     message="This order already has a payment. Pay the remaining balance instead.",
                     details={"id": order_id})
-            try:
-                await self._conn.execute(
+            rows = await self._conn.batch([
+                (
+                    "UPDATE orders SET payment_mode='cod', payment_status='unpaid'"
+                    " WHERE id=? AND user_id=? AND payment_mode!='cod'"
+                    " AND payment_status NOT IN ('paid_upi','paid_cash','partial_dues')"
+                    " AND NOT EXISTS (SELECT 1 FROM payments WHERE order_id=?"
+                    "                 AND status IN ('paid','partial'))",
+                    (order_id, user_id, order_id),
+                ),
+                (
                     "UPDATE payments SET status='failed'"
-                    " WHERE order_id=? AND status='link_sent'", (order_id,))
-                await self._conn.execute(
-                    "UPDATE orders SET payment_mode='cod', payment_status='unpaid' WHERE id=?",
-                    (order_id,))
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
+                    " WHERE order_id=? AND status='link_sent'"
+                    " AND EXISTS (SELECT 1 FROM orders WHERE id=? AND payment_mode='cod')",
+                    (order_id, order_id),
+                ),
+            ])
+            self._conn.commit()
+            if rows[0].rowcount == 0:
+                fresh = (await self._conn.execute(
+                    "SELECT * FROM orders WHERE id=? AND user_id=?",
+                    (order_id, user_id))).fetchone()
+                if fresh is None:
+                    raise NotFoundError(message="Order not found.", details={"id": order_id})
+                if fresh["payment_mode"] == "cod":
+                    return dict(fresh)
+                raise ConflictError(
+                    message="This order already has a payment. Pay the remaining balance instead.",
+                    details={"id": order_id, "payment_status": fresh["payment_status"]})
             fresh = (await self._conn.execute(
                 "SELECT * FROM orders WHERE id=?", (order_id,))).fetchone()
             return dict(fresh)
@@ -374,6 +418,14 @@ class PaymentRepo:
 
     async def apply_webhook(self, provider_ref: str, amount: int, payee: str,
                       order_id: str | None = None) -> dict:
+        """Settle one provider capture in a single CAS batch.
+
+        Exactly one of "mark the order paid" and "queue a refund" applies at
+        batch time, expressed in SQL. A concurrent cancel either claims the
+        payment first (this batch then refunds nothing) or loses the order CAS
+        (this batch refunds its own capture). ``_duplicate`` /
+        ``_refund_queued`` are internal response flags.
+        """
         self.assert_payee(payee)
         with WRITE_LOCK:
             existing = await self.find_by_provider_ref(provider_ref)
@@ -388,62 +440,88 @@ class PaymentRepo:
             if int(amount) != int(order["total"]):
                 raise AmountMismatchError(message="Amount does not match the frozen bill.",
                                           details={"expected": int(order["total"])})
-            try:
-                await self._conn.execute(
-                    "UPDATE payments SET status='paid', verified_at=? WHERE id=?",
-                    (_now(), existing["id"]),
-                )
-                if order["state"] in ("cancelled", "rejected"):
-                    # Money arrived after the order died: record the capture
-                    # and queue the exact refund. Never resurrect the order.
-                    refund_id = uuid.uuid4().hex
-                    await self._conn.execute(
-                        "INSERT OR IGNORE INTO refunds(id, order_id, payment_id,"
-                        " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
-                        " VALUES (?,?,?,?,?,'pending',NULL,NULL,0,?,NULL)",
-                        (refund_id, order["id"], existing["id"], int(amount),
-                         str(existing.get("method") or "upi"), _now()),
+
+            now = _now()
+            token = uuid.uuid4().hex
+            refund_id = uuid.uuid4().hex
+            pay_guard = _payment_guard(existing["id"], token)
+            refund_guard = _refund_worthy(order["id"])
+            paid_guard = _can_mark_paid(order["id"])
+            stmts: list[tuple[str, tuple]] = [
+                (
+                    "UPDATE payments SET status='paid', verified_at=?, settlement_token=?"
+                    " WHERE id=? AND status!='paid'",
+                    (now, token, existing["id"]),
+                ),
+                (
+                    "UPDATE payments SET refund_id=?"
+                    " WHERE id=? AND refund_id IS NULL"
+                    f" AND {pay_guard[0]} AND {refund_guard[0]}",
+                    (refund_id, existing["id"], *pay_guard[1], *refund_guard[1]),
+                ),
+                (
+                    "INSERT OR IGNORE INTO refunds(id, order_id, payment_id, amount, method,"
+                    " status, claimed_by, claimed_at, attempts, created_at, done_at)"
+                    " SELECT ?, ?, ?, ?, ?, 'pending', NULL, NULL, 0, ?, NULL"
+                    " WHERE EXISTS (SELECT 1 FROM payments WHERE id=? AND refund_id=?)",
+                    (refund_id, order["id"], existing["id"], int(amount),
+                     str(existing.get("method") or "upi"), now, existing["id"], refund_id),
+                ),
+                (
+                    "UPDATE orders SET payment_status='paid_upi'"
+                    f" WHERE id=? AND {paid_guard[0]} AND {pay_guard[0]}",
+                    (order["id"], *paid_guard[1], *pay_guard[1]),
+                ),
+                (
+                    # A refunded capture never leaves a stale "link_sent" on a
+                    # COD/dead order: cash is still due at the door.
+                    "UPDATE orders SET payment_status='unpaid'"
+                    " WHERE id=? AND payment_status='link_sent'"
+                    f" AND {pay_guard[0]} AND {refund_guard[0]}",
+                    (order["id"], *pay_guard[1], *refund_guard[1]),
+                ),
+            ]
+            if await self._dues_posted(order["id"]):
+                led = LedgerRepo(self._conn)
+                dues = int((await led.get(order["user_id"]))["dues"])
+                if dues > 0:  # clear only what this order posted
+                    # The clear runs after the order CAS, so its guard is the
+                    # post-state "this batch marked it paid_upi" plus the
+                    # payment token — not the pre-state _can_mark_paid check.
+                    guard_sql = (
+                        f"{pay_guard[0]}"
+                        " AND EXISTS (SELECT 1 FROM orders WHERE id=?"
+                        "             AND payment_status='paid_upi')"
+                        " AND EXISTS (SELECT 1 FROM ledger_events WHERE ref_type='order'"
+                        " AND ref_id=? AND kind='dues' AND d_dues>0)"
                     )
-                    self._conn.commit()
-                    return {**dict((await self._conn.execute(
-                        "SELECT * FROM payments WHERE id=?", (existing["id"],))).fetchone()),
-                        "_refund_queued": True}
-                if order["payment_status"] in ("paid_upi", "paid_cash"):
-                    # A second capture for an already-settled order is a
-                    # duplicate payment, not extra revenue.
-                    refund_id = uuid.uuid4().hex
-                    await self._conn.execute(
-                        "INSERT OR IGNORE INTO refunds(id, order_id, payment_id,"
-                        " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
-                        " VALUES (?,?,?,?,?,'pending',NULL,NULL,0,?,NULL)",
-                        (refund_id, order["id"], existing["id"], int(amount),
-                         str(existing.get("method") or "upi"), _now()),
-                    )
-                    self._conn.commit()
-                    return {**dict((await self._conn.execute(
-                        "SELECT * FROM payments WHERE id=?", (existing["id"],))).fetchone()),
-                        "_refund_queued": True}
-                await self._conn.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?",
-                                   (order["id"],))
-                if await self._dues_posted(order["id"]):
-                    led = LedgerRepo(self._conn)
-                    dues = int((await led.get(order["user_id"]))["dues"])
-                    if dues > 0:  # clear only what this order posted
-                        await led.apply_event(order["user_id"], d_dues=-min(dues, int(amount)),
-                                        ref=f"order:{order['id']}", actor="upi-webhook",
-                                        reason="upi paid", commit=False)
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
-            return dict((
-                await self._conn.execute("SELECT * FROM payments WHERE id=?",
-                                           (existing["id"],))
-            ).fetchone())
+                    guard_params = (*pay_guard[1], order["id"], order["id"])
+                    stmts.extend(led.build_event_stmts(
+                        order["user_id"], d_dues=-min(dues, int(amount)),
+                        ref=f"payment:{existing['id']}", actor="upi-webhook",
+                        reason="upi paid", guard=(guard_sql, guard_params)))
+            rows = await self._conn.batch(stmts)
+            self._conn.commit()
+            if rows[0].rowcount == 0:
+                fresh = (await self._conn.execute(
+                    "SELECT * FROM payments WHERE id=?", (existing["id"],))).fetchone()
+                if fresh is not None and fresh["status"] == "paid":
+                    return {**dict(fresh), "_duplicate": True}
+                raise ConflictError(message="Payment could not be settled.", details={})
+            saved = dict((await self._conn.execute(
+                "SELECT * FROM payments WHERE id=?", (existing["id"],))).fetchone())
+            if rows[1].rowcount > 0:
+                saved["_refund_queued"] = True
+            return saved
 
     async def settle_dues_intent(self, intent: dict, amount: int) -> dict:
-        """Settle a dues intent against real open-order dues first, then the
-        ledger remainder. Any over-capture is queued for refund, never kept."""
+        """Settle a dues intent in one CAS batch.
+
+        Allocations are inserted only for orders that are still open at batch
+        time. The refund is derived in SQL from the money actually allocated
+        (payment rows) plus the ledger remainder, so a cancelled order cannot
+        leave customer money stranded. Any over-capture is refunded, never kept.
+        """
         with WRITE_LOCK:
             fresh = (await self._conn.execute(
                 "SELECT * FROM dues_intents WHERE id=?", (intent["id"],))).fetchone()
@@ -456,62 +534,114 @@ class PaymentRepo:
                                           details={"expected": int(fresh["amount"])})
             remaining = int(amount)
             user_id = str(fresh["user_id"])
-            try:
-                led = LedgerRepo(self._conn)
-                ledger_dues = int((await led.get(user_id))["dues"])
-                orders = (await self._conn.execute(
-                    "SELECT id, total FROM orders WHERE user_id=? AND state NOT IN ('cancelled','rejected')"
-                    " AND payment_status IN ('unpaid','link_sent','partial_dues') ORDER BY created_at, id",
-                    (user_id,))).fetchall()
-                for o in orders:
-                    paid = await self.paid_sum_for_order(str(o["id"]))
-                    due = max(0, int(o["total"]) - int(paid))
-                    if due <= 0 or remaining <= 0:
-                        continue
-                    alloc = min(due, remaining)
-                    await self._conn.execute(
-                        "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
-                        " status, created_at, verified_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (uuid.uuid4().hex, str(o["id"]), user_id, int(alloc), "upi",
-                         f"dues:{fresh['id']}:{o['id']}", "paid", _now(), _now()))
-                    status = "paid_upi" if int(paid) + alloc >= int(o["total"]) else "partial_dues"
-                    await self._conn.execute(
-                        "UPDATE orders SET payment_status=? WHERE id=?", (status, str(o["id"])))
-                    await self._conn.execute(
-                        "UPDATE payments SET status='failed' WHERE order_id=? AND status='link_sent'",
-                        (str(o["id"]),))
-                    if await self._dues_posted(str(o["id"])):
-                        # These rupees already sit in ledger.dues: move them
-                        # off the ledger exactly once as the order is marked
-                        # paid, otherwise the door could collect them twice.
-                        pay = min(alloc, ledger_dues)
-                        if pay > 0:
-                            await led.apply_event(
-                                user_id, d_dues=-pay, ref=f"dues:{fresh['id']}:{o['id']}",
-                                actor="upi-webhook", reason="dues upi paid", commit=False)
-                            ledger_dues -= pay
-                    remaining -= alloc
-                if remaining > 0 and ledger_dues > 0:
-                    pay = min(ledger_dues, remaining)
-                    await led.apply_event(user_id, d_dues=-pay, ref=f"dues:{fresh['id']}",
-                                          actor="upi-webhook", reason="dues upi paid", commit=False)
-                    remaining -= pay
-                await self._conn.execute(
-                    "UPDATE dues_intents SET status='paid', verified_at=? WHERE id=?",
-                    (_now(), fresh["id"]))
-                if remaining > 0:
-                    await self._conn.execute(
-                        "INSERT OR IGNORE INTO refunds(id, order_id, subscription_id, payment_id,"
-                        " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
-                        " VALUES (?,NULL,NULL,?,?,'upi','pending',NULL,NULL,0,?,NULL)",
-                        (uuid.uuid4().hex, f"dues:{fresh['id']}", int(remaining), _now()))
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
+            led = LedgerRepo(self._conn)
+            ledger_dues = int((await led.get(user_id))["dues"])
+            orders = (await self._conn.execute(
+                "SELECT id, total FROM orders WHERE user_id=? AND state NOT IN ('cancelled','rejected')"
+                " AND payment_status IN ('unpaid','link_sent','partial_dues') ORDER BY created_at, id",
+                (user_id,))).fetchall()
+            allocations: list[tuple[str, int, int]] = []
+            for o in orders:
+                paid = await self.paid_sum_for_order(str(o["id"]))
+                due = max(0, int(o["total"]) - int(paid))
+                if due <= 0 or remaining <= 0:
+                    continue
+                alloc = min(due, remaining)
+                clear = 0
+                if await self._dues_posted(str(o["id"])):
+                    # These rupees already sit in ledger.dues: move them off
+                    # the ledger exactly once as the order is marked paid,
+                    # otherwise the door could collect them twice.
+                    clear = min(alloc, ledger_dues)
+                    ledger_dues -= clear
+                allocations.append((str(o["id"]), alloc, clear))
+                remaining -= alloc
+            final_clear = min(ledger_dues, remaining) if remaining > 0 and ledger_dues > 0 else 0
+
+            now = _now()
+            token = uuid.uuid4().hex
+            intent_guard = ("EXISTS (SELECT 1 FROM dues_intents WHERE id=?"
+                            " AND settlement_token=?)", (fresh["id"], token))
+            stmts: list[tuple[str, tuple]] = [
+                (
+                    "UPDATE dues_intents SET status='paid', verified_at=?, settlement_token=?"
+                    " WHERE id=? AND status!='paid'",
+                    (now, token, fresh["id"]),
+                ),
+            ]
+            for order_id, alloc, clear in allocations:
+                ref = f"dues:{fresh['id']}:{order_id}"
+                stmts.append((
+                    "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref,"
+                    " status, created_at, verified_at)"
+                    " SELECT ?, o.id, ?, ?, 'upi', ?, 'paid', ?, ?"
+                    " FROM orders o WHERE o.id=? AND o.user_id=?"
+                    " AND o.state NOT IN ('cancelled','rejected')"
+                    " AND o.payment_status IN ('unpaid','link_sent','partial_dues')"
+                    f" AND {intent_guard[0]}",
+                    (uuid.uuid4().hex, user_id, int(alloc), ref, now, now,
+                     order_id, user_id, *intent_guard[1]),
+                ))
+                stmts.append((
+                    "UPDATE orders SET payment_status = CASE"
+                    " WHEN (SELECT COALESCE(SUM(amount),0) FROM payments"
+                    "       WHERE order_id=? AND status IN ('paid','partial')) >= total"
+                    " THEN 'paid_upi' ELSE 'partial_dues' END"
+                    " WHERE id=? AND EXISTS (SELECT 1 FROM payments"
+                    "                        WHERE provider_ref=? AND status='paid')",
+                    (order_id, order_id, ref),
+                ))
+                stmts.append((
+                    "UPDATE payments SET status='failed'"
+                    " WHERE order_id=? AND status='link_sent'"
+                    " AND EXISTS (SELECT 1 FROM payments"
+                    "             WHERE provider_ref=? AND status='paid')",
+                    (order_id, ref),
+                ))
+                if clear > 0:
+                    clear_guard = (
+                        "EXISTS (SELECT 1 FROM payments WHERE provider_ref=? AND status='paid')"
+                        " AND EXISTS (SELECT 1 FROM ledger_events WHERE ref_type='order'"
+                        " AND ref_id=? AND kind='dues' AND d_dues>0)",
+                        (ref, order_id),
+                    )
+                    stmts.extend(led.build_event_stmts(
+                        user_id, d_dues=-int(clear), ref=ref, actor="upi-webhook",
+                        reason="dues upi paid", guard=clear_guard))
+            if final_clear > 0:
+                stmts.extend(led.build_event_stmts(
+                    user_id, d_dues=-int(final_clear), ref=f"dues:{fresh['id']}",
+                    actor="upi-webhook", reason="dues upi paid", guard=intent_guard))
+            # Refund = captured - allocated payments - ledger remainder. The
+            # per-order ledger clears are already represented by their payment
+            # rows, so only the exact-intent clear is subtracted here.
+            refund_sql = (
+                "? - COALESCE((SELECT SUM(amount) FROM payments WHERE provider_ref LIKE ?), 0)"
+                " - COALESCE((SELECT SUM(-d_dues) FROM ledger_events"
+                "             WHERE ref_type='dues' AND ref_id=?), 0)"
+            )
+            refund_ref = f"dues:{fresh['id']}"
+            pattern = f"{refund_ref}:%"
+            stmts.append((
+                "INSERT OR IGNORE INTO refunds(id, order_id, subscription_id, payment_id,"
+                " amount, method, status, claimed_by, claimed_at, attempts, created_at, done_at)"
+                f" SELECT ?, NULL, NULL, ?, {refund_sql}, 'upi', 'pending',"
+                f" NULL, NULL, 0, ?, NULL WHERE ({refund_sql}) > 0"
+                f" AND {intent_guard[0]}",
+                (uuid.uuid4().hex, refund_ref, int(amount), pattern, fresh["id"],
+                 now, int(amount), pattern, fresh["id"], *intent_guard[1]),
+            ))
+            rows = await self._conn.batch(stmts)
+            self._conn.commit()
+            if rows[0].rowcount == 0:
+                current = (await self._conn.execute(
+                    "SELECT * FROM dues_intents WHERE id=?", (fresh["id"],))).fetchone()
+                if current is not None and current["status"] == "paid":
+                    return {**dict(current), "_duplicate": True}
+                raise ConflictError(message="Dues intent could not be settled.", details={})
             saved = dict((await self._conn.execute(
                 "SELECT * FROM dues_intents WHERE id=?", (fresh["id"],))).fetchone())
-            if remaining > 0:
+            if rows[-1].rowcount > 0:
                 saved["_refund_queued"] = True
             else:
                 saved["_duplicate"] = False
@@ -564,6 +694,24 @@ class PaymentRepo:
                         (result.get("intent_id"),))
                 else:
                     return result
+            open_row = (await self._conn.execute(
+                "SELECT * FROM dues_intents WHERE user_id=?"
+                " AND status IN ('pending','link_sent')"
+                " ORDER BY created_at DESC LIMIT 1", (user_id,))).fetchone()
+            if open_row is not None:
+                intent = dict(open_row)
+                if intent.get("provider_ref"):
+                    return {"intent": intent,
+                            "link": intent.get("provider_link") or _intent_link(
+                                str(intent["provider_ref"]), int(intent["amount"])),
+                            "provider_ref": intent["provider_ref"]}
+                if not _stale(intent["created_at"]):
+                    raise IntentPendingError(
+                        message="A dues payment link is already being created.",
+                        details={})
+                await self._conn.execute(
+                    "DELETE FROM dues_intents WHERE id=? AND status='pending'",
+                    (intent["id"],))
             iid = uuid.uuid4().hex
             try:
                 await self._conn.execute(
@@ -576,6 +724,21 @@ class PaymentRepo:
                     (user_id, scoped, iid, phash,
                      json.dumps({"pending": True, "intent_id": iid}), _now()))
                 self._conn.commit()
+            except sqlite3.IntegrityError as e:
+                self._conn.rollback()
+                current = (await self._conn.execute(
+                    "SELECT * FROM dues_intents WHERE user_id=?"
+                    " AND status IN ('pending','link_sent')"
+                    " ORDER BY created_at DESC LIMIT 1", (user_id,))).fetchone()
+                if current is not None and current.get("provider_ref"):
+                    intent = dict(current)
+                    return {"intent": intent,
+                            "link": intent.get("provider_link") or _intent_link(
+                                str(intent["provider_ref"]), int(intent["amount"])),
+                            "provider_ref": intent["provider_ref"]}
+                raise IntentPendingError(
+                    message="A dues payment link is already being created.",
+                    details={}) from e
             except Exception:
                 self._conn.rollback()
                 raise

@@ -393,8 +393,9 @@ class OrderService:
     async def reissue_delivery_code(self, user_id: str, order_id: str) -> dict:
         """Owner reissue for expired/locked/unavailable, max 3/order/24h.
 
-        The code is re-minted and the expiry is reset to now + 24h. Concurrent
-        reissues serialize on WRITE_LOCK so the audit count is authoritative.
+        The rate limit lives in ``delivery_code_reissues``: the insert, the
+        stop update, and the audit row share one batch, so a concurrent pair
+        can never mint more than three codes or audit a code it did not write.
         """
         order = await self.orders.find_owned(order_id, user_id)
         if order is None:
@@ -412,57 +413,95 @@ class OrderService:
             )
         since = (delivery_code.now() - _dt.timedelta(
             hours=delivery_code.REISSUE_WINDOW_HOURS)).isoformat()
-        with WRITE_LOCK:
-            # Re-check under the lock: a concurrent reissue may have just made
-            # the code active, and the audit count is the rate-limit truth.
-            fresh = await self.orders.stop_delivery_state(order_id)
-            current = delivery_code.state(
-                order_state=order["state"],
-                stop_status=_stop_status(fresh or stop),
-                code=(fresh or stop).get("pod_otp"),
-                code_expires_at=(fresh or stop).get("pod_otp_expires_at"),
-                attempts=int((fresh or stop).get("pod_attempts") or 0),
-            )
-            if current not in {"expired", "locked", "unavailable"}:
-                raise CodeActiveError(
-                    "The current delivery code is still active.",
-                    {"state": current},
-                )
-            row = (await self.orders._conn.execute(
-                "SELECT COUNT(*) c FROM audit_log"
-                " WHERE action = 'order.delivery_code_reissue' AND entity_id = ?"
-                " AND created_at >= ?",
-                (order_id, since),
-            )).fetchone()
-            used = int(row["c"]) if row is not None else 0
-            if used >= delivery_code.REISSUE_LIMIT:
-                raise RateLimitedError(
-                    "Delivery code reissue limit reached. Try again later or contact support.",
-                    {"retry_after_s": delivery_code.REISSUE_WINDOW_HOURS * 3600,
-                     "limit": delivery_code.REISSUE_LIMIT},
-                )
-            code = delivery_code.mint()
-            expiry = delivery_code.expires_at()
-            await self.orders._conn.execute(
-                "UPDATE stops SET pod_otp = ?, pod_otp_expires_at = ?,"
-                " pod_attempts = 0 WHERE id = ?",
-                (code, expiry, stop["id"]),
-            )
-            from app.services.dispatch_service import write_audit  # noqa: PLC0415
+        from app.services.dispatch_service import build_audit_stmt  # noqa: PLC0415
 
-            await write_audit(
-                self.orders._conn, actor=user_id, actor_role="user",
-                action="order.delivery_code_reissue", entity="orders",
-                entity_id=order_id, before=current, after="active",
+        with WRITE_LOCK:
+            for attempt in range(3):
+                # Re-check under the lock: a concurrent reissue may have just
+                # made the code active, and the table count is the truth.
+                fresh = await self.orders.stop_delivery_state(order_id)
+                current = delivery_code.state(
+                    order_state=order["state"],
+                    stop_status=_stop_status(fresh or stop),
+                    code=(fresh or stop).get("pod_otp"),
+                    code_expires_at=(fresh or stop).get("pod_otp_expires_at"),
+                    attempts=int((fresh or stop).get("pod_attempts") or 0),
+                )
+                if current not in {"expired", "locked", "unavailable"}:
+                    raise CodeActiveError(
+                        "The current delivery code is still active.",
+                        {"state": current},
+                    )
+                row = (await self.orders._conn.execute(
+                    "SELECT COUNT(*) c FROM delivery_code_reissues"
+                    " WHERE order_id = ? AND created_at >= ?",
+                    (order_id, since),
+                )).fetchone()
+                used = int(row["c"]) if row is not None else 0
+                if used >= delivery_code.REISSUE_LIMIT:
+                    raise RateLimitedError(
+                        "Delivery code reissue limit reached. Try again later or contact support.",
+                        {"retry_after_s": delivery_code.REISSUE_WINDOW_HOURS * 3600,
+                         "limit": delivery_code.REISSUE_LIMIT},
+                    )
+                seq_row = (await self.orders._conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) + 1 AS seq"
+                    " FROM delivery_code_reissues WHERE order_id = ?",
+                    (order_id,),
+                )).fetchone()
+                seq = int(seq_row["seq"])
+                code = delivery_code.mint()
+                expiry = delivery_code.expires_at()
+                now = delivery_code.iso()
+                guard = ("EXISTS (SELECT 1 FROM delivery_code_reissues"
+                         " WHERE order_id = ? AND seq = ?)", (order_id, seq))
+                stmts: list[tuple[str, tuple]] = [
+                    (
+                        "INSERT INTO delivery_code_reissues(order_id, seq, created_at)"
+                        " SELECT ?, ?, ? WHERE EXISTS ("
+                        "   SELECT 1 FROM stops s JOIN orders o ON o.id = s.order_id"
+                        "   WHERE s.id = ? AND s.status = 'pending'"
+                        "     AND o.state = 'dispatched')",
+                        (order_id, seq, now, stop["id"]),
+                    ),
+                    (
+                        "UPDATE stops SET pod_otp = ?, pod_otp_expires_at = ?,"
+                        " pod_attempts = 0 WHERE id = ? AND status = 'pending'"
+                        f" AND {guard[0]}",
+                        (code, expiry, stop["id"], *guard[1]),
+                    ),
+                ]
+                stmts.extend(await build_audit_stmt(
+                    self.orders._conn, actor=user_id, actor_role="user",
+                    action="order.delivery_code_reissue", entity="orders",
+                    entity_id=order_id, before=current, after="active",
+                    guard=guard,
+                ))
+                try:
+                    rows = await self.orders._conn.batch(stmts)
+                except Exception as e:
+                    # PK(order_id, seq): another request won this sequence.
+                    text = str(e).lower()
+                    if ("unique" in text or "constraint" in text) and attempt < 2:
+                        continue
+                    raise
+                self.orders._conn.commit()
+                if rows[0].rowcount == 0:
+                    raise NotFoundError(
+                        message="This order has no active delivery stop.",
+                        details={"order_id": order_id},
+                    )
+                return {
+                    "reissued": True,
+                    "delivery_otp": code,
+                    "delivery_otp_expires_at": expiry,
+                    "delivery_otp_state": "active",
+                    "delivery_otp_reissue_available": False,
+                }
+            raise RateLimitedError(
+                "Delivery code reissue is busy. Try again in a moment.",
+                {"retry_after_s": 5, "limit": delivery_code.REISSUE_LIMIT},
             )
-            self.orders._conn.commit()
-        return {
-            "reissued": True,
-            "delivery_otp": code,
-            "delivery_otp_expires_at": expiry,
-            "delivery_otp_state": "active",
-            "delivery_otp_reissue_available": False,
-        }
 
     async def list(self, user_id: str, limit: int = 20, cursor: str | None = None) -> dict:
         data, next_cursor = await self.orders.list_by_user(user_id, limit, cursor)

@@ -26,9 +26,10 @@ from app.services.subscription_service import (  # noqa: E402
     SubscriptionService,
 )
 
-MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "006_aftermath.sql",
-        "012_monthly.sql", "022_vendor_leaves_and_sub_cancel.sql",
-        "028_p0_money_monthly.sql"]
+MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
+        "006_aftermath.sql", "010_config_audit.sql", "012_monthly.sql",
+        "019_rate_counters.sql", "022_vendor_leaves_and_sub_cancel.sql",
+        "028_p0_money_monthly.sql", "029_p0_correctness.sql"]
 
 
 def _conn():
@@ -172,6 +173,8 @@ async def test_process_due_generates_and_autoresumes_idempotently():
     assert {g["sub_id"] for g in out1["generated"]} == {due["id"]}
     assert {r["sub_id"] for r in out1["resumed"]} == {paused["id"]}
     assert (await svc.get_owned("u1", paused["id"]))["status"] == "active"
+    # The scheduler advances only after the order exists (Phase 1A).
+    assert await svc.advance_due(due["id"], "2026-09-29", "2026-09-29") is True
     out2 = await svc.process_due("2026-09-29")  # idempotent replay
     assert out2 == {"date": "2026-09-29", "generated": [], "resumed": [],
                     "low_balance": []}

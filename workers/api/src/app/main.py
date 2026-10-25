@@ -8,6 +8,7 @@ mounts them under the /v1 contract prefix.
 from fastapi import FastAPI
 
 from app.api.deps import trace_middleware
+from app.api.health import router as health_router
 from app.api.middleware import (
     body_cap_middleware,
     configure_cors,
@@ -32,10 +33,12 @@ from app.core.errors import register_exception_handlers
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Shodasha API v1")
-    app.middleware("http")(trace_middleware)
+    # Last added runs outermost. Trace is added last (before CORS) so throttle
+    # and body-cap rejections still get a trace id and a structured log line.
     app.middleware("http")(security_headers_middleware)
     app.middleware("http")(body_cap_middleware)
     app.middleware("http")(throttle_middleware)
+    app.middleware("http")(trace_middleware)
     configure_cors(app)
     register_exception_handlers(app)
     app.include_router(catalog_router, prefix="/v1")
@@ -51,10 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(ratings_router, prefix="/v1")
     app.include_router(devices_router, prefix="/v1")
     app.include_router(admin_router, prefix="/v1")
-
-    @app.get("/health")
-    def health() -> dict:
-        return {"status": "ok"}
+    app.include_router(health_router)
 
     return app
 

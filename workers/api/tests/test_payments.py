@@ -38,8 +38,11 @@ from app.services.payment_service import PaymentService  # noqa: E402
 
 MIG4 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 MIG5 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
+MIG10 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
+MIG19 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
 MIG22 = (API_ROOT / "src" / "app" / "db" / "migrations" / "022_vendor_leaves_and_sub_cancel.sql").read_text()
 MIG28 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+MIG29 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 WINDOW = "2026-10-01T08:00:00+00:00"
 
 
@@ -55,8 +58,11 @@ def _conn():
     c = get_connection(":memory:")
     c.executescript(MIG4)
     c.executescript(MIG5)
+    c.executescript(MIG10)
+    c.executescript(MIG19)
     c.executescript(MIG22)
     c.executescript(MIG28)
+    c.executescript(MIG29)
     return c
 
 

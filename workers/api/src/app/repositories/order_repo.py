@@ -66,6 +66,12 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
+def _order_guard(order_id: str, token: str) -> tuple[str, tuple]:
+    """SQL condition that only the batch which wrote ``mutation_token`` sees."""
+    return ("EXISTS (SELECT 1 FROM orders WHERE id = ? AND mutation_token = ?)",
+            (order_id, token))
+
+
 def _role(actor: object) -> str:
     if isinstance(actor, dict):
         return str(actor.get("role") or "user")
@@ -321,7 +327,12 @@ class OrderRepo:
         }
 
     async def transition(self, order_id: str, to_state: str, actor: object, reason: str = "") -> dict:
-        """Enforce the machine; illegal -> 409; override-gated cancels -> 409."""
+        """Enforce the machine in one batch; illegal/lost CAS -> 409.
+
+        The first statement is a state compare-and-set. Every later statement
+        is guarded by the token it writes, so a concurrent transition writes
+        exactly one event and at most one postpaid dues entry.
+        """
         with WRITE_LOCK:
             row = (
                 await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
@@ -340,15 +351,37 @@ class OrderRepo:
                     message="Post-assign cancel needs the dispatcher. Call support to cancel.",
                     details={"from": from_state, "to": to_state},
                 )
-            try:
-                await self._conn.execute("UPDATE orders SET state = ? WHERE id = ?", (to_state, order_id))
-                await self._event(order_id, from_state, to_state, _actor_id(actor), _role(actor), reason)
-                if to_state == "delivered":
-                    await self._post_postpaid_dues(order)
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
+            token = uuid.uuid4().hex
+            guard = _order_guard(order_id, token)
+            stmts: list[tuple[str, tuple]] = [
+                (
+                    "UPDATE orders SET state = ?, mutation_token = ?"
+                    " WHERE id = ? AND state = ?",
+                    (to_state, token, order_id, from_state),
+                ),
+                (
+                    "INSERT INTO order_events(id, order_id, from_state, to_state, actor_id,"
+                    " actor_role, reason, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?"
+                    f" WHERE {guard[0]}",
+                    (uuid.uuid4().hex, order_id, from_state, to_state, _actor_id(actor),
+                     _role(actor), reason, _now(), *guard[1]),
+                ),
+            ]
+            if to_state == "delivered":
+                stmts.extend(await self._post_postpaid_dues_stmts(order, guard))
+            rows = await self._conn.batch(stmts)
+            self._conn.commit()
+            if rows[0].rowcount == 0:
+                fresh = (
+                    await self._conn.execute(
+                        "SELECT state FROM orders WHERE id = ?", (order_id,)
+                    )
+                ).fetchone()
+                current = str(fresh["state"]) if fresh is not None else from_state
+                raise ConflictError(
+                    message=f"Illegal transition {current} -> {to_state}.",
+                    details={"from": current, "to": to_state},
+                )
             updated = (
                 await self._conn.execute(
                     f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,)  # noqa: S608
@@ -389,6 +422,36 @@ class OrderRepo:
         await LedgerRepo(self._conn).apply_event(
             order["user_id"], d_dues=due, ref=f"order:{order['id']}",
             actor="system", reason="postpaid delivery", commit=False,
+        )
+
+    async def _post_postpaid_dues_stmts(
+        self, order: dict, guard: tuple[str, tuple]
+    ) -> list[tuple[str, tuple]]:
+        """Build the postpaid dues ledger statements for the transition batch."""
+        key = str(order.get("idempotency_key") or "")
+        if ":sub:" not in key:
+            return []
+        sub_id = key.split(":sub:", 1)[1].split(":", 1)[0]
+        sub = (await self._conn.execute(
+            "SELECT billing_mode FROM subscriptions WHERE id = ? AND user_id = ?",
+            (sub_id, order["user_id"]),
+        )).fetchone()
+        if sub is None or str(sub.get("billing_mode")) != "monthly_postpaid":
+            return []
+        posted = (await self._conn.execute(
+            "SELECT 1 FROM ledger_events WHERE ref_type='order' AND ref_id=?"
+            " AND kind='dues' AND d_dues>0 LIMIT 1", (order["id"],))).fetchone()
+        if posted is not None:
+            return []
+        paid = (await self._conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE order_id=?"
+            " AND status IN ('paid','partial')", (order["id"],))).fetchone()
+        due = int(order["total"]) - int(paid["paid"] if paid is not None else 0)
+        if due <= 0:
+            return []
+        return LedgerRepo(self._conn).build_event_stmts(
+            order["user_id"], d_dues=due, ref=f"order:{order['id']}",
+            actor="system", reason="postpaid delivery", guard=guard,
         )
 
     async def update_window(self, order_id: str, window_start: str, window_end: str, actor: object) -> dict:
@@ -433,8 +496,10 @@ class OrderRepo:
             await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
         ).fetchone()), "instructions": instructions}
 
-    async def _clear_stop_codes(self, order_id: str) -> None:
-        """Drop every pending delivery code for a cancelled/terminal order."""
+    async def _stop_code_stmts(
+        self, order_id: str, guard: tuple[str, tuple]
+    ) -> list[tuple[str, tuple]]:
+        """Build the pending-stop code clear for the cancel batch."""
         cols = {r["name"] for r in (
             await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
         ).fetchall()}
@@ -446,17 +511,17 @@ class OrderRepo:
         if "pod_attempts" in cols:
             sets.append("pod_attempts = 0")
         if not sets:
-            return
-        await self._conn.execute(
-            f"UPDATE stops SET {', '.join(sets)}"
-            " WHERE order_id = ? AND status = 'pending'",  # noqa: S608
-            (order_id,),
-        )
+            return []
+        return [(
+            f"UPDATE stops SET {', '.join(sets)}"  # noqa: S608
+            f" WHERE order_id = ? AND status = 'pending' AND {guard[0]}",
+            (order_id, *guard[1]),
+        )]
 
     async def cancel_settle(self, order_id: str, actor: object) -> dict:
-        """§10 settlement in ONE transaction: state check + void + compensating
-        ledger rows + refund row iff money moved. Already-cancelled -> 409 with
-        the same outcome (no second refund: UNIQUE(payment_id))."""
+        """§10 settlement in ONE batch: state CAS + void + compensating ledger
+        rows + refund row iff money moved. Already-cancelled -> 409 with the
+        same outcome (no second refund: UNIQUE(payment_id))."""
         with WRITE_LOCK:
             row = (
                 await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
@@ -478,69 +543,100 @@ class OrderRepo:
                     message="Post-assign cancel needs the dispatcher. Call support to cancel.",
                     details={"from": from_state, "to": "cancelled"},
                 )
-            try:
-                await self._conn.execute(
-                    "UPDATE orders SET state = 'cancelled', payment_status = 'unpaid' WHERE id = ?",
-                    (order_id,))
-                # Any still-open link is dead the moment the order dies.
-                await self._conn.execute(
-                    "UPDATE payments SET status = 'failed' WHERE order_id = ? AND status = 'link_sent'",
-                    (order_id,))
-                await self._clear_stop_codes(order_id)
-                await self._event(order_id, from_state, "cancelled", _actor_id(actor), _role(actor), "cancel settled")
-                if int(order["deposit_due"]) > 0:  # compensating reversal of the deposit entry
-                    await LedgerRepo(self._conn).apply_event(
-                        order["user_id"], d_deposit=-int(order["deposit_due"]),
-                        ref=f"order:{order_id}", actor=_actor_id(actor),
-                        reason="cancel void: deposit reversed", commit=False,
-                    )
-                paid_rows = (await self._conn.execute(
-                    "SELECT id, amount, provider_ref FROM payments WHERE order_id=?"
-                    " AND status IN ('paid','partial')", (order_id,))).fetchall()
-                paid_total = sum(int(p["amount"]) for p in paid_rows)
-                credit_total = sum(int(p["amount"]) for p in paid_rows
-                                   if str(p.get("provider_ref") or "").startswith("subcredit:"))
-                real_total = paid_total - credit_total
-                if credit_total > 0:
-                    # Prepaid credit goes back to the wallet, not the bank —
-                    # unless the plan itself is gone, then it is a real refund.
-                    from app.services.subscription_service import SubscriptionService  # noqa: PLC0415
 
-                    restored = await SubscriptionService(self._conn).restore_order_credit(
-                        order_id, commit=False)
-                    real_total += credit_total - int(restored)
-                refund = None
-                if real_total > 0:  # only money actually collected
-                    refund = {
-                        "id": uuid.uuid4().hex,
-                        "order_id": order_id,
-                        "payment_id": order_id,
-                        "amount": int(real_total),
-                        "method": order["payment_mode"],
-                        "status": "pending",
-                        "created_at": _now(),
-                    }
+            paid_rows = (await self._conn.execute(
+                "SELECT id, amount, provider_ref FROM payments WHERE order_id=?"
+                " AND status IN ('paid','partial')", (order_id,))).fetchall()
+            credit_rows = [
+                p for p in paid_rows
+                if str(p.get("provider_ref") or "").startswith("subcredit:")
+            ]
+            credit_total = sum(int(p["amount"]) for p in credit_rows)
+            sub_id = ""
+            if credit_rows:
+                parts = str(credit_rows[0].get("provider_ref") or "").split(":")
+                sub_id = parts[1] if len(parts) > 1 else ""
+
+            token = uuid.uuid4().hex
+            credit_claim = f"credit:{token}"
+            guard = _order_guard(order_id, token)
+            now = _now()
+            stmts: list[tuple[str, tuple]] = [
+                (
+                    "UPDATE orders SET state = 'cancelled', payment_status = 'unpaid',"
+                    " mutation_token = ? WHERE id = ? AND state = ?",
+                    (token, order_id, from_state),
+                ),
+                (
+                    "UPDATE payments SET refund_id = ? WHERE order_id = ?"
+                    " AND status IN ('paid','partial')"
+                    " AND COALESCE(provider_ref, '') NOT LIKE 'subcredit:%'"
+                    " AND refund_id IS NULL"
+                    f" AND {guard[0]}",
+                    (token, order_id, *guard[1]),
+                ),
+                (
+                    "UPDATE payments SET refund_id = ? WHERE order_id = ?"
+                    " AND status IN ('paid','partial') AND provider_ref LIKE 'subcredit:%'"
+                    " AND refund_id IS NULL"
+                    f" AND {guard[0]}",
+                    (credit_claim, order_id, *guard[1]),
+                ),
+                (
+                    "UPDATE payments SET status = 'failed' WHERE order_id = ?"
+                    " AND status = 'link_sent'"
+                    f" AND {guard[0]}",
+                    (order_id, *guard[1]),
+                ),
+            ]
+            stmts.extend(await self._stop_code_stmts(order_id, guard))
+            stmts.append((
+                "INSERT INTO order_events(id, order_id, from_state, to_state, actor_id,"
+                " actor_role, reason, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?"
+                f" WHERE {guard[0]}",
+                (uuid.uuid4().hex, order_id, from_state, "cancelled", _actor_id(actor),
+                 _role(actor), "cancel settled", now, *guard[1]),
+            ))
+            if int(order["deposit_due"]) > 0:  # compensating reversal of the deposit entry
+                stmts.extend(LedgerRepo(self._conn).build_event_stmts(
+                    order["user_id"], d_deposit=-int(order["deposit_due"]),
+                    ref=f"order:{order_id}", actor=_actor_id(actor),
+                    reason="cancel void: deposit reversed", guard=guard,
+                ))
+            if credit_total > 0 and sub_id:
+                from app.services.subscription_service import SubscriptionService  # noqa: PLC0415
+
+                stmts.extend(SubscriptionService(self._conn).build_restore_order_credit_stmts(
+                    order_id, sub_id=sub_id, total=credit_total, now=now, guard=guard))
+            stmts.append((
+                "INSERT OR IGNORE INTO refunds(id, order_id, payment_id, amount, method,"
+                " status, claimed_by, claimed_at, attempts, created_at, done_at)"
+                " SELECT ?, order_id, ?, COALESCE(SUM(amount), 0), ?, 'pending',"
+                " NULL, NULL, 0, ?, NULL"
+                " FROM payments WHERE order_id=? AND status IN ('paid','partial')"
+                " AND ((refund_id=? AND COALESCE(provider_ref, '') NOT LIKE 'subcredit:%')"
+                " OR (refund_id=? AND provider_ref LIKE 'subcredit:%'"
+                "     AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE id=?"
+                "                     AND canceled_at IS NULL AND billing_status != 'canceled')))"
+                " HAVING COALESCE(SUM(amount), 0) > 0",
+                (token, order_id, order["payment_mode"], now, order_id,
+                 token, credit_claim, sub_id),
+            ))
+            rows = await self._conn.batch(stmts)
+            self._conn.commit()
+            if rows[0].rowcount == 0:
+                fresh = _row((
                     await self._conn.execute(
-                        "INSERT INTO refunds(id, order_id, payment_id, amount, method, status,"
-                        " claimed_by, claimed_at, attempts, created_at, done_at)"
-                        " VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, NULL)",
-                        (refund["id"], order_id, refund["payment_id"], refund["amount"],
-                         refund["method"], "pending", refund["created_at"]),
-                    )
-                self._conn.commit()
-            except AlreadyCancelledError:
-                raise
-            except (ConflictError, NeedDispatchOverrideError):
-                self._conn.rollback()
-                raise
-            except sqlite3.IntegrityError as e:  # UNIQUE(payment_id): concurrent double-cancel
-                self._conn.rollback()
-                raise AlreadyCancelledError(
-                    message="Order already cancelled.",
-                    details=await self._outcome(order)) from e
-            except Exception:
-                self._conn.rollback()
-                raise
+                        f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
+                ).fetchone())
+                if fresh["state"] == "cancelled":
+                    raise AlreadyCancelledError(
+                        message="Order already cancelled.",
+                        details=await self._outcome(fresh))
+                raise ConflictError(
+                    message=f"Order cannot be cancelled from {fresh['state']}.",
+                    details={"from": fresh["state"], "to": "cancelled"},
+                )
             fresh = _row((
                 await self._conn.execute(f"SELECT {_ORDER_COLS} FROM orders WHERE id = ?", (order_id,))  # noqa: S608
             ).fetchone())
@@ -560,8 +656,10 @@ class OrderRepo:
         refund = (
             await self._conn.execute(
                 "SELECT id, payment_id, amount, method, status, claimed_by, claimed_at"
-                " FROM refunds WHERE order_id = ?",
-                (order["id"],),
+                " FROM refunds WHERE order_id = ?"
+                " ORDER BY CASE WHEN payment_id = ? THEN 0 ELSE 1 END, created_at"
+                " LIMIT 1",
+                (order["id"], order["id"]),
             )
         ).fetchone()
         return {

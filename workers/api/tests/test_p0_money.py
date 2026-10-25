@@ -30,9 +30,10 @@ from app.services.subscription_service import SubscriptionService  # noqa: E402
 MIGS = [
     "002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
     "006_aftermath.sql", "007_ops.sql", "010_config_audit.sql",
-    "012_monthly.sql", "015_pod_otp.sql",
+    "012_monthly.sql", "015_pod_otp.sql", "019_rate_counters.sql",
     "021_return_upi.sql", "022_vendor_leaves_and_sub_cancel.sql",
     "027_pod_otp_lifecycle.sql", "028_p0_money_monthly.sql",
+    "029_p0_correctness.sql",
 ]
 WINDOW = "2026-09-01T08:00:00+00:00"
 DAY = "2026-09-29"

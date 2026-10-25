@@ -18,6 +18,40 @@ from __future__ import annotations
 
 import sqlite3
 
+from app.core.observability import record_db
+
+
+class D1BatchError(RuntimeError):
+    """A D1 statement/batch reported failure; never return partial results."""
+
+
+def _result_error(res) -> str:
+    err = getattr(res, "error", None)
+    if err is None and isinstance(res, dict):
+        err = res.get("error")
+    return str(err or "statement failed")[:200]
+
+
+def _result_ok(res) -> bool:
+    success = getattr(res, "success", None)
+    if success is None and isinstance(res, dict):
+        success = res.get("success")
+    return success is not False
+
+
+def _result_results(res) -> list:
+    results = getattr(res, "results", None)
+    if results is None and isinstance(res, dict):
+        results = res.get("results")
+    return list(results or [])
+
+
+def _result_meta(res):
+    meta = getattr(res, "meta", None)
+    if meta is None and isinstance(res, dict):
+        meta = res.get("meta")
+    return meta
+
 
 def _row_to_dict(row) -> dict:
     if isinstance(row, dict):
@@ -65,6 +99,18 @@ class Rows:
 _READ_PREFIXES = ("select", "with", "pragma", "explain")
 
 
+def _is_read(sql: str) -> bool:
+    first = sql.strip().split(None, 1)
+    return bool(first) and first[0].lower() in _READ_PREFIXES
+
+
+def _meta_int(meta, name: str) -> int | None:
+    value = getattr(meta, name, None)
+    if value is None and isinstance(meta, dict):
+        value = meta.get(name)
+    return int(value) if isinstance(value, (int, float)) else None
+
+
 class D1Conn:
     """Async connection over a D1 database binding."""
 
@@ -75,15 +121,32 @@ class D1Conn:
         stmt = self._db.prepare(sql)
         if params:
             stmt = stmt.bind(*params)
-        first = sql.strip().split(None, 1)
-        if first and first[0].lower() in _READ_PREFIXES:
+        if _is_read(sql):
             res = await stmt.all()
-            results = list(getattr(res, "results", None) or [])
+            if not _result_ok(res):
+                raise D1BatchError(f"D1 read failed: {_result_error(res)}")
+            results = _result_results(res)
+            meta = _result_meta(res)
+            rows_read = _meta_int(meta, "rows_read")
+            record_db(
+                queries=1,
+                roundtrips=1,
+                rows_read=len(results) if rows_read is None else rows_read,
+            )
             return Rows([_row_to_dict(r) for r in results], rowcount=len(results))
         res = await stmt.run()
-        meta = getattr(res, "meta", None)
-        changes = getattr(meta, "changes", None) if meta is not None else None
-        return Rows([], rowcount=int(changes) if isinstance(changes, int) else 0)
+        if not _result_ok(res):
+            raise D1BatchError(f"D1 write failed: {_result_error(res)}")
+        meta = _result_meta(res)
+        changes = _meta_int(meta, "changes")
+        rows_written = _meta_int(meta, "rows_written")
+        record_db(
+            queries=1,
+            roundtrips=1,
+            rows_read=_meta_int(meta, "rows_read") or 0,
+            rows_written=(changes or 0) if rows_written is None else rows_written,
+        )
+        return Rows([], rowcount=changes or 0)
 
     async def batch(self, statements: list[tuple[str, tuple]]) -> list[Rows]:
         """Execute multiple SQL statements in a single network round trip via D1 batch."""
@@ -95,17 +158,39 @@ class D1Conn:
             if params:
                 stmt = stmt.bind(*params)
             stmts.append(stmt)
-        res_list = await self._db.batch(stmts)
+        res_list = list(await self._db.batch(stmts) or [])
+        if len(res_list) != len(statements):
+            raise D1BatchError(
+                f"D1 batch returned {len(res_list)} results for {len(statements)} statements"
+            )
+        for index, res in enumerate(res_list):
+            if not _result_ok(res):
+                raise D1BatchError(
+                    f"D1 batch statement {index} failed: {_result_error(res)}"
+                )
         out = []
+        rows_read = 0
+        rows_written = 0
         for (sql, _), res in zip(statements, res_list):
-            first = sql.strip().split(None, 1)
-            if first and first[0].lower() in _READ_PREFIXES:
-                results = list(getattr(res, "results", None) or [])
+            meta = _result_meta(res)
+            if _is_read(sql):
+                results = _result_results(res)
+                meta_read = _meta_int(meta, "rows_read")
+                rows_read += len(results) if meta_read is None else meta_read
                 out.append(Rows([_row_to_dict(r) for r in results], rowcount=len(results)))
             else:
-                meta = getattr(res, "meta", None)
-                changes = getattr(meta, "changes", None) if meta is not None else None
-                out.append(Rows([], rowcount=int(changes) if isinstance(changes, int) else 0))
+                changes = _meta_int(meta, "changes")
+                meta_written = _meta_int(meta, "rows_written")
+                rows_written += (
+                    (changes or 0) if meta_written is None else meta_written
+                )
+                out.append(Rows([], rowcount=changes or 0))
+        record_db(
+            queries=len(statements),
+            roundtrips=1,
+            rows_read=rows_read,
+            rows_written=rows_written,
+        )
         return out
 
     def commit(self) -> None:
@@ -125,13 +210,45 @@ class AsyncSqliteConn:
         cur = self._conn.execute(sql, params)
         rows = [dict(r) for r in cur.fetchall()]
         count = cur.rowcount if cur.rowcount and cur.rowcount >= 0 else len(rows)
+        if _is_read(sql):
+            record_db(queries=1, roundtrips=1, rows_read=len(rows))
+        else:
+            record_db(
+                queries=1,
+                roundtrips=1,
+                rows_written=count if cur.rowcount and cur.rowcount >= 0 else 0,
+            )
         return Rows(rows, rowcount=count)
 
     async def batch(self, statements: list[tuple[str, tuple]]) -> list[Rows]:
-        """Async-shaped batch fallback for sqlite (executes statements in sequence)."""
+        """All-or-nothing sqlite batch (matches D1's transaction contract)."""
+        if not statements:
+            return []
+        started = not self._conn.in_transaction
+        if started:
+            self._conn.execute("BEGIN IMMEDIATE")
         out = []
-        for sql, params in statements:
-            out.append(await self.execute(sql, params))
+        rows_read = 0
+        rows_written = 0
+        try:
+            for sql, params in statements:
+                cur = self._conn.execute(sql, params)
+                rows = [dict(r) for r in cur.fetchall()]
+                count = cur.rowcount if cur.rowcount and cur.rowcount >= 0 else len(rows)
+                if _is_read(sql):
+                    rows_read += len(rows)
+                elif cur.rowcount and cur.rowcount >= 0:
+                    rows_written += cur.rowcount
+                out.append(Rows(rows, rowcount=count))
+        except Exception:
+            self._conn.rollback()
+            raise
+        record_db(
+            queries=len(statements),
+            roundtrips=1,
+            rows_read=rows_read,
+            rows_written=rows_written,
+        )
         return out
 
     def executescript(self, sql: str) -> None:

@@ -16,6 +16,8 @@ Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 
 - 016 dashboard (branch 016-vendor-dashboard, ADR-064): Route tab top composes one screen — TodayStrip (`summarizeToday` pure fold over `RouteStop`s: distinct users, jars, UPI/COD collect paid-excluded) + one CTA per state (Sync backlog → Triple first-pending → all-done text) + inline money (`EarningsController` reuse: jama cash/upi + flagged-hold, display-only) + can-ledger rows (`CustomersController`: held/dues nonzero-only). Backend: `placed_pool(vendor_id)` zone-scoped (zones/vendor_zones instr match; unzoned admin-only) + `today_customers` gains `held`/`dues` via `ledger.get`. No new tabs/endpoints/tables/packages.
 - Production customer auth/deploy (2026-10-24, ADR-132): Cloudflare Worker `water` at `https://water.adityathakur452007.workers.dev` (version `07e98028-2434-4487-aad1-be52938f97cb`); D1 `shodasha` at schema 027 after backfilling 002-023 bookkeeping and applying 024-027. `POST /v1/auth/user/register` validates name/phone/password/device, hashes with PBKDF2-HMAC-SHA256 at the Cloudflare WebCrypto maximum 100,000 iterations, inserts `users`, then `_issue_session`; `POST /v1/auth/user/login` finds the phone, verifies the stored cost/salt, uses `DUMMY_HASH` for unknown/empty-password timing, and issues the same session pair. Existing users with empty `password_hash` fail closed until admin reset. Live checks: catalog 200, empty login 400 VALIDATION, register/login 200, wrong password 401 UNAUTH; the temporary user was removed and 9 production users remain.
 - Audit verification (2026-10-24, read-only, ADR-133): live auth flows and webhook fail-closed behavior match the above. Money/subscription tracing found five P0s that change no routes but invalidate release promises: dues UPI 500s on the `payments.order_id` FK after creating the provider order; canceled `link_sent` orders stay payable, countable as dues, and settleable by webhook; cancellation writes off dues/claims refunds with zero payments; the production cron handler creates no subscription orders; same-key intent retries return a provider ref absent from `payments`. Full call/evidence map: `Feature_docs/platform-audit/2026-10-24-auth-upi-subscriptions-vendor-audit.md`. No code or user flow changed in this audit; destructive live testing stopped after the dues 500 and local SQLite carried the rest.
+- Phase 0 measurement layer (2026-10-25, ADR-140, staging/local only): `GET /health` now lives in `app/api/health.py` and runs `SELECT 1` through the normal DB dependency with a 2 s timeout and a 5 s per-isolate cache; success stays exactly `{"status":"ok"}`, failure is 503 + `{"status":"degraded","checks":{"db":"error"}}`, both `Cache-Control: no-store`. `app/core/observability.py` emits one redacted JSON line per sampled request (`route` template, method, status, duration, trace id, `db_queries`/`db_roundtrips`/`db_rows_read`/`db_rows_written`); 4xx/5xx and slow requests always log, healthy fast paths sample deterministically. `app/db_d1.py` counts D1 `meta.rows_read`/`meta.rows_written` (batch = N statements, one roundtrip); `AsyncSqliteConn` counts local rows. Trace ids are sanitized to `^[A-Za-z0-9._-]{1,64}$` before echo/log. Staging is `water-staging` + `shodasha-staging` with cron disabled; `scripts/seed_phase0.py` builds the deterministic dataset and `scripts/bench_phase0.py` runs the guarded GET-only A/B/C profiles. Free-plan 10 ms CPU returns intermittent `1102`/`1101` before the app; see ADR-140. Results and safe commands: `Feature_docs/performance/2026-10-25-phase0-results.md`, `Feature_docs/performance/phase0-runbook.md`.
+- Capacity audit (2026-10-25, ADR-139, read-only): the 1,000-user model and evidence table live in `Feature_docs/performance/2026-10-25-1000-user-capacity-audit.md`. Hot paths confirmed: `GET /orders/{id}` = 7 sequential queries + `PRAGMA table_info('stops')` (`order_service.py:329-391`, `order_repo.py:164,439`); `GET /billing/dues` = N+1 paid-sum/dues-posted per open order (`payment_service.py:211-231`); vendor `GET /vendor/routes/today` ≈ 82 queries per 40 stops (`vendor_service.py:302-366`); admin metrics/overview = full-table aggregates on a 60s poll (`admin.py:1229-1243,1259+`, `admin_read_repo.py:50-115`); cron `*/15` processes every due subscription sequentially and advances `next_run` before order creation (`scheduler.py:119-143`, `subscription_service.py:885-894`), so ~70–100 due subs approach/exceed the 1,000 D1 queries/invocation Paid cap. Cancel/webhook/transition paths are multi-statement and non-atomic on D1 (`order_repo.py:456-547`, `payment_repo.py:375-442`, `db_d1.py:111-115`). No route or user flow changed; this note records the audited call chain.
 - Agent tooling (2026-10-25, ADR-137): the global OpenCode config registers the remote Cloudflare MCP server (`https://mcp.cloudflare.com/mcp`, OAuth), and 19 official Cloudflare skills are installed under `C:\Users\Hp\.agents\skills`; no app route or runtime flow changed. New OpenCode sessions can call Cloudflare account tools through MCP, while `wrangler` remains the deploy/D1 path used by this project. The OAuth grant is Full access and its token lives at `C:\Users\Hp\.local\share\opencode\mcp-auth.json`, outside the repo. The optional `cf` CLI is not installed.
 
 ```
@@ -474,7 +476,7 @@ AuthGate + register screen land in S2 (S1 boots straight to the shell; guest bro
 | GET/POST | `/v1/admin/vendors/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `VendorAccessRepo` | Masked list / issue (plaintext once, 201) / timestamp-revoke; non-vendor → 422, ghost → 404 |
 | GET | `/v1/admin/vendors/{id}/preview` | `admin.py` (Admin) → `AdminReadRepo.vendor_detail` + `VendorService.today_route/earnings/today_customers/vendor_complaints` | Read-only view-as-vendor, no writes |
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
-| GET | `/health` | `app/main.py` | Liveness probe |
+| GET | `/health` | `app/api/health.py:health` → `get_db_conn` → `D1Conn`/`AsyncSqliteConn` | Real probe: `SELECT 1`, 2 s timeout, 5 s per-isolate cache; 200 exact `{"status":"ok"}` or 503 additive degraded body; `Cache-Control: no-store`; failure logs trace id + duration only |
 | GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` → `api/caching.py:cached` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings; Phase 8: `Cache-Control: public, max-age=300` + ETag + 304 |
 | GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` → `cached` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture; Phase 8: cached 300s + ETag + 304 |
 | GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` → `cached` | Pincode regex + prefix allowlist (empty=open); Phase 8: cached 300s + ETag + 304 |
@@ -1453,6 +1455,53 @@ New/changed API surface:
 - `POST /v1/orders` now rejects non-`upi`/`cod` modes, `e > held`, COD totals/dues over Rs 2,000.
 - `POST /v1/subscriptions` and `/v1/subscriptions/estimate` now cap `qty` at 10.
 - `ApiClient.switchOrderToCod(id)`; `CheckoutResult.asCod()` / `payOnDelivery`; create `IDEMPOTENT_REPLAY` is consumed as the original order.
+
+## Phase 1A — P0 correctness changes (implemented locally; staging apply blocked)
+
+Spec: `Feature_docs/performance/2026-10-25-phase1-p0-correctness-spec.md`; results: `Feature_docs/performance/2026-10-25-phase1-results.md`. The call shapes below are the implemented local behavior. Migration 029 is **not** applied to staging yet: the apply was rejected by the D1 free-tier daily row-write limit (code `7500`) and must be retried after 2026-10-26 00:00 UTC.
+
+```
+Money mutations — one D1 batch() each, first statement is a SQL CAS
+  OrderRepo.cancel_settle
+    ├─ UPDATE orders ... WHERE id=? AND state=?        (mutation_token)
+    ├─ claim payments (refund_id IS NULL) + fail open links
+    ├─ stop-code clear + cancel event + deposit reversal (token-guarded)
+    ├─ restore prepaid credit rows, then recompute balance (token-guarded)
+    └─ insert cancel refund from SUM(payments.amount WHERE refund_id=token)
+  PaymentRepo.apply_webhook
+    ├─ UPDATE payments ... WHERE id=? AND status!='paid'  (settlement_token)
+    ├─ claim refund path (refund_id) + INSERT refund (UNIQUE payment_id)
+    └─ mark order paid OR refund if cancelled/rejected/COD/already paid
+  PaymentRepo.settle_dues_intent
+    ├─ UPDATE dues_intents ... WHERE id=? AND status!='paid'
+    ├─ allocate per open order (guarded) + update order + fail old link
+    ├─ clear posted dues
+    └─ refund remainder derived in SQL (intent - allocated - ledger)
+  OrderRepo.transition
+    └─ UPDATE orders WHERE state=? + event + postpaid dues (token-guarded)
+  SubscriptionService.cancel
+    ├─ UPDATE subscriptions WHERE canceled_at IS NULL
+    ├─ returns/credit/refund rows first
+    └─ zero credit_balance_paise last
+  PaymentRepo.switch_to_cod
+    └─ CAS to COD only when no paid/partial payment; fail open links
+```
+
+```
+Cron (scheduler.run_due_subscriptions)
+  process_due(limit=60, ORDER BY next_run,id, retry filter)
+    ├─ per descriptor: OrderService.create(key='sub:<id>:<date>')
+    ├─ prepaid: settle_prepaid_order (idempotent debit)
+    ├─ success → advance_due CAS (next_run=expected)
+    └─ failure → record_due_failure (attempts++, retry_at 15m→24h)
+  purge chunks = 90 bound params
+```
+
+New schema (migration 029, additive): `orders.mutation_token`, `payments.settlement_token`, `payments.refund_id`, `dues_intents.settlement_token`, `subscriptions.due_attempts/due_last_error/due_retry_at`, `delivery_code_reissues(order_id, seq, created_at)`, unique open dues intent per user, seven hot-path indexes plus the reissue and unique-open-intent indexes.
+
+Webhook response shape: `POST /v1/webhooks/upi` strips `settlement_token`, `mutation_token`, and `refund_id` from payment/dues payloads; a dues duplicate is returned as top-level `duplicate` (not nested in `dues_intent`); `_refund_queued` is preserved. A cancel response keeps the cancel refund (`payment_id=order_id`); a late-capture refund is a separate row in the admin refunds list.
+
+Phase 1B (deferred, separate release): batch vendor-route ledger/paid-sum reads and dues paid-sum/dues-posted reads to 2–3 roundtrips.
 
 ## Update Protocol (MANDATORY)
 

@@ -27,7 +27,9 @@ from app.db import get_connection, init_schema  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 
 MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
-        "007_ops.sql", "015_pod_otp.sql", "027_pod_otp_lifecycle.sql"]
+        "007_ops.sql", "010_config_audit.sql", "015_pod_otp.sql",
+        "019_rate_counters.sql", "027_pod_otp_lifecycle.sql",
+        "028_p0_money_monthly.sql", "029_p0_correctness.sql"]
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 POD_EXPIRY = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=12)).isoformat()
 

@@ -15,6 +15,12 @@ from app.services.order_service import COD_MAX_PAISE, CodNotAllowedError
 log = logging.getLogger(__name__)
 
 UNPAID = ("unpaid", "link_sent", "partial_dues")
+INTERNAL_FIELDS = ("settlement_token", "mutation_token", "refund_id")
+
+
+def _public(row: dict) -> dict:
+    """Strip CAS/internal money markers from an API-bound row."""
+    return {k: v for k, v in row.items() if k not in INTERNAL_FIELDS}
 
 
 class PaymentService:
@@ -78,14 +84,26 @@ class PaymentService:
         if dues_intent is not None:
             self.payments.assert_payee(str(event.get("payee", "")))
             settled = await self.payments.settle_dues_intent(dues_intent, amount)
-            return {"ok": True, "dues_intent": settled}
+            duplicate = bool(settled.pop("_duplicate", False))
+            refund_queued = bool(settled.pop("_refund_queued", False))
+            public = _public(settled)
+            if refund_queued:
+                public["_refund_queued"] = True
+            if duplicate:
+                return {"ok": True, "duplicate": True, "dues_intent": public}
+            return {"ok": True, "dues_intent": public}
         payment = await self.payments.apply_webhook(
             ref, amount, str(event.get("payee", "")), order_id=event.get("order_id"),
         )
-        if not payment.pop("_duplicate", False):
-            self._notify_paid(payment)  # best-effort; never fails the webhook
-            return {"ok": True, "payment": payment}
-        return {"ok": True, "duplicate": True, "payment": payment}
+        duplicate = bool(payment.pop("_duplicate", False))
+        refund_queued = bool(payment.pop("_refund_queued", False))
+        public = _public(payment)
+        if refund_queued:
+            public["_refund_queued"] = True
+        if not duplicate:
+            self._notify_paid(public)  # best-effort; never fails the webhook
+            return {"ok": True, "payment": public}
+        return {"ok": True, "duplicate": True, "payment": public}
 
     @staticmethod
     def _notify_paid(payment: dict) -> None:

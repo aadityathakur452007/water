@@ -587,6 +587,47 @@ class SubscriptionService:
                     "debited_paise": int(amount),
                     "credit_balance_paise": int(fresh["credit_balance_paise"]) if fresh else 0}
 
+    def build_restore_order_credit_stmts(
+        self,
+        order_id: str,
+        *,
+        sub_id: str,
+        total: int,
+        now: str,
+        guard: tuple[str, tuple] | None = None,
+    ) -> list[tuple[str, tuple]]:
+        """Build the credit-restore statements for a cancel batch.
+
+        The plan must still be live; when it is gone the statements no-op and
+        the caller refunds the credit as real money instead.
+        """
+        where, guard_params = guard if guard else ("", ())
+        suffix = f" AND {where}" if where else ""
+        active = "canceled_at IS NULL AND billing_status != 'canceled'"
+        return [
+            (
+                "INSERT OR IGNORE INTO subscription_credit_entries(id, subscription_id,"
+                " user_id, delta, kind, ref, created_at)"
+                " SELECT ?, id, user_id, ?, 'order_refund', ?, ? FROM subscriptions"
+                f" WHERE id=? AND {active}{suffix}",
+                (uuid.uuid4().hex, int(total), f"order:{order_id}", now, sub_id,
+                 *guard_params),
+            ),
+            (
+                "UPDATE subscriptions SET credit_balance_paise = (SELECT COALESCE(SUM(delta), 0)"
+                " FROM subscription_credit_entries WHERE subscription_id = ?)"
+                f" WHERE id=? AND {active}{suffix}",
+                (sub_id, sub_id, *guard_params),
+            ),
+            (
+                "UPDATE payments SET status='failed' WHERE order_id=?"
+                " AND provider_ref LIKE 'subcredit:%'"
+                " AND EXISTS (SELECT 1 FROM subscriptions WHERE id=?"
+                f" AND {active}{suffix})",
+                (order_id, sub_id, *guard_params),
+            ),
+        ]
+
     async def restore_order_credit(self, order_id: str, commit: bool = True) -> int:
         """Return a canceled prepaid order's water cost to the plan wallet.
 
@@ -611,17 +652,8 @@ class SubscriptionService:
                 (sub_id,))).fetchone()
             if sub is None or sub.get("canceled_at") or sub.get("billing_status") == "canceled":
                 return 0
-            cur_rows = await self._conn.batch([
-                ("INSERT OR IGNORE INTO subscription_credit_entries(id, subscription_id, user_id,"
-                 " delta, kind, ref, created_at)"
-                 " SELECT ?, id, user_id, ?, 'order_refund', ?, ? FROM subscriptions WHERE id=?",
-                 (uuid.uuid4().hex, int(total), f"order:{order_id}", now, sub_id)),
-                ("UPDATE subscriptions SET credit_balance_paise = (SELECT COALESCE(SUM(delta), 0)"
-                 " FROM subscription_credit_entries WHERE subscription_id = ?) WHERE id=?",
-                 (sub_id, sub_id)),
-                ("UPDATE payments SET status='failed' WHERE order_id=?"
-                 " AND provider_ref LIKE 'subcredit:%'", (order_id,)),
-            ])
+            cur_rows = await self._conn.batch(self.build_restore_order_credit_stmts(
+                order_id, sub_id=sub_id, total=total, now=now))
             if not cur_rows:
                 return 0
             if commit:
@@ -632,9 +664,12 @@ class SubscriptionService:
     async def cancel(self, user_id: str, sub_id: str, reason: str = "", upi_id: str = "") -> dict:
         """Stop future deliveries and refund ONLY collected prepaid credit.
 
-        No invented 30-day proration, no ledger write-off: v1 has no
-        subscription-level prepaid money outside monthly_prepaid, and dues stay
-        owed until actually paid.
+        One batch: the CAS marks the plan canceled, then the return, credit,
+        and refund rows are written, and the balance is zeroed last. A failure
+        rolls back the whole batch, so credit is never zeroed without its
+        refund row. No invented 30-day proration, no ledger write-off: v1 has
+        no subscription-level prepaid money outside monthly_prepaid, and dues
+        stay owed until actually paid.
         """
         sub = await self.get_owned(user_id, sub_id)
         if sub is None:
@@ -654,60 +689,84 @@ class SubscriptionService:
         jars_to_return = min(held_jars, int(sub.get("qty", 1))) if held_jars > 0 else 0
         now_str = _dt.datetime.now(_dt.timezone.utc).isoformat()
         refund = None
+        if remaining > 0:
+            refund = {
+                "id": uuid.uuid4().hex,
+                "amount": remaining,
+                "status": "pending",
+                "method": "upi",
+            }
+        if jars_to_return > 0:
+            return_id = uuid.uuid4().hex
+            from app.api.v1.returns import _sla_due  # noqa: PLC0415
 
+            return_sla = _sla_due()
+
+        returns_cols = {r["name"] for r in (
+            await self._conn.execute("SELECT name FROM pragma_table_info('returns')")
+        ).fetchall()}
+        has_return_upi = "upi_id" in returns_cols
+        guard = ("EXISTS (SELECT 1 FROM subscriptions WHERE id = ? AND canceled_at = ?)",
+                 (sub_id, now_str))
         with WRITE_LOCK:
-            try:
-                if jars_to_return > 0:
-                    return_id = uuid.uuid4().hex
-                    from app.api.v1.returns import _sla_due
-                    sla = _sla_due()
-                    upi = (upi_id or "").strip()
-                    try:
-                        await self._conn.execute(
-                            "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at, upi_id)"
-                            " VALUES (?, ?, ?, ?, 'requested', ?, ?, ?)",
-                            (return_id, user_id, jars_to_return, sub["address_id"], sla, now_str, upi),
-                        )
-                    except Exception:
-                        await self._conn.execute(
-                            "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due, created_at)"
-                            " VALUES (?, ?, ?, ?, 'requested', ?, ?)",
-                            (return_id, user_id, jars_to_return, sub["address_id"], sla, now_str),
-                        )
-
-                # Keep status='paused' for DB CHECK constraint, set canceled_at.
-                await self._conn.execute(
-                    "UPDATE subscriptions SET status = 'paused', canceled_at = ?, cancel_reason = ?,"
-                    " refund_amount_paise = ?, billing_status = 'canceled', credit_balance_paise = 0,"
-                    " refund_upi = ? WHERE id = ?",
+            stmts: list[tuple[str, tuple]] = [
+                (
+                    "UPDATE subscriptions SET status = 'paused', canceled_at = ?,"
+                    " cancel_reason = ?, refund_amount_paise = ?, billing_status = 'canceled',"
+                    " refund_upi = ? WHERE id = ? AND canceled_at IS NULL",
                     (now_str, reason or "Customer canceled subscription", remaining,
                      (upi_id or "").strip(), sub_id),
-                )
-                if remaining > 0:
-                    refund = {
-                        "id": uuid.uuid4().hex,
-                        "amount": remaining,
-                        "status": "pending",
-                        "method": "upi",
-                    }
-                    await self._conn.execute(
-                        "INSERT INTO refunds(id, order_id, subscription_id, payment_id, amount,"
-                        " method, upi_id, status, claimed_by, claimed_at, attempts, created_at,"
-                        " done_at)"
-                        " VALUES (?, NULL, ?, ?, ?, 'upi', ?, 'pending', NULL, NULL, 0, ?, NULL)",
-                        (refund["id"], sub_id, f"subcancel:{sub_id}", remaining,
-                         (upi_id or "").strip(), now_str),
-                    )
-                    await self._conn.execute(
-                        "INSERT INTO subscription_credit_entries(id, subscription_id, user_id,"
-                        " delta, kind, ref, created_at) VALUES (?,?,?,?,?,?,?)",
-                        (uuid.uuid4().hex, sub_id, user_id, -remaining, "cancel_refund",
-                         f"cancel:{sub_id}", now_str),
-                    )
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
+                ),
+            ]
+            if return_id is not None:
+                if has_return_upi:
+                    stmts.append((
+                        "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due,"
+                        " created_at, upi_id) SELECT ?, ?, ?, ?, 'requested', ?, ?, ?"
+                        f" WHERE {guard[0]}",
+                        (return_id, user_id, jars_to_return, sub["address_id"],
+                         return_sla, now_str, (upi_id or "").strip(), *guard[1]),
+                    ))
+                else:
+                    stmts.append((
+                        "INSERT INTO returns(id, user_id, qty, address_id, status, sla_due,"
+                        " created_at) SELECT ?, ?, ?, ?, 'requested', ?, ?"
+                        f" WHERE {guard[0]}",
+                        (return_id, user_id, jars_to_return, sub["address_id"],
+                         return_sla, now_str, *guard[1]),
+                    ))
+            if refund is not None:
+                stmts.append((
+                    "INSERT INTO refunds(id, order_id, subscription_id, payment_id, amount,"
+                    " method, upi_id, status, claimed_by, claimed_at, attempts, created_at,"
+                    " done_at) SELECT ?, NULL, ?, ?, ?, 'upi', ?, 'pending', NULL, NULL, 0, ?, NULL"
+                    f" WHERE {guard[0]}",
+                    (refund["id"], sub_id, f"subcancel:{sub_id}", remaining,
+                     (upi_id or "").strip(), now_str, *guard[1]),
+                ))
+                stmts.append((
+                    "INSERT INTO subscription_credit_entries(id, subscription_id, user_id,"
+                    " delta, kind, ref, created_at) SELECT ?, ?, ?, ?, 'cancel_refund', ?, ?"
+                    f" WHERE {guard[0]}",
+                    (uuid.uuid4().hex, sub_id, user_id, -remaining,
+                     f"cancel:{sub_id}", now_str, *guard[1]),
+                ))
+            stmts.append((
+                "UPDATE subscriptions SET credit_balance_paise = 0"
+                f" WHERE id = ? AND {guard[0]}",
+                (sub_id, *guard[1]),
+            ))
+            rows = await self._conn.batch(stmts)
+            self._conn.commit()
+            if rows[0].rowcount == 0:
+                fresh = (await self._conn.execute(
+                    "SELECT canceled_at FROM subscriptions WHERE id = ?", (sub_id,)
+                )).fetchone()
+                if fresh is not None and fresh.get("canceled_at"):
+                    raise SubValidationError(
+                        message="Subscription is already canceled.", details={"id": sub_id})
+                raise SubValidationError(
+                    message="Subscription could not be canceled.", details={"id": sub_id})
 
         return {
             "id": sub_id,
@@ -824,15 +883,18 @@ class SubscriptionService:
 
     # -- due runner (job-callable; future cron calls this, never HTTP) -----
 
-    async def process_due(self, today: object = None) -> dict:
-        """Generate due runs + fire auto-resumes. Idempotent per day.
+    async def process_due(self, today: object = None, limit: int = 60) -> dict:
+        """Generate due-run descriptors + fire auto-resumes.
 
-        Returns descriptors the future cron turns into orders (order-row
-        creation stays with the orders slice — no cross-slice writes here).
-        Second call with the same ``today`` returns empty lists.
+        Generated descriptors are NOT advanced here: the caller creates the
+        order (and settles prepaid credit) first, then calls ``advance_due``.
+        A failed creation leaves ``next_run`` due and records a backoff, so a
+        cron failure can never skip a delivery. Skipped Sundays and resumes
+        still advance in this pass. Bounded to ``limit`` rows per tick.
         """
         tday = _parse_day(today) if today is not None else _now().date().isoformat()
         assert tday is not None, "today must be a date"
+        now = _now().isoformat()
         await _ensure_billing_mode(self._conn)
         resumed: list[dict] = []
         generated: list[dict] = []
@@ -843,26 +905,31 @@ class SubscriptionService:
                     "SELECT id, user_id FROM subscriptions"
                     " WHERE status = 'paused' AND canceled_at IS NULL"
                     " AND billing_status != 'pending_payment'"
-                    " AND hold_to IS NOT NULL AND hold_to < ?",
-                    (tday,),
+                    " AND hold_to IS NOT NULL AND hold_to < ?"
+                    " ORDER BY id LIMIT ?",
+                    (tday, int(limit)),
                 )).fetchall()
                 for p in paused:
-                    await self._conn.execute(
+                    cur = await self._conn.execute(
                         "UPDATE subscriptions SET status = 'active',"
-                        " hold_from = NULL, hold_to = NULL WHERE id = ?",
+                        " hold_from = NULL, hold_to = NULL"
+                        " WHERE id = ? AND status = 'paused'",
                         (p["id"],),
                     )
-                    resumed.append({"sub_id": p["id"], "user_id": p["user_id"]})
+                    if cur.rowcount:
+                        resumed.append({"sub_id": p["id"], "user_id": p["user_id"]})
                 due = (await self._conn.execute(
                     "SELECT * FROM subscriptions"
                     " WHERE status = 'active' AND canceled_at IS NULL AND next_run <> ''"
-                    " AND next_run <= ?",
-                    (tday,),
+                    " AND next_run <= ?"
+                    " AND (due_retry_at IS NULL OR due_retry_at <= ?)"
+                    " AND NOT (hold_from IS NOT NULL AND hold_to IS NOT NULL"
+                    "          AND hold_from <= next_run AND next_run <= hold_to)"
+                    " ORDER BY next_run, id LIMIT ?",
+                    (tday, now, int(limit)),
                 )).fetchall()
                 for s in due:
                     d = _dt.date.fromisoformat(s["next_run"])
-                    if s["hold_from"] and s["hold_to"] and s["hold_from"] <= s["next_run"] <= s["hold_to"]:
-                        continue  # paused range wins over schedule (§15)
                     if d.weekday() == 6 or await self._skipped(s["id"], d.isoformat()):
                         await self._advance_past(s, _dt.date.fromisoformat(tday))
                         continue
@@ -890,13 +957,81 @@ class SubscriptionService:
                         "billing_mode": billing,
                         "date": d.isoformat(),
                     })
-                    await self._advance_past(s, _dt.date.fromisoformat(tday))
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()
                 raise
         return {"date": tday, "generated": generated, "resumed": resumed,
                 "low_balance": low_balance}
+
+    async def due_backlog(self, today: object = None) -> int:
+        """Count due subs with the same filters as ``process_due``."""
+        tday = _parse_day(today) if today is not None else _now().date().isoformat()
+        assert tday is not None, "today must be a date"
+        row = (await self._conn.execute(
+            "SELECT COUNT(*) c FROM subscriptions"
+            " WHERE status = 'active' AND canceled_at IS NULL AND next_run <> ''"
+            " AND next_run <= ?"
+            " AND (due_retry_at IS NULL OR due_retry_at <= ?)"
+            " AND NOT (hold_from IS NOT NULL AND hold_to IS NOT NULL"
+            "          AND hold_from <= next_run AND next_run <= hold_to)",
+            (tday, _now().isoformat()),
+        )).fetchone()
+        return int(row["c"]) if row is not None else 0
+
+    async def advance_due(self, sub_id: str, expected_next_run: str,
+                          today: object = None) -> bool:
+        """Advance ``next_run`` only if it still equals the processed date.
+
+        Called after the order exists and prepaid credit is settled. A lost
+        CAS means another tick already advanced it; harmless. Resets retry
+        state so the plan is eligible on its next schedule.
+        """
+        sub = (await self._conn.execute(
+            "SELECT next_run, schedule_type, recurrence FROM subscriptions WHERE id = ?",
+            (sub_id,),
+        )).fetchone()
+        if sub is None or str(sub["next_run"]) != str(expected_next_run):
+            return False
+        tday = _parse_day(today) if today is not None else _now().date().isoformat()
+        assert tday is not None, "today must be a date"
+        nxt = _advance(_dt.date.fromisoformat(str(expected_next_run)),
+                       sub["schedule_type"], sub["recurrence"])
+        guard = 0
+        while (nxt <= _dt.date.fromisoformat(tday) or nxt.weekday() == 6) and guard < 370:
+            guard += 1
+            if nxt.weekday() == 6:
+                nxt += _dt.timedelta(days=1)
+            else:
+                nxt = _advance(nxt, sub["schedule_type"], sub["recurrence"])
+        with WRITE_LOCK:
+            cur = await self._conn.execute(
+                "UPDATE subscriptions SET next_run = ?, due_attempts = 0,"
+                " due_last_error = NULL, due_retry_at = NULL"
+                " WHERE id = ? AND next_run = ?",
+                (nxt.isoformat(), sub_id, str(expected_next_run)),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    async def record_due_failure(self, sub_id: str, code: str,
+                                 message: str = "") -> dict:
+        """Record a failed due run and back off 15m → 24h (no dead-letter)."""
+        row = (await self._conn.execute(
+            "SELECT due_attempts FROM subscriptions WHERE id = ?", (sub_id,)
+        )).fetchone()
+        attempts = int(row["due_attempts"] or 0) + 1 if row is not None else 1
+        delay = min(15 * 60 * (2 ** (attempts - 1)), 24 * 3600)
+        retry_at = (_now() + _dt.timedelta(seconds=delay)).isoformat()
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "UPDATE subscriptions SET due_attempts = due_attempts + 1,"
+                " due_last_error = ?, due_retry_at = ? WHERE id = ?",
+                (str(message or code)[:200], retry_at, sub_id),
+            )
+            self._conn.commit()
+        return {"sub_id": sub_id, "attempts": attempts, "code": code,
+                "retry_at": retry_at, "retry_after_s": delay}
 
     # -- internals --------------------------------------------------------
 
@@ -911,7 +1046,8 @@ class SubscriptionService:
             else:
                 nxt = _advance(nxt, sub["schedule_type"], sub["recurrence"])
         await self._conn.execute(
-            "UPDATE subscriptions SET next_run = ? WHERE id = ?", (nxt.isoformat(), sub["id"])
+            "UPDATE subscriptions SET next_run = ? WHERE id = ? AND next_run = ?",
+            (nxt.isoformat(), sub["id"], sub["next_run"]),
         )
 
     async def _skipped(self, sub_id: str, day: str) -> bool:

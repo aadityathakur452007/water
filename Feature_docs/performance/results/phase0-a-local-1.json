@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "label": "local-a-1",
+  "profile": "a",
+  "base_url": "http://127.0.0.1:8787",
+  "started_at": "2026-10-25T09:18:11Z",
+  "finished_at": "2026-10-25T09:28:16Z",
+  "duration_s": 600.007,
+  "target_duration_s": 600.0,
+  "warmup_s": 5.0,
+  "target_rps": 2.78,
+  "concurrency": 20,
+  "requests": 1668,
+  "achieved_rps": 2.78,
+  "status_counts": {
+    "200": 1668
+  },
+  "error_count": 0,
+  "error_rate_pct": 0.0,
+  "5xx_count": 0,
+  "5xx_pct": 0.0,
+  "network_error_count": 0,
+  "retry_count": 1662,
+  "p50_ms": 11.39,
+  "p90_ms": 25.04,
+  "p95_ms": 29.03,
+  "p99_ms": 34.76,
+  "max_ms": 95.54,
+  "schedule_resets": 0,
+  "result": "pass",
+  "result_reason": null,
+  "aborted": false,
+  "abort_reason": null,
+  "thresholds": {
+    "max_5xx_pct": 2.0,
+    "max_p99_ms": 5000.0
+  },
+  "routes": {
+    "health": {
+      "count": 83,
+      "status_counts": {
+        "200": 83
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 83,
+      "p50_ms": 5.83,
+      "p90_ms": 22.34,
+      "p95_ms": 23.74,
+      "p99_ms": 27.24,
+      "max_ms": 27.24
+    },
+    "catalog": {
+      "count": 250,
+      "status_counts": {
+        "200": 250
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 249,
+      "p50_ms": 4.54,
+      "p90_ms": 19.12,
+      "p95_ms": 22.12,
+      "p99_ms": 24.54,
+      "max_ms": 26.07
+    },
+    "me": {
+      "count": 250,
+      "status_counts": {
+        "200": 250
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 249,
+      "p50_ms": 11.56,
+      "p90_ms": 27.15,
+      "p95_ms": 29.93,
+      "p99_ms": 34.15,
+      "max_ms": 34.87
+    },
+    "orders": {
+      "count": 334,
+      "status_counts": {
+        "200": 334
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 333,
+      "p50_ms": 7.67,
+      "p90_ms": 23.03,
+      "p95_ms": 24.73,
+      "p99_ms": 30.27,
+      "max_ms": 31.91
+    },
+    "order_detail": {
+      "count": 334,
+      "status_counts": {
+        "200": 334
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 333,
+      "p50_ms": 8.12,
+      "p90_ms": 23.25,
+      "p95_ms": 25.1,
+      "p99_ms": 29.16,
+      "max_ms": 95.54
+    },
+    "dues": {
+      "count": 250,
+      "status_counts": {
+        "200": 250
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 249,
+      "p50_ms": 13.17,
+      "p90_ms": 29.93,
+      "p95_ms": 31.93,
+      "p99_ms": 37.29,
+      "max_ms": 39.32
+    },
+    "vendor_route": {
+      "count": 167,
+      "status_counts": {
+        "200": 167
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 166,
+      "p50_ms": 17.47,
+      "p90_ms": 30.73,
+      "p95_ms": 33.19,
+      "p99_ms": 37.6,
+      "max_ms": 39.4
+    }
+  },
+  "notes": []
+}

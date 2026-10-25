@@ -29,7 +29,10 @@ M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_tex
 M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 M013 = (API_ROOT / "src" / "app" / "db" / "migrations" / "013_vendor_access.sql").read_text()
 M015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+M019 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
 M027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
+M028 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+M029 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 
 NOW = _dt.datetime.now(_dt.timezone.utc)
 POD = "482910"
@@ -59,7 +62,7 @@ def _H(s: str) -> str:
 
 def _conn(flag=True):
     raw = get_connection(":memory:")
-    raw.executescript(M002 + M003 + M004 + M005 + M007 + M010 + M013 + M015 + M027)
+    raw.executescript(M002 + M003 + M004 + M005 + M007 + M010 + M013 + M015 + M019 + M027 + M028 + M029)
     now = NOW.isoformat()
     raw.execute(
         "INSERT INTO users(id, phone, role, created_at) VALUES "

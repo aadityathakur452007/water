@@ -100,25 +100,33 @@ class LedgerRepo:
         ref: str = "",
         actor: str = "system",
         reason: str = "",
+        guard: tuple[str, tuple] | None = None,
     ) -> list[tuple[str, tuple]]:
-        """Build SQL statements for mutating ledger + audit event for batch execution."""
+        """Build SQL statements for mutating ledger + audit event for batch execution.
+
+        ``guard`` is an optional ``(sql_condition, params)``; when present both
+        statements only write if the condition is true. Money batches use this
+        with a CAS token so a losing concurrent request writes nothing.
+        """
         paid = max(0, int(d_deposit))
         refunded = max(0, -int(d_deposit))
         ref_type, ref_id = _split_ref(ref)
+        where, guard_params = guard if guard else ("", ())
+        suffix = f" WHERE {where}" if where else ""
         return [
             (
                 "INSERT INTO ledger(customer_id, held, deposit_paid, deposit_refunded, dues)"
-                " VALUES (?, ?, ?, ?, ?)"
+                f" SELECT ?, ?, ?, ?, ?{suffix}"
                 " ON CONFLICT(customer_id) DO UPDATE SET held = held + excluded.held,"
                 " deposit_paid = deposit_paid + excluded.deposit_paid,"
                 " deposit_refunded = deposit_refunded + excluded.deposit_refunded,"
                 " dues = dues + excluded.dues",
-                (customer_id, int(d_held), paid, refunded, int(d_dues)),
+                (customer_id, int(d_held), paid, refunded, int(d_dues), *guard_params),
             ),
             (
                 "INSERT INTO ledger_events(id, customer_id, kind, d_held, d_deposit, d_dues,"
                 " ref_type, ref_id, actor_id, reason, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f" SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?{suffix}",
                 (
                     uuid.uuid4().hex,
                     customer_id,
@@ -131,6 +139,7 @@ class LedgerRepo:
                     actor,
                     reason,
                     _now(),
+                    *guard_params,
                 ),
             ),
         ]

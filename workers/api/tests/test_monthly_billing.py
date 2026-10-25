@@ -28,8 +28,10 @@ class _NoOpProvider:
 def _conn():
     c = get_connection(":memory:")
     base = API_ROOT / "src" / "app" / "db" / "migrations"
-    for m in ("002_auth.sql", "003_addresses.sql", "004_orders.sql", "012_monthly.sql",
-              "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql"):
+    for m in ("002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
+              "010_config_audit.sql", "012_monthly.sql", "019_rate_counters.sql",
+              "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql",
+              "029_p0_correctness.sql"):
         c.executescript((base / m).read_text())
     return c
 

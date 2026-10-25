@@ -149,30 +149,49 @@ async def _cols(conn: Conn, table: str) -> set[str]:
         return set()
 
 
+async def build_audit_stmt(conn: Conn, *, actor: str, action: str, entity: str,
+                           entity_id: str, before: str = "", after: str = "",
+                           trace_id: str = "", actor_role: str | None = None,
+                           guard: tuple[str, tuple] | None = None
+                           ) -> list[tuple[str, tuple]]:
+    """Build an audit INSERT for a batch; works on both audit_log shapes.
+
+    ``guard`` lets a money/limit batch write the audit row only when its CAS
+    or claim row exists.
+    """
+    cols = await _cols(conn, "audit_log")
+    if not cols:
+        return []
+    now = _now()
+    role = actor_role or _role(actor)
+    where, params = guard if guard else ("", ())
+    suffix = f" WHERE {where}" if where else ""
+    if {"actor_id", "before", "after"} <= cols:  # contract §2 shape
+        return [(
+            "INSERT INTO audit_log(id, actor_id, actor_role, action, entity, entity_id,"
+            " before, after, trace_id, created_at)"
+            f" SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?{suffix}",
+            (uuid.uuid4().hex, actor, role, action, entity, entity_id,
+             before, after, trace_id or uuid.uuid4().hex[:8], now, *params),
+        )]
+    return [(
+        "INSERT INTO audit_log(actor, action, entity, entity_id, trace_id, created_at)"
+        f" SELECT ?, ?, ?, ?, ?, ?{suffix}",
+        (actor, action, entity, entity_id, trace_id or uuid.uuid4().hex[:8], now, *params),
+    )]
+
+
 async def write_audit(conn: Conn, *, actor: str, action: str, entity: str,
                 entity_id: str, before: str = "", after: str = "",
                 trace_id: str = "", actor_role: str | None = None) -> None:
     """Audit money/role/config writes. Works on both audit_log shapes: the
     contract shape (actor_id/actor_role/before/after) and the landed slice-1
     shape (actor/action/entity/entity_id/trace_id) — caller holds WRITE_LOCK."""
-    cols = await _cols(conn, "audit_log")
-    if not cols:
-        return
-    now = _now()
-    role = actor_role or _role(actor)
-    if {"actor_id", "before", "after"} <= cols:  # contract §2 shape
-        await conn.execute(
-            "INSERT INTO audit_log(id, actor_id, actor_role, action, entity, entity_id,"
-            " before, after, trace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (uuid.uuid4().hex, actor, role, action, entity, entity_id,
-             before, after, trace_id or uuid.uuid4().hex[:8], now),
-        )
-    else:  # landed slice-1 shape
-        await conn.execute(
-            "INSERT INTO audit_log(actor, action, entity, entity_id, trace_id, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (actor, action, entity, entity_id, trace_id or uuid.uuid4().hex[:8], now),
-        )
+    for sql, params in await build_audit_stmt(
+        conn, actor=actor, action=action, entity=entity, entity_id=entity_id,
+        before=before, after=after, trace_id=trace_id, actor_role=actor_role,
+    ):
+        await conn.execute(sql, params)
 
 
 async def ensure_profile(conn: Conn, vendor_id: str) -> dict:

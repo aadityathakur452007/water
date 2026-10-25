@@ -40,7 +40,11 @@ MIGRATION = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").
 MIGRATION_005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
 MIGRATION_010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 MIGRATION_015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+MIGRATION_019 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
+MIGRATION_022 = (API_ROOT / "src" / "app" / "db" / "migrations" / "022_vendor_leaves_and_sub_cancel.sql").read_text()
 MIGRATION_027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
+MIGRATION_028 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+MIGRATION_029 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 
 WINDOW = "2026-10-01T08:00:00+00:00"
 
@@ -58,7 +62,11 @@ def _conn():
     c.executescript(MIGRATION_005)  # cancel_settle refunds paid_sum from payments
     c.executescript(MIGRATION_010)  # delivery-code reissue audit rows
     c.executescript(MIGRATION_015)
+    c.executescript(MIGRATION_019)
+    c.executescript(MIGRATION_022)
     c.executescript(MIGRATION_027)
+    c.executescript(MIGRATION_028)
+    c.executescript(MIGRATION_029)
     return c
 
 

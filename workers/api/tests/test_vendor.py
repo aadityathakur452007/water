@@ -32,8 +32,12 @@ M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").re
 M004 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 M005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
 M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_text()
+M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 M015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+M019 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
 M027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
+M028 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+M029 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 FUTURE = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat()
@@ -43,7 +47,7 @@ POD_EXPIRY = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=12)).isof
 
 def _conn():
     c = get_connection(":memory:")
-    c.executescript(M002 + M003 + M004 + M005 + M007 + M015 + M027)
+    c.executescript(M002 + M003 + M004 + M005 + M007 + M010 + M015 + M019 + M027 + M028 + M029)
     c.execute(
         "INSERT INTO users(id, phone, role, created_at) VALUES "
         "('v1', '+911111111111', 'vendor', ?), ('v2', '+913333333333', 'vendor', ?),"
