@@ -1580,7 +1580,7 @@ Flutter public reads (ApiClient)
 
 No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Production release is cumulative: back up `shodasha`, apply Phase 1A migration `029`, deploy Phase 1A/1B/2 code, then smoke — pending a separate explicit owner gate. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
 
-## Phase 3 - A/B validation (Phase 3F harness implemented, local evidence 2026-10-26, ADR-145)
+## Phase 3 - A/B validation (Phase 3F harness + local evidence; Phase 3P skipped on Free, ADR-148)
 
 ```
 Phase 3F (Free, current)
@@ -1592,7 +1592,18 @@ Phase 3F (Free, current)
   guards: loopback/staging only; --allow-writes; --allow-stress; provider paths refused
   results: JSON schema v2 + Markdown, counted vs all phases, expected 4xx separated
 
-Phase 3P (Paid, deferred)
+Phase 3P (Paid) - SKIPPED 2026-10-26 (ADR-148)
+  owner rejected Workers Paid; no A/B/write/cron/soak/cost estimate
+  login probe attempt (2026-10-26):
+    prep_phase3_logins.py -> 90 synthetic users -> shodasha-staging
+    bench_phase0.py --profile login -> 20 requests -> abort at 50% 5xx
+    3x200, 7x409 (shared-device bug; fixed to per-credential IDs),
+    3x503 exceededCpu at 10 ms, 7x500 ErrnoError, p99 3,381.81 ms
+    single fresh-device login -> 200 (route works, CPU does not fit)
+  staging restored: 6242eebe, OBS_LOG_SAMPLE_RATE=0.1, crons [], /health 200
+  retained: 90 synthetic users (no credentials), pre-run backup outside repo
+
+  The original Paid timeline, retained for a future paid decision only:
   harness -> water-staging -> shodasha-staging
   timeline: 2m warm-up 25% -> 10m steady avg -> 5m burst 2.5x
             -> 10m recovery avg -> 3m ramp-down
@@ -1613,7 +1624,9 @@ Evidence:
   GO/NO-GO: SLO gate with 20% headroom; 5xx < 0.5%; cron zero missed
 ```
 
-Phase 3F local results (2026-10-26): `phase3-a` 108 counted / 115 all, 0 errors/5xx, p99 64.5 ms; `phase3-b` 217 / 230, 0 errors/5xx, p99 24.2 ms; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. The write probe must run on a fresh DB seeded at the current migrations; the stale migration-028 DB fails cancel with `no such column: mutation_token`. These are local SQLite numbers, not Workers CPU or 1,000-user certification. Staging correctness smoke and all Paid probes remain pending; production is never a target.
+Phase 3F local results (2026-10-26): `phase3-a` 108 counted / 115 all, 0 errors/5xx, p99 64.5 ms; `phase3-b` 217 / 230, 0 errors/5xx, p99 24.2 ms; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. The write probe must run on a fresh DB seeded at the current migrations; the stale migration-028 DB fails cancel with `no such column: mutation_token`. These are local SQLite numbers, not Workers CPU or 1,000-user certification. The staging correctness smoke passed (7 routes, 0 5xx); all Paid probes are **skipped** (ADR-148). Production is never a target.
+
+Phase 3P stop (2026-10-26, ADR-148): the owner rejected Workers Paid. The login probe aborted at 20 requests with 50% 5xx (3×200, 7×409, 3×503 `exceededCpu` at 10 ms, 7×500 `ErrnoError`, p99 3,381.81 ms). The 409s were a shared-device harness bug, fixed to one device per credential; the 503/500s are the Free CPU ceiling. G3 independently measured auth CPU p99 1,269.746 ms vs ≤8 ms. No A/B, write, cron, or soak ran. 1,000-user A/B certification is out of scope on Free. Record: `Feature_docs/performance/results/phase3p-skipped-2026-10-26.md`.
 
 ## Free-tier gate execution (2026-10-26, ADR-146/147)
 
@@ -1651,7 +1664,7 @@ Owner approval G0/G6 + "start all" authorization
 Decision: NO-GO on Free
   read-only canary: blocked by G2
   transactional pilot: blocked by G3 + G4
-  next: Workers Paid + Phase 3P (A/B); C remains stress-only
+  next: Free-only workstream; Phase 3P skipped (ADR-148); C remains stress-only
 ```
 
 Measured limits: Free CPU is 10 ms/request and per cron; the login path needs ~1.27 s p99. The cron pilot threshold is 45 `db_roundtrips`; the 3-due tick needs 46. `db_queries` (49) is a statement diagnostic, not the cap metric. GraphQL CPU values are microseconds; `wrangler tail` `cpuTime` is milliseconds.

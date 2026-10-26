@@ -1414,6 +1414,11 @@ def _run_write(
 # ---------------------------------------------------------------------------
 
 
+def _login_device_id(run_tag: str, credential_index: int) -> str:
+    """One stable device per credential; sharing one device trips DEVICE_CAP."""
+    return f"phase3-login-{run_tag}-{credential_index:03d}"
+
+
 def _run_login(
     base_url: str,
     credentials: Sequence[Credential],
@@ -1426,7 +1431,7 @@ def _run_login(
     """One phone/password login per slot; never prints or serializes credentials."""
     client = HttpClient(base_url)
     stats = Stats(["login"])
-    device_id = f"phase3-login-{uuid.uuid4().hex[:8]}"
+    run_tag = uuid.uuid4().hex[:8]
     interval = 1.0 / rps
     started = time.monotonic()
     next_at = started
@@ -1442,12 +1447,16 @@ def _run_login(
         if time.monotonic() - started >= duration:
             break
 
-        credential = credentials[index % len(credentials)]
+        credential_index = index % len(credentials)
+        credential = credentials[credential_index]
         index += 1
         payload = {
             "phone": credential.phone,
             "password": credential.password,
-            "device": {"id": device_id, "integrity": None},
+            "device": {
+                "id": _login_device_id(run_tag, credential_index),
+                "integrity": None,
+            },
         }
         status, latency_ms, retried, _ = client.request(
             "POST", "/v1/auth/user/login", body=_json_bytes(payload)
@@ -1479,7 +1488,7 @@ def _run_login(
         aborted=aborted,
         abort_reason=abort_reason,
         failure_reason=failure,
-        details={"credentials": len(credentials), "device_id": device_id},
+        details={"credentials": len(credentials), "device_mode": "per-credential"},
     )
 
 

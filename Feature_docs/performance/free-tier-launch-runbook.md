@@ -1,6 +1,6 @@
 # Free-tier launch runbook — pilot operations
 
-**Status:** **APPROVED by the owner on 2026-10-26 (G0)** as the companion to the Free-tier launch-readiness spec. **Execution result (2026-10-26): NO-GO on Free.** G1 and G7 were executed, G2/G3/G4 failed, and G5 was not started. Production was rolled back to `511879dc`; migration 029 remains. The runbook is retained as the record of the executed gates and the Paid upgrade path.
+**Status:** **APPROVED by the owner on 2026-10-26 (G0)** as the companion to the Free-tier launch-readiness spec. **Execution result (2026-10-26): NO-GO on Free.** G1 and G7 were executed, G2/G3/G4 failed, and G5 was not started. Production was rolled back to `511879dc`; migration 029 remains. The runbook is retained as the record of the executed gates and the Paid upgrade path. **ADR-148 (2026-10-26): the owner rejected Workers Paid; Phase 3P is skipped. The Paid upgrade path is not approved.**
 
 **Spec:** `2026-10-26-free-tier-launch-readiness-spec.md`
 **Parent evidence:** `2026-10-25-1000-user-capacity-audit.md`, `2026-10-25-phase0-results.md`, `2026-10-26-phase2-results.md`, `2026-10-26-phase3-ab-validation-spec.md`

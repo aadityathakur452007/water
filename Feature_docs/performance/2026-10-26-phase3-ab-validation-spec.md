@@ -1,7 +1,7 @@
 # Phase 3 spec — validate A/B safely
 
 **Date:** 2026-10-26
-**Status:** Spec approved by the owner on 2026-10-26; harness extension approved and implemented the same day. **Phase 3F local runs completed 2026-10-26; Phase 3P has not run.** The owner will stay on Workers Free for the initial phase, so Phase 3 is split into **3F (Free, now)** and **3P (Paid, later)** — see §13. Login prep, staging write/cron windows, the 30-minute staging soak, and cost assumptions remain unapproved. The Free-plan 10 ms CPU ceiling invalidates login bursts and causes intermittent `1102`/`1101` under load.
+**Status:** Spec approved by the owner on 2026-10-26; harness extension approved and implemented the same day. **Phase 3F local runs completed 2026-10-26. Phase 3P is skipped, not deferred (ADR-148, 2026-10-26): the owner rejected Workers Paid and directed Free-only work, so no A/B reads, write probe, login burst, cron window, soak, or cost estimate will run. 1,000-user A/B certification is out of scope on Free.** The login probe was attempted and aborted at the 10 ms CPU ceiling (see §13.4). Production remains read-only. The Free-plan 10 ms CPU ceiling invalidates login bursts and causes intermittent `1102`/`1101` under load.
 **Parent audit:** `2026-10-25-1000-user-capacity-audit.md` (§3, §4, §7 Phase 3, §8)
 **Prior evidence:** `2026-10-25-phase0-results.md`, `2026-10-25-phase1-results.md`, `2026-10-26-phase2-results.md`
 **Runbook:** `phase3-runbook.md`
@@ -287,7 +287,7 @@ C, if approved, adds 1 day plus analysis.
 
 ## 11. Risks and limitations
 
-- **Free-plan blocker:** the current staging Worker cannot run this plan. Paid is a hard prerequisite, not a nice-to-have.
+- **Free-plan blocker:** the current staging Worker cannot run this plan. Paid would be a hard prerequisite, but the owner rejected it; Phase 3P is skipped (ADR-148).
 - **Staging is not production:** single region, synthetic data, no real provider latency. Results certify the code and the modeled load, not a monthly availability number.
 - **Synthetic adoption:** the 60/20/20 billing mix is an assumption. The report must say so; a real adoption shift can change cron and write load.
 - **D1 single writer:** write p99 is sensitive to concurrent money paths. The write probe is separate for that reason.
@@ -298,16 +298,16 @@ C, if approved, adds 1 day plus analysis.
 
 ## 12. Approval checklist
 
-- [ ] Workers Paid approved for the account (applies to staging) — **deferred by the owner 2026-10-26**.
+- [ ] Workers Paid approved for the account (applies to staging) — **rejected by the owner 2026-10-26 (ADR-148)**.
 - [x] This spec approved (profiles, gates, separate probes) — **2026-10-26**.
 - [x] Harness extension approved (code change) — **2026-10-26, implemented and guard-tested**.
-- [ ] Login credential prep approved (90 synthetic users, temp credentials file).
-- [ ] Write probe endpoints approved (COD/cancel/reschedule only).
-- [ ] Cron window approved (staging cron on temporarily, then off).
-- [ ] 30-minute soak accepted; 2-hour soak optional.
-- [ ] Cost-estimate assumptions accepted.
+- [x] Login credential prep executed (90 synthetic users, temp credentials file) — **2026-10-26; probe aborted, credentials deleted**.
+- [ ] Write probe endpoints approved (COD/cancel/reschedule only) — **not applicable; Phase 3P skipped**.
+- [ ] Cron window approved (staging cron on temporarily, then off) — **not applicable; Phase 3P skipped**.
+- [ ] 30-minute soak accepted; 2-hour soak optional — **not applicable; Phase 3P skipped**.
+- [ ] Cost-estimate assumptions accepted — **not applicable; no estimate produced**.
 
-Until every box is checked, Phase 3P remains a plan. Production remains read-only.
+**Phase 3P is skipped (ADR-148).** This checklist is retained as a record; no further box will be checked on Free. Production remains read-only.
 
 ## 13. Free-tier path (owner decision, 2026-10-26)
 
@@ -348,8 +348,27 @@ These are local SQLite numbers. They validate route wiring, the Phase 3 read mix
 | D1 rows written | 100k/day | Fine for the initial low-traffic phase |
 | Load tests | Not valid on Free | Sustained staging load produces `1102`/`1101`, not capacity data |
 
-The initial phase is low-traffic (production currently has 9 users; traffic is low after 12:00). Monitor CPU, D1 queries, and cron due counts. Move to Phase 3P when traffic approaches the Free envelope or when password login/cron must be certified.
+The initial phase is low-traffic (production currently has 9 users; traffic is low after 12:00). Monitor CPU, D1 queries, and cron due counts. **Phase 3P is skipped on Free (ADR-148); do not move to 3P without a new paid decision.**
 
-### 13.3 Phase 3P — Paid validation (later)
+### 13.3 Phase 3P — Paid validation (skipped 2026-10-26)
 
-The original A/B/C plan in §4–§7 applies when the account moves to Workers Paid. Phase 3F evidence is not a substitute for 3P and must not be reported as 1,000-user certification.
+**Skipped, not deferred.** The original A/B/C plan in §4–§7 applies only if the owner later approves Workers Paid in a new ADR. No 3P run will be executed on Free, and Phase 3F evidence is not a substitute for 3P. It must not be reported as 1,000-user certification.
+
+### 13.4 Login probe attempt and stop (2026-10-26)
+
+The owner rejected Paid after the Free pilot closed. Before that decision, the login probe was attempted against staging with 90 dedicated synthetic users:
+
+| Metric | Result |
+|---|---|
+| Requests | 20 (0.158 rps achieved, concurrency 1) |
+| Statuses | 3×200, 7×409, 3×503, 7×500 |
+| 5xx | 10 / 20 (**50%**) — abort threshold 2% |
+| p50 / p95 / p99 | 502.6 / 1,611.84 / **3,381.81 ms** |
+| Outcome | **fail, aborted at 126.879 s** |
+
+- The 503s were Cloudflare `exceededCpu` at the **10 ms** Free ceiling; the 500s were `ErrnoError`.
+- The 409s were a harness bug: all logins shared one device ID and hit the per-device cap. `bench_phase0.py` now issues one device per credential, with a regression test. The 409s are not capacity evidence.
+- A single diagnostic login with a fresh device returned 200 (4,204.3 ms), so the route works; it does not fit the CPU budget.
+- Independent G3 evidence: 6/6 HTTP 200 with auth CPU p99 **1,269.746 ms** against a ≤8 ms gate.
+
+Result files: `results/phase3-login-20261026T112345Z.{json,md}` (1-request smoke, 200) and `results/phase3-login-20261026T112505Z.{json,md}` (aborted probe). The full stop record is `results/phase3p-skipped-2026-10-26.md`. No cost estimate is produced.

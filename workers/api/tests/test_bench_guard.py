@@ -285,6 +285,12 @@ def test_empty_credentials_fail(tmp_path: Path) -> None:
     assert "no credentials" in str(excinfo.value)
 
 
+def test_login_device_ids_are_per_credential() -> None:
+    ids = [bench_phase0._login_device_id("abc12345", index) for index in range(90)]
+    assert len(set(ids)) == 90
+    assert all(device.startswith("phase3-login-abc12345-") for device in ids)
+
+
 def test_phase3_mix_matches_spec() -> None:
     total = sum(scenario.weight for scenario in bench_phase0.PHASE3_SCENARIOS)
     assert total == 100

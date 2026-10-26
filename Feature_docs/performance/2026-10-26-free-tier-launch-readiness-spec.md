@@ -2,7 +2,7 @@
 
 **Status:** **APPROVED by the owner on 2026-10-26 (G0).** The spec, pilot envelope, read-only probe plan, alert plan, and rollback plan are approved. This document still authorizes **no code, config, deploy, migration, load test, or production write**; G1, G3, and G4 remain separately gated. It defines the Free pilot decision and the evidence required to make it.
 
-**Execution result (2026-10-26): NO-GO on Free.** G1 and G7 completed, G2/G3/G4 failed, G5 was not started, and production was rolled back to the pre-G1 version. See §8 and §9. Migration 029 remains applied and is additive.
+**Execution result (2026-10-26): NO-GO on Free.** G1 and G7 completed, G2/G3/G4 failed, G5 was not started, and production was rolled back to the pre-G1 version. See §8 and §9. Migration 029 remains applied and is additive. **Superseded by ADR-148 (2026-10-26): the owner rejected Workers Paid; Phase 3P is skipped, not deferred. The Paid recommendation below is historical and not approved.**
 
 **Branch:** `035-premium-ui-states-release` · **HEAD at drafting:** `dbc5304`
 

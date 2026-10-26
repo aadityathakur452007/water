@@ -1,6 +1,6 @@
 # Phase 3 runbook — A/B validation on staging
 
-**Status:** Spec and harness approved 2026-10-26; Phase 3F local runs completed the same day. Phase 3F (Free: local harness + staging correctness smoke) remains the current path; the staging smoke is not yet run. Phase 3P (Paid: staging A/B/C) is deferred. Do not run A/B, login bursts, or the cron window on Free.
+**Status:** Spec and harness approved 2026-10-26; Phase 3F local runs completed the same day. **Phase 3P is skipped, not deferred (ADR-148, 2026-10-26): the owner rejected Workers Paid. Do not run A/B, login bursts, the write probe, the cron window, the soak, or any paid profile. 1,000-user certification is out of scope on Free.** The login probe was attempted and aborted; see §6 and `results/phase3p-skipped-2026-10-26.md`.
 **Spec:** `2026-10-26-phase3-ab-validation-spec.md`
 **Parent audit:** `2026-10-25-1000-user-capacity-audit.md`
 **Production:** read-only. No command in this runbook may target `water` or `shodasha`.
@@ -19,19 +19,19 @@
 
 ## 1.5 Free-tier path (current)
 
-Workers Free is the current plan. Free is valid for the initial low-traffic phase, but it is not a capacity target.
+Workers Free is the current plan. Free is valid for the initial low-traffic phase, but it is not a capacity target. **All Paid (3P) rows are skipped, not deferred (ADR-148). Do not run them.**
 
-| Run | Free (3F) | Paid (3P) |
+| Run | Free (3F) | Paid (3P) — skipped |
 |---|---|---|
-| Local phase3-a / phase3-b | Yes, compressed timeline | Yes |
-| Local write probe | Yes, disposable DB | Yes |
-| Staging smoke | Yes, one pass, low rate | Yes |
-| Staging A/B/C load | **No** — `1102`/`1101` | Yes |
-| Login burst | **No** — PBKDF2 exceeds 10 ms | Yes |
-| Cron 60/500/1,000 | **No** — 50 D1 queries/invocation | Yes |
-| 30-minute staging soak | **No** | Yes |
+| Local phase3-a / phase3-b | Yes, compressed timeline | **Skipped** |
+| Local write probe | Yes, disposable DB | **Skipped** |
+| Staging smoke | Yes, one pass, low rate | **Skipped** |
+| Staging A/B/C load | **No** — `1102`/`1101` | **Skipped** |
+| Login burst | **No** — PBKDF2 exceeds 10 ms | **Skipped** |
+| Cron 60/500/1,000 | **No** — 50 D1 queries/invocation | **Skipped** |
+| 30-minute staging soak | **No** | **Skipped** |
 
-Free envelope: 100k requests/day, 10 ms CPU/request, 50 D1 queries/invocation, 100k rows written/day. The initial production traffic is low; monitor those limits and move to 3P before they are approached.
+Free envelope: 100k requests/day, 10 ms CPU/request, 50 D1 queries/invocation, 100k rows written/day. The initial production traffic is low; monitor those limits. **Phase 3P is skipped on Free (ADR-148); do not move to 3P without a new paid decision.**
 
 Local 3F commands (from `workers/api`):
 
@@ -76,7 +76,9 @@ Do not point `--allow-writes` at staging until the write probe is separately app
 
 **Phase 3F local results (2026-10-26, compressed timeline 0.02):** `phase3-a` 108 counted / 115 all requests, 0 errors, 0 5xx, p99 64.5 ms, 0 resets; `phase3-b` 217 / 230, 0 errors, 0 5xx, p99 24.2 ms, 0 resets; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. Evidence in `results/phase3-phase3-a-20261026T080609Z.*`, `results/phase3-phase3-b-20261026T080658Z.*`, `results/phase3-write-20261026T080931Z.*`. These are local SQLite numbers, not Workers CPU or 1,000-user certification.
 
-## 2. Pre-flight (Phase 3P only)
+## 2. Pre-flight (Phase 3P only — skipped; retained for a future paid decision)
+
+**Do not run this section on Free.** It is retained only as the pre-flight for a future paid decision approved in a new ADR.
 
 Run from `workers/api`.
 
@@ -106,7 +108,7 @@ npx wrangler d1 execute shodasha-staging --remote --env staging `
 Expected:
 
 - Commit SHA recorded. Working tree clean, or every dirty file listed in the report.
-- "No migrations to apply!" and migration count **29** (Phase 1A applied; Phase 2 adds none).
+- "No migrations to apply!" and migration count **28 records** (numbering starts at 002; Phase 1A applied, Phase 2 adds none).
 
 ### 2.3 Health and config
 
@@ -278,9 +280,11 @@ python scripts/bench_phase0.py `
 
 Expected: every route 2xx (or the documented 4xx for a deliberate edge case), no 5xx, no 429. If the smoke fails, stop.
 
-## 6. Login probe
+## 6. Login probe (skipped on Free)
 
-Use the 90 dedicated synthetic users from §2.8, one login each, paced at 9/min. Do not exceed the 100/hr IP ceiling.
+**Skipped, not deferred (ADR-148).** The 2026-10-26 attempt aborted after 20 requests: 3×200, 7×409 (shared-device-cap harness bug, now fixed), 3×503 `exceededCpu` at 10 ms, 7×500 `ErrnoError`; p99 3,381.81 ms. Full record: `results/phase3p-skipped-2026-10-26.md`. Do not re-run on Free.
+
+The original procedure follows for a future paid decision only. Use the 90 dedicated synthetic users from §2.8, one login each, paced at 9/min. Do not exceed the 100/hr IP ceiling.
 
 ```powershell
 python scripts/bench_phase0.py `
@@ -436,13 +440,17 @@ The report must include:
 - Run ID, UTC start/end, commit SHA, Worker version, migration count, Paid confirmation.
 - Per-run and per-route p50/p95/p99, 5xx, 4xx, D1 queries/roundtrips/rows, CPU, bytes.
 - Cron table: cohort, due, created, failed, missed, statements, CPU, wall, backlog.
-- Cost estimate at B with assumptions.
+- Cost estimate at B with assumptions — **not applicable; Phase 3P skipped, no estimate produced**.
 - What was not measured: real adoption, production traffic, CDN cache, monthly availability, Flutter device performance.
 - Owner signature and date.
 
 Delete raw tail files. Do not commit tokens, headers, IPs, phones, UPI ids, or provider references.
 
+**Phase 3P was skipped on 2026-10-26 (ADR-148).** The only evidence is the aborted login probe in `results/phase3-login-20261026T112505Z.*` and the stop record `results/phase3p-skipped-2026-10-26.md`. Do not package a 3P report or cost estimate.
+
 ## 15. Cleanup and rollback
+
+**Executed 2026-10-26 after the login-probe stop:** `OBS_LOG_SAMPLE_RATE=0.1`, `crons: []`, staging deployed at `6242eebe-36af-46ca-9f28-e25dfbc34e3b`, `/health` 200; temp credentials, login SQL, and raw tail files deleted; 90 synthetic users remain (no usable passwords); pre-run backup retained outside the repo.
 
 After the last run:
 
