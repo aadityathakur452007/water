@@ -1579,18 +1579,26 @@ Flutter public reads (ApiClient)
 
 No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Production release is cumulative: back up `shodasha`, apply Phase 1A migration `029`, deploy Phase 1A/1B/2 code, then smoke — pending a separate explicit owner gate. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
 
-## Phase 3 - A/B validation plan (not implemented, 2026-10-26, ADR-145)
+## Phase 3 - A/B validation (Phase 3F harness implemented, local evidence 2026-10-26, ADR-145)
 
 ```
-Read run A/B (Paid staging only)
+Phase 3F (Free, current)
+  bench_phase0.py -> local uvicorn (127.0.0.1:8787) -> seeded SQLite
+  phase3-a / phase3-b: 15% public / 70% authed / 5% session / 5% vendor / 5% admin
+  compressed timeline (0.02): warmup -> steady -> burst -> recovery -> rampdown
+  write probe -> local disposable DB (127.0.0.1:8788), COD only:
+    quote -> create -> cancel/reschedule, probe-owned orders
+  guards: loopback/staging only; --allow-writes; --allow-stress; provider paths refused
+  results: JSON schema v2 + Markdown, counted vs all phases, expected 4xx separated
+
+Phase 3P (Paid, deferred)
   harness -> water-staging -> shodasha-staging
-  mix: 15% public / 70% authed reads / 5% session / 5% vendor / 5% admin
   timeline: 2m warm-up 25% -> 10m steady avg -> 5m burst 2.5x
             -> 10m recovery avg -> 3m ramp-down
   A: 2.78 avg / 6.94 peak rps (50 concurrent)
   B: 5.56 avg / 13.89 peak rps (100 concurrent)
 
-Separate probes (no blended writes/login):
+Separate probes (Paid only):
   login: 90 requests / 10 min (100/hr IP ceiling)
   writes: 1.11/s split 0.37 create / 0.37 cancel / 0.37 reschedule,
           COD only, probe-owned pool, no provider path
@@ -1604,7 +1612,7 @@ Evidence:
   GO/NO-GO: SLO gate with 20% headroom; 5xx < 0.5%; cron zero missed
 ```
 
-Spec approved 2026-10-26. No harness code exists yet; Workers Paid is deferred, and harness/run-prep approvals are pending. Production is never a target; the Free plan is a hard blocker.
+Phase 3F local results (2026-10-26): `phase3-a` 108 counted / 115 all, 0 errors/5xx, p99 64.5 ms; `phase3-b` 217 / 230, 0 errors/5xx, p99 24.2 ms; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. The write probe must run on a fresh DB seeded at the current migrations; the stale migration-028 DB fails cancel with `no such column: mutation_token`. These are local SQLite numbers, not Workers CPU or 1,000-user certification. Staging correctness smoke and all Paid probes remain pending; production is never a target.
 
 ## Update Protocol (MANDATORY)
 

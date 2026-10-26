@@ -1,7 +1,7 @@
 # Phase 3 spec — validate A/B safely
 
 **Date:** 2026-10-26
-**Status:** Spec approved by the owner on 2026-10-26. **No benchmark has been run.** Phase 3 remains blocked: the Workers Paid upgrade was deferred, and the harness extension, login prep, write probe, cron window, soak, and cost assumptions are not yet approved. The Free-plan 10 ms CPU ceiling invalidates login and causes intermittent `1102`/`1101`.
+**Status:** Spec approved by the owner on 2026-10-26; harness extension approved and implemented the same day. **Phase 3F local runs completed 2026-10-26; Phase 3P has not run.** The owner will stay on Workers Free for the initial phase, so Phase 3 is split into **3F (Free, now)** and **3P (Paid, later)** — see §13. Login prep, staging write/cron windows, the 30-minute staging soak, and cost assumptions remain unapproved. The Free-plan 10 ms CPU ceiling invalidates login bursts and causes intermittent `1102`/`1101` under load.
 **Parent audit:** `2026-10-25-1000-user-capacity-audit.md` (§3, §4, §7 Phase 3, §8)
 **Prior evidence:** `2026-10-25-phase0-results.md`, `2026-10-25-phase1-results.md`, `2026-10-26-phase2-results.md`
 **Runbook:** `phase3-runbook.md`
@@ -300,11 +300,56 @@ C, if approved, adds 1 day plus analysis.
 
 - [ ] Workers Paid approved for the account (applies to staging) — **deferred by the owner 2026-10-26**.
 - [x] This spec approved (profiles, gates, separate probes) — **2026-10-26**.
-- [ ] Harness extension approved (code change).
+- [x] Harness extension approved (code change) — **2026-10-26, implemented and guard-tested**.
 - [ ] Login credential prep approved (90 synthetic users, temp credentials file).
 - [ ] Write probe endpoints approved (COD/cancel/reschedule only).
 - [ ] Cron window approved (staging cron on temporarily, then off).
 - [ ] 30-minute soak accepted; 2-hour soak optional.
 - [ ] Cost-estimate assumptions accepted.
 
-Until every box is checked, Phase 3 remains a plan. Production remains read-only.
+Until every box is checked, Phase 3P remains a plan. Production remains read-only.
+
+## 13. Free-tier path (owner decision, 2026-10-26)
+
+The owner will stay on Workers Free for the initial phase. Paid is deferred, not rejected. The 1,000-DAU targets remain the launch goal, but they cannot be certified on Free.
+
+### 13.1 Phase 3F — Free-tier validation (now)
+
+| Item | Scope |
+|---|---|
+| Harness | Phase 3 read mix at A/B on the **local** seeded server, compressed timeline |
+| Write probe | Local disposable DB only; COD create/cancel/reschedule |
+| Staging | Correctness smoke only (one pass, low rate); no A/B/C load, no login burst, no cron window |
+| Production | Read-only health/smoke; no load, writes, migration, or deploy |
+| Certifies | Route correctness, query counts, local throughput shape, write idempotency |
+| Does not certify | Workers CPU, 1,000 DAU, login burst, 60-sub cron, D1 production latency |
+
+**Local evidence (2026-10-26, compressed timeline 0.02, SQLite, seeded at migration 029):**
+
+| Run | Counted / all requests | Errors / 5xx | p99 | Achieved rps | Result |
+|---|---:|---:|---:|---:|---|
+| `phase3-a` | 108 / 115 | 0 / 0 | 64.5 ms | 3.60 | pass |
+| `phase3-b` | 217 / 230 | 0 / 0 | 24.2 ms | 7.23 | pass |
+| `write` (10 s, 0.5 rps, pool 5) | 7 | 0 / 0 | 41.1 ms | 0.70 | pass |
+
+The write probe completed 2 quotes, 2 creates (201), 2 cancels (200), and 1 reschedule (200) against probe-owned COD orders. Results: `results/phase3-phase3-a-20261026T080609Z.{json,md}`, `results/phase3-phase3-b-20261026T080658Z.{json,md}`, `results/phase3-write-20261026T080931Z.{json,md}`.
+
+A first write attempt on the stale `data/phase0_local.db` (migration 028) returned two cancel `500`s (`no such column: mutation_token`). That run was discarded; the passing run used a fresh disposable DB seeded at migration 029. Always reseed before the write probe.
+
+These are local SQLite numbers. They validate route wiring, the Phase 3 read mix, and write idempotency; they are **not** Workers CPU, D1 latency, or 1,000-user capacity evidence.
+
+### 13.2 Free envelope
+
+| Limit | Free value | Consequence |
+|---|---|---|
+| Worker CPU | 10 ms/request | PBKDF2 login can exceed it; heavy routes can `1102` |
+| D1 queries | 50/invocation | Cron is safe only for roughly 4–5 due subs/tick |
+| Requests | 100k/day | Fine for the initial low-traffic phase |
+| D1 rows written | 100k/day | Fine for the initial low-traffic phase |
+| Load tests | Not valid on Free | Sustained staging load produces `1102`/`1101`, not capacity data |
+
+The initial phase is low-traffic (production currently has 9 users; traffic is low after 12:00). Monitor CPU, D1 queries, and cron due counts. Move to Phase 3P when traffic approaches the Free envelope or when password login/cron must be certified.
+
+### 13.3 Phase 3P — Paid validation (later)
+
+The original A/B/C plan in §4–§7 applies when the account moves to Workers Paid. Phase 3F evidence is not a substitute for 3P and must not be reported as 1,000-user certification.

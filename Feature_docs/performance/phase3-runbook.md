@@ -1,6 +1,6 @@
 # Phase 3 runbook — A/B validation on staging
 
-**Status:** Spec approved 2026-10-26. Plan only: do not run until Workers Paid is active on the account and the remaining prep approvals (harness, login, write probe, cron window) are granted.
+**Status:** Spec and harness approved 2026-10-26; Phase 3F local runs completed the same day. Phase 3F (Free: local harness + staging correctness smoke) remains the current path; the staging smoke is not yet run. Phase 3P (Paid: staging A/B/C) is deferred. Do not run A/B, login bursts, or the cron window on Free.
 **Spec:** `2026-10-26-phase3-ab-validation-spec.md`
 **Parent audit:** `2026-10-25-1000-user-capacity-audit.md`
 **Production:** read-only. No command in this runbook may target `water` or `shodasha`.
@@ -17,7 +17,66 @@
 8. Back up staging D1 before the write and cron probes. A restore needs explicit owner approval.
 9. No production migration, deploy, write, or load test. Phase 3 does not change that.
 
-## 2. Pre-flight
+## 1.5 Free-tier path (current)
+
+Workers Free is the current plan. Free is valid for the initial low-traffic phase, but it is not a capacity target.
+
+| Run | Free (3F) | Paid (3P) |
+|---|---|---|
+| Local phase3-a / phase3-b | Yes, compressed timeline | Yes |
+| Local write probe | Yes, disposable DB | Yes |
+| Staging smoke | Yes, one pass, low rate | Yes |
+| Staging A/B/C load | **No** — `1102`/`1101` | Yes |
+| Login burst | **No** — PBKDF2 exceeds 10 ms | Yes |
+| Cron 60/500/1,000 | **No** — 50 D1 queries/invocation | Yes |
+| 30-minute staging soak | **No** | Yes |
+
+Free envelope: 100k requests/day, 10 ms CPU/request, 50 D1 queries/invocation, 100k rows written/day. The initial production traffic is low; monitor those limits and move to 3P before they are approached.
+
+Local 3F commands (from `workers/api`):
+
+```powershell
+python scripts/bench_phase0.py `
+  --base-url http://127.0.0.1:8787 `
+  --profile phase3-a --timeline-scale 0.02 `
+  --tokens data/phase0_local_tokens.json --label phase3f-a-local
+```
+
+```powershell
+python scripts/bench_phase0.py `
+  --base-url http://127.0.0.1:8787 `
+  --profile phase3-b --timeline-scale 0.02 `
+  --tokens data/phase0_local_tokens.json --label phase3f-b-local
+```
+
+Write probe against a fresh disposable DB only. Reseed at the current migration set first; a DB left at migration 028 returns `500 no such column: mutation_token` on cancel.
+
+```powershell
+python scripts/seed_phase0.py --db data/phase3f_write.db --fresh `
+  --users 20 --orders 400 --vendors 1 --stops-per-vendor 40 `
+  --tokens "$env:TEMP\phase3f_write_tokens.json" `
+  --summary "$env:TEMP\phase3f_write_summary.json" --seed phase3f-write
+```
+
+Start the write server on a second port with that DB:
+
+```powershell
+$env:PYTHONPATH="src"; $env:SHODASHA_DB_PATH="data/phase3f_write.db"
+python -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8788
+```
+
+```powershell
+python scripts/bench_phase0.py `
+  --base-url http://127.0.0.1:8788 `
+  --profile write --rate 0.5 --duration 10 --pool-size 5 `
+  --tokens "$env:TEMP\phase3f_write_tokens.json" --allow-writes --label phase3f-write-local
+```
+
+Do not point `--allow-writes` at staging until the write probe is separately approved.
+
+**Phase 3F local results (2026-10-26, compressed timeline 0.02):** `phase3-a` 108 counted / 115 all requests, 0 errors, 0 5xx, p99 64.5 ms, 0 resets; `phase3-b` 217 / 230, 0 errors, 0 5xx, p99 24.2 ms, 0 resets; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. Evidence in `results/phase3-phase3-a-20261026T080609Z.*`, `results/phase3-phase3-b-20261026T080658Z.*`, `results/phase3-write-20261026T080931Z.*`. These are local SQLite numbers, not Workers CPU or 1,000-user certification.
+
+## 2. Pre-flight (Phase 3P only)
 
 Run from `workers/api`.
 
