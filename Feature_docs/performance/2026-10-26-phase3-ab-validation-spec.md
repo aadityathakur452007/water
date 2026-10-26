@@ -1,7 +1,7 @@
 # Phase 3 spec — validate A/B safely
 
 **Date:** 2026-10-26
-**Status:** Draft for owner approval. **No benchmark has been run.** Phase 3 is blocked on the Workers Paid plan for the account; the Free-plan 10 ms CPU ceiling invalidates login and causes intermittent `1102`/`1101`.
+**Status:** Spec approved by the owner on 2026-10-26. **No benchmark has been run.** Phase 3 remains blocked: the Workers Paid upgrade was deferred, and the harness extension, login prep, write probe, cron window, soak, and cost assumptions are not yet approved. The Free-plan 10 ms CPU ceiling invalidates login and causes intermittent `1102`/`1101`.
 **Parent audit:** `2026-10-25-1000-user-capacity-audit.md` (§3, §4, §7 Phase 3, §8)
 **Prior evidence:** `2026-10-25-phase0-results.md`, `2026-10-25-phase1-results.md`, `2026-10-26-phase2-results.md`
 **Runbook:** `phase3-runbook.md`
@@ -298,8 +298,8 @@ C, if approved, adds 1 day plus analysis.
 
 ## 12. Approval checklist
 
-- [ ] Workers Paid approved for the account (applies to staging).
-- [ ] This spec approved (profiles, gates, separate probes).
+- [ ] Workers Paid approved for the account (applies to staging) — **deferred by the owner 2026-10-26**.
+- [x] This spec approved (profiles, gates, separate probes) — **2026-10-26**.
 - [ ] Harness extension approved (code change).
 - [ ] Login credential prep approved (90 synthetic users, temp credentials file).
 - [ ] Write probe endpoints approved (COD/cancel/reschedule only).

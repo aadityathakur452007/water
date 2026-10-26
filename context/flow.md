@@ -1604,7 +1604,7 @@ Evidence:
   GO/NO-GO: SLO gate with 20% headroom; 5xx < 0.5%; cron zero missed
 ```
 
-No harness code exists yet. Production is never a target; the Free plan is a hard blocker.
+Spec approved 2026-10-26. No harness code exists yet; Workers Paid is deferred, and harness/run-prep approvals are pending. Production is never a target; the Free plan is a hard blocker.
 
 ## Update Protocol (MANDATORY)
 

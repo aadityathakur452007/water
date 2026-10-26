@@ -1,6 +1,6 @@
 # Phase 3 runbook — A/B validation on staging
 
-**Status:** Plan only. Do not run until the Phase 3 spec is approved and the Workers Paid plan is active on the account.
+**Status:** Spec approved 2026-10-26. Plan only: do not run until Workers Paid is active on the account and the remaining prep approvals (harness, login, write probe, cron window) are granted.
 **Spec:** `2026-10-26-phase3-ab-validation-spec.md`
 **Parent audit:** `2026-10-25-1000-user-capacity-audit.md`
 **Production:** read-only. No command in this runbook may target `water` or `shodasha`.
