@@ -2,6 +2,8 @@
 
 **Status:** **APPROVED by the owner on 2026-10-26 (G0).** The spec, pilot envelope, read-only probe plan, alert plan, and rollback plan are approved. This document still authorizes **no code, config, deploy, migration, load test, or production write**; G1, G3, and G4 remain separately gated. It defines the Free pilot decision and the evidence required to make it.
 
+**Execution result (2026-10-26): NO-GO on Free.** G1 and G7 completed, G2/G3/G4 failed, G5 was not started, and production was rolled back to the pre-G1 version. See §8 and §9. Migration 029 remains applied and is additive.
+
 **Branch:** `035-premium-ui-states-release` · **HEAD at drafting:** `dbc5304`
 
 **Owner decisions captured 2026-10-26:**
@@ -34,7 +36,7 @@ This phase answers one question:
 
 It is a **GO/NO-GO decision**, not a capacity certification. The 1,000 registered / 1,000 DAU targets remain Phase 3P on Paid. A Free pilot is a temporary bridge, not a launch at scale.
 
-**Current answer: NO-GO for a transactional pilot until the auth and cron gates pass.** Phase 0 measured intermittent `1102` on production `/health` at 9 users, and no Free evidence exists that password login (PBKDF2 100k) or the new cron tick fits 10 ms CPU / 50 D1 round trips. The read-only canary may still be possible.
+**Final answer: NO-GO on Free.** The gates were executed on 2026-10-26. G2 failed (1×503 `exceededResources`/1102 and 1×500 in 20 production `/health` probes), G3 failed (CPU p99 **1,269.746 ms** against a ≤8 ms gate), and G4 failed (`db_roundtrips=46` against a ≤45 gate, with zero missed deliveries). G5 was not started because no pilot is possible. Phase 0's intermittent `1102` at 9 users was not a transient: the 10 ms Free CPU ceiling still fails under the current code. The recommendation is **Workers Paid + Phase 3P**, not another Free pilot.
 
 ---
 
@@ -69,21 +71,23 @@ A transactional pilot is **not authorized** by this spec. It requires separate a
 | Cron triggers | 5/account | Cloudflare Workers limits |
 | Workers Logs | 200,000 events/day; 3-day retention | Cloudflare Workers Logs |
 
-### 3.2 Production state (last recorded; re-verify after deploy)
+### 3.2 Production state (recorded 2026-10-26 after rollback)
 
 | Item | Recorded value |
 |---|---|
 | Worker | `water` — `https://water.adityathakur452007.workers.dev` |
+| Active version | `511879dc-60d4-48a2-aca9-7ae44a734f8a` (deployment `6940eb0a-72f7-46cd-ae84-3a58fc646f43`) |
 | D1 | `shodasha` (`da762aad-1d5c-46eb-992e-acc79505cc95`) |
-| Users | 9 |
-| Subscriptions | 0 |
-| Migration | 028 |
+| Users / orders / subscriptions | 9 / 9 / 0 |
+| Payments / stops | 5 / 1 |
+| Migration | 029 applied (28 migration records; numbering starts at 002) |
+| D1 size | 729,088 bytes |
 | Cron | `*/15 * * * *` |
 | Logs | enabled, `head_sampling_rate: 1`, `invocation_logs: true` |
 | Traces | **disabled** |
 | App log sample | default `OBS_LOG_SAMPLE_RATE=0.05`; 4xx/5xx/slow always log |
 
-**Production is behind this branch.** Migration 029 and the Phase 1A/1B/2 code are staging-verified but not deployed. A launch decision on the old production code is invalid; the deploy gate is a prerequisite, not part of this approval.
+**Production was deployed and rolled back.** The Phase 1A/1B/2 code with migration 029 was deployed as `f3778132-fcd4-4ee2-9ccc-f1de9984b12f` after a verified backup. G2 failed on that deployment, so production was rolled back to `511879dc`; migration 029 remains because it is additive and the rollback target is schema-compatible. No D1 restore was performed.
 
 ### 3.3 Evidence already on record
 
@@ -94,8 +98,10 @@ A transactional pilot is **not authorized** by this spec. It requires separate a
 | Phase 0 warm/cold | Warm `/health` 118–194 ms; cold start 1.5–4 s | Cold start is a real UX risk, not a throughput number |
 | Phase 2 query counts | Order detail 5 endpoint statements; vendor route 5; admin metrics 1 on cache hit; login pre-lookup 2 statements / 1 round trip | Read shapes are now inside the 50-round-trip cap; CPU is still the wall |
 | Phase 3F local | `phase3-a` 108 counted / 115 all, 0 errors; `phase3-b` 217 / 230, 0 errors; write probe 2 creates / 2 cancels / 1 reschedule | Route/idempotency evidence only; not Workers CPU or D1 latency |
-| Free auth proof | **None** | PBKDF2 100k + Python Worker has not been proven on Free |
-| Free cron proof | **None** | The new scheduler has not been proven on Free at 10 ms / 50 round trips |
+| G2 read-only smoke (production) | 20 probes: **18×200, 1×503 `exceededResources`/1102, 1×500 `scriptThrewException`**; catalog/windows 200 | Read-only canary is NO-GO; the CPU ceiling is still present on the current code |
+| G3 Free auth proof (staging) | 1 registration + 5 logins, all 200; CPU buckets 423,518–1,269,746 µs; p99 **1,269.746 ms**; wall 1.70–4.68 s | Transactional pilot is NO-GO: PBKDF2-100k is ~127× the 10 ms CPU gate |
+| G4 Free cron proof (staging) | 0-due tick: `db_roundtrips=19`, 5,896 ms. 3-due tick: 3 processed / 3 created / 0 failed, **`db_roundtrips=46`**, 11,497 ms; next tick 0 due | Pilot threshold exceeded by 1 round trip; no `1102`, zero missed |
+| G7 rollback | Pre-G1 version `511879dc` recorded; rollback executed and re-verified | Rollback path works; migration 029 stays |
 
 ### 3.4 What is not being claimed
 
@@ -236,13 +242,13 @@ Every gate must be checked before a pilot starts. Gates G3/G4 are **not authoriz
 | Gate | Requirement | Evidence | Status |
 |---|---|---|---|
 | **G0** | This spec approved by the owner | Owner sign-off 2026-10-26 | **Passed** |
-| **G1** | Production backup + migration 029 + Phase 1A/1B/2 deploy | Separate explicit approval; backup SHA256; deploy version ID | Not started |
-| **G2** | Read-only production smoke | 20 `/health` probes over 10 min: 0 `1102`/`1101`, 0 5xx; catalog/windows 200 | Not started |
-| **G3** | Free auth proof | Separate approved staging probe: 5 logins + 1 registration, all 2xx, no `1102`, CPU p99 ≤8 ms | **Not approved** |
-| **G4** | Free cron proof | Separate approved staging probe: one tick with 0 due, one with 3 due; no `1102`, `db_roundtrips` ≤45, zero missed | **Not approved** |
-| **G5** | Alerts configured and tested | Test email received; external monitor shows green | Not started |
+| **G1** | Production backup + migration 029 + Phase 1A/1B/2 deploy | Backup 96,430 bytes / SHA256 `CB7A399F…5B900A`; 029 applied (19 statements, 10.30 ms, 28 records); deploy `f3778132` | **Completed, then rolled back** |
+| **G2** | Read-only production smoke | 20 `/health` probes: 18×200, 1×503 `exceededResources`/1102, 1×500 `scriptThrewException`; catalog/windows 200 | **FAILED** |
+| **G3** | Free auth proof | Staging: 1 registration + 5 logins, all 200; CPU p99 **1,269.746 ms** vs ≤8 ms; wall 1.70–4.68 s | **FAILED** |
+| **G4** | Free cron proof | Staging: 0-due `db_roundtrips=19`; 3-due `db_roundtrips=46` vs ≤45; 3 processed / 3 created / 0 failed; next tick 0 due | **FAILED** |
+| **G5** | Alerts configured and tested | Not started: no pilot is possible after G2/G3/G4 failed; owner email destination still unnamed | **Not started** |
 | **G6** | Pilot envelope accepted | Owner accepted §5 on 2026-10-26, including COD-only/no-subscriptions policy | **Accepted** |
-| **G7** | Rollback ready | Previous Worker version ID recorded; D1 backup verified; Time Travel window known | Not started |
+| **G7** | Rollback ready | Pre-G1 version `511879dc` recorded; rollback executed and production GETs re-verified 200 | **Passed** |
 
 ### Gate rules
 
@@ -265,9 +271,9 @@ Every gate must be checked before a pilot starts. Gates G3/G4 are **not authoriz
 
 **Default until evidence exists: NO-GO for transactional pilot.**
 
-**Status after the 2026-10-26 approval:** G0 and G6 pass. G1, G2, G5, and G7 are not started; G3 and G4 are not approved. Therefore the current decision is **NO-GO for a transactional pilot**, and a read-only canary is **not yet GO** because G1/G2/G5/G7 have not run.
+**Status after execution (2026-10-26): NO-GO on Free.** G0 and G6 passed; G1 completed and was rolled back; G7 passed; **G2, G3, and G4 failed**; G5 was not started. The read-only canary is **NO-GO** because G2 failed, and the transactional pilot is **NO-GO** because G3 and G4 failed. The conditional pilot path (G4 fails, G3 passes) does not apply.
 
-If the outcome is NO-GO, the recommendation is Workers Paid + Phase 3P. Free is not a capacity target; it is a temporary low-traffic bridge.
+**Recommendation:** upgrade to Workers Paid and run Phase 3P (A/B), keeping the 1,000 registered / 1,000 DAU targets as Paid-phase goals. Do not retry the Free pilot; the failures are the 10 ms CPU ceiling (G2, G3) and a cron path one round trip over the pilot's 45-roundtrip threshold (G4), not configuration errors.
 
 ---
 

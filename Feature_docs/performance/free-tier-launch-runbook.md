@@ -1,10 +1,10 @@
 # Free-tier launch runbook — pilot operations
 
-**Status:** **APPROVED by the owner on 2026-10-26 (G0)** as the companion to the Free-tier launch-readiness spec. The procedures are approved, but **no production action is authorized yet**: G1, G3, and G4 remain separately gated, and G2/G5/G7 must pass before a pilot. The spec, not this runbook, grants permission.
+**Status:** **APPROVED by the owner on 2026-10-26 (G0)** as the companion to the Free-tier launch-readiness spec. **Execution result (2026-10-26): NO-GO on Free.** G1 and G7 were executed, G2/G3/G4 failed, and G5 was not started. Production was rolled back to `511879dc`; migration 029 remains. The runbook is retained as the record of the executed gates and the Paid upgrade path.
 
 **Spec:** `2026-10-26-free-tier-launch-readiness-spec.md`
 **Parent evidence:** `2026-10-25-1000-user-capacity-audit.md`, `2026-10-25-phase0-results.md`, `2026-10-26-phase2-results.md`, `2026-10-26-phase3-ab-validation-spec.md`
-**Production:** `water` / `shodasha` — **read-only** until G1 is separately approved. No load test, write, migration, or deploy without explicit approval.
+**Production:** `water` / `shodasha` — **read-only** after the G2 rollback. No load test, write, migration, or deploy without explicit approval. Migration 029 is applied; the active code is the pre-G1 version `511879dc`.
 **Owner:** daily checklist, alert response, pilot communications, upgrade decision.
 **Agent:** docs and read-only probes only when asked; never writes production.
 
@@ -42,13 +42,13 @@ Fill this in only from recorded evidence. Do not mark a gate green from memory.
 | Gate | Requirement | Status | Evidence |
 |---|---|---|---|
 | **G0** | Spec approved by owner | **Passed** | Owner approval 2026-10-26 |
-| **G1** | Production backup + migration 029 + Phase 1A/1B/2 deploy | Not started | — |
-| **G2** | Read-only production smoke | Not started | — |
-| **G3** | Free auth proof (staging; separate approval) | Not approved | — |
-| **G4** | Free cron proof (staging; separate approval) | Not approved | — |
-| **G5** | Alerts configured and tested | Not started | — |
+| **G1** | Production backup + migration 029 + Phase 1A/1B/2 deploy | **Completed, rolled back** | Backup 96,430 bytes / SHA256 `CB7A399F…5B900A`; 029 applied (19 statements, 10.30 ms; 28 records); deploy `f3778132`; rolled back to `511879dc` |
+| **G2** | Read-only production smoke | **FAILED** | 20 probes: 18×200, 1×503 `exceededResources`/1102, 1×500 `scriptThrewException`; catalog/windows 200 |
+| **G3** | Free auth proof (staging) | **FAILED** | 1 registration + 5 logins all 200; CPU p99 **1,269.746 ms** vs ≤8 ms; wall 1.70–4.68 s |
+| **G4** | Free cron proof (staging) | **FAILED** | 0-due `db_roundtrips=19`; 3-due `db_roundtrips=46` vs ≤45; 3 processed / 3 created / 0 failed; next tick 0 due |
+| **G5** | Alerts configured and tested | **Not started** | No pilot possible after G2/G3/G4 failed; owner email destination unnamed |
 | **G6** | Pilot envelope accepted | **Accepted** | Owner approval 2026-10-26 |
-| **G7** | Rollback ready | Not started | — |
+| **G7** | Rollback ready | **Passed** | Pre-G1 version `511879dc` recorded; rollback executed; `/health`, catalog, windows re-verified 200 |
 
 Gate rules (from spec §8):
 
@@ -169,12 +169,15 @@ The smoke is 20 health probes + 2 public GETs. The external monitor adds ~288 re
 
 | Field | Value |
 |---|---|
-| Date/time UTC | |
-| Worker version ID | |
-| Health 200 / 503 / 1102 / 1101 | |
-| Catalog status | |
-| Windows status | |
-| Decision | PASS / FAIL |
+| Date/time UTC | 2026-10-26, 08:53:34–09:03:58 (20 probes at 30 s) |
+| Worker version ID | `f3778132-fcd4-4ee2-9ccc-f1de9984b12f` |
+| Health 200 / 503 / 1102 / 1101 | **18 / 1 / 1 / 0** |
+| Health 500 | **1** (`scriptThrewException`) |
+| Catalog status | 200 |
+| Windows status | 200 |
+| Decision | **FAIL** |
+
+Failure timestamps: 503 at `08:53:34Z` (`exceededResources`, code 1102, CPU 2,020,000 µs); 500 at `08:54:39Z` (`scriptThrewException`, CPU 2,190 µs). The production deployment was rolled back to `511879dc` after this result; `/health`, `/v1/catalog`, and `/v1/windows` returned 200 on the rollback target.
 
 **G2 fails** → Free read-only canary is NO-GO. Record it and recommend Workers Paid.
 
@@ -384,12 +387,37 @@ Record the path, size, and SHA256. Do not commit the export.
 
 | Date (UTC) | Gate/run | Version / commit | Result | Evidence location | Decision |
 |---|---|---|---|---|---|
-| | G1 deploy + migration 029 | | | | |
-| | G2 read-only smoke | | | | |
-| | G3 auth probe (if approved) | | | | |
-| | G4 cron probe (if approved) | | | | |
-| | G5 alerts tested | | | | |
-| | G7 rollback ready | | | | |
+| 2026-10-26 | G1 deploy + migration 029 | `f3778132` / `787446b` | Backup + 029 + deploy OK; rolled back after G2 | Spec §3.2/§8; backup SHA256 in spec §8 | Completed, rolled back |
+| 2026-10-26 | G2 read-only smoke | `f3778132` | 18×200, 1×503/1102, 1×500; catalog/windows 200 | §3.4 above; sanitized CSV outside repo | **FAIL** |
+| 2026-10-26 | G3 auth probe | staging (pre-G4, cron off) | 6/6 HTTP 200; CPU p99 1,269.746 ms vs ≤8 ms | Table 8.1a | **FAIL** |
+| 2026-10-26 | G4 cron probe | staging `93cb3daa` | 3 created / 0 failed / zero missed; `db_roundtrips=46` vs ≤45 | Table 8.1a | **FAIL** |
+| 2026-10-26 | G5 alerts tested | — | Not started; no pilot possible | — | Not started |
+| 2026-10-26 | G7 rollback ready | `511879dc` | Rollback executed; three production GETs 200 | Spec §3.2 | **PASS** |
+
+#### 8.1a Measured gate detail (sanitized)
+
+**G3 auth (staging, 1 registration + 5 logins, all HTTP 200):**
+
+| CPU bucket (µs) |
+|---:|
+| 423,518 |
+| 432,819 |
+| 691,975 |
+| 465,223 |
+| 1,269,746 |
+| 824,734 |
+
+p99 = **1,269,746 µs = 1,269.746 ms**; gate ≤8 ms. Wall time across the six requests was **1.70–4.68 s**; all returned HTTP 200 and none returned `1102`. Synthetic staging user and credentials were deleted; no token or phone is recorded here.
+
+**G4 cron (staging):**
+
+| Tick | Due | Processed | Created | Failed | `db_roundtrips` | Duration | Outcome |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 0 due | 0 | 0 | 0 | 0 | 19 | 5,896 ms | Ok |
+| 3 due | 3 | 3 | 3 | 0 | **46** | 11,497 ms | Ok |
+| next tick | 0 | 0 | 0 | 0 | — | — | Ok |
+
+Zero missed: staging orders went 10,006 → 10,009, all three subscriptions advanced to `2026-10-27`, and the next tick saw 0 due. A second 0-due tick in the same window used `db_roundtrips=19` and 1,645 ms (warm). No `1102`. The gate fails only on `db_roundtrips` (46 > 45). Temporary 1-minute cron was removed; staging schedules are empty at version `47dd50cc`.
 
 ### 8.2 Daily checklist
 
@@ -420,12 +448,12 @@ Sanitized only: no tokens, phones, headers, IPs, or raw bodies.
 - [x] Approve the pilot envelope: 50 registered / 10 DAU / 5 concurrent; COD only; no UPI; no new auto-delivery subscriptions; vendor route ≤20 stops — approved 2026-10-26.
 - [x] Approve the read-only production probes in §3 — approved 2026-10-26.
 - [x] Approve the alert plan in §4 — approved 2026-10-26; owner email destination still to be recorded at G5.
-- [ ] Approve the staging auth probe (G3) — **separate approval**.
-- [ ] Approve the staging cron probe (G4) — **separate approval**.
-- [ ] Approve the production deploy + migration 029 (G1) — **separate approval**; backup first.
-- [x] Accept the rollback plan in §7 — approved 2026-10-26.
+- [x] Approve the staging auth probe (G3) — approved and executed 2026-10-26; **failed**.
+- [x] Approve the staging cron probe (G4) — approved and executed 2026-10-26; **failed**.
+- [x] Approve the production deploy + migration 029 (G1) — approved and executed 2026-10-26; rolled back after G2.
+- [x] Accept the rollback plan in §7 — approved 2026-10-26; exercised 2026-10-26.
 
-G0 and G6 are approved. The pilot remains **NO-GO** until G1, G2, G5, and G7 pass and, for a transactional pilot, G3 and G4 are separately approved and pass.
+**Execution result: NO-GO on Free.** G0 and G6 are approved; G1 and G7 executed; G2, G3, and G4 failed; G5 was not started. Do not run a pilot on Free. The next step is Workers Paid + Phase 3P.
 
 ---
 

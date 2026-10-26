@@ -1615,6 +1615,47 @@ Evidence:
 
 Phase 3F local results (2026-10-26): `phase3-a` 108 counted / 115 all, 0 errors/5xx, p99 64.5 ms; `phase3-b` 217 / 230, 0 errors/5xx, p99 24.2 ms; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. The write probe must run on a fresh DB seeded at the current migrations; the stale migration-028 DB fails cancel with `no such column: mutation_token`. These are local SQLite numbers, not Workers CPU or 1,000-user certification. Staging correctness smoke and all Paid probes remain pending; production is never a target.
 
+## Free-tier gate execution (2026-10-26, ADR-146/147)
+
+```
+Owner approval G0/G6 + "start all" authorization
+  |
+  +-- G1 production (write boundary crossed after backup)
+  |     backup shodasha -> SHA256 + Time Travel bookmark
+  |     migration 029 (additive, 19 statements, 28 records)
+  |     deploy Phase 1A/1B/2 -> f3778132
+  |
+  +-- G2 read-only smoke (production)
+  |     20 x GET /health over ~10.5 min -> 18x200, 1x503/1102, 1x500
+  |     GET /v1/catalog 200; GET /v1/windows 200
+  |     -> FAIL -> rollback to 511879dc (code only, no D1 restore)
+  |     -> /health + catalog + windows re-verified 200
+  |
+  +-- G3 auth probe (staging, cron off)
+  |     1 registration + 5 logins -> 6x200, no 1102
+  |     CPU p99 1,269.746 ms vs <=8 ms -> FAIL
+  |     synthetic user + credentials deleted
+  |
+  +-- G4 cron probe (staging, temporary 1-min cron)
+  |     0-due tick: backlog 0, processed 0, db_roundtrips=19, 5,896 ms
+  |     3-due tick: backlog 3, processed 3, created 3, failed 0,
+  |                 db_roundtrips=46 (gate <=45), 11,497 ms
+  |     next tick: 0 due; orders 10,006 -> 10,009; zero missed; no 1102
+  |     -> FAIL (46 > 45)
+  |     temporary cron removed; staging 47dd50cc, 0 schedules, /health 200
+  |
+  +-- G5 not started (no pilot possible; owner email unnamed)
+  |
+  +-- G7 rollback exercised -> PASS
+
+Decision: NO-GO on Free
+  read-only canary: blocked by G2
+  transactional pilot: blocked by G3 + G4
+  next: Workers Paid + Phase 3P (A/B); C remains stress-only
+```
+
+Measured limits: Free CPU is 10 ms/request and per cron; the login path needs ~1.27 s p99. The cron pilot threshold is 45 `db_roundtrips`; the 3-due tick needs 46. `db_queries` (49) is a statement diagnostic, not the cap metric. GraphQL CPU values are microseconds; `wrangler tail` `cpuTime` is milliseconds.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
