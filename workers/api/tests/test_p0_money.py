@@ -307,7 +307,7 @@ async def test_postpaid_delivery_posts_real_dues_once(rzp):
 async def test_postpaid_cancel_before_delivery_owes_nothing(rzp):
     raw = _conn()
     conn = AsyncSqliteConn(raw)
-    sub = await SubscriptionService(conn).create("u1", {
+    await SubscriptionService(conn).create("u1", {
         "address_id": "a1", "qty": 1, "schedule_type": "daily", "next_run": DAY,
         "payment_method": "upi", "billing_mode": "monthly_postpaid",
     })
@@ -353,7 +353,7 @@ async def test_real_pod_route_posts_postpaid_dues_once(rzp):
                 " VALUES ('v1', '+919000000002', 'vendor', ?)", (now,))
     raw.commit()
 
-    sub = await SubscriptionService(conn).create("u1", {
+    await SubscriptionService(conn).create("u1", {
         "address_id": "a1", "qty": 1, "schedule_type": "daily", "next_run": DAY,
         "payment_method": "upi", "billing_mode": "monthly_postpaid",
     })
