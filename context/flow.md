@@ -1456,9 +1456,9 @@ New/changed API surface:
 - `POST /v1/subscriptions` and `/v1/subscriptions/estimate` now cap `qty` at 10.
 - `ApiClient.switchOrderToCod(id)`; `CheckoutResult.asCod()` / `payOnDelivery`; create `IDEMPOTENT_REPLAY` is consumed as the original order.
 
-## Phase 1A — P0 correctness changes (implemented locally; staging apply blocked)
+## Phase 1A - P0 correctness changes (staging verified 2026-10-26)
 
-Spec: `Feature_docs/performance/2026-10-25-phase1-p0-correctness-spec.md`; results: `Feature_docs/performance/2026-10-25-phase1-results.md`. The call shapes below are the implemented local behavior. Migration 029 is **not** applied to staging yet: the apply was rejected by the D1 free-tier daily row-write limit (code `7500`) and must be retried after 2026-10-26 00:00 UTC.
+Spec: `Feature_docs/performance/2026-10-25-phase1-p0-correctness-spec.md`; results: `Feature_docs/performance/2026-10-25-phase1-results.md`. The call shapes below are the implemented behavior. Migration 029 is applied to `shodasha-staging` (28 migrations); the Worker is deployed with cron disabled, and the synthetic atomicity smoke passed (§5.1/§10 of the results doc). Production remains untouched.
 
 ```
 Money mutations — one D1 batch() each, first statement is a SQL CAS
@@ -1501,7 +1501,7 @@ New schema (migration 029, additive): `orders.mutation_token`, `payments.settlem
 
 Webhook response shape: `POST /v1/webhooks/upi` strips `settlement_token`, `mutation_token`, and `refund_id` from payment/dues payloads; a dues duplicate is returned as top-level `duplicate` (not nested in `dues_intent`); `_refund_queued` is preserved. A cancel response keeps the cancel refund (`payment_id=order_id`); a late-capture refund is a separate row in the admin refunds list.
 
-## Phase 1B — read-path N+1 batching (implemented locally, ADR-142)
+## Phase 1B - read-path N+1 batching (staging verified, ADR-142/143)
 
 ```
 VendorService.today_route
@@ -1517,7 +1517,7 @@ PaymentService.get_dues
   └─ lines / order_due / dues computed from the maps
 ```
 
-Helpers dedupe and drop empty ids; an empty list issues no query. Chunk = 90 (D1's 100-parameter cap). Single-order `paid_sum_for_order`/`_dues_posted` stay for `get_invoice` and `cod_confirm`. No migration, no `batch()` for reads, no write-path change. Measured on seeded SQLite: route **6 queries / 6 roundtrips** for 40 stops (was 85 statements at the endpoint), dues **4 / 4** for 40 open orders (was 15).
+Helpers dedupe and drop empty ids; an empty list issues no query. Chunk = 90 (D1's 100-parameter cap). Single-order `paid_sum_for_order`/`_dues_posted` stay for `get_invoice` and `cod_confirm`. No migration, no `batch()` for reads, no write-path change. Measured on seeded SQLite: route **6 queries / 6 roundtrips** for 40 stops (was 85 statements at the endpoint), dues **4 / 4** for 40 open orders (was 15). Staging deployment and the atomicity smoke are verified (ADR-143); read-path latency is not staging-measured because the Free-plan 10 ms CPU ceiling kills the A/B/C harness.
 
 ## Update Protocol (MANDATORY)
 

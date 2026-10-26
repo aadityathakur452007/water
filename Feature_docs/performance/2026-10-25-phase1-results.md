@@ -1,7 +1,7 @@
 # Phase 1 results — P0 money/cron correctness and read-path batching
 
 **Date:** 2026-10-25  
-**Status:** Phase 1A and Phase 1B implemented locally and verified on SQLite; staging apply blocked by the account's D1 free-tier daily row-write limit; production untouched.  
+**Status:** Phase 1A and Phase 1B implemented locally; migration 029 applied to staging and `water-staging` deployed with cron disabled on 2026-10-26; synthetic atomicity smoke passed; production untouched; the Free-plan CPU ceiling still blocks meaningful staging A/B/C measurement.  
 **Spec:** `2026-10-25-phase1-p0-correctness-spec.md`  
 **Audit:** `2026-10-25-1000-user-capacity-audit.md`  
 **Phase 0 evidence:** `2026-10-25-phase0-results.md`
@@ -19,12 +19,11 @@ deterministic concurrency tests cover duplicate cancels/webhooks/dues/transition
 cancel-vs-webhook in both orders, COD late capture, reissue limits, and induced
 batch failures.
 
-The code is ready for staging. Staging is **not** verified yet: applying
-migration 029 to `shodasha-staging` was rejected by Cloudflare with error code
-`7500` (D1 free-tier daily row-write limit) at 2026-10-25 11:44 UTC. The
-database is unchanged. No bypass was attempted. The apply must be retried after
-the quota resets at midnight UTC, then the Worker deploy and atomicity smoke can
-run.
+Staging is now verified. After the free-tier quota reset, migration 029 applied
+cleanly to `shodasha-staging` at 2026-10-26 05:28 UTC, the Worker deployed with
+cron disabled, and the synthetic atomicity smoke passed. The earlier `7500`
+failure is recorded in §5 for history; no bypass or partial apply was used.
+Production remains untouched.
 
 Phase 1B (vendor-route and dues N+1 batching) was approved after Phase 1A and
 implemented in the same local release as a separate commit; see §9. It changes
@@ -100,7 +99,7 @@ Against `shodasha-staging` / D1 `05772775-a957-4852-8ec3-6b14082d4a62`:
 
 No write was made by the pre-flight.
 
-## 5. Staging blocker
+## 5. Staging apply: quota failure (resolved 2026-10-26)
 
 Command:
 
@@ -121,26 +120,41 @@ The migration was **not** applied. A follow-up read-only query confirmed the
 database is unchanged: **27 migrations**, latest `028`, 1,021 users, 10,000
 orders. No bypass, partial apply, or manual DDL was attempted.
 
-The free-tier daily row-write cap is a second platform blocker, separate from
-the 10 ms Workers CPU ceiling recorded in ADR-140. The migration itself is also
-still unverified on D1; local SQLite does not model D1 latency or row
-accounting.
+The free-tier daily row-write cap was a second platform blocker, separate from
+the 10 ms Workers CPU ceiling recorded in ADR-140. At the time of the failure
+the migration was still unverified on D1; local SQLite does not model D1 latency
+or row accounting. The retry resolved this on 2026-10-26 (§5.1).
 
 **Retry after 2026-10-26 00:00 UTC.** Then verify the new columns, table, and
 indexes, record pre/post row counts, deploy `water-staging` with cron disabled,
 and run the synthetic atomicity smoke from the spec (seed tokens only, no real
 provider calls, no secrets in logs).
 
+### 5.1 Resolution (2026-10-26)
+
+The free-tier quota reset at 00:00 UTC. The retry at **05:28 UTC** applied
+migration 029 in one run (`Executed 19 commands`, status ✅). Post-apply checks:
+**28 migrations**; `orders.mutation_token`; `payments.settlement_token` and
+`refund_id`; `dues_intents.settlement_token`; `subscriptions.due_attempts`,
+`due_last_error`, `due_retry_at`; `delivery_code_reissues`; all **9** new
+indexes; users **1,021**, orders **10,000**, open dues intents **0**; database
+size **14,393,344 bytes**. `water-staging` deployed at version
+`474a9a1a-11e1-4cc9-8a97-6bf0964689fe` with `crons: []`; the staging-only
+`UPI_WEBHOOK_SECRET` upload then produced active version
+`4ee48994-af50-4116-82ec-8a544d1a4b6b` (same code). Live `/health` returned 200
+with exactly `{"status":"ok"}` and `Cache-Control: no-store`, and
+`/v1/catalog` returned 200. Seeded user and vendor tokens were re-checked
+against the deployed Worker (`/v1/ledger/me` 200, `/v1/vendor/profile` 200).
+
 ## 6. What is not done
 
-- Migration 029 is **not** applied to staging; the staging acceptance criterion
-  is not met.
-- `water-staging` has **not** been redeployed with Phase 1A code.
-- The staging atomicity smoke has **not** run.
-- Phase 1B read-path batching is implemented locally (§9) but has **not** been
-  staging-verified.
 - Production `water` / D1 `shodasha` remain untouched: no migration, deploy,
-  write, or load test.
+  write, or load test. A separate explicit owner gate is required.
+- Phase 1B read-path batching is staging-deployed but its **latency** is not
+  staging-measured; the Free-plan 10 ms CPU ceiling kills the A/B/C harness
+  before the app can serve the request. Local query-shape counts are in §9.
+- The Free-plan CPU ceiling remains a launch blocker; Workers Paid (or an
+  architecture change) is required before meaningful A/B/C runs.
 - No real subscription-adoption data exists; the seed billing mix is synthetic.
 
 ## 7. Rollback
@@ -196,8 +210,9 @@ Verification:
   orders, and a 95-order chunk test asserting exactly 6 dues statements
   (1 ledger + 1 orders + 2 paid chunks + 2 posted chunks).
 - Measured with the observability `RequestMetrics` on seeded SQLite. Local
-  SQLite still does not model D1 network latency or row accounting, so staging
-  remains the proof.
+  SQLite still does not model D1 network latency or row accounting; staging
+  read-path latency remains unmeasured because the Free-plan CPU ceiling kills
+  the harness (see §6).
 
 Not included: `_stop_field_cols` schema caching, `settle_dues_intent`
 allocation loop, admin/order-detail N+1, read `batch()`, any write-path change.
@@ -205,3 +220,42 @@ allocation loop, admin/order-detail N+1, read `batch()`, any write-path change.
 Artifacts: `workers/api/src/app/repositories/{ledger_repo,payment_repo}.py`,
 `workers/api/src/app/services/{vendor_service,payment_service}.py`,
 `workers/api/tests/{test_vendor,test_payments}.py`.
+
+## 10. Staging atomicity smoke (2026-10-26)
+
+Environment: `water-staging` active version
+`4ee48994-af50-4116-82ec-8a544d1a4b6b` (code version
+`474a9a1a-11e1-4cc9-8a97-6bf0964689fe`; the secret upload only added
+`UPI_WEBHOOK_SECRET`), D1 `shodasha-staging`, cron disabled. The staging-only
+webhook secret is stored outside the repo; no `UPI_KEY_ID`/`UPI_KEY_SECRET` was
+set, so the smoke used direct synthetic D1 rows and signed webhooks only. No
+real Razorpay/provider call was made. All HTTP actions used an existing seeded
+user Bearer token; no token, secret, or delivery code is reproduced here.
+
+Synthetic rows were prefixed `smoke-20261026053456-` and left in staging for
+evidence. They cover six orders, four payments, one dues intent, and one stop.
+The user was seeded `load-user-0003` (ledger dues 0, no open dues intent); the
+synthetic dues order was dated 1999 so it sorted first in the allocation query.
+
+| Scenario | Request(s) | Result | DB invariant |
+|---|---|---|---|
+| Cancel twice | `POST /v1/orders/{id}/cancel` with key A, then key B | **200**, then **409 `ALREADY_CANCELLED`** | Order `cancelled`/`unpaid`; exactly **1** refund (2800, `payment_id=order_id`, `pending`); payment `paid` with `refund_id`; exactly **1** cancel event; no second refund |
+| Duplicate signed webhook | `POST /v1/webhooks/upi` twice, same HMAC-signed body | **200** paid, then **200 `duplicate:true`** | Order `paid_upi`; payment `paid`; no refund; no ledger event |
+| Dues settled twice | `POST /v1/webhooks/upi` twice for a `dues_intents` ref | **200** paid, then **200 `duplicate:true`** | Intent `paid`; exactly **1** allocation payment of 2800 with `provider_ref=dues:<intent>:<order>`; order `paid_upi`; no refund; ledger dues unchanged at 0 |
+| Reissue four times | `POST /v1/orders/{id}/delivery-code/reissue` ×4, expiring the stop code between calls | **200, 200, 200**, then **429 `RATE_LIMITED`** | `delivery_code_reissues` rows **3** (seq 1–3); **3** audit rows; stop remains `pending`; fourth call wrote nothing |
+| COD after a capture attempt | `POST /v1/orders/{id}/switch-to-cod` on an order whose payment row is `paid` | **409 `STATE_CONFLICT`** | Order stays `upi`/`link_sent`; payment stays `paid`; no refund; no ledger change |
+| COD switch (unpaid link) | `POST /v1/orders/{id}/switch-to-cod` on an order with only a `link_sent` payment; repeat | **200**, then **200** (replay) | Order `cod`/`unpaid`; link payment `failed`; ledger dues **2800**; exactly **1** dues event of 2800 after the repeat; no refund |
+
+No smoke request returned 5xx. The only non-2xx responses were the expected
+`409`/`429`. The `get_dues` response after the COD switch showed `dues: 39200`
+because the seeded user has other open orders; the ledger row itself was
+**2800**, which is the invariant the smoke asserts.
+
+## 11. Next gate
+
+1. Owner approval for production migration 029 + `water` deploy (separate gate;
+   staging evidence does not authorize production).
+2. Workers Paid (or an architecture change) before any meaningful A/B/C staging
+   run; the Free-plan 10 ms CPU ceiling is the remaining launch blocker.
+3. Optional: record the 100-due-sub cron roundtrip count locally per spec §11;
+   the local scheduler suite already drains 60/40/0 over three ticks.
