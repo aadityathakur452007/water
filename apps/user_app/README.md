@@ -1,17 +1,24 @@
-# shodasha_app
+# Shodasha customer app
 
-A new Flutter project.
+Premium customer UI (adopted donor design language) wired to the Shodasha
+API in `workers/api`. Replaces the original app, which is preserved for
+reference only at `apps/user_app_legacy_flutter` (excluded from CI by
+omission — it is never built).
 
-## Getting Started
+## Run
 
-This project is a starting point for a Flutter application.
+```
+flutter pub get
+flutter run --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
+```
 
-A few resources to get you started if this is your first Flutter project:
+`SHODASHA_API_BASE` must be https, or loopback for local dev
+(e.g. `http://localhost:8787/v1`); anything else is rejected at
+construction. `RAZORPAY_KEY_ID` is a publishable key only — the secret
+stays server-side.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Test
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```
+flutter analyze && flutter test
+```

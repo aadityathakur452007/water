@@ -1,4 +1,4 @@
-// SelectedAddressStore persistence (011_port): mock prefs, no device I/O.
+// SelectedAddressStore persistence: mock prefs, no device I/O.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';

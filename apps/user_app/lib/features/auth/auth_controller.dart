@@ -22,40 +22,40 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
 
-// TODO(F1): consolidate into lib/l10n/strings.dart (Hindi-first) and import
-// it here. Do NOT create lib/l10n/ from F2 — F1 owns it.
+// English copy for v1 (ADR-120). Keys stay stable so a future Hinglish l10n
+// pass can supply the same map without touching the screens.
 const Map<String, String> authStringsHi = {
   'appName': 'Shodasha',
   'appTagline': 'Shodasha Mineral Water • RO+UV, lab-tested',
   'trustLine': 'RO+UV • Lab report • Refill Rs 28 / Jar Rs 30',
-  'registerTitle': 'Naam, email aur mobile number likhein',
-  'registerSubtitle': 'Naya account apne-aap ban jayega • OTP nahi chahiye',
-  'nameLabel': 'Naam',
-  'nameHint': 'Aapka naam',
-  'nameError': 'Sahi naam likhein (1–100 akshar)',
+  'registerTitle': 'Enter your name, email and mobile number',
+  'registerSubtitle': 'Your account is created instantly • No OTP needed',
+  'nameLabel': 'Name',
+  'nameHint': 'Your name',
+  'nameError': 'Enter a valid name (1–100 characters)',
   'emailLabel': 'Email',
-  'emailHint': 'aap@gmail.com',
-  'emailError': 'Sirf @gmail.com email chalega (jaise aap@gmail.com)',
+  'emailHint': 'you@gmail.com',
+  'emailError': 'Only @gmail.com email is accepted (e.g. you@gmail.com)',
   'phoneLabel': 'Mobile number',
   'phoneHint': '93021 90067',
-  'phoneHelper': 'Sirf 10 ank, 6–9 se shuru',
-  'phoneError': 'Sahi 10-digit mobile number likhein (sirf ank, 6–9 se shuru)',
-  'registerGo': 'Shuru karein',
-  'registering': 'Account ban raha hai…',
-  'staffNumber':
-      'Ye number staff account se juda hai — support se sampark karein',
-  'rateLimited': 'Bahut koshish ho gayi — thodi der ruk kar try karein',
-  'serverError': 'Server me dikkat — thodi der me retry karein',
-  'networkError': 'Network me dikkat — dobara try karein',
-  'newDevice': 'Naya device detect hua — purana session surakshit hai',
-  'notUser': 'Ye account customer app ke liye nahi hai',
-  'guestBrowse': 'Bina login ke daam dekhein',
-  'guestNote': 'Daam dekhne ke liye login zaroori nahi',
-  'demoLogin': 'Demo try karein (bina register)',
+  'phoneHelper': '10 digits only, starting 6–9',
+  'phoneError':
+      'Enter a valid 10-digit mobile number (digits only, starting 6–9)',
+  'registerGo': 'Get started',
+  'registering': 'Creating your account…',
+  'staffNumber': 'This number belongs to a staff account — contact support',
+  'rateLimited': 'Too many attempts — wait a moment and try again',
+  'serverError': 'Server problem — retry in a moment',
+  'networkError': 'Network problem — try again',
+  'newDevice': 'New device detected — your old session stays safe',
+  'notUser': 'This account is not for the customer app',
+  'guestBrowse': 'Browse prices without logging in',
+  'guestNote': 'No login needed to see prices',
+  'demoLogin': 'Try the demo (no registration)',
   'demoTitle': 'Demo login',
-  'demoHint': 'Seeded demo account — QA ke liye, bina OTP',
-  'demoCustomer': 'Demo customer bharein',
-  'demoGo': 'Demo se login karein',
+  'demoHint': 'Seeded demo account — for QA, no OTP',
+  'demoCustomer': 'Fill demo customer',
+  'demoGo': 'Log in with demo',
 };
 
 /// Strips spaces/dashes/+91/0 variants → 10-digit subscriber number.
@@ -208,8 +208,9 @@ class AuthController extends ChangeNotifier {
     required AuthApi api,
     required SessionStore store,
     this.deviceId = 'pending-device-id',
-  })  : _api = api,
-        _store = store;
+    this.restoreTimeout = const Duration(seconds: 5),
+  }) : _api = api,
+       _store = store;
 
   final AuthApi _api;
   final SessionStore _store;
@@ -217,11 +218,16 @@ class AuthController extends ChangeNotifier {
   /// X-Device-Id (fraud graph, SEC-F01). TODO(F1): real device id provider.
   final String deviceId;
 
+  /// Upper bound for the cold-start secure-storage restore. A hung keychain
+  /// must never strand the splash (P2-1).
+  final Duration restoreTimeout;
+
   AuthStatus _status = AuthStatus.idle;
   String? _errorMessage;
   int _errorSeq = 0;
   bool _newDeviceAlert = false;
   AuthSession? _session;
+  int _restoreGeneration = 0;
   bool _disposed = false;
 
   AuthStatus get status => _status;
@@ -399,11 +405,38 @@ class AuthController extends ChangeNotifier {
   }
 
   /// Cold-start restore for [AuthGate]: valid session → authenticated.
-  Future<void> restoreSession() async {
+  ///
+  /// Bounded by [restoreTimeout]. A store that never answers must surface the
+  /// login screen instead of an infinite splash (P2-1). The generation guard
+  /// discards an orphaned restore that completes after the timeout.
+  ///
+  /// Returns false only when restore itself failed/timed out. A normal
+  /// "no session" or expired-session result returns true — the login screen
+  /// is then the expected state, not an error.
+  Future<bool> restoreSession() async {
+    final gen = ++_restoreGeneration;
+    try {
+      await _restoreSession(gen).timeout(restoreTimeout);
+      return true;
+    } catch (_) {
+      if (gen != _restoreGeneration) return false;
+      _restoreGeneration++;
+      _session = null;
+      _status = AuthStatus.idle;
+      _notify();
+      return false;
+    }
+  }
+
+  Future<void> _restoreSession(int gen) async {
     final access = await _store.readAccessToken();
+    if (gen != _restoreGeneration) return;
     final refresh = await _store.readRefreshToken();
+    if (gen != _restoreGeneration) return;
     final expiryIso = await _store.readExpiryIso();
+    if (gen != _restoreGeneration) return;
     final role = await _store.readRole();
+    if (gen != _restoreGeneration) return;
     if (access == null || refresh == null || expiryIso == null) {
       _status = AuthStatus.idle;
       _notify();
@@ -412,6 +445,7 @@ class AuthController extends ChangeNotifier {
     final expiresAt = DateTime.tryParse(expiryIso);
     if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
       await _store.clear(); // session expired → logged-out state (States.md)
+      if (gen != _restoreGeneration) return;
       _status = AuthStatus.idle;
     } else {
       _session = AuthSession(

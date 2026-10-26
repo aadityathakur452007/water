@@ -1,13 +1,18 @@
-// F4 — Bill screen (paise ints, frozen refund-pending, WhatsApp share stub).
+// S5 — Bill screen (paise ints, frozen refund-pending, WhatsApp share).
 // Contract §4.4 + user-flows flow 5 (bill = water + deposit + cap + dues −
 // payments; partials carried, never silently zeroed; COD flips on vendor
 // sync). Refund-pending lines are display-only: the frozen total never
-// recomputes on the client.
+// recomputes on the client — every value is server-returned.
+//
+// Ported from apps/user_app_legacy_flutter F4; donor card grammar only.
+// States.md covered: data available, refund pending, paid/due modes,
+// secondary share action failure.
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone;
+import '../../core/theme.dart';
 import 'orders_controller.dart';
 
 /// Frozen bill view for one [Order].
@@ -40,12 +45,12 @@ class BillScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final o = order;
     return Scaffold(
-      backgroundColor: OrdersTokens.white,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: OrdersTokens.white,
+        backgroundColor: ShodashaTheme.bg,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: OrdersTokens.ink),
+          icon: const Icon(Icons.arrow_back, color: ShodashaTheme.ink),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -53,7 +58,7 @@ class BillScreen extends StatelessWidget {
           style: const TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w700,
-            color: OrdersTokens.ink,
+            color: ShodashaTheme.ink,
           ),
         ),
       ),
@@ -67,16 +72,16 @@ class BillScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: OrdersTokens.blueTint,
+                    color: ShodashaTheme.blueTint,
                     borderRadius:
-                        BorderRadius.circular(OrdersTokens.radius),
+                        BorderRadius.circular(ShodashaTheme.radius),
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.info_outline,
                         size: 18,
-                        color: OrdersTokens.blue,
+                        color: ShodashaTheme.blue,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -86,7 +91,7 @@ class BillScreen extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: OrdersTokens.blue,
+                            color: ShodashaTheme.blue,
                           ),
                         ),
                       ),
@@ -95,12 +100,12 @@ class BillScreen extends StatelessWidget {
                 ),
               if (o.refundPending) const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: OrdersTokens.white,
-                  border: Border.all(color: OrdersTokens.border),
+                  color: ShodashaTheme.surface,
+                  border: Border.all(color: ShodashaTheme.border),
                   borderRadius:
-                      BorderRadius.circular(OrdersTokens.radius),
+                      BorderRadius.circular(ShodashaTheme.radiusLg),
                 ),
                 child: Column(
                   children: [
@@ -116,17 +121,23 @@ class BillScreen extends StatelessWidget {
                       _Line(
                         label: 'Cap',
                         amount: formatRupees(o.capChargePaise),
-                      ),
+                      )
+                    else
+                      const _Line(label: 'Cap', amount: '—'),
                     if (o.prevDuesPaise != 0)
                       _Line(
-                        label: 'Pichla baki',
+                        label: 'Previous dues',
                         amount: formatRupees(o.prevDuesPaise),
-                      ),
+                      )
+                    else
+                      const _Line(label: 'Previous dues', amount: '—'),
                     if (o.paymentsPaise != 0)
                       _Line(
-                        label: 'Bhugtan',
+                        label: 'Payment',
                         amount: '−${formatRupees(o.paymentsPaise)}',
-                      ),
+                      )
+                    else
+                      const _Line(label: 'Payment', amount: '—'),
                     // 015: payment mode + vendor-collect note (trust by visibility).
                     _Line(
                       label: 'Mode',
@@ -134,7 +145,7 @@ class BillScreen extends StatelessWidget {
                           ? '${o.paymentMode.toUpperCase()} • Paid'
                           : '${o.paymentMode.toUpperCase()} • Due',
                     ),
-                    const Divider(color: OrdersTokens.border, height: 24),
+                    const Divider(color: ShodashaTheme.border, height: 24),
                     Row(
                       children: [
                         const Expanded(
@@ -143,7 +154,7 @@ class BillScreen extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
-                              color: OrdersTokens.ink,
+                              color: ShodashaTheme.ink,
                             ),
                           ),
                         ),
@@ -152,7 +163,7 @@ class BillScreen extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
-                            color: OrdersTokens.ink,
+                            color: ShodashaTheme.ink,
                           ),
                         ),
                       ],
@@ -166,14 +177,14 @@ class BillScreen extends StatelessWidget {
                   ordersStringsHi['duesNote']!,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: OrdersTokens.muted,
+                    color: ShodashaTheme.muted,
                   ),
                   textAlign: TextAlign.center,
                 ),
               ],
               const SizedBox(height: 16),
               SizedBox(
-                height: OrdersTokens.minTarget,
+                height: ShodashaTheme.minTarget,
                 child: OutlinedButton.icon(
                   onPressed: () => _share(context, o),
                   icon: const Icon(Icons.share),
@@ -204,7 +215,7 @@ class _Line extends StatelessWidget {
               label,
               style: const TextStyle(
                 fontSize: 14,
-                color: OrdersTokens.muted,
+                color: ShodashaTheme.muted,
               ),
             ),
           ),
@@ -213,7 +224,7 @@ class _Line extends StatelessWidget {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: OrdersTokens.ink,
+              color: ShodashaTheme.ink,
             ),
           ),
         ],

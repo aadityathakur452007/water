@@ -1,6 +1,7 @@
 """Tests for resilience, address freezing, damaged container accounting, and RTO stop failure."""
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pytest
 
@@ -21,8 +22,9 @@ from app.services.dispatch_service import route_for_vendor
 MIGS = [
     "002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
     "006_aftermath.sql", "007_ops.sql", "010_config_audit.sql", "011_port.sql",
-    "013_vendor_access.sql", "016_stop_fields.sql", "022_vendor_leaves_and_sub_cancel.sql",
-    "023_resilience_and_snapshots.sql"
+    "013_vendor_access.sql", "016_stop_fields.sql", "019_rate_counters.sql",
+    "022_vendor_leaves_and_sub_cancel.sql", "023_resilience_and_snapshots.sql",
+    "028_p0_money_monthly.sql", "029_p0_correctness.sql"
 ]
 
 
@@ -71,7 +73,7 @@ async def test_address_snapshot_preservation_on_edit():
     rates = {"refill": 8000, "container": 15000, "deposit": 15000}
     q = pricing.compute_quote(
         [{"sku": "refill", "qty": 1}],
-        1,
+        0,
         rates,
         address_id=addr_id,
         window_start="2026-10-15T08:00:00Z",
@@ -79,13 +81,13 @@ async def test_address_snapshot_preservation_on_edit():
     )
     order = await o_svc.create("u1", {
         "items": [{"sku": "refill", "qty": 1}],
-        "e": 1,
+        "e": 0,
         "address_id": addr_id,
         "window_start": "2026-10-15T08:00:00Z",
         "quote_hash": q["quote_hash"],
         "quote_total": q["total"],
         "quote_rate_version": q["rate_version"],
-        "quote_expires_at": "2026-10-15T09:00:00Z",
+        "quote_expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
         "payment_mode": "cod",
     }, "idem_order_1")
     order_id = order["id"]

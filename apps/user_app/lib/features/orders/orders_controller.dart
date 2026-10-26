@@ -1,24 +1,26 @@
-// F4 — Orders state for the Shodasha user app (branch 004-user-app-build).
+// S5 — Orders state for the donor-based customer app (032 replacement).
+//
+// Ported VERBATIM from apps/user_app_legacy_flutter (F4 controller): same
+// state enum, mapper, repository seam, paging, polling backoff, visibility
+// matrix and copy. Only the transport import is re-pointed at the ported
+// core (single ApiClient, Bearer + X-Device-Id + Idempotency-Key).
 //
 // Backend contract: Feature_docs/backend/api-contract.md §4.4
 // (POST /orders idempotent + quote-lock, GET /orders cursor paging,
 // GET /orders/{id} + /tracking, POST cancel pre-dispatch only with
 // {reason} + Idempotency-Key, POST reschedule pre-dispatch only with
-// {window_start}, POST rating once per delivered order) and
-// Feature_docs/synthesis/user-flows.md flows 3 (tracking, 30-min window,
-// no live dot) + 5 (UPI/COD guards + reconcile + dues carry-forward).
+// {window_start}, POST rating once per delivered order).
 //
-// Wiring notes: tel:/wa.me launch via url_launcher with a SnackBar
-// fallback when no handler exists (Phase 4 §4.5: support Open tries
-// launchUrl first, clipboard copy is the fallback, never the primary).
+// States.md covered: initial/loading/loaded/error, offline (loaded rows stay
+// visible), refreshing, search/no-results, action pending/busy, retry.
+//
+// Wiring notes: tel:/wa.me launch via url_launcher; a false result is
+// surfaced as a SnackBar by the screen (never a dead button).
 // - Money is integer paise everywhere; [formatRupees] formats only for
-//   display (2dp only when needed).
-
-// TODO(F1): consolidate [ordersStringsHi] into lib/l10n/strings.dart
-// (Hindi-first) and import it here. Do NOT create lib/l10n/ from F4.
+//   display (2dp only when needed). No money is ever computed here.
 
 // ignore_for_file: prefer_initializing_formals
-// WHY: public ctor param `repo:` is the API (tests + F1 wiring construct
+// WHY: public ctor param `repo:` is the API (tests + shell wiring construct
 // this); private initializing formals are unusable from other libraries —
 // same pattern as features/auth/auth_controller.dart.
 
@@ -29,62 +31,52 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
-import '../../core/theme.dart';
+import '../../core/money.dart';
 
-/// Hindi-first copy for the orders feature (local map per approved answer 1).
+/// English copy for the orders feature (v1, ADR-120). Keys stay stable for a
+/// later Hinglish l10n pass.
 const Map<String, String> ordersStringsHi = {
-  'ordersTitle': 'Mere orders',
-  'searchHint': 'Order ID ya address khojein',
-  'emptyTitle': 'Abhi koi order nahi',
-  'emptyHint': 'Pehla order book karein — kal subah delivery',
-  'noResultsTitle': 'Koi order nahi mila',
-  'noResultsHint': 'Khoj badal kar dekhein',
-  'errorTitle': 'Orders load nahi hue',
-  'offlineTitle': 'Internet nahi — purane orders dikh rahe',
-  'retry': 'Dobara try karein',
-  'loadMore': 'Aur orders dekhein',
-  'cancelTitle': 'Order cancel karein?',
-  'cancelConfirm': 'Haan, cancel karein',
-  'cancelKeep': 'Rehne dein',
-  'cancelReasonLabel': 'Cancel ka kaaran chunein',
-  'rescheduleTitle': 'Delivery ka time badlein',
-  'rescheduleConfirm': 'Naya time pakka karein',
-  'whatsappHelp': 'WhatsApp par madad',
-  'whatsappFail': 'WhatsApp khul nahi paya — 8AM–8PM par try karein',
-  'callFail': 'Dialer khul nahi paya',
-  'callRider': 'Rider ko call karein',
-  'deliveredBanner': 'Order deliver ho gaya',
-  'cancelledBanner': 'Order cancel ho gaya',
-  'failedBanner': 'Delivery fail ho gayi — support se baat karein',
-  'rejectedBanner': 'Order reject ho gaya — paise wapas honge',
-  'refundPending': 'Refund pending — rashi frozen, badlegi nahi',
-  'duesNote': 'Baki rashi agle bill me jud jayegi',
-  'rateTitle': 'Delivery kaisi rahi?',
-  'rateSubmit': 'Rating bhejein',
-  'rateThanks': 'Shukriya! Aapki rating mil gayi',
-  'rateAgain': 'Rating ek baar hi di ja sakti hai',
-  'complaintShortcut': 'Dikkat hai? Shikayat karein',
-  'complaintStub': 'Shikayat screen jald aa rahi hai (order juda rahega)',
-  'viewBill': 'Bill dekhein',
+  'ordersTitle': 'My orders',
+  'searchHint': 'Search order ID or address',
+  'emptyTitle': 'No orders yet',
+  'emptyHint': 'Place your first order — delivery tomorrow morning',
+  'noResultsTitle': 'No matching orders',
+  'noResultsHint': 'Try a different search',
+  'errorTitle': 'Could not load orders',
+  'offlineTitle': 'Offline — showing older orders',
+  'retry': 'Try again',
+  'loadMore': 'Load more orders',
+  'loadMoreFailed': 'Could not load more orders',
+  'cancelTitle': 'Cancel this order?',
+  'cancelConfirm': 'Yes, cancel it',
+  'cancelKeep': 'Keep it',
+  'cancelFailed': 'Could not cancel this order — try again',
+  'cancelReasonLabel': 'Choose a cancellation reason',
+  'rescheduleTitle': 'Change delivery time',
+  'rescheduleConfirm': 'Confirm new time',
+  'rescheduled': 'Delivery time updated',
+  'rescheduleFailed': 'Could not change the delivery time — try again',
+  'whatsappHelp': 'Help on WhatsApp',
+  'whatsappFail': 'Could not open WhatsApp — try between 8AM–8PM',
+  'callFail': 'Could not open the dialer',
+  'callRider': 'Call the rider',
+  'deliveredBanner': 'Order delivered',
+  'cancelledBanner': 'Order cancelled',
+  'failedBanner': 'Delivery failed — contact support',
+  'rejectedBanner': 'Order rejected — refund on the way',
+  'refundPending': 'Refund pending — amount frozen, will not change',
+  'duesNote': 'Remaining amount will be added to your next bill',
+  'rateTitle': 'How was the delivery?',
+  'rateSubmit': 'Submit rating',
+  'rateThanks': 'Thanks! Your rating was received',
+  'rateAgain': 'A rating can be submitted only once',
+  'rateFailed': 'Could not submit your rating — try again',
+  'complaintShortcut': 'Something wrong? File a complaint',
+  'viewBill': 'View bill',
   'autoRefresh': 'Auto-refresh',
-  'windowLabel': 'Delivery ka samay',
+  'windowLabel': 'Delivery window',
   'riderLabel': 'Rider',
 };
-
-/// F4 orders tokens — same Mode-1 restraint as auth (one accent, hairline
-/// borders, radius 8, 48dp targets, no shadows/gradients/emoji/FAB/glass).
-/// Wave 1 honesty: aliases of [ShodashaTheme] (the local #0369A1 blues
-/// drifted from the locked #0284C7; one source stops the next drift).
-class OrdersTokens {
-  static const white = ShodashaTheme.bg;
-  static const ink = ShodashaTheme.ink;
-  static const muted = ShodashaTheme.muted;
-  static const blue = ShodashaTheme.blue;
-  static const blueTint = ShodashaTheme.blueTint;
-  static const border = ShodashaTheme.border;
-  static const radius = ShodashaTheme.radius;
-  static const minTarget = ShodashaTheme.minTarget;
-}
 
 /// Canonical order lifecycle (contract §4.4 + §9 state machine).
 /// Payment is a separate field, never a state.
@@ -133,15 +125,15 @@ String orderStateToString(OrderState s) => s.name;
 /// Cancel reasons — dropdown codes (approved answer 3), consistent with
 /// complaint reason-code style ({reason} string on the wire).
 enum CancelReason {
-  changedMind('changed_mind', 'Mann badal gaya'),
-  duplicate('duplicate', 'Duplicate order ho gaya'),
-  orderedByMistake('ordered_by_mistake', 'Galti se order ho gaya'),
-  delayed('delayed', 'Delivery me deri'),
-  other('other', 'Kuch aur');
+  changedMind('changed_mind', 'Changed my mind'),
+  duplicate('duplicate', 'Duplicate order'),
+  orderedByMistake('ordered_by_mistake', 'Ordered by mistake'),
+  delayed('delayed', 'Delivery is late'),
+  other('other', 'Something else');
 
-  const CancelReason(this.code, this.labelHi);
+  const CancelReason(this.code, this.label);
   final String code;
-  final String labelHi;
+  final String label;
 
   static CancelReason fromCode(String code) {
     for (final r in CancelReason.values) {
@@ -168,9 +160,7 @@ class RescheduleSlot {
 
   @override
   bool operator ==(Object other) =>
-      other is RescheduleSlot &&
-      other.start == start &&
-      other.end == end;
+      other is RescheduleSlot && other.start == start && other.end == end;
 
   @override
   int get hashCode => Object.hash(start, end);
@@ -185,21 +175,20 @@ List<RescheduleSlot> nextServiceSlots({DateTime? from}) {
   for (var h = 8; h < 20; h++) {
     for (final m in [0, 30]) {
       final start = day.add(Duration(hours: h, minutes: m));
-      slots.add(RescheduleSlot(start: start, end: start.add(
-        const Duration(minutes: 30),
-      )));
+      slots.add(
+        RescheduleSlot(
+          start: start,
+          end: start.add(const Duration(minutes: 30)),
+        ),
+      );
     }
   }
   return slots;
 }
 
 /// ₹ formatting: paise ints, 2dp ONLY when needed (5600 → ₹56, 5650 → ₹56.50).
-String formatRupees(int paise) {
-  final sign = paise < 0 ? '-' : '';
-  final abs = paise.abs();
-  if (abs % 100 == 0) return '$sign\u20B9${abs ~/ 100}';
-  return '$sign\u20B9${(abs / 100).toStringAsFixed(2)}';
-}
+/// Kept as the orders-local name; the implementation is the shared formatter.
+String formatRupees(int paise) => formatInr(paise);
 
 /// Order entity — money in integer paise, frozen server-side (contract §4.4).
 @immutable
@@ -265,7 +254,8 @@ class Order {
   /// Shown once on tracking so the customer can read it to the rider.
   final String? deliveryOtp;
 
-  bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+  bool get isPaid =>
+      paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
 
   /// Reorder possible only when the mix is known.
   bool get canReorder => refillQty + containerQty >= 1;
@@ -321,7 +311,6 @@ class Order {
   }
 }
 
-
 /// Visibility matrix (contract §4.4 + flows 3/5):
 /// pre-dispatch → Cancel + Reschedule; dispatched → WhatsApp CTA only;
 /// delivered → help row + rate once; cancelled → none.
@@ -373,9 +362,8 @@ class OrdersPage {
   final String? nextCursor;
 }
 
-/// Backend seam (approved answer 2): F1 implements over the real base URL
-/// with dart:io (no new pub deps).
-/// TODO(F1): implement with real GET/POST /v1/orders* + Idempotency-Key.
+/// Backend seam. [ApiBackedOrdersRepository] is the live implementation over
+/// the ported [ApiClient]; the stub below exists only for tests.
 abstract class OrdersRepository {
   Future<OrdersPage> fetchOrders({String? cursor});
   Future<Order> fetchOrder(String id);
@@ -384,7 +372,7 @@ abstract class OrdersRepository {
   Future<Order> submitRating(String id, int stars);
 }
 
-/// In-memory stub for tests + pre-F1 wiring. Never ships as the real repo.
+/// In-memory stub for tests only. Never ships as the real repo.
 class StubOrdersRepository implements OrdersRepository {
   StubOrdersRepository([List<Order>? seed]) : _orders = List.of(seed ?? []);
 
@@ -507,8 +495,8 @@ Order orderFromApi(Map<String, dynamic> json) {
     stopsAhead: json['stops_ahead'] != null
         ? (json['stops_ahead'] as num).toInt()
         : (rider['stops_ahead'] != null
-            ? (rider['stops_ahead'] as num).toInt()
-            : null),
+              ? (rider['stops_ahead'] as num).toInt()
+              : null),
     itemSummary: parts.join(' + '),
     waterBillPaise: paise(bill['water_bill'] ?? json['water_bill']),
     depositDuePaise: paise(bill['deposit_due'] ?? json['deposit_due']),
@@ -558,8 +546,13 @@ class ApiBackedOrdersRepository implements OrdersRepository {
 
   @override
   Future<Order> rescheduleOrder(String id, DateTime windowStart) async =>
-      orderFromApi(await _api.rescheduleApi(
-          id, windowStart.toIso8601String(), const Uuid().v4()));
+      orderFromApi(
+        await _api.rescheduleApi(
+          id,
+          windowStart.toIso8601String(),
+          const Uuid().v4(),
+        ),
+      );
 
   @override
   Future<Order> submitRating(String id, int stars) async {
@@ -571,6 +564,10 @@ class ApiBackedOrdersRepository implements OrdersRepository {
 }
 
 enum OrdersListStatus { initial, loading, loaded, error }
+
+/// Rating outcome — a 409/“already rated” is not a transport failure and must
+/// not close the sheet with retry copy meant for network errors.
+enum RateResult { success, alreadyRated, failed }
 
 /// Orders lifecycle: list(search client-side) → tracking(poll) → bill(frozen)
 /// → rating(once). Covers States.md data/error/network/search/action states.
@@ -584,6 +581,8 @@ class OrdersController extends ChangeNotifier {
   String _query = '';
   String? _errorMessage;
   bool _isOffline = false;
+  bool _loadMoreFailed = false;
+  bool _loadingMore = false;
   String? _cursor;
   bool _hasMore = false;
   bool _actionBusy = false;
@@ -591,6 +590,10 @@ class OrdersController extends ChangeNotifier {
   Timer? _pollTimer;
   int _pollSeconds = pollBaseSeconds;
   bool _disposed = false;
+
+  /// User boundary: bumped by [reset]; async completions from the previous
+  /// account are discarded instead of repopulating the list.
+  int _generation = 0;
 
   /// Rating auto-popup fires once per delivered order view (approved answer 5).
   final Set<String> _ratingPrompted = {};
@@ -602,6 +605,8 @@ class OrdersController extends ChangeNotifier {
   OrdersListStatus get status => _status;
   String? get errorMessage => _errorMessage;
   bool get isOffline => _isOffline;
+  bool get loadMoreFailed => _loadMoreFailed;
+  bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
   bool get actionBusy => _actionBusy;
   int get pollSeconds => _pollSeconds;
@@ -613,10 +618,14 @@ class OrdersController extends ChangeNotifier {
   List<Order> get filteredOrders {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return List.unmodifiable(_all);
-    return List.unmodifiable(_all.where((o) =>
-        o.id.toLowerCase().contains(q) ||
-        o.addressLabel.toLowerCase().contains(q) ||
-        o.itemSummary.toLowerCase().contains(q)));
+    return List.unmodifiable(
+      _all.where(
+        (o) =>
+            o.id.toLowerCase().contains(q) ||
+            o.addressLabel.toLowerCase().contains(q) ||
+            o.itemSummary.toLowerCase().contains(q),
+      ),
+    );
   }
 
   Order? findById(String id) {
@@ -632,13 +641,36 @@ class OrdersController extends ChangeNotifier {
   }
 
   /// First load (skeleton in the screen while [_status] is loading).
+  /// User boundary: clears every row/flag and invalidates in-flight loads so
+  /// a response landing after logout can never repopulate the list.
+  void reset() {
+    _generation++;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollSeconds = pollBaseSeconds;
+    _all.clear();
+    _query = '';
+    _errorMessage = null;
+    _isOffline = false;
+    _cursor = null;
+    _hasMore = false;
+    _loadMoreFailed = false;
+    _loadingMore = false;
+    _actionBusy = false;
+    _status = OrdersListStatus.initial;
+    _ratingPrompted.clear();
+    _notify();
+  }
+
   Future<void> load() async {
     if (_status == OrdersListStatus.loading) return;
     _status = OrdersListStatus.loading;
     _errorMessage = null;
     _notify();
+    final gen = _generation;
     try {
       final page = await _repo.fetchOrders();
+      if (gen != _generation) return; // reset mid-flight (logout/user switch)
       _all
         ..clear()
         ..addAll(page.orders);
@@ -647,10 +679,13 @@ class OrdersController extends ChangeNotifier {
       _status = OrdersListStatus.loaded;
       _isOffline = false;
       _onPollSuccess();
-    } catch (_) {
+    } catch (e) {
+      if (gen != _generation) return;
       _status = _all.isEmpty ? OrdersListStatus.error : OrdersListStatus.loaded;
       _errorMessage = ordersStringsHi['errorTitle'];
-      _isOffline = _all.isEmpty;
+      // Cached rows stay visible, marked stale, for network/5xx failures —
+      // only a 4xx response (session/validation) is not "offline".
+      _isOffline = e is ApiException && e.isNetwork;
       _onPollError();
     }
     _notify();
@@ -663,26 +698,55 @@ class OrdersController extends ChangeNotifier {
 
   Future<void> loadMore() async {
     final cursor = _cursor;
-    if (!_hasMore || cursor == null || _status == OrdersListStatus.loading) {
+    if (!_hasMore ||
+        cursor == null ||
+        _status == OrdersListStatus.loading ||
+        _loadingMore) {
       return;
     }
+    _loadingMore = true;
+    _loadMoreFailed = false;
+    _notify();
+    final gen = _generation;
     try {
       final page = await _repo.fetchOrders(cursor: cursor);
-      _all.addAll(page.orders);
+      if (gen != _generation) return;
+      // Cursor pages can overlap (a new order shifts the window) — dedupe by
+      // id so "Load more" never renders the same card twice.
+      final seen = _all.map((o) => o.id).toSet();
+      for (final order in page.orders) {
+        if (seen.add(order.id)) _all.add(order);
+      }
       _cursor = page.nextCursor;
       _hasMore = page.nextCursor != null;
       _onPollSuccess();
     } catch (_) {
+      if (gen != _generation) return;
+      _loadMoreFailed = true;
       _errorMessage = ordersStringsHi['errorTitle'];
       _onPollError();
+    } finally {
+      if (gen == _generation) {
+        _loadingMore = false;
+        _notify();
+      }
     }
+  }
+
+  /// Footer retry for a failed [loadMore].
+  Future<void> retryLoadMore() async {
+    if (_loadingMore) return;
+    _loadMoreFailed = false;
     _notify();
+    await loadMore();
   }
 
   /// Detail refresh for the tracking screen (poll target).
   Future<Order?> refreshOrder(String id) async {
+    final gen = _generation;
     try {
       final fresh = await _repo.fetchOrder(id);
+      if (gen != _generation) return findById(id);
       final idx = _all.indexWhere((o) => o.id == id);
       if (idx >= 0) {
         _all[idx] = fresh;
@@ -693,6 +757,7 @@ class OrdersController extends ChangeNotifier {
       _notify();
       return fresh;
     } catch (_) {
+      if (gen != _generation) return findById(id);
       _onPollError();
       _notify();
       return findById(id);
@@ -703,8 +768,10 @@ class OrdersController extends ChangeNotifier {
     if (_actionBusy) return false;
     _actionBusy = true;
     _notify();
+    final gen = _generation;
     try {
       final updated = await _repo.cancelOrder(id, reasonCode);
+      if (gen != _generation) return true;
       _replace(updated);
       return true;
     } catch (_) {
@@ -719,8 +786,10 @@ class OrdersController extends ChangeNotifier {
     if (_actionBusy) return false;
     _actionBusy = true;
     _notify();
+    final gen = _generation;
     try {
       final updated = await _repo.rescheduleOrder(id, windowStart);
+      if (gen != _generation) return true;
       _replace(updated);
       return true;
     } catch (_) {
@@ -731,14 +800,25 @@ class OrdersController extends ChangeNotifier {
     }
   }
 
-  Future<bool> rate(String id, int stars) async {
-    if (stars < 1 || stars > 5) return false;
+  Future<RateResult> rate(String id, int stars) async {
+    if (stars < 1 || stars > 5) return RateResult.failed;
+    final gen = _generation;
     try {
       final updated = await _repo.submitRating(id, stars);
+      if (gen != _generation) return RateResult.success;
       _replace(updated);
-      return true;
+      return RateResult.success;
+    } on StateError catch (e) {
+      // Local repo guard — anything else (not found / not delivered) failed.
+      return e.message == 'already rated'
+          ? RateResult.alreadyRated
+          : RateResult.failed;
+    } on ApiException catch (e) {
+      return e.code == 'ALREADY_RATED'
+          ? RateResult.alreadyRated
+          : RateResult.failed;
     } catch (_) {
-      return false;
+      return RateResult.failed;
     }
   }
 

@@ -1,0 +1,76 @@
+{
+  "schema_version": 2,
+  "label": "phase3-login",
+  "profile": "login",
+  "scope": "all",
+  "base_url": "https://water-staging.adityathakur452007.workers.dev",
+  "started_at": "2026-10-26T11:25:05Z",
+  "finished_at": "2026-10-26T11:27:12Z",
+  "duration_s": 126.879,
+  "counted_duration_s": null,
+  "target_duration_s": 600.0,
+  "warmup_s": 0.0,
+  "target_rps": 0.15,
+  "concurrency": 1,
+  "requests": 20,
+  "achieved_rps": 0.158,
+  "status_counts": {
+    "200": 3,
+    "409": 7,
+    "500": 7,
+    "503": 3
+  },
+  "error_count": 17,
+  "error_rate_pct": 85.0,
+  "expected_error_count": 0,
+  "unexpected_error_count": 17,
+  "5xx_count": 10,
+  "5xx_pct": 50.0,
+  "network_error_count": 0,
+  "retry_count": 0,
+  "p50_ms": 502.6,
+  "p90_ms": 1308.12,
+  "p95_ms": 1611.84,
+  "p99_ms": 3381.81,
+  "max_ms": 3381.81,
+  "schedule_resets": 0,
+  "result": "fail",
+  "result_reason": "5xx rate 50.00% > 2.00%",
+  "aborted": true,
+  "abort_reason": "5xx rate 50.00% > 2.00%",
+  "thresholds": {
+    "max_5xx_pct": 2.0,
+    "max_p99_ms": 5000.0,
+    "max_unexpected_error_pct": 2.0
+  },
+  "routes": {
+    "login": {
+      "count": 20,
+      "status_counts": {
+        "200": 3,
+        "409": 7,
+        "500": 7,
+        "503": 3
+      },
+      "5xx_count": 10,
+      "error_count": 17,
+      "expected_error_count": 0,
+      "unexpected_error_count": 17,
+      "retry_count": 0,
+      "p50_ms": 502.6,
+      "p90_ms": 1308.12,
+      "p95_ms": 1611.84,
+      "p99_ms": 3381.81,
+      "max_ms": 3381.81
+    }
+  },
+  "phases": null,
+  "all": null,
+  "details": {
+    "credentials": 90,
+    "device_id": "phase3-login-b7e13b40"
+  },
+  "notes": [
+    "login probe: credentials are never serialized"
+  ]
+}

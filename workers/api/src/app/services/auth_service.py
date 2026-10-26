@@ -19,6 +19,7 @@ import uuid
 
 from app.adapters.firebase import UnauthError
 from app.core.errors import AppError, NotFoundError, RateLimitedError, ValidationError
+from app.core.passwords import DUMMY_HASH, hash_password, verify_password
 from app.db import WRITE_LOCK
 from app.repositories.session_repo import SessionRepo
 from app.repositories.user_repo import UserRepo
@@ -36,6 +37,10 @@ OTP_START_PHONE_LIMIT = (5, 3600)  # 5/phone/hr
 OTP_START_IP_LIMIT = (20, 3600)  # 20/IP/hr
 OTP_VERIFY_DEVICE_LIMIT = (10, 3600)  # 10/device/hr (practical key for "5/code")
 REFRESH_USER_LIMIT = (30, 3600)  # 30/user/hr
+REGISTER_PHONE_LIMIT = (5, 3600)  # 5/phone/hr
+REGISTER_IP_LIMIT = (20, 3600)  # 20/IP/hr
+LOGIN_PHONE_LIMIT = (5, 900)  # 5 attempts/phone/15 min
+LOGIN_IP_LIMIT = (100, 3600)  # 100/IP/hr: shared NAT stays usable; phone cap is the primary guard
 
 # 028 access-code auth (spec §1-§3, §5): generalized codes table.
 ACCESS_CODE_DEVICE_LIMIT = (10, 3600)  # 10/device/hr (mirrors DEMO pattern)
@@ -57,18 +62,64 @@ class RoleReservedError(AppError):
     status_code = 422
 
 
+class AccountExistsError(AppError):
+    code = "ACCOUNT_EXISTS"
+    status_code = 409
+
+
+class PhoneTakenError(AppError):
+    code = "PHONE_TAKEN"
+    status_code = 409
+
+
+class OtpRetiredError(AppError):
+    code = "OTP_RETIRED"
+    status_code = 410
+
+
 PHONE_RE = re.compile(r"[6-9]\d{9}")
 LANG_RE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
+PASSWORD_MIN_CHARS = 8
+PASSWORD_MAX_CHARS = 128
 
 
 def normalize_phone(raw: str) -> str:
-    """Accept +91XXXXXXXXXX / 91XXXXXXXXXX / XXXXXXXXXX -> +91XXXXXXXXXX."""
+    """Accept +91 / 91 / 0 prefixes and separators -> +91XXXXXXXXXX."""
     digits = re.sub(r"[^\d]", "", (raw or "").strip())
     if digits.startswith("91") and len(digits) == 12:
         digits = digits[2:]
+    elif digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
     if not PHONE_RE.fullmatch(digits or ""):
         raise ValidationError("Enter a valid 10-digit mobile number.", {"phone": raw})
     return "+91" + digits
+
+
+def normalize_email(raw: str | None) -> str:
+    """Optional email: empty is allowed; otherwise a simple RFC-lite address."""
+    clean = (raw or "").strip().lower()
+    if not clean:
+        return ""
+    if len(clean) > 254 or not EMAIL_RE.fullmatch(clean):
+        raise ValidationError("Enter a valid email address.", {"email": "invalid"})
+    return clean
+
+
+def validate_password(raw: str | None) -> str:
+    """8–128 chars, at least one letter and one digit; never trim."""
+    password = raw or ""
+    if (
+        len(password) < PASSWORD_MIN_CHARS
+        or len(password) > PASSWORD_MAX_CHARS
+        or not any(ch.isalpha() for ch in password)
+        or not any(ch.isdigit() for ch in password)
+    ):
+        raise ValidationError(
+            "Password must be 8–128 characters with at least one letter and one number.",
+            {"password": "invalid"},
+        )
+    return password
 
 
 def mask_phone(phone: str) -> str:
@@ -168,40 +219,67 @@ class AuthService:
         self._verifier = verifier  # duck-typed verify_id_token(); None = only local ops
 
     async def _limit_check(self, key: str, limit: int, window_s: int) -> None:
-        """Phase 8 §8.4: L1 fast-deny + D1 authoritative count.
+        await self._limit_checks([(key, limit, window_s)])
+
+    async def _limit_checks(self, checks: list[tuple[str, int, int]]) -> None:
+        """Phase 8 §8.4 + Phase 2: L1 fast-deny + one D1 batch for N keys.
 
         L1 raises first (per-isolate, instant). D1 (rate_counters keyed by
-        key:window-bucket) then denies abuse spread across isolates. D1
-        outage or pre-019 table → debug-logged, L1 still enforced (fail-open
-        on counting only — counter writes never fail the auth call itself).
-        Keys are server-derived (normalized phone, socket IP, session
+        key:window-bucket) then denies abuse spread across isolates. One
+        multi-row UPSERT plus one IN(...) SELECT makes every check one round
+        trip. D1 outage or pre-019 table → debug-logged, L1 still enforced
+        (fail-open on counting only — counter writes never fail the auth call
+        itself). Keys are server-derived (normalized phone, socket IP, session
         device_fp) — never client-supplied identity (ssdlc).
         """
-        _LIMITER.check(key, limit, window_s)  # raises RateLimitedError when over
+        for key, limit, window_s in checks:
+            _LIMITER.check(key, limit, window_s)  # raises RateLimitedError when over
         try:
-            bucket = int(time.time() // window_s) * window_s
-            dkey = f"{key}:{bucket}"
-            # Window start is the bucket start (NOT wall-clock now): every
-            # hit in the same window shares one row so the UPSERT actually
-            # increments instead of scattering count=1 rows.
-            window_start = _dt.datetime.fromtimestamp(
-                bucket, tz=_dt.timezone.utc).isoformat()
-            await self._conn.execute(
-                "INSERT INTO rate_counters(key, window_start, count) VALUES (?, ?, 1)"
-                " ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1",
-                (dkey, window_start),
-            )
-            row = (await self._conn.execute(
-                "SELECT count FROM rate_counters WHERE key = ?", (dkey,))).fetchone()
+            now = time.time()
+            dkeys: list[str] = []
+            params: list[object] = []
+            for key, _, window_s in checks:
+                bucket = int(now // window_s) * window_s
+                dkey = f"{key}:{bucket}"
+                dkeys.append(dkey)
+                params.extend([
+                    dkey,
+                    # Window start is the bucket start (NOT wall-clock now):
+                    # every hit in the same window shares one row so the
+                    # UPSERT increments instead of scattering count=1 rows.
+                    _dt.datetime.fromtimestamp(
+                        bucket, tz=_dt.timezone.utc).isoformat(),
+                ])
+            values = ", ".join("(?, ?, 1)" for _ in checks)
+            marks = ", ".join("?" for _ in dkeys)
+            results = await self._conn.batch([
+                (
+                    f"INSERT INTO rate_counters(key, window_start, count)"
+                    f" VALUES {values}"
+                    " ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1",
+                    tuple(params),
+                ),
+                (
+                    f"SELECT key, count FROM rate_counters WHERE key IN ({marks})",
+                    tuple(dkeys),
+                ),
+            ])
             self._conn.commit()
-            if row is not None and int(row["count"]) > limit:
-                retry = int(window_s - (time.time() % window_s)) or 1
-                log.warning("rate_limit d1_hit key=%s count=%d limit=%d", key, int(row["count"]), limit)
-                raise RateLimitedError("Too many requests.", {"retry_after_s": retry})
+            counts = {r["key"]: int(r["count"]) for r in results[1].fetchall()}
+            for (key, limit, window_s), dkey in zip(checks, dkeys):
+                count = counts.get(dkey, 0)
+                if count > limit:
+                    retry = int(window_s - (now % window_s)) or 1
+                    log.warning(
+                        "rate_limit d1_hit key=%s count=%d limit=%d",
+                        key, count, limit,
+                    )
+                    raise RateLimitedError(
+                        "Too many requests.", {"retry_after_s": retry})
         except RateLimitedError:
             raise
         except Exception:  # pre-019 DBs / D1 hiccups: L1 already enforced above
-            log.debug("rate_limit d1_unavailable key=%s", key)
+            log.debug("rate_limit d1_unavailable keys=%d", len(checks))
 
     # -- OTP ---------------------------------------------------------------
 
@@ -459,53 +537,111 @@ class AuthService:
         await _audit_access_use(self._conn, user["id"], matched_id, legacy=False)
         return out
 
-    # -- user name+number onboarding (028 F-register, doorstep-verified) --------
+    # -- customer password auth (034) -------------------------------------------
 
     async def user_register(
         self, name: str | None, phone: str | None, email: str | None,
-        device_id: str, device: dict | None = None, ip: str = "unknown",
+        password: str | None, device_id: str, device: dict | None = None,
+        ip: str = "unknown",
     ) -> dict:
-        """Name + email + phone → role=user (kyc_status=unverified) + session.
+        """Create a customer account from name + optional email + phone + password.
 
-        No OTP: identity is the phone number (unique), email is a required
-        contact field (format-validated, never verified — no mail sender
-        exists). Rate limits mirror OTP_START (5/phone/hr, 20/IP/hr). Staff
-        numbers (vendor/admin) → 422 ROLE_RESERVED. An existing user gets
-        blank name/email filled once — set values are never overwritten.
-        Returns the session plus ``verified: False`` (flag flips on first
-        POD in a later slice; until then display + future gating only).
+        Create-only: an existing phone gets 409 ACCOUNT_EXISTS and never a
+        session. There is no OTP migration or account-claim path. The password
+        is hashed after the conflict check so a rejected request does not burn
+        100k PBKDF2 iterations.
         """
-        import uuid as _uuid  # noqa: PLC0415 (local: avoid top-level churn)
-
         clean_name = (name or "").strip()
         if not clean_name or len(clean_name) > 100:
             raise ValidationError("Enter your name (1–100 characters).", {"name": name})
-        clean_email = (email or "").strip().lower()
-        if len(clean_email) > 254 or not re.match(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", clean_email):
-            raise ValidationError("Enter a valid @gmail.com address.", {"email": "invalid"})
+        clean_email = normalize_email(email)
+        clean_password = validate_password(password)
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
         phone_n = normalize_phone(phone or "")
-        await self._limit_check(f"register:phone:{phone_n}", *OTP_START_PHONE_LIMIT)
-        await self._limit_check(f"register:ip:{ip or 'unknown'}", *OTP_START_IP_LIMIT)
+        await self._limit_check(f"register:phone:{phone_n}", *REGISTER_PHONE_LIMIT)
+        await self._limit_check(f"register:ip:{ip or 'unknown'}", *REGISTER_IP_LIMIT)
         existing = await self._users.find_by_phone(phone_n)
-        if existing is not None and existing.get("role") != "user":
-            raise RoleReservedError(
-                "This number belongs to a staff account. Contact support.",
+        if existing is not None:
+            if existing.get("role") != "user":
+                raise RoleReservedError(
+                    "This number belongs to a staff account. Contact support.",
+                    {"phone": mask_phone(phone_n)},
+                )
+            raise AccountExistsError(
+                "This number already has an account. Sign in instead.",
                 {"phone": mask_phone(phone_n)},
             )
-        if existing is not None:
-            user = await self._users.set_name_if_blank(existing["id"], clean_name)
-            assert user is not None
-            user = await self._users.set_email_if_blank(existing["id"], clean_email)
-            assert user is not None
-        else:
+        password_hash = await hash_password(clean_password)
+        try:
             user = await self._users.create_register_user(
-                user_id=_uuid.uuid4().hex, phone=phone_n, name=clean_name,
-                email=clean_email)
+                user_id=uuid.uuid4().hex, phone=phone_n, name=clean_name,
+                email=clean_email, password_hash=password_hash,
+            )
+        except Exception as e:  # noqa: BLE001 — unique race between check and insert
+            if "unique" in str(e).lower() or "constraint" in str(e).lower():
+                raise AccountExistsError(
+                    "This number already has an account. Sign in instead.",
+                    {"phone": mask_phone(phone_n)},
+                ) from e
+            raise
         out = await self._issue_session(user, device_id, device)
         out["verified"] = False
         return out
+
+    async def user_login(
+        self, phone: str | None, password: str | None,
+        device_id: str, device: dict | None = None, ip: str = "unknown",
+    ) -> dict:
+        """Phone + password login. Unknown/empty/staff credentials are one 401.
+
+        A dummy PBKDF2 verification keeps the no-such-user path close to the
+        real one in timing. Customer OTP is never a login proof.
+        """
+        if not (device_id or "").strip():
+            raise ValidationError("Device id required.", {"device": "id"})
+        phone_n = normalize_phone(phone or "")
+        await self._limit_checks([
+            (f"login:phone:{phone_n}", *LOGIN_PHONE_LIMIT),
+            (f"login:ip:{ip or 'unknown'}", *LOGIN_IP_LIMIT),
+        ])
+        user = await self._users.find_for_login_by_phone(phone_n)
+        encoded = (user or {}).get("password_hash") or ""
+        if user is None or user.get("role") != "user" or not encoded:
+            await verify_password(password or "", DUMMY_HASH)
+            raise UnauthError("Invalid mobile number or password.", {})
+        if not await verify_password(password or "", encoded):
+            raise UnauthError("Invalid mobile number or password.", {})
+        return await self._issue_session(user, device_id, device)
+
+    async def reset_user_password(
+        self, user_id: str, new_password: str | None, *, actor_id: str
+    ) -> dict:
+        """Admin/support reset: hash a new password, revoke every session, audit."""
+        clean_password = validate_password(new_password)
+        target = await self._users.find_by_id(user_id)
+        if target is None:
+            raise NotFoundError("User not found.", {"id": user_id})
+        if target.get("role") != "user":
+            raise ValidationError(
+                "Only customer accounts can have a password reset.",
+                {"id": user_id},
+            )
+        password_hash = await hash_password(clean_password)
+        await self._users.set_password(user_id, password_hash)
+        revoked = await self._sessions.revoke_user(user_id)
+        try:
+            from app.services.dispatch_service import write_audit  # noqa: PLC0415
+
+            with WRITE_LOCK:
+                await write_audit(
+                    self._conn, actor=actor_id, action="user.password_reset",
+                    entity="users", entity_id=user_id,
+                )
+                self._conn.commit()
+        except Exception:  # noqa: BLE001 — reset already committed; keep it
+            log.exception("password reset audit failed for %s", user_id)
+        return {"ok": True, "user_id": user_id, "sessions_revoked": revoked}
 
     async def _issue_session(self, user: dict, device_id: str, device: dict | None = None) -> dict:
         """Session minting shared by every login path (Firebase, DEV_AUTH,
@@ -633,18 +769,31 @@ class AuthService:
             if not name:
                 raise ValidationError("Name cannot be blank.", {"name": name})
         if phone is not None:
-            phone_clean = phone.strip()
-            if not re.fullmatch(r"^(\+91|91|0)?[6-9]\d{9}$", phone_clean):
-                raise ValidationError("Invalid phone number. Must be a valid 10-digit number.", {"phone": phone})
-            phone = normalize_phone(phone_clean)
+            phone = normalize_phone(phone.strip())
+            existing = await self._users.find_by_phone(phone)
+            if existing is not None and existing.get("id") != user_id:
+                if existing.get("role") != "user":
+                    raise RoleReservedError(
+                        "This number belongs to a staff account. Contact support.",
+                        {"phone": mask_phone(phone)},
+                    )
+                raise PhoneTakenError(
+                    "This number is already linked to another account.",
+                    {"phone": mask_phone(phone)},
+                )
         if email is not None:
-            email_clean = email.strip()
-            if email_clean and not re.fullmatch(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", email_clean):
-                raise ValidationError("Invalid email. Must be a valid @gmail.com address.", {"email": email})
-            email = email_clean.lower()
-        user = await self._users.update_profile(
-            user_id, name=name, language=language, phone=phone, email=email
-        )
+            email = normalize_email(email)
+        try:
+            user = await self._users.update_profile(
+                user_id, name=name, language=language, phone=phone, email=email
+            )
+        except Exception as e:  # noqa: BLE001 — unique race between check and update
+            if "unique" in str(e).lower() or "constraint" in str(e).lower():
+                raise PhoneTakenError(
+                    "This number is already linked to another account.",
+                    {"phone": mask_phone(phone or "")},
+                ) from e
+            raise
         if user is None:
             raise NotFoundError("User not found.", {"id": user_id})
         return {"user": _public_user(user)}

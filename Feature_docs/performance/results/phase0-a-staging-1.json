@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "label": "staging-a-free-ceiling",
+  "profile": "a",
+  "base_url": "https://water-staging.adityathakur452007.workers.dev",
+  "started_at": "2026-10-25T09:18:14Z",
+  "finished_at": "2026-10-25T09:18:27Z",
+  "duration_s": 7.838,
+  "target_duration_s": 600.0,
+  "warmup_s": 5.0,
+  "target_rps": 2.78,
+  "concurrency": 20,
+  "requests": 22,
+  "achieved_rps": 2.807,
+  "status_counts": {
+    "200": 16,
+    "500": 3,
+    "503": 3
+  },
+  "error_count": 6,
+  "error_rate_pct": 27.273,
+  "5xx_count": 6,
+  "5xx_pct": 27.273,
+  "network_error_count": 0,
+  "retry_count": 0,
+  "p50_ms": 397.16,
+  "p90_ms": 1202.75,
+  "p95_ms": 1945.11,
+  "p99_ms": 3263.94,
+  "max_ms": 3263.94,
+  "schedule_resets": 0,
+  "result": "fail",
+  "result_reason": "5xx rate 28.57% > 2.00%",
+  "aborted": true,
+  "abort_reason": "5xx rate 28.57% > 2.00%",
+  "thresholds": {
+    "max_5xx_pct": 2.0,
+    "max_p99_ms": 5000.0
+  },
+  "routes": {
+    "health": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 203.28,
+      "p90_ms": 203.28,
+      "p95_ms": 203.28,
+      "p99_ms": 203.28,
+      "max_ms": 203.28
+    },
+    "catalog": {
+      "count": 4,
+      "status_counts": {
+        "200": 3,
+        "500": 1
+      },
+      "5xx_count": 1,
+      "error_count": 1,
+      "retry_count": 0,
+      "p50_ms": 241.24,
+      "p90_ms": 418.35,
+      "p95_ms": 418.35,
+      "p99_ms": 418.35,
+      "max_ms": 418.35
+    },
+    "me": {
+      "count": 3,
+      "status_counts": {
+        "200": 3
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 397.16,
+      "p90_ms": 544.86,
+      "p95_ms": 544.86,
+      "p99_ms": 544.86,
+      "max_ms": 544.86
+    },
+    "orders": {
+      "count": 4,
+      "status_counts": {
+        "200": 4
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 961.56,
+      "p90_ms": 1202.75,
+      "p95_ms": 1202.75,
+      "p99_ms": 1202.75,
+      "max_ms": 1202.75
+    },
+    "order_detail": {
+      "count": 4,
+      "status_counts": {
+        "200": 2,
+        "500": 1,
+        "503": 1
+      },
+      "5xx_count": 2,
+      "error_count": 2,
+      "retry_count": 0,
+      "p50_ms": 271.77,
+      "p90_ms": 830.31,
+      "p95_ms": 830.31,
+      "p99_ms": 830.31,
+      "max_ms": 830.31
+    },
+    "dues": {
+      "count": 3,
+      "status_counts": {
+        "200": 2,
+        "500": 1
+      },
+      "5xx_count": 1,
+      "error_count": 1,
+      "retry_count": 0,
+      "p50_ms": 660.46,
+      "p90_ms": 847.29,
+      "p95_ms": 847.29,
+      "p99_ms": 847.29,
+      "max_ms": 847.29
+    },
+    "vendor_route": {
+      "count": 3,
+      "status_counts": {
+        "200": 1,
+        "503": 2
+      },
+      "5xx_count": 2,
+      "error_count": 2,
+      "retry_count": 0,
+      "p50_ms": 1945.11,
+      "p90_ms": 3263.94,
+      "p95_ms": 3263.94,
+      "p99_ms": 3263.94,
+      "max_ms": 3263.94
+    }
+  },
+  "notes": []
+}

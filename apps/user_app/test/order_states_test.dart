@@ -1,5 +1,7 @@
-// F4 — Order state unit tests (visibility matrix, paise formatting, cancel
-// reasons, reschedule slots, client search, poll backoff, rating-once).
+// S5 — Order state tests ported from the legacy F4 suite (visibility matrix,
+// paise formatting, cancel reasons, reschedule slots, client search, poll
+// backoff, rating-once, payment badge). Plugin-free: StubOrdersRepository +
+// the real TrackingScreen/BillScreen over in-memory orders.
 // Run: flutter test test/order_states_test.dart
 
 import 'package:flutter/material.dart';
@@ -196,9 +198,9 @@ void main() {
       ]);
       final c = OrdersController(repo: repo);
       await c.load();
-      expect(await c.rate('D2', 5), isTrue);
+      expect(await c.rate('D2', 5), RateResult.success);
       expect(c.findById('D2')!.canRate, isFalse);
-      expect(await c.rate('D2', 4), isFalse);
+      expect(await c.rate('D2', 4), RateResult.alreadyRated);
       c.dispose();
     });
 
@@ -247,9 +249,9 @@ void main() {
       expect(find.textContaining('UPI'), findsWidgets);
       expect(find.textContaining('Paid'), findsWidgets);
       // Vendor-collect note renders because paymentsPaise > 0.
-      expect(find.textContaining('Vendor ko'), findsOneWidget);
+      expect(find.textContaining('to the vendor'), findsOneWidget);
       // Bill row is tappable (InkWell, was dead Container).
-      await tester.tap(find.textContaining('Bill dekhein'));
+      await tester.tap(find.textContaining('View bill'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 

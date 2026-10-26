@@ -1,9 +1,13 @@
-// F4 — Rating bottom sheet (once per delivered order + complaint shortcut).
+// S5 — Rating bottom sheet (once per delivered order + complaint shortcut).
 // Contract §4.4 + user-flows flow 6 (≤3 stars offers complaint with order
 // pre-attached; 3-day window; photos = v2).
 //
-// Approved answer 5: auto-popup on first delivered view + manual button;
-// complaint shortcut is a TODO route stub (SnackBar) — F-complaints owns it.
+// Auto-popup on first delivered view + manual button (ported F4 behavior).
+// The complaint shortcut is the nullable S8 door: rendered only when the
+// shell wires `onSupport`, so this slice never promises a screen it lacks.
+//
+// States.md covered: idle, star picked, submitting (spinner), success,
+// failure (rate-once copy), already rated.
 
 import 'package:flutter/material.dart';
 
@@ -14,17 +18,19 @@ import 'orders_controller.dart';
 Future<void> showRatingSheet(
   BuildContext context,
   OrdersController controller,
-  Order order,
-) {
+  Order order, {
+  VoidCallback? onSupport,
+}) {
   return showModalBottomSheet<void>(
     context: context,
-    backgroundColor: OrdersTokens.white,
+    backgroundColor: ShodashaTheme.surface,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(
-        top: Radius.circular(OrdersTokens.radius),
+        top: Radius.circular(ShodashaTheme.radiusSheet),
       ),
     ),
-    builder: (_) => RatingSheet(controller: controller, order: order),
+    builder: (_) =>
+        RatingSheet(controller: controller, order: order, onSupport: onSupport),
   );
 }
 
@@ -34,10 +40,12 @@ class RatingSheet extends StatefulWidget {
     super.key,
     required this.controller,
     required this.order,
+    this.onSupport,
   });
 
   final OrdersController controller;
   final Order order;
+  final VoidCallback? onSupport;
 
   @override
   State<RatingSheet> createState() => _RatingSheetState();
@@ -50,24 +58,36 @@ class _RatingSheetState extends State<RatingSheet> {
   Future<void> _submit() async {
     if (_stars < 1 || _busy) return;
     setState(() => _busy = true);
-    final ok = await widget.controller.rate(widget.order.id, _stars);
+    final result = await widget.controller.rate(widget.order.id, _stars);
     if (!mounted) return;
+    if (result == RateResult.failed) {
+      // Network/401: keep the sheet open so the user can retry instead of
+      // being told a rating was already received.
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(ordersStringsHi['rateFailed']!)));
+      return;
+    }
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? ordersStringsHi['rateThanks']! : ordersStringsHi['rateAgain']!,
+          result == RateResult.success
+              ? ordersStringsHi['rateThanks']!
+              : ordersStringsHi['rateAgain']!,
         ),
       ),
     );
   }
 
   void _complaint() {
-    // TODO(F-complaints): push complaint route with order pre-attached
-    // (reason code + ≤500 chars, ≤3-day window, photos v2).
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ordersStringsHi['complaintStub']!)),
-    );
+    // WHY: the S8 support screen owns complaints; this sheet only forwards
+    // the intent after closing itself (backend already holds the order).
+    final onSupport = widget.onSupport;
+    if (onSupport == null) return;
+    Navigator.of(context).pop();
+    onSupport();
   }
 
   @override
@@ -85,7 +105,7 @@ class _RatingSheetState extends State<RatingSheet> {
               style: const TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
-                color: OrdersTokens.ink,
+                color: ShodashaTheme.ink,
               ),
               textAlign: TextAlign.center,
             ),
@@ -101,28 +121,29 @@ class _RatingSheetState extends State<RatingSheet> {
                         ? null
                         : () => setState(() => _stars = i),
                     icon: Icon(
-                      i <= _stars
-                          ? Icons.star
-                          : Icons.star_border,
-                      color: OrdersTokens.blue,
+                      i <= _stars ? Icons.star : Icons.star_border,
+                      color: i <= _stars
+                          ? ShodashaTheme.solarDark
+                          : ShodashaTheme.muted,
                     ),
                   ),
               ],
             ),
             const SizedBox(height: 8),
             SizedBox(
-              height: OrdersTokens.minTarget,
+              height: ShodashaTheme.minTarget,
               child: ElevatedButton(
-                onPressed:
-                    (alreadyRated || _stars < 1 || _busy) ? null : _submit,
+                onPressed: (alreadyRated || _stars < 1 || _busy)
+                    ? null
+                    : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: ShodashaTheme.ink,
-                  foregroundColor: OrdersTokens.white,
-                  disabledBackgroundColor:
-                      OrdersTokens.blue.withValues(alpha: 0.4),
+                  foregroundColor: ShodashaTheme.surface,
+                  disabledBackgroundColor: ShodashaTheme.ink.withValues(
+                    alpha: 0.3,
+                  ),
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   ),
                 ),
                 child: _busy
@@ -131,24 +152,25 @@ class _RatingSheetState extends State<RatingSheet> {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: OrdersTokens.white,
+                          color: ShodashaTheme.surface,
                         ),
                       )
                     : Text(ordersStringsHi['rateSubmit']!),
               ),
             ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: _complaint,
-                style: TextButton.styleFrom(
-                  foregroundColor: OrdersTokens.blue,
-                  minimumSize:
-                      const Size(48, OrdersTokens.minTarget),
+            if (widget.onSupport != null) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton(
+                  onPressed: _complaint,
+                  style: TextButton.styleFrom(
+                    foregroundColor: ShodashaTheme.blue, // link only
+                    minimumSize: const Size(48, ShodashaTheme.minTarget),
+                  ),
+                  child: Text(ordersStringsHi['complaintShortcut']!),
                 ),
-                child: Text(ordersStringsHi['complaintShortcut']!),
               ),
-            ),
+            ],
           ],
         ),
       ),

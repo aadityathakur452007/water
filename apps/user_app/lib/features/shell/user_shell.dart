@@ -1,256 +1,604 @@
-// F5 — Bottom-nav shell: Home / Orders / Support / Profile (approved app map).
+// 032 — 5-tab shell: Home / Orders / Subscriptions / Wallet / Profile.
 //
-// Home hosts the F3 booking repeat machine; Orders hosts F4's list/detail/
-// tracking/bill; Support (new) = WhatsApp + FAQ + complaints; Profile (new)
-// = identity + ledger + returns + language + logout. No sheet/tab may look
-// logged-out mid-session (States.md auth states): guest + un-authed tab
-// actions route through [AuthGate] via the commit-gate callback.
+// Composition surface: the shell owns tab state + cross-tab routes and is
+// the only place that imports multiple feature folders. All five tabs are
+// live; account-scoped tabs are guest-gated so no authed request fires
+// before login (States.md auth states).
+//
+// Lazy mounting (ADR-112): a tab mounts on first visit and keeps its state
+// after that via IndexedStack.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
-import '../auth/first_run_screen.dart';
 import '../booking/booking_controller.dart';
 import '../booking/booking_sheet.dart';
 import '../booking/home_screen.dart';
 import '../booking/quote_confirm.dart';
 import '../orders/orders_controller.dart';
 import '../orders/orders_screen.dart';
+import '../profile/profile_controller.dart';
 import '../profile/profile_screen.dart';
+import '../returns/return_sheet.dart';
+import '../subscriptions/subscription_screen.dart';
 import '../support/support_screen.dart';
-import '../../core/theme.dart';
+import '../wallet/payment_history_screen.dart';
+import '../wallet/wallet_screen.dart';
 
-/// Tab indices are stable identifiers (deep links + tests).
-enum UserTab { home, orders, support, profile }
+/// Tab order is a stable identifier (deep links + tests).
+enum UserTab { home, orders, subscriptions, wallet, profile }
 
 class UserShell extends StatefulWidget {
   const UserShell({
     super.key,
+    required this.api,
     required this.bookingController,
+    required this.addresses,
     required this.ordersController,
+    required this.profileController,
     required this.isAuthenticated,
-    this.profileController,
-    this.api,
-    this.addresses,
+    required this.onLoginRequested,
+    required this.onLogout,
     this.razorpayKeyId = '',
-    this.onOpenAddresses,
-    this.onOpenSubscriptions,
-    this.onLogout,
+    this.authListenable,
   });
 
-  final BookingController bookingController;
-  final OrdersController ordersController;
-  final ProfileController? profileController;
+  /// The single authenticated transport from the composition root.
+  final ApiClient api;
 
-  /// Live auth check for tab-level gates (profile requires login content).
+  /// Auth changes must rebuild guest/auth tab bodies (Profile takes a bool)
+  /// and refresh the ledger used by the COD gate.
+  final Listenable? authListenable;
+
+  final BookingController bookingController;
+  final AddressController addresses;
+  final OrdersController ordersController;
+  final ProfileController profileController;
+
   final bool Function() isAuthenticated;
 
-  /// Shared API + address source for home/checkout (null = guest stub).
-  final ApiClient? api;
-  final AddressController? addresses;
+  /// Pushes the register screen; true when the user ends up authenticated.
+  final Future<bool> Function(BuildContext context) onLoginRequested;
 
-  /// Publishable Razorpay test key (--dart-define RAZORPAY_KEY_ID).
+  /// Server revoke + local wipe live in the composition root.
+  final Future<void> Function() onLogout;
+
+  /// Publishable Razorpay key (--dart-define RAZORPAY_KEY_ID).
   final String razorpayKeyId;
-
-  /// Profile → Addresses / Subscriptions routes + logout (main.dart wiring).
-  final VoidCallback? onOpenAddresses;
-  final VoidCallback? onOpenSubscriptions;
-  final VoidCallback? onLogout;
 
   @override
   State<UserShell> createState() => _UserShellState();
 }
 
 class _UserShellState extends State<UserShell> {
+  /// Wide-screen cap: the app is phone-first; content stays readable and
+  /// centered instead of stretching across a tablet (P2-7).
+  static const double _maxContentWidth = 560;
+
   UserTab _tab = UserTab.home;
-  late final Set<UserTab> _visitedTabs = {_tab};
+
+  /// Bumped on every Wallet tab entry; the tab owns its controller, so this
+  /// is the only way the shell can ask it to re-read a ledger changed
+  /// elsewhere (dues paid in Subscriptions, return filed earlier).
+  int _walletTick = 0;
+
+  /// Tabs visited at least once (lazy mount).
+  final Set<UserTab> _mounted = {UserTab.home};
+
+  /// Transport banner state: offline comes from [ApiClient.offline]; the
+  /// restored strip is a short confirmation after the value flips back.
+  bool _wasOffline = false;
+  bool _showRestored = false;
+  bool _retrying = false;
+  Timer? _restoredTimer;
 
   @override
   void initState() {
     super.initState();
-    widget.addresses?.addListener(_onAddresses);
-    widget.bookingController.addListener(_onBooking);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _offerFirstRun();
-      _refreshLedger();
-    });
+    widget.authListenable?.addListener(_onAuthChanged);
+    _wasOffline = widget.api.offline.value;
+    widget.api.offline.addListener(_onOfflineChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLedger());
   }
 
   @override
   void dispose() {
-    widget.addresses?.removeListener(_onAddresses);
-    widget.bookingController.removeListener(_onBooking);
+    widget.authListenable?.removeListener(_onAuthChanged);
+    widget.api.offline.removeListener(_onOfflineChanged);
+    _restoredTimer?.cancel();
     super.dispose();
   }
 
-  void _onBooking() {
-    if (mounted) setState(() {});
+  void _onOfflineChanged() {
+    if (!mounted) return;
+    final offline = widget.api.offline.value;
+    if (offline) {
+      _restoredTimer?.cancel();
+      setState(() => _showRestored = false);
+    } else if (_wasOffline) {
+      setState(() => _showRestored = true);
+      _restoredTimer?.cancel();
+      _restoredTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _showRestored = false);
+      });
+    }
+    _wasOffline = offline;
   }
 
-  /// 014: live wallet/dues into booking so COD gate + deposit display match
-  /// the server. Best-effort — never blocks home on failure.
-  Future<void> _refreshLedger() async {
-    final api = widget.api;
-    if (api == null || !widget.isAuthenticated()) return;
+  /// Probe with the guest-callable catalog; success flips [ApiClient.offline]
+  /// and dismisses the banner. Screens keep their own retry actions.
+  Future<void> _retryOffline() async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
     try {
-      final led = await api.ledgerMe();
+      await widget.api.catalog();
+    } catch (_) {
+      // Still offline — the banner stays and Retry remains available.
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+  }
+
+  void _onAuthChanged() {
+    if (!widget.isAuthenticated()) return;
+    _refreshLedger();
+    // Guest → login happens on top of the live shell, so Home is already
+    // mounted and its guest-gated address fetch still needs to run.
+    if (widget.addresses.status == AddrStatus.initial) {
+      widget.addresses.load();
+    }
+  }
+
+  /// Live dues/held/deposit into booking so the COD gate + deposit display
+  /// match the server (014). Best-effort — Home keeps its honest states.
+  Future<void> _refreshLedger() async {
+    if (!mounted || !widget.isAuthenticated()) return;
+    try {
+      final led = await widget.api.ledgerMe();
+      // Session may have ended while the call was in flight — never write
+      // the previous account's dues into the next user's state.
+      if (!mounted || !widget.isAuthenticated()) return;
       widget.bookingController.applyLedger(
         dues: (led['dues'] as num?)?.toInt() ?? 0,
         held: (led['held'] as num?)?.toInt() ?? 0,
-        depositPaid: (led['wallet_held'] as num?)?.toInt() ??
+        depositPaid:
+            (led['wallet_held'] as num?)?.toInt() ??
             (led['deposit_paid'] as num?)?.toInt() ??
             0,
       );
     } catch (_) {
-      // Offline/guest — controller keeps clean-user defaults.
+      // Offline — the server stays the authority at order commit.
     }
   }
 
-  void _onAddresses() {
-    if (mounted) setState(() {});
+  void _selectTab(UserTab tab) {
+    final changed = _tab != tab || !_mounted.contains(tab);
+    setState(() {
+      _tab = tab;
+      _mounted.add(tab);
+      if (tab == UserTab.wallet && widget.isAuthenticated()) {
+        _walletTick++;
+      }
+    });
+    // The list may predate a just-placed order (recovery "Check Orders") or
+    // a previous visit's cancellations/assignments.
+    if (changed && tab == UserTab.orders && widget.isAuthenticated()) {
+      widget.ordersController.load();
+    }
   }
 
-  /// First-run: zero addresses → permission + address-pin sheet (once).
-  Future<void> _offerFirstRun() async {
-    final addresses = widget.addresses;
-    if (addresses == null || !mounted) return;
-    if (addresses.status == AddrStatus.initial) {
-      await addresses.load();
-      if (!mounted) return;
-    }
-    await maybeOfferFirstRun(
+  void _select(int index) => _selectTab(UserTab.values[index]);
+
+  void _login() {
+    widget.onLoginRequested(context);
+  }
+
+  void _openPayments() => Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          PaymentHistoryScreen(api: widget.api, onLoginRequired: _login),
+    ),
+  );
+
+  void _openSupport() => Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(builder: (_) => SupportScreen(api: widget.api)),
+  );
+
+  /// Dues payment lives in Wallet (S7) — the subscriptions strip only
+  /// switches tabs (no cross-feature import).
+  void _openWallet() => _selectTab(UserTab.wallet);
+
+  /// Profile/Home → Addresses; guests go through register first and the gate
+  /// re-checks live auth (never stranded on a 401 after the form).
+  void _openAddresses() {
+    openAddressesGated(
       context,
-      addressCount: addresses.items.length,
-      onAddAddress: () => widget.onOpenAddresses?.call(),
+      isAuthed: widget.isAuthenticated,
+      ensureAuth: widget.onLoginRequested,
+      openAddresses: (ctx) => Navigator.of(ctx).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => AddressScreen(controller: widget.addresses),
+        ),
+      ),
     );
   }
 
-  /// Delivery address: selected (when still saved) → default → first.
-  AddressEntry? get _defaultAddress => widget.addresses?.resolve();
-
-  /// One-tap repeat: refill the booking lines from a past order, jump
-  /// home, and open checkout (known mix only — card hides otherwise).
-  Future<void> _reorder(Order order) async {
-    final c = widget.bookingController;
-    c.setRefill(order.refillQty);
-    c.setContainer(order.containerQty);
-    if (!mounted) return;
-    setState(() {
-      _tab = UserTab.home;
-      _visitedTabs.add(UserTab.home);
-    });
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    if (!mounted) return;
-    await _openCheckout();
-  }
-
-  /// BOOK NOW / detail BUY → checkout → confirmation → tab jump.
+  /// BOOK NOW / detail BUY / reorder → checkout → confirmation → tab jump.
   Future<void> _openCheckout() async {
-    final api = widget.api;
-    if (api == null) return;
     final c = widget.bookingController;
     if (!c.canBook || c.isTanker) return;
     await showCheckoutSheet(
       context,
       controller: c,
-      api: api,
+      api: widget.api,
       razorpayKeyId: widget.razorpayKeyId,
-      address: _defaultAddress,
+      address: widget.addresses.resolve(),
       onChangeAddress: () {
         Navigator.of(context).pop();
-        widget.onOpenAddresses?.call();
+        _openAddresses();
       },
       onDone: (result) {
         Navigator.of(context).pop();
+        // The new order must appear immediately even when the user is
+        // already on the Orders tab (tab-entry reload would be a no-op).
+        if (widget.isAuthenticated()) widget.ordersController.load();
         showOrderConfirm(
           context,
           result: result,
-          onTrackOrder: () {
-            if (result.isSubscription) {
-              widget.onOpenSubscriptions?.call();
-            } else {
-              setState(() {
-                _tab = UserTab.orders;
-                _visitedTabs.add(UserTab.orders);
-              });
-            }
-          },
-          onOpenSubscriptions: () =>
-              widget.onOpenSubscriptions?.call(),
+          onTrackOrder: () => _selectTab(UserTab.orders),
+          onOpenSubscriptions: () => _selectTab(UserTab.subscriptions),
         );
       },
     );
   }
 
+  /// One-tap repeat: refill lines from a past order, jump home, checkout.
+  Future<void> _reorder(Order order) async {
+    final c = widget.bookingController;
+    c.setRefill(order.refillQty);
+    c.setContainer(order.containerQty);
+    _selectTab(UserTab.home);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+    await _openCheckout();
+  }
+
+  /// Wallet → Returns: pick one of the saved delivery addresses (the returns
+  /// feature stays free of address imports; the shell maps the result).
+  Future<ReturnAddress?> _pickReturnAddress(BuildContext sheetContext) async {
+    if (widget.addresses.items.isEmpty) {
+      await Navigator.of(sheetContext).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => AddressScreen(controller: widget.addresses),
+        ),
+      );
+      if (!sheetContext.mounted || widget.addresses.items.isEmpty) {
+        return null;
+      }
+    }
+    final chosen = await showModalBottomSheet<AddressEntry>(
+      context: sheetContext,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                'Pickup address',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            for (final a in widget.addresses.items)
+              ListTile(
+                leading: const Icon(
+                  Icons.location_on_outlined,
+                  color: ShodashaTheme.teal,
+                ),
+                title: Text(a.label),
+                subtitle: Text(a.addressLine),
+                onTap: () => Navigator.of(ctx).pop(a),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null) return null;
+    return ReturnAddress(
+      id: chosen.id,
+      label: '${chosen.label} · ${chosen.addressLine}',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pages = <UserTab, Widget>{
-      UserTab.home: HomeScreen(
-        controller: widget.bookingController,
-        addresses: widget.addresses,
-        onOpenAddresses: widget.onOpenAddresses,
-        onBuy: _openCheckout,
+    final listenable = widget.authListenable;
+    return PopScope(
+      // Back on a sub-tab returns Home; back on Home keeps the system exit.
+      canPop: _tab == UserTab.home,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _tab == UserTab.home) return;
+        _selectTab(UserTab.home);
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              key: const ValueKey('shell-body'),
+              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+              child: Column(
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.api.offline,
+                    builder: (_, offline, _) => offline
+                        ? _OfflineStrip(
+                            retrying: _retrying,
+                            onRetry: _retryOffline,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  if (_showRestored) const _RestoredStrip(),
+                  Expanded(
+                    child: listenable == null
+                        ? _tabs()
+                        : ListenableBuilder(
+                            listenable: listenable,
+                            builder: (_, _) => _tabs(),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        bottomNavigationBar: ColoredBox(
+          color: ShodashaTheme.surface,
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              key: const ValueKey('shell-nav'),
+              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+              child: NavigationBar(
+                selectedIndex: _tab.index,
+                onDestinationSelected: _select,
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.receipt_long_outlined),
+                    selectedIcon: Icon(Icons.receipt_long),
+                    label: 'Orders',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.event_repeat_outlined),
+                    selectedIcon: Icon(Icons.event_repeat),
+                    label: 'Subscriptions',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.account_balance_wallet_outlined),
+                    selectedIcon: Icon(Icons.account_balance_wallet),
+                    label: 'Wallet',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline),
+                    selectedIcon: Icon(Icons.person),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
-      UserTab.orders: _visitedTabs.contains(UserTab.orders)
+    );
+  }
+
+  Widget _tabs() => IndexedStack(
+    index: _tab.index,
+    children: [
+      for (final tab in UserTab.values)
+        _mounted.contains(tab) ? _bodyFor(tab) : const SizedBox.shrink(),
+    ],
+  );
+
+  Widget _bodyFor(UserTab tab) => switch (tab) {
+    UserTab.home => HomeScreen(
+      controller: widget.bookingController,
+      api: widget.api,
+      addresses: widget.addresses,
+      ensureAuth: () => widget.onLoginRequested(context),
+      onOpenAddresses: _openAddresses,
+      onBuy: _openCheckout,
+      onTrackOrder: () => _selectTab(UserTab.orders),
+      onOpenSubscriptions: () => _selectTab(UserTab.subscriptions),
+      razorpayKeyId: widget.razorpayKeyId,
+    ),
+    UserTab.orders =>
+      widget.isAuthenticated()
           ? OrdersScreen(
               controller: widget.ordersController,
-              api: widget.api,
               isAuthenticated: widget.isAuthenticated,
               onReorder: _reorder,
+              onOpenPayments: _openPayments,
+              onSupport: _openSupport,
             )
-          : const SizedBox.shrink(),
-      UserTab.support: _visitedTabs.contains(UserTab.support)
-          ? SupportScreen(api: widget.api)
-          : const SizedBox.shrink(),
-      UserTab.profile: _visitedTabs.contains(UserTab.profile)
-          ? ProfileScreen(
-              isAuthenticated: widget.isAuthenticated(),
-              controller: widget.profileController,
-              api: widget.api,
-              onOpenAddresses: widget.onOpenAddresses,
-              onOpenSubscriptions: widget.onOpenSubscriptions,
-              onLogout: widget.onLogout,
-            )
-          : const SizedBox.shrink(),
-    };
-    return Scaffold(
-      backgroundColor: ShodashaTheme.bg,
-      body: IndexedStack(
-        index: _tab.index,
-        children: UserTab.values.map((t) => pages[t]!).toList(),
+          : _GuestBody(
+              icon: Icons.receipt_long_outlined,
+              title: 'Orders',
+              message: 'Sign in to see your orders.',
+              onSignIn: _login,
+            ),
+    UserTab.subscriptions =>
+      widget.isAuthenticated()
+          ? SubscriptionScreen(api: widget.api, onOpenWallet: _openWallet)
+          : _GuestBody(
+              icon: Icons.event_repeat_outlined,
+              title: 'Subscriptions',
+              message: 'Sign in to see your plans and dues.',
+              onSignIn: _login,
+            ),
+    UserTab.wallet => WalletScreen(
+      api: widget.api,
+      isAuthenticated: widget.isAuthenticated,
+      onLoginRequired: _login,
+      pickAddress: _pickReturnAddress,
+      refreshTick: _walletTick,
+    ),
+    UserTab.profile => ProfileScreen(
+      api: widget.api,
+      isAuthenticated: widget.isAuthenticated(),
+      controller: widget.profileController,
+      onLoginRequired: _login,
+      onLogout: widget.onLogout,
+      onOpenAddresses: _openAddresses,
+      onOpenPayments: _openPayments,
+    ),
+  };
+}
+
+/// App-level transport strip (P2-6): appears only after a socket/timeout
+/// failure, so HTTP errors never masquerade as "offline".
+class _OfflineStrip extends StatelessWidget {
+  const _OfflineStrip({required this.retrying, required this.onRetry});
+
+  final bool retrying;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border(bottom: BorderSide(color: ShodashaTheme.border)),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab.index,
-        onDestinationSelected: (i) {
-          final next = UserTab.values[i];
-          setState(() {
-            _tab = next;
-            _visitedTabs.add(next);
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.water_drop_outlined),
-            selectedIcon: Icon(Icons.water_drop),
-            label: 'Home',
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.cloud_off_outlined,
+            size: 18,
+            color: ShodashaTheme.danger,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Order',
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'No internet — showing what was already loaded.',
+              style: TextStyle(fontSize: 12, color: ShodashaTheme.ink),
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.support_agent_outlined),
-            selectedIcon: Icon(Icons.support_agent),
-            label: 'Madad',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
+          TextButton(
+            onPressed: retrying ? null : onRetry,
+            style: TextButton.styleFrom(
+              foregroundColor: ShodashaTheme.teal,
+              minimumSize: const Size(
+                ShodashaTheme.minTarget,
+                ShodashaTheme.minTarget,
+              ),
+            ),
+            child: retrying
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Retry'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Short confirmation after the transport recovers; hides itself.
+class _RestoredStrip extends StatelessWidget {
+  const _RestoredStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: ShodashaTheme.tealTint,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            size: 18,
+            color: ShodashaTheme.teal,
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Back online.',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: ShodashaTheme.teal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Guest gate for tabs whose data is account-scoped (Subscriptions): no
+/// authed request until login, honest copy instead of a fake empty list.
+class _GuestBody extends StatelessWidget {
+  const _GuestBody({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.onSignIn,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final VoidCallback onSignIn;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: ShodashaTheme.teal),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: ShodashaTheme.ink,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: ShodashaTheme.muted),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: onSignIn,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ShodashaTheme.teal,
+                minimumSize: const Size(0, 48),
+              ),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ),
       ),
     );
   }

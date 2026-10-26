@@ -19,10 +19,12 @@ from app.core.errors import AppError, NotFoundError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.services.vendor_service import (  # noqa: E402
+    DeliveryCodeExpiredError,
+    DeliveryCodeUnavailableError,
     PayloadMismatchError,
+    PodLockedError,
     StaleStopError,
     VendorService,
-    pod_otp,
 )
 
 M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
@@ -30,14 +32,22 @@ M003 = (API_ROOT / "src" / "app" / "db" / "migrations" / "003_addresses.sql").re
 M004 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 M005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
 M007 = (API_ROOT / "src" / "app" / "db" / "migrations" / "007_ops.sql").read_text()
+M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
+M015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+M019 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
+M027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
+M028 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+M029 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
 FUTURE = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat()
+POD = "482910"
+POD_EXPIRY = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=12)).isoformat()
 
 
 def _conn():
     c = get_connection(":memory:")
-    c.executescript(M002 + M003 + M004 + M005 + M007)
+    c.executescript(M002 + M003 + M004 + M005 + M007 + M010 + M015 + M019 + M027 + M028 + M029)
     c.execute(
         "INSERT INTO users(id, phone, role, created_at) VALUES "
         "('v1', '+911111111111', 'vendor', ?), ('v2', '+913333333333', 'vendor', ?),"
@@ -74,6 +84,10 @@ def _conn():
         )
     c.execute("UPDATE stops SET version = 2 WHERE id = 's3'")  # reassigned under the vendor
     c.execute(
+        "UPDATE stops SET pod_otp = ?, pod_otp_expires_at = ? WHERE id = 's1'",
+        (POD, POD_EXPIRY),
+    )
+    c.execute(
         "INSERT INTO complaints(id, order_id, user_id, reason_code, text, status, created_at)"
         " VALUES ('c1', 'o1', 'u1', 'short_delivery', 'one jar short', 'open', ?),"
         " ('c9', 'o9', 'u1', 'late_delivery', 'late', 'open', ?)",
@@ -81,6 +95,26 @@ def _conn():
     )
     c.commit()
     return c
+
+
+def _add_route_stops(c, n: int) -> None:
+    """Append n distinct orders/stops to the seeded route (query-count tests)."""
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    for i in range(n):
+        oid, sid = f"xo{i}", f"xs{i}"
+        c.execute(
+            "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill,"
+            " deposit_due, total, payment_mode, state, window_start, idempotency_key,"
+            " created_at) VALUES (?, 'u1', 'a1', '[]', 1, 0, 2800, 0, 2800, 'cod',"
+            " 'placed', '2026-10-01T08:00Z', ?, ?)",
+            (oid, f"seed:{oid}", now),
+        )
+        c.execute(
+            "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+            " empties_exp, version, status) VALUES (?, 'r1', ?, 'u1', ?, 1, 0, 1, 'pending')",
+            (sid, oid, 10 + i),
+        )
+    c.commit()
 
 
 def _svc(c) -> VendorService:
@@ -256,7 +290,7 @@ async def test_pod_happy_delivers():
     c = _conn()
     s = _svc(c)
     await s.triple_commit("v1", "s1", _triple())
-    out = await s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
+    out = await s.pod_complete("v1", "s1", {"delivery_otp": POD,
                                       "empties_count": 1, "cash": 100, "seal_ok": True})
     assert out["status"] == "done" and out["triple"]["pod"]["seal_ok"] is True
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "delivered"
@@ -271,9 +305,72 @@ async def test_pod_wrong_otp_reads_as_not_found():
     assert e.value.code == "NOT_FOUND" and e.value.status_code == 404
 
 
+async def test_pod_lockout_clears_code_on_fifth_failure():
+    c = _conn()
+    s = _svc(c)
+    for _ in range(4):
+        with pytest.raises(NotFoundError):
+            await s.pod_complete("v1", "s1", {"delivery_otp": "000000"})
+    with pytest.raises(PodLockedError) as e:
+        await s.pod_complete("v1", "s1", {"delivery_otp": "000000"})
+    assert (e.value.code, e.value.status_code) == ("POD_LOCKED", 429)
+    row = c.execute(
+        "SELECT pod_otp, pod_attempts FROM stops WHERE id = 's1'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_attempts"] == 5
+    with pytest.raises(PodLockedError):  # later attempts never check the code
+        await s.pod_complete("v1", "s1", {"delivery_otp": "000000"})
+
+
+async def test_pod_expired_and_unavailable_are_explicit():
+    c = _conn()
+    s = _svc(c)
+    past = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=1)).isoformat()
+    c.execute("UPDATE stops SET pod_otp_expires_at = ? WHERE id = 's1'", (past,))
+    c.commit()
+    with pytest.raises(DeliveryCodeExpiredError) as expired:
+        await s.pod_complete("v1", "s1", {"delivery_otp": POD})
+    assert (expired.value.code, expired.value.status_code) == ("DELIVERY_CODE_EXPIRED", 410)
+    row = c.execute(
+        "SELECT pod_otp, pod_otp_expires_at, pod_attempts FROM stops WHERE id = 's1'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_otp_expires_at"] == past
+    assert row["pod_attempts"] == 0
+
+    # An expired tombstone still reports expired; a truly missing lifecycle
+    # (legacy/race) is the unavailable case.
+    c.execute("UPDATE stops SET pod_otp_expires_at = NULL WHERE id = 's1'")
+    c.commit()
+    with pytest.raises(DeliveryCodeUnavailableError) as unavailable:
+        await s.pod_complete("v1", "s1", {"delivery_otp": POD})
+    assert (unavailable.value.code, unavailable.value.status_code) == (
+        "DELIVERY_CODE_UNAVAILABLE", 410)
+
+
+async def test_completed_pod_replay_needs_no_code():
+    c = _conn()
+    s = _svc(c)
+    first = await s.pod_complete("v1", "s1", {"delivery_otp": POD})
+    assert first["status"] == "done"
+    replay = await s.pod_complete("v1", "s1", {"delivery_otp": "wrong"})
+    assert replay["replay"] is True and replay["status"] == "done"
+    row = c.execute("SELECT pod_attempts FROM stops WHERE id = 's1'").fetchone()
+    assert row["pod_attempts"] in (None, 0)
+
+
+async def test_failed_stop_clears_delivery_code():
+    c = _conn()
+    await _svc(c).fail_stop("v1", "s1", "DOOR_LOCKED", "nobody home")
+    row = c.execute(
+        "SELECT pod_otp, pod_otp_expires_at, pod_attempts FROM stops WHERE id = 's1'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_otp_expires_at"] is None
+    assert row["pod_attempts"] == 0
+
+
 async def test_pod_gps_drift_flagged_not_blocked():
     c = _conn()
-    out = await _svc(c).pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY),
+    out = await _svc(c).pod_complete("v1", "s1", {"delivery_otp": POD,
                                             "lat": 13.5, "lng": 78.5})  # ~100km away
     assert out["status"] == "done"  # completes despite drift
     assert out["triple"]["pod"]["gps"]["flagged"] is True
@@ -302,7 +399,7 @@ async def test_earnings_totals_and_flagged_hold():
     c = _conn()
     s = _svc(c)
     await s.triple_commit("v1", "s1", _triple(cash=100, upi=50))
-    await s.pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY), "lat": 13.5, "lng": 78.5})
+    await s.pod_complete("v1", "s1", {"delivery_otp": POD, "lat": 13.5, "lng": 78.5})
     await s.triple_commit("v1", "s2", _triple(fulls_given=1, empties_back=0, cash=0, upi=200))
     out = await s.earnings("v1", DAY)
     assert (out["cash_total"], out["upi_total"], out["stops_done"]) == (100, 250, 2)
@@ -435,8 +532,6 @@ def _return(c, rid="ret1", qty=2, status="requested"):
 
 
 def test_return_pickup_ledger_and_isolation():
-    from app.repositories.ledger_repo import LedgerRepo
-
     c = _conn()
     _session(c, "v1", "vendor", "tok-vendor")
     _session(c, "v2", "vendor", "tok-v2")
@@ -528,7 +623,7 @@ def test_router_triple_pod_me_validation():
     assert client.post("/v1/vendor/stops/s1/pod", json={"delivery_otp": "000000"},
                        headers=h).status_code == 404
     ok = client.post("/v1/vendor/stops/s1/pod",
-                     json={"delivery_otp": pod_otp("o1", DAY), "seal_ok": True}, headers=h)
+                     json={"delivery_otp": POD, "seal_ok": True}, headers=h)
     assert ok.status_code == 200 and ok.json()["triple"]["pod"]["seal_ok"] is True
 
 
@@ -545,6 +640,72 @@ async def test_today_route_carries_paid_sum():
     assert s2["paid_sum"] == 0  # no payments yet
     s4 = next(s for s in out["stops"] if s["id"] == "s4")
     assert s4["paid_sum"] == 0  # return stop, no order
+
+
+async def test_today_route_maps_held_and_paid_per_customer_and_order():
+    from app.repositories.ledger_repo import LedgerRepo
+
+    c = _conn()
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO users(id, phone, role, created_at) VALUES ('u2', '+915555555555', 'user', ?)",
+        (now,),
+    )
+    c.execute("UPDATE stops SET customer_id = 'u2' WHERE id = 's2'")
+    c.commit()
+    ledger = LedgerRepo(AsyncSqliteConn(c))
+    await ledger.apply_event("u1", d_held=4, ref="seed:u1", actor="t", reason="t")
+    await ledger.apply_event("u2", d_held=1, ref="seed:u2", actor="t", reason="t")
+    await _svc(c).cash_post("v1", "s1", 1000)  # o1 partial: 1000 of 20600
+
+    out = await _svc(c).today_route("v1", DAY)
+    by_id = {s["id"]: s for s in out["stops"]}
+    assert by_id["s1"]["hold_blocked"] is True and by_id["s1"]["paid_sum"] == 1000
+    assert by_id["s2"]["hold_blocked"] is False and by_id["s2"]["paid_sum"] == 0
+    assert by_id["s3"]["hold_blocked"] is True and by_id["s3"]["paid_sum"] == 0
+
+
+async def test_today_route_query_count_independent_of_stop_count():
+    from app.core.observability import reset_metrics, start_metrics
+
+    async def count(c):
+        metrics, token = start_metrics()
+        try:
+            await _svc(c).today_route("v1", DAY)
+        finally:
+            reset_metrics(token)
+        return metrics.db_queries, metrics.db_roundtrips
+
+    one = _conn()
+    one.execute("DELETE FROM stops WHERE id != 's1'")
+    one.commit()
+    many = _conn()
+    _add_route_stops(many, 36)  # 4 seeded + 36 = 40
+
+    # Warm the per-isolate schema cache: the 2 probes are paid once per
+    # isolate, not per request, so steady state is what this test measures.
+    await _svc(one).today_route("v1", DAY)
+    await _svc(many).today_route("v1", DAY)
+
+    q1 = await count(one)
+    q40 = await count(many)
+    assert q1 == q40
+    assert q1[0] == 4  # stops + ledger + paid + route (schema probes cached)
+
+
+async def test_held_for_customers_chunks_and_dedupes():
+    from app.repositories.ledger_repo import LedgerRepo
+
+    c = _conn()
+    ids = [f"hc{i}" for i in range(95)]
+    c.executemany(
+        "INSERT INTO ledger(customer_id, held) VALUES (?, ?)",
+        [(cid, i % 5) for i, cid in enumerate(ids)],
+    )
+    c.commit()
+    got = await LedgerRepo(AsyncSqliteConn(c)).held_for_customers(ids + ["hc0", ""])
+    assert len(got) == 95
+    assert got["hc0"] == 0 and got["hc94"] == 4
 
 
 async def test_get_stop_carries_paid_sum():

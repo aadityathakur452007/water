@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand adaptive-icon foreground: white water drop on teal.
+     108dp canvas; drop spans x 31..77, y 28..84, fully inside the
+     centered 66dp adaptive safe zone (all points <= 30 from 54,54). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 C47,40 31,50 31,61 A23,23 0 1,0 77,61 C77,50 61,40 54,28 Z" />
+    <path
+        android:fillColor="#0D9488"
+        android:pathData="M54,47 C50,52.5 44,56.5 44,61.5 A10,10 0 1,0 64,61.5 C64,56.5 58,52.5 54,47 Z" />
+</vector>

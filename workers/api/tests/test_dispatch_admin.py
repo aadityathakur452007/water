@@ -25,7 +25,10 @@ from app.services.dispatch_service import (  # noqa: E402
     reassign_order,
 )
 
-MIGRATIONS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql", "007_ops.sql"]
+MIGRATIONS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
+              "007_ops.sql", "010_config_audit.sql", "019_rate_counters.sql",
+              "022_vendor_leaves_and_sub_cancel.sql",
+              "028_p0_money_monthly.sql", "029_p0_correctness.sql"]
 
 
 def _conn():

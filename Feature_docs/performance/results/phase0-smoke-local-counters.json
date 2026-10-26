@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "label": "local-counters",
+  "profile": "smoke",
+  "base_url": "http://127.0.0.1:8788",
+  "started_at": "2026-10-25T09:19:12Z",
+  "finished_at": "2026-10-25T09:19:12Z",
+  "duration_s": 0.062,
+  "target_duration_s": 0.0,
+  "warmup_s": 0.0,
+  "target_rps": 1.0,
+  "concurrency": 1,
+  "requests": 7,
+  "achieved_rps": 113.286,
+  "status_counts": {
+    "200": 7
+  },
+  "error_count": 0,
+  "error_rate_pct": 0.0,
+  "5xx_count": 0,
+  "5xx_pct": 0.0,
+  "network_error_count": 0,
+  "retry_count": 0,
+  "p50_ms": 8.33,
+  "p90_ms": 15.73,
+  "p95_ms": 15.73,
+  "p99_ms": 15.73,
+  "max_ms": 15.73,
+  "schedule_resets": 0,
+  "result": "pass",
+  "result_reason": null,
+  "aborted": false,
+  "abort_reason": null,
+  "thresholds": {
+    "max_5xx_pct": 2.0,
+    "max_p99_ms": 5000.0
+  },
+  "routes": {
+    "health": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 15.73,
+      "p90_ms": 15.73,
+      "p95_ms": 15.73,
+      "p99_ms": 15.73,
+      "max_ms": 15.73
+    },
+    "catalog": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 4.17,
+      "p90_ms": 4.17,
+      "p95_ms": 4.17,
+      "p99_ms": 4.17,
+      "max_ms": 4.17
+    },
+    "me": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 8.33,
+      "p90_ms": 8.33,
+      "p95_ms": 8.33,
+      "p99_ms": 8.33,
+      "max_ms": 8.33
+    },
+    "orders": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 5.9,
+      "p90_ms": 5.9,
+      "p95_ms": 5.9,
+      "p99_ms": 5.9,
+      "max_ms": 5.9
+    },
+    "order_detail": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 5.1,
+      "p90_ms": 5.1,
+      "p95_ms": 5.1,
+      "p99_ms": 5.1,
+      "max_ms": 5.1
+    },
+    "dues": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 9.27,
+      "p90_ms": 9.27,
+      "p95_ms": 9.27,
+      "p99_ms": 9.27,
+      "max_ms": 9.27
+    },
+    "vendor_route": {
+      "count": 1,
+      "status_counts": {
+        "200": 1
+      },
+      "5xx_count": 0,
+      "error_count": 0,
+      "retry_count": 0,
+      "p50_ms": 13.17,
+      "p90_ms": 13.17,
+      "p95_ms": 13.17,
+      "p99_ms": 13.17,
+      "max_ms": 13.17
+    }
+  },
+  "notes": []
+}

@@ -1,9 +1,7 @@
-// 011-grocery-verify — runtime proof the grocery lift is actually rendered
-// (shapes + motion, not just source): greeting header, schedule cards,
-// wallet strip, slim 2-col grid with corner add buttons, staggered Animate
-// wrappers, and the tap-card → buy-box path with its lifted shape.
-// MockClient-free: home + buy-box touch no API. No backend.
-// 014: pill search killed (2 SKUs); schedule + wallet replace it.
+// Runtime proof the storefront renders the lifted shapes + motion:
+// greeting header, schedule cards, wallet strip, 2-column product grid,
+// staggered Animate wrappers, and tap-card → buy-box.
+// Rates are an explicit server snapshot; Home touches no API in this test.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -11,6 +9,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shodasha_app/core/theme.dart';
 import 'package:shodasha_app/features/booking/booking_controller.dart';
 import 'package:shodasha_app/features/booking/home_screen.dart';
+
+const _rates = CatalogRates(
+  refillPaise: 2800,
+  containerPaise: 3000,
+  depositPaise: 15000,
+  capPaise: 300,
+);
 
 Future<void> _pumpHome(WidgetTester tester, BookingController c) async {
   await tester.pumpWidget(
@@ -20,36 +25,32 @@ Future<void> _pumpHome(WidgetTester tester, BookingController c) async {
     ),
   );
   await tester.pump();
-  // Flush the card-stagger clock (same pattern as wave1_ux_test).
+  // Flush the card-stagger clock.
   await tester.pump(const Duration(milliseconds: 500));
   await tester.pump();
 }
 
 void main() {
-  testWidgets('home renders the lifted grocery shapes', (tester) async {
-    final c = BookingController();
+  testWidgets('home renders the lifted storefront shapes', (tester) async {
+    final c = BookingController(initialRates: _rates);
     await _pumpHome(tester, c);
 
-    // Greeting header rhythm (overline slot + bold title).
-    expect(find.text('Paani book karein'), findsOneWidget);
-    // 014 schedule cards + wallet strip (search killed).
-    expect(find.text('Schedule chunein'), findsOneWidget);
-    expect(find.text('Ek Baar'), findsOneWidget);
-    expect(find.text('Roz ka Plan'), findsOneWidget);
-    // Section-header row (026 grammar: caps eyebrow).
-    expect(find.text('SAB SAMAAN'), findsOneWidget);
-    // Slim 2-col grid: photo cards with name + price + corner add.
+    expect(find.text('Book water'), findsOneWidget);
+    expect(find.text('Choose your schedule'), findsOneWidget);
+    expect(find.text('One-time'), findsOneWidget);
+    expect(find.text('Daily plan'), findsOneWidget);
+    expect(find.text('ALL PRODUCTS'), findsOneWidget);
+
     expect(find.byType(GridView), findsOneWidget);
     expect(find.text('Refill (20L)'), findsOneWidget);
     expect(find.text('Jar + Container (20L)'), findsOneWidget);
     expect(find.byIcon(Icons.add), findsNWidgets(2));
-    // Staggered entrances are wired (Animate wrappers present).
     expect(find.byType(Animate), findsWidgets);
     c.dispose();
   });
 
-  testWidgets('tap card opens the lifted buy-box', (tester) async {
-    final c = BookingController();
+  testWidgets('tap card opens the buy-box', (tester) async {
+    final c = BookingController(initialRates: _rates);
     await _pumpHome(tester, c);
 
     final card = find.text('Refill (20L)');
@@ -58,10 +59,20 @@ void main() {
     await tester.tap(card);
     await tester.pumpAndSettle();
 
-    // Buy-box shape: stepper row, BUY primary, honest deposit facts.
-    expect(find.text('Kitne jar?'), findsOneWidget);
+    expect(find.text('How many jars?'), findsOneWidget);
     expect(find.textContaining('BUY'), findsOneWidget);
     expect(find.textContaining('safety deposit'), findsWidgets);
+    c.dispose();
+  });
+
+  testWidgets('BOOK NOW is disabled until a jar is chosen', (tester) async {
+    final c = BookingController(initialRates: _rates);
+    await _pumpHome(tester, c);
+
+    final button = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'BOOK NOW • Choose at least 1 jar'),
+    );
+    expect(button.onPressed, isNull);
     c.dispose();
   });
 }

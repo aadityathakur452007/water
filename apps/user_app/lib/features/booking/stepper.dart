@@ -1,22 +1,21 @@
-// F3 — Custom stepper (minus/value/plus). 48dp targets, radius 8, flat.
-// Motion: opacity/transform only, press scale 0.97, 150ms (emil-design-eng).
+// F3 — Custom stepper (minus/value/plus). 48dp targets, flat, teal.
+// Motion: opacity/transform only, press scale 0.97, 150ms.
 
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 
-/// Shodasha tokens (flat, no shadows/gradients) — aliases of
-/// [ShodashaTheme] (Wave 1 honesty: local #0369A1 drifted, locked is #0284C7).
-class ShodashaColors {
+/// Shodasha token aliases used by the booking widgets (no raw colours).
+abstract final class ShodashaColors {
   static const Color bg = ShodashaTheme.bg;
   static const Color ink = ShodashaTheme.ink;
   static const Color muted = ShodashaTheme.muted;
-  static const Color accent = ShodashaTheme.blue;
-  static const Color accentSoft = ShodashaTheme.blueTint;
+  static const Color accent = ShodashaTheme.teal;
+  static const Color accentSoft = ShodashaTheme.tealTint;
   static const Color border = ShodashaTheme.border;
 }
 
-const double kShodashaRadius = 8;
+const double kShodashaRadius = ShodashaTheme.radiusSm;
 
 /// Press wrapper: scale 0.97 on pointer-down (transform only, 150ms).
 class PressScale extends StatefulWidget {
@@ -37,7 +36,6 @@ class _PressScaleState extends State<PressScale> {
 
   @override
   Widget build(BuildContext context) {
-    // a11y-10: instant press state when the OS asks for reduced motion.
     final body = MediaQuery.disableAnimationsOf(context)
         ? widget.child
         : AnimatedContainer(
@@ -89,25 +87,28 @@ class QtyStepper extends StatelessWidget {
         children: [
           _StepButton(
             icon: Icons.remove,
-            label: '$semanticsLabel kam karein',
+            label: '$semanticsLabel decrease',
             enabled: value > min,
             onTap: value > min ? () => _step(-1) : null,
           ),
           Container(
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            constraints: const BoxConstraints(
+              minWidth: ShodashaTheme.minTarget,
+              minHeight: ShodashaTheme.minTarget,
+            ),
             alignment: Alignment.center,
             child: Text(
               '$value',
               style: const TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
                 color: ShodashaColors.ink,
               ),
             ),
           ),
           _StepButton(
             icon: Icons.add,
-            label: '$semanticsLabel badhayein',
+            label: '$semanticsLabel increase',
             enabled: value < max,
             onTap: value < max ? () => _step(1) : null,
           ),
@@ -133,8 +134,8 @@ class _StepButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget box = Container(
-      width: 48,
-      height: 48,
+      width: ShodashaTheme.minTarget,
+      height: ShodashaTheme.minTarget,
       decoration: BoxDecoration(
         color: enabled ? ShodashaColors.accentSoft : ShodashaColors.bg,
         border: Border.all(color: ShodashaColors.border),
@@ -150,17 +151,7 @@ class _StepButton extends StatelessWidget {
       enabled: enabled,
       label: label,
       child: enabled
-          ? PressScale(
-              onTap: onTap,
-              // a11y-10: no fade when the OS asks for reduced motion.
-              child: MediaQuery.disableAnimationsOf(context)
-                  ? Opacity(opacity: enabled ? 1 : 0.5, child: box)
-                  : AnimatedOpacity(
-                      duration: const Duration(milliseconds: 150),
-                      opacity: enabled ? 1 : 0.5,
-                      child: box,
-                    ),
-            )
+          ? PressScale(onTap: onTap, child: box)
           : Opacity(opacity: 0.5, child: box),
     );
   }

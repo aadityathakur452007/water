@@ -1,0 +1,257 @@
+// F5 — Bottom-nav shell: Home / Orders / Support / Profile (approved app map).
+//
+// Home hosts the F3 booking repeat machine; Orders hosts F4's list/detail/
+// tracking/bill; Support (new) = WhatsApp + FAQ + complaints; Profile (new)
+// = identity + ledger + returns + language + logout. No sheet/tab may look
+// logged-out mid-session (States.md auth states): guest + un-authed tab
+// actions route through [AuthGate] via the commit-gate callback.
+
+import 'package:flutter/material.dart';
+
+import '../../core/api_client.dart';
+import '../addresses/address_screen.dart';
+import '../auth/first_run_screen.dart';
+import '../booking/booking_controller.dart';
+import '../booking/booking_sheet.dart';
+import '../booking/home_screen.dart';
+import '../booking/quote_confirm.dart';
+import '../orders/orders_controller.dart';
+import '../orders/orders_screen.dart';
+import '../profile/profile_screen.dart';
+import '../support/support_screen.dart';
+import '../../core/theme.dart';
+
+/// Tab indices are stable identifiers (deep links + tests).
+enum UserTab { home, orders, support, profile }
+
+class UserShell extends StatefulWidget {
+  const UserShell({
+    super.key,
+    required this.bookingController,
+    required this.ordersController,
+    required this.isAuthenticated,
+    this.profileController,
+    this.api,
+    this.addresses,
+    this.razorpayKeyId = '',
+    this.onOpenAddresses,
+    this.onOpenSubscriptions,
+    this.onLogout,
+  });
+
+  final BookingController bookingController;
+  final OrdersController ordersController;
+  final ProfileController? profileController;
+
+  /// Live auth check for tab-level gates (profile requires login content).
+  final bool Function() isAuthenticated;
+
+  /// Shared API + address source for home/checkout (null = guest stub).
+  final ApiClient? api;
+  final AddressController? addresses;
+
+  /// Publishable Razorpay test key (--dart-define RAZORPAY_KEY_ID).
+  final String razorpayKeyId;
+
+  /// Profile → Addresses / Subscriptions routes + logout (main.dart wiring).
+  final VoidCallback? onOpenAddresses;
+  final VoidCallback? onOpenSubscriptions;
+  final VoidCallback? onLogout;
+
+  @override
+  State<UserShell> createState() => _UserShellState();
+}
+
+class _UserShellState extends State<UserShell> {
+  UserTab _tab = UserTab.home;
+  late final Set<UserTab> _visitedTabs = {_tab};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.addresses?.addListener(_onAddresses);
+    widget.bookingController.addListener(_onBooking);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _offerFirstRun();
+      _refreshLedger();
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.addresses?.removeListener(_onAddresses);
+    widget.bookingController.removeListener(_onBooking);
+    super.dispose();
+  }
+
+  void _onBooking() {
+    if (mounted) setState(() {});
+  }
+
+  /// 014: live wallet/dues into booking so COD gate + deposit display match
+  /// the server. Best-effort — never blocks home on failure.
+  Future<void> _refreshLedger() async {
+    final api = widget.api;
+    if (api == null || !widget.isAuthenticated()) return;
+    try {
+      final led = await api.ledgerMe();
+      widget.bookingController.applyLedger(
+        dues: (led['dues'] as num?)?.toInt() ?? 0,
+        held: (led['held'] as num?)?.toInt() ?? 0,
+        depositPaid: (led['wallet_held'] as num?)?.toInt() ??
+            (led['deposit_paid'] as num?)?.toInt() ??
+            0,
+      );
+    } catch (_) {
+      // Offline/guest — controller keeps clean-user defaults.
+    }
+  }
+
+  void _onAddresses() {
+    if (mounted) setState(() {});
+  }
+
+  /// First-run: zero addresses → permission + address-pin sheet (once).
+  Future<void> _offerFirstRun() async {
+    final addresses = widget.addresses;
+    if (addresses == null || !mounted) return;
+    if (addresses.status == AddrStatus.initial) {
+      await addresses.load();
+      if (!mounted) return;
+    }
+    await maybeOfferFirstRun(
+      context,
+      addressCount: addresses.items.length,
+      onAddAddress: () => widget.onOpenAddresses?.call(),
+    );
+  }
+
+  /// Delivery address: selected (when still saved) → default → first.
+  AddressEntry? get _defaultAddress => widget.addresses?.resolve();
+
+  /// One-tap repeat: refill the booking lines from a past order, jump
+  /// home, and open checkout (known mix only — card hides otherwise).
+  Future<void> _reorder(Order order) async {
+    final c = widget.bookingController;
+    c.setRefill(order.refillQty);
+    c.setContainer(order.containerQty);
+    if (!mounted) return;
+    setState(() {
+      _tab = UserTab.home;
+      _visitedTabs.add(UserTab.home);
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+    await _openCheckout();
+  }
+
+  /// BOOK NOW / detail BUY → checkout → confirmation → tab jump.
+  Future<void> _openCheckout() async {
+    final api = widget.api;
+    if (api == null) return;
+    final c = widget.bookingController;
+    if (!c.canBook || c.isTanker) return;
+    await showCheckoutSheet(
+      context,
+      controller: c,
+      api: api,
+      razorpayKeyId: widget.razorpayKeyId,
+      address: _defaultAddress,
+      onChangeAddress: () {
+        Navigator.of(context).pop();
+        widget.onOpenAddresses?.call();
+      },
+      onDone: (result) {
+        Navigator.of(context).pop();
+        showOrderConfirm(
+          context,
+          result: result,
+          onTrackOrder: () {
+            if (result.isSubscription) {
+              widget.onOpenSubscriptions?.call();
+            } else {
+              setState(() {
+                _tab = UserTab.orders;
+                _visitedTabs.add(UserTab.orders);
+              });
+            }
+          },
+          onOpenSubscriptions: () =>
+              widget.onOpenSubscriptions?.call(),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = <UserTab, Widget>{
+      UserTab.home: HomeScreen(
+        controller: widget.bookingController,
+        addresses: widget.addresses,
+        onOpenAddresses: widget.onOpenAddresses,
+        onBuy: _openCheckout,
+      ),
+      UserTab.orders: _visitedTabs.contains(UserTab.orders)
+          ? OrdersScreen(
+              controller: widget.ordersController,
+              api: widget.api,
+              isAuthenticated: widget.isAuthenticated,
+              onReorder: _reorder,
+            )
+          : const SizedBox.shrink(),
+      UserTab.support: _visitedTabs.contains(UserTab.support)
+          ? SupportScreen(api: widget.api)
+          : const SizedBox.shrink(),
+      UserTab.profile: _visitedTabs.contains(UserTab.profile)
+          ? ProfileScreen(
+              isAuthenticated: widget.isAuthenticated(),
+              controller: widget.profileController,
+              api: widget.api,
+              onOpenAddresses: widget.onOpenAddresses,
+              onOpenSubscriptions: widget.onOpenSubscriptions,
+              onLogout: widget.onLogout,
+            )
+          : const SizedBox.shrink(),
+    };
+    return Scaffold(
+      backgroundColor: ShodashaTheme.bg,
+      body: IndexedStack(
+        index: _tab.index,
+        children: UserTab.values.map((t) => pages[t]!).toList(),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab.index,
+        onDestinationSelected: (i) {
+          final next = UserTab.values[i];
+          setState(() {
+            _tab = next;
+            _visitedTabs.add(next);
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.water_drop_outlined),
+            selectedIcon: Icon(Icons.water_drop),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Order',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.support_agent_outlined),
+            selectedIcon: Icon(Icons.support_agent),
+            label: 'Madad',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}

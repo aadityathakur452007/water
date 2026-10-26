@@ -1,24 +1,40 @@
-// F3 — Booking rules unit tests (pure controller math + gates).
-// Run: flutter test test/booking_rules_test.dart
+// Booking rules unit tests (pure controller math + gates).
+// Rates are injected explicitly — the app never falls back to local prices.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shodasha_app/features/booking/booking_controller.dart';
 
-BookingController _c() => BookingController();
+const _rates = CatalogRates(
+  refillPaise: 2800,
+  containerPaise: 3000,
+  depositPaise: 15000,
+  capPaise: 300,
+);
+
+BookingController _c() => BookingController(initialRates: _rates);
 
 void main() {
-  group('quote math (paise integer)', () {
-    // 014: refill never deposits.
+  group('quote math (paise integer, server rates)', () {
     test('2 refill + 1 empty: 5600 water + 0 deposit', () {
       expect(
-        computeQuoteTotalPaise(refill: 2, container: 0, empties: 1),
+        computeQuoteTotalPaise(
+          refill: 2,
+          container: 0,
+          empties: 1,
+          rates: _rates,
+        ),
         2 * 2800,
       );
     });
 
     test('1 container first time: 3000 + 15000 deposit', () {
       expect(
-        computeQuoteTotalPaise(refill: 0, container: 1, empties: 0),
+        computeQuoteTotalPaise(
+          refill: 0,
+          container: 1,
+          empties: 0,
+          rates: _rates,
+        ),
         3000 + 15000,
       );
     });
@@ -26,14 +42,19 @@ void main() {
     test('deposit waived when wallet holds it', () {
       expect(
         computeQuoteTotalPaise(
-            refill: 0, container: 1, empties: 0, depositPaidPaise: 15000),
+          refill: 0,
+          container: 1,
+          empties: 0,
+          rates: _rates,
+          depositPaidPaise: 15000,
+        ),
         3000,
       );
     });
 
     test('container SKU bills at 3000', () {
       expect(
-        computeWaterBillPaise(refill: 0, container: 2),
+        computeWaterBillPaise(refill: 0, container: 2, rates: _rates),
         6000,
       );
     });
@@ -44,6 +65,7 @@ void main() {
           refill: 1,
           container: 0,
           empties: 1,
+          rates: _rates,
           capsMissing: 2,
         ),
         2800 + 600,
@@ -52,7 +74,11 @@ void main() {
 
     test('full empties → zero deposit', () {
       expect(
-        computeDepositDuePaise(container: 3, empties: 3),
+        computeDepositDuePaise(
+          container: 3,
+          empties: 3,
+          rates: _rates,
+        ),
         0,
       );
     });
@@ -66,6 +92,7 @@ void main() {
     test('N>=1 → BOOK NOW enabled', () {
       final c = _c()..setRefill(2);
       expect(c.canBook, isTrue);
+      c.dispose();
     });
 
     test('E clamps to N live', () {
@@ -73,22 +100,26 @@ void main() {
         ..setRefill(2)
         ..setEmpties(9);
       expect(c.emptiesQty, 2);
+      c.dispose();
     });
 
     test('steppers clamp 0–10', () {
       final c = _c()..setRefill(99);
       expect(c.refillQty, 10);
+      c.dispose();
     });
 
     test('N 6–10 → confirm dialog flag', () {
       final c = _c()..setRefill(6);
       expect(c.needsBulkConfirm, isTrue);
       expect(c.isTanker, isFalse);
+      c.dispose();
     });
 
     test('N 5 → no dialog', () {
       final c = _c()..setRefill(5);
       expect(c.needsBulkConfirm, isFalse);
+      c.dispose();
     });
 
     test('N>10 → tanker, never an order', () {
@@ -97,13 +128,12 @@ void main() {
         ..setContainer(5);
       expect(c.totalJars, 15);
       expect(c.isTanker, isTrue);
+      c.dispose();
     });
   });
 
   group('COD gates (tunables)', () {
     test('quote > Rs 2000 → COD off', () {
-      // 40 refill jars (Rs 1,120) alone stays under cap — callers only reach
-      // that via prices; pass an intentionally over-cap total (contract).
       expect(
         isCodAllowed(
           quoteTotalPaise: 200001,
@@ -176,11 +206,11 @@ void main() {
       );
       expect(did, isTrue);
       expect(c.frozenHash, c.currentHash);
+      c.dispose();
     });
   });
 
   group('windows + idempotency', () {
-    // 014: all days water — Sundays are serviceable now.
     test('Saturday → Sunday (no Sunday skip)', () {
       final next = nextServiceableDay(DateTime(2026, 10, 3));
       expect(next, DateTime(2026, 10, 4));
@@ -199,12 +229,15 @@ void main() {
       final first = c.ensureIdempotencyKey();
       expect(first.isNotEmpty, isTrue);
       expect(c.ensureIdempotencyKey(), first);
+      c.dispose();
     });
 
     test('two sheets → two keys', () {
       final a = _c()..ensureIdempotencyKey();
       final b = _c()..ensureIdempotencyKey();
       expect(a.idempotencyKey, isNot(b.idempotencyKey));
+      a.dispose();
+      b.dispose();
     });
 
     test('refreshIdempotencyKey forces a brand new key', () {
@@ -213,6 +246,7 @@ void main() {
       final second = c.refreshIdempotencyKey();
       expect(second, isNot(first));
       expect(c.idempotencyKey, second);
+      c.dispose();
     });
 
     test('resetBookingSession clears key and resets quantities', () {
@@ -228,6 +262,53 @@ void main() {
       expect(c.totalJars, 0);
       expect(c.refillQty, 0);
       expect(c.containerQty, 0);
+      c.dispose();
+    });
+  });
+
+  group('payment mode', () {
+    test('switching mode refreshes the idempotency key', () {
+      final c = _c();
+      final first = c.ensureIdempotencyKey();
+      c.paymentMode = PaymentMode.cod;
+      expect(c.idempotencyKey, isNot(first));
+      c.dispose();
+    });
+
+    test('COD requires a server quote total', () {
+      final c = _c();
+      expect(c.codAllowed, isFalse);
+      c.dispose();
+    });
+  });
+
+  group('server quote', () {
+    test('applyQuote stores server money verbatim', () {
+      final c = _c();
+      c.applyQuote({
+        'water_bill': 5600,
+        'deposit_due': 0,
+        'cap_note': '',
+        'total': 5600,
+        'quote_hash': 'q1',
+        'expires_at': '2099-01-01T00:00:00Z',
+        'rate_version': 'v3',
+      });
+      expect(c.serverTotalPaise, 5600);
+      expect(c.serverWaterPaise, 5600);
+      expect(c.serverQuoteHash, 'q1');
+      expect(c.codAllowed, isTrue);
+      c.dispose();
+    });
+
+    test('incomplete quote throws ServerDataException (no local total)', () {
+      final c = _c();
+      expect(
+        () => c.applyQuote({'total': 100}),
+        throwsA(isA<ServerDataException>()),
+      );
+      expect(c.serverTotalPaise, isNull);
+      c.dispose();
     });
   });
 }

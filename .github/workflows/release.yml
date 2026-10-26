@@ -1,7 +1,7 @@
 name: release
 
-# Every push to main: version -> matrix build (user + vendor) -> ONE GitHub
-# Release holding BOTH APKs under a single shared tag vX.Y.Z.
+# Every push to main: version -> matrix build (user + vendor + donor) -> ONE
+# GitHub Release holding ALL THREE APKs under a single shared tag vX.Y.Z.
 # Tag pushes created here do NOT re-trigger this workflow
 # (trigger filter is branches: main, tags never match it),
 # and the release step writes via the API without pushing, so no loop.
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   version:
-    name: compute next tag (once, shared by both apps)
+    name: compute next tag (once, shared by all apps)
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -35,9 +35,9 @@ jobs:
           fetch-depth: 0
 
       # Next patch = latest vX.Y.Z tag + 1. No tags yet -> start at v1.0.1
-      # (both pubspecs are 1.0.0+1). One tag for both APKs: a GitHub
-      # Release maps to exactly one tag, and the user+vendor pair from the
-      # same main push belongs together (same versionName, same changelog).
+      # (all three pubspecs are 1.0.0+1). One tag for all APKs: a GitHub
+      # Release maps to exactly one tag, and the user+vendor+donor set from
+      # the same main push belongs together (same versionName, same changelog).
       - name: Compute next version
         id: version
         run: |
@@ -56,9 +56,9 @@ jobs:
     needs: [version]
     runs-on: ubuntu-latest
     strategy:
-      # All-or-nothing: if either app fails, the sibling cancels and the
+      # All-or-nothing: if any leg fails, the other legs cancel and the
       # release job (needs: build success) never runs — users never get a
-      # half-release with only one APK under a shared tag.
+      # partial release under a shared tag.
       fail-fast: true
       matrix:
         include:
@@ -72,12 +72,20 @@ jobs:
             label: Shodasha Vendor (delivery)
             asset: shodasha-vendor
             defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
+          # Donor is the third side-by-side APK (spec 035, decision 1A).
+          # 2-ABI only (arm + arm64); the 40 MB gate runs after the build.
+          - app: donor
+            dir: apps/user_app_donor
+            label: Shodasha (customer parity)
+            asset: shodasha-donor
+            defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF
+            target_platform: --target-platform android-arm,android-arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       # AGP 9.0.1 documents JDK 17 (min + default, developer.android.com
-      # AGP 9.0 release notes). Both apps target JavaVersion.VERSION_17
+      # AGP 9.0 release notes). All three apps target JavaVersion.VERSION_17
       # (see android/app/build.gradle.kts), and the Gradle 9.1.0 /
       # SDK 36.0.0 / Flutter 3.44.9 pins mirror the local machine the APKs
       # were release-verified on. (The JDK only runs the build; phones run
@@ -112,20 +120,44 @@ jobs:
 
       # versionCode uses run_number: globally monotonic, so each package's
       # versionCode only ever increases (Android's per-package upgrade rule
-      # is satisfied). Distinct applicationIds (com.shodasha.shodasha_app
-      # vs com.shodasha.vendor_app) mean identical versionCodes never
-      # collide on-device — both apps install side-by-side. No pubspec
-      # commit (avoids a push-loop back into this workflow).
-      # Release config signs with debug keys for now
-      # (android/app/build.gradle.kts: signingConfig debug) so the APKs
-      # install directly on any phone. TODO: real keystore via GitHub
-      # Secrets (same key for both apps) before Play-store distribution.
-      # SHODASHA_API_BASE points the app at the production Worker (no
+      # is satisfied). Distinct applicationIds (com.shodasha.shodasha_app,
+      # com.shodasha.vendor_app, com.shodasha.shodasha_donor) mean identical
+      # versionCodes never collide on-device — all three install side-by-side.
+      # No pubspec commit (avoids a push-loop back into this workflow).
+      #
+      # RELEASE SIGNING: these APKs are DEBUG-SIGNED unless the owner
+      # provisions a real keystore. android/app/build.gradle.kts falls back to
+      # signingConfig debug when android/key.properties is absent, and this
+      # workflow does not inject owner keystore secrets. Production/release
+      # signing requires owner keystore secrets (store file, store password,
+      # key alias, key password) wired into a CI step first. Do not present a
+      # debug-signed artifact as a production build.
+      #
+      # SHODASHA_API_BASE points every app at the production Worker (no
       # hardcoded hosts in Dart); RAZORPAY_KEY_ID is the publishable test
       # key (public by design — the secret never leaves the worker).
+      # target_platform is empty for user/vendor (all ABIs) and pins donor to
+      # the approved 2-ABI arm + arm64 artifact.
       - name: Build release APK
         working-directory: ${{ matrix.dir }}
-        run: flutter build apk --release --build-name=${{ needs.version.outputs.build_name }} --build-number=${{ github.run_number }} ${{ matrix.defines }}
+        run: flutter build apk --release --build-name=${{ needs.version.outputs.build_name }} --build-number=${{ github.run_number }} ${{ matrix.defines }} ${{ matrix.target_platform }}
+
+      # Donor artifact budget (spec 035, decision 3A): 2-ABI APK must stay at
+      # or below 40,000,000 bytes. Fail with the measured size, and because
+      # fail-fast is true, no half-release is published.
+      - name: Donor APK size gate (40,000,000 bytes)
+        if: matrix.app == 'donor'
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -f "$APK" || { echo "donor APK missing"; exit 1; }
+          SIZE="$(stat -c%s "$APK")"
+          echo "Donor APK size: $SIZE bytes (limit 40,000,000)"
+          if [ "$SIZE" -gt 40000000 ]; then
+            echo "::error::Donor APK is $SIZE bytes; limit is 40,000,000 bytes."
+            exit 1
+          fi
 
       # Unique artifact names per leg: identical names would collide and
       # overwrite each other on download.
@@ -138,7 +170,7 @@ jobs:
           retention-days: 30
 
   release:
-    name: publish one Release with both APKs
+    name: publish one Release with all three APKs
     needs: [version, build]
     runs-on: ubuntu-latest
     steps:
@@ -147,7 +179,7 @@ jobs:
 
       # Each leg uploads a uniquely NAMED artifact holding the same inner
       # basename (app-release.apk), so download each into its own directory —
-      # merging both into one dir would let one overwrite the other.
+      # merging them into one dir would let one overwrite the others.
       - name: Download user APK
         uses: actions/download-artifact@v4
         with:
@@ -160,21 +192,32 @@ jobs:
           name: apk-vendor-${{ needs.version.outputs.tag }}
           path: dist/vendor
 
+      - name: Download donor APK
+        uses: actions/download-artifact@v4
+        with:
+          name: apk-donor-${{ needs.version.outputs.tag }}
+          path: dist/donor
+
       # Rename to role-first asset names BEFORE checksumming, so
       # SHA256SUMS.txt verifies exactly what users download. Fail loudly if
-      # a leg is missing instead of publishing a silent single-APK release.
+      # a leg is missing instead of publishing a silent partial release.
       - name: Stage assets
         run: |
           set -euo pipefail
           test -f dist/user/app-release.apk || { echo "user APK missing"; exit 1; }
           test -f dist/vendor/app-release.apk || { echo "vendor APK missing"; exit 1; }
+          test -f dist/donor/app-release.apk || { echo "donor APK missing"; exit 1; }
           mv dist/user/app-release.apk "dist/shodasha-user-${{ needs.version.outputs.tag }}.apk"
           mv dist/vendor/app-release.apk "dist/shodasha-vendor-${{ needs.version.outputs.tag }}.apk"
-          rm -rf dist/user dist/vendor
+          mv dist/donor/app-release.apk "dist/shodasha-donor-${{ needs.version.outputs.tag }}.apk"
+          rm -rf dist/user dist/vendor dist/donor
           (cd dist && sha256sum -- *.apk > SHA256SUMS.txt)
           cat dist/SHA256SUMS.txt
 
-      - name: Create GitHub Release with both APKs
+      # Signing note: this workflow publishes the build as produced. Unless
+      # owner keystore secrets are wired in, that is a debug-signed artifact,
+      # not a production-signed one — do not describe it as production.
+      - name: Create GitHub Release with all three APKs
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
@@ -187,8 +230,12 @@ jobs:
             |------|-----|---------------|
             | `shodasha-user-${{ needs.version.outputs.tag }}.apk` | Shodasha (customers — order water) | `com.shodasha.shodasha_app` |
             | `shodasha-vendor-${{ needs.version.outputs.tag }}.apk` | Shodasha Vendor (delivery staff — routes, stops, earnings) | `com.shodasha.vendor_app` |
-            Both apps install side-by-side. Verify with `sha256sum -c SHA256SUMS.txt`.
+            | `shodasha-donor-${{ needs.version.outputs.tag }}.apk` | Shodasha (customer parity — 2-ABI) | `com.shodasha.shodasha_donor` |
+            All three apps install side-by-side. Verify with `sha256sum -c SHA256SUMS.txt`.
+            Release signing requires the owner keystore secrets; without them
+            these APKs carry the Android debug certificate.
           files: |
             dist/shodasha-user-${{ needs.version.outputs.tag }}.apk
             dist/shodasha-vendor-${{ needs.version.outputs.tag }}.apk
+            dist/shodasha-donor-${{ needs.version.outputs.tag }}.apk
             dist/SHA256SUMS.txt

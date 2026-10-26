@@ -1,64 +1,116 @@
-// 005-home-ux — Home storefront (ecommerce, not a text list).
+// Home storefront (S3): address bar, schedule cards, server-priced product
+// grid, live estimate strip, and the money CTA.
 //
-// Address bar (default address + change) → app name + search → category
-// chips → full-width photo product cards (image left, name/price/stepper
-// right, tap = detail buy-box) → sticky book bar with live total.
-// ui-checklist Search/Card/Searchbar: top search with placeholder +
-// result count, one card style, tappable cards open the detail sheet.
-// Locked tokens only: white/black/blue, r8, 48px targets, no emojis.
+// Money law: prices come from GET /catalog through [BookingController.rates].
+// There are no fallback rates. While prices load we show an honest loading
+// state; on failure we show the error + retry. The BOOK NOW amount is the
+// server-priced estimate, never a client-invented number.
+//
+// Standalone by design: the shell passes its own controller/api/address
+// source and callbacks; [HomeScreen] owns no auth or navigation policy.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../core/api_client.dart' show kSupportPhone;
+
+import '../../core/api_client.dart';
+import '../../core/payment_config.dart';
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
+import '../addresses/first_run_sheet.dart';
 import 'booking_controller.dart';
+import 'booking_sheet.dart';
 import 'product_catalog.dart';
 import 'product_detail_sheet.dart';
+import 'quote_confirm.dart';
 import 'stepper.dart';
 
-/// Home storefront. Owns no auth: OTP is enforced at booking commit
-/// (contract flow 1) by [onCommitRequiresAuth]; [onBuy] opens checkout.
+/// Home tab. Owns no auth: [ensureAuth] gates money actions at BUY/BOOK NOW.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.controller,
-    this.onCommitRequiresAuth,
+    this.api,
     this.addresses,
+    this.ensureAuth,
     this.onOpenAddresses,
     this.onBuy,
+    this.onTrackOrder,
+    this.onOpenSubscriptions,
+    this.razorpayKeyId = kRazorpayKeyId,
   });
 
   final BookingController controller;
 
-  /// Returns true when the user is authenticated and may proceed.
-  final Future<bool> Function()? onCommitRequiresAuth;
+  /// Live API. When present (and the controller has no catalog yet), Home
+  /// attaches [HttpCatalogApi] and fetches the server rate snapshot.
+  final ApiClient? api;
 
-  /// Address source for the delivery bar (null = bar hidden until wired).
+  /// Delivery address source (null = the address bar asks the user to add).
   final AddressController? addresses;
 
-  /// Opens the address list/picker (map pin flow).
+  /// Returns true when the user may proceed with a money action.
+  final Future<bool> Function()? ensureAuth;
+
+  /// Opens the address list/picker.
   final VoidCallback? onOpenAddresses;
 
-  /// Opens checkout for the controller's current lines.
+  /// Opens checkout for the current lines. When null and [api] is present,
+  /// Home opens the checkout sheet itself.
   final VoidCallback? onBuy;
+
+  final VoidCallback? onTrackOrder;
+  final VoidCallback? onOpenSubscriptions;
+  final String razorpayKeyId;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// One-shot first-run prompt guard (P2-2): checked once per Home mount.
+  bool _firstRunChecked = false;
+
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onChange);
     widget.addresses?.addListener(_onChange);
-    if (widget.addresses?.status == AddrStatus.initial) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final api = widget.api;
+      if (api != null) {
+        widget.controller.ensureCatalog(HttpCatalogApi(api));
+        if (!widget.controller.hasRates) {
+          widget.controller.refreshRates();
+        }
+      }
+      // Guests have no addresses to fetch — firing GET /addresses without a
+      // session would cache a 401 the next login has to clear. Load only
+      // with a token; the shell reloads after an in-session login.
+      if ((widget.api?.hasToken ?? false) &&
+          widget.addresses?.status == AddrStatus.initial) {
         widget.addresses?.load();
-      });
-    }
+      }
+      unawaited(_maybeOfferFirstRun());
+    });
+  }
+
+  /// Offers the one-time address prompt when an authenticated account has
+  /// zero saved addresses. Skips guests and re-checks after `load()` lands.
+  Future<void> _maybeOfferFirstRun() async {
+    if (_firstRunChecked || !mounted) return;
+    final api = widget.api;
+    final addrs = widget.addresses;
+    if (api == null || addrs == null || !api.hasToken) return;
+    if (addrs.status != AddrStatus.loaded || addrs.items.isNotEmpty) return;
+    _firstRunChecked = true;
+    await maybeOfferFirstRun(
+      context,
+      onAddAddress: () => widget.onOpenAddresses?.call(),
+    );
   }
 
   @override
@@ -69,38 +121,36 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    unawaited(_maybeOfferFirstRun());
   }
 
-  // Search killed per 014 approval (2 SKUs need no search/filter).
-  List<CatalogSku> get _visible => kCatalog;
-
-  /// Staggered card entrance — transform + opacity only; static render
-  /// when the OS asks for reduced motion.
-  Widget _entrance(Widget child, int index) {
-    if (MediaQuery.disableAnimationsOf(context)) return child;
-    return child
-        .animate(delay: Duration(milliseconds: 60 * index))
-        .fade(duration: 200.ms)
-        .slideY(begin: 0.15, end: 0, duration: 200.ms, curve: Curves.easeOut);
+  Future<bool> _gate() async {
+    final gate = widget.ensureAuth;
+    if (gate == null) return true;
+    return gate();
   }
 
   Future<void> _openDetail(CatalogSku sku) async {
-    final gate = widget.onCommitRequiresAuth;
+    final rates = widget.controller.rates;
+    if (rates == null) return;
     await showProductDetail(
       context,
       sku: sku,
       controller: widget.controller,
+      rates: rates,
       onBuy: () async {
-        if (gate != null && !await gate()) return;
-        widget.onBuy?.call();
+        if (!await _gate()) return;
+        if (!mounted) return;
+        _buy();
       },
     );
   }
 
   Future<void> _bookNow() async {
     final c = widget.controller;
-    if (!c.canBook) return;
+    if (!c.canBook || c.rates == null) return;
     if (c.isTanker) {
       await showTankerSheet(context);
       return;
@@ -109,115 +159,138 @@ class _HomeScreenState extends State<HomeScreen> {
       final ok = await showBulkConfirmDialog(context, total: c.totalJars);
       if (ok != true) return;
     }
-    final gate = widget.onCommitRequiresAuth;
-    if (gate != null && !await gate()) return;
-    widget.onBuy?.call();
+    if (!await _gate()) return;
+    if (!mounted) return;
+    _buy();
+  }
+
+  void _buy() {
+    final external = widget.onBuy;
+    if (external != null) {
+      external();
+      return;
+    }
+    final api = widget.api;
+    if (api == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Checkout is unavailable right now.')),
+      );
+      return;
+    }
+    final c = widget.controller;
+    showCheckoutSheet(
+      context,
+      controller: c,
+      api: api,
+      razorpayKeyId: widget.razorpayKeyId,
+      address: widget.addresses?.resolve(),
+      onChangeAddress: () {
+        Navigator.of(context).pop();
+        widget.onOpenAddresses?.call();
+      },
+      onDone: (result) {
+        Navigator.of(context).pop();
+        showOrderConfirm(
+          context,
+          result: result,
+          onTrackOrder: widget.onTrackOrder,
+          onOpenSubscriptions: widget.onOpenSubscriptions,
+        );
+      },
+    );
+  }
+
+  Widget _entrance(Widget child, int index) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return child
+        .animate(delay: Duration(milliseconds: 60 * index))
+        .fade(duration: 200.ms)
+        .slideY(begin: 0.15, end: 0, duration: 200.ms, curve: Curves.easeOut);
   }
 
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
-    final items = _visible;
+    final rates = c.rates;
+    final items = rates == null ? const <CatalogSku>[] : catalogFor(rates);
+    final canBook = c.canBook && rates != null && !c.ratesLoading;
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
-      appBar: AppBar(
-        backgroundColor: ShodashaTheme.bg,
-        elevation: 0,
-        title: Row(
-          children: [
-            Image.asset(
-              'assets/logo.png',
-              width: 32,
-              height: 32,
-              // 32px display size: decode at display resolution only
-              // (Phase 4 §4.6; full WebP re-export is an owner asset step).
-              cacheWidth: 32,
-              errorBuilder: (_, _, _) =>
-                  const Icon(Icons.water_drop, color: ShodashaTheme.teal),
-            ),
-            const SizedBox(width: 8),
-            const Text('Shodasha'),
-          ],
-        ),
-      ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         children: [
-          const _GreetingHeader(),
+          const _BrandHeader(),
           const SizedBox(height: 12),
           _AddressBar(
             addresses: widget.addresses,
             onChange: widget.onOpenAddresses,
           ),
-          const SizedBox(height: 12),
-          // 014: Choose Your Schedule (HYDROFAST layout, our tokens).
-          // Two cards only — one-tap, no slot-times, fixed Subah 8–12 promise.
+          const SizedBox(height: 16),
+          const _GreetingHeader(),
+          const SizedBox(height: 14),
           _ScheduleCards(controller: c),
           const SizedBox(height: 12),
-          // 014: wallet-safe strip — deposit trust earned by showing it.
-          _WalletStrip(addresses: widget.addresses),
-          const SizedBox(height: 4),
+          const _WalletStrip(),
+          const SizedBox(height: 16),
           const Text(
-            'SAB SAMAAN',
+            'ALL PRODUCTS',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
+              letterSpacing: 0.8,
               color: ShodashaTheme.muted,
             ),
           ),
           const SizedBox(height: 8),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              mainAxisExtent: 200,
-            ),
-            itemCount: items.length,
-            itemBuilder: (context, i) => _entrance(
-              _GridCard(sku: items[i], onOpen: () => _openDetail(items[i])),
-              i,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              // 031: live quote strip in the brand tint — the money truth.
-              color: ShodashaTheme.tealTint,
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            ),
-            child: Text(
-              'Paani ${rupeesLabel(c.waterBillPaise)} + Deposit '
-              '${rupeesLabel(c.depositDuePaise)} = Kul '
-              '${rupeesLabel(c.quoteTotalPaise)}',
-              style: const TextStyle(
-                color: ShodashaTheme.ink,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
+          if (rates == null)
+            _RatesPanel(controller: c)
+          else ...[
+            if (c.ratesError != null) ...[
+              _StaleRatesBanner(controller: c),
+              const SizedBox(height: 8),
+            ],
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                mainAxisExtent: 226,
+              ),
+              itemCount: items.length,
+              itemBuilder: (context, i) => _entrance(
+                _GridCard(sku: items[i], onOpen: () => _openDetail(items[i])),
+                i,
               ),
             ),
-          ),
+            const SizedBox(height: 12),
+            _EstimateStrip(controller: c),
+          ],
           if (c.holdBlocked || c.duesPaise > 0) ...[
             const SizedBox(height: 12),
             _DuesBanner(controller: c),
           ],
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: ShodashaTheme.surface,
+          border: Border(top: BorderSide(color: ShodashaTheme.border)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: SafeArea(
+          top: false,
           child: SizedBox(
             height: 52,
             child: ElevatedButton(
-              onPressed: c.canBook ? _bookNow : null,
+              onPressed: canBook ? _bookNow : null,
               child: Text(
-                c.canBook
-                    ? 'BOOK NOW • ${rupeesLabel(c.quoteTotalPaise)}'
-                    : 'BOOK NOW • kam se kam 1 jar chunein',
+                canBook
+                    ? 'BOOK NOW • ${rupeesLabel(c.quoteTotalPaise!)}'
+                    : rates == null
+                        ? 'BOOK NOW • Prices unavailable'
+                        : 'BOOK NOW • Choose at least 1 jar',
               ),
             ),
           ),
@@ -227,7 +300,64 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Delivery address bar (default address + change → map-pin flow).
+/// Teal brand header (donor grammar): logo + wordmark + support line.
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: const BoxDecoration(
+        color: ShodashaTheme.teal,
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(ShodashaTheme.radiusLg),
+        ),
+      ),
+      child: Row(
+        children: [
+          Image.asset(
+            'assets/logo.png',
+            width: 34,
+            height: 34,
+            cacheWidth: 68,
+            errorBuilder: (_, _, _) => const Icon(
+              Icons.water_drop,
+              color: ShodashaTheme.surface,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SHODASHA',
+                  style: TextStyle(
+                    color: ShodashaTheme.surface,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                Text(
+                  'Clean water, delivered every morning',
+                  style: TextStyle(
+                    color: ShodashaTheme.tealTint,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AddressBar extends StatelessWidget {
   const _AddressBar({required this.addresses, required this.onChange});
 
@@ -237,215 +367,86 @@ class _AddressBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final current = addresses?.resolve();
-    return ListTile(
-      leading: const Icon(Icons.location_on, color: ShodashaTheme.teal),
-      title: const Text(
-        'Deliver to',
-        style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
-      ),
-      subtitle: current == null
-          ? const Text(
-              'Address chunein (map par pin lagayein)',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${current.label} • ${current.pincode}',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  addressDetailLine(current),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: ShodashaTheme.muted,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-      trailing: TextButton(
-        onPressed: onChange,
-        child: const Text(
-          'Badlein',
-          style: TextStyle(
-            color: ShodashaTheme.blue,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      onTap: onChange,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-      shape: RoundedRectangleBorder(
-        side: const BorderSide(color: ShodashaTheme.border),
+    return Material(
+      color: ShodashaTheme.surface,
+      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      child: InkWell(
+        onTap: onChange,
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-      ),
-    );
-  }
-}
-
-/// 014: Two schedule cards (HYDROFAST layout, Shodasha tokens).
-/// Ek Baar = once, fixed Subah 8–12. Roz ka Plan = daily subscription.
-/// No slot-times, no calendar — one tap sets controller.deliveryType.
-class _ScheduleCards extends StatelessWidget {
-  const _ScheduleCards({required this.controller});
-  final BookingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final isOnce = controller.deliveryType == DeliveryType.once;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'PAANI BOOK KAREIN',
-          style: TextStyle(
-            fontSize: 11,
-            color: ShodashaTheme.muted,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.4,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: ShodashaTheme.border),
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
           ),
-        ),
-        const Text(
-          'Schedule chunein',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.3,
-            color: ShodashaTheme.ink,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: _ScheduleCard(
-                title: 'Ek Baar',
-                sub: 'Subah 8–12',
-                icon: Icons.bolt_outlined,
-                selected: isOnce,
-                onTap: () => controller.deliveryType = DeliveryType.once,
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.location_on,
+                  color: ShodashaTheme.teal,
+                  size: 20,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ScheduleCard(
-                title: 'Roz ka Plan',
-                sub: 'Apne aap refill',
-                icon: Icons.repeat,
-                selected: !isOnce,
-                onTap: () => controller.deliveryType = DeliveryType.daily,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'DELIVER TO',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                        color: ShodashaTheme.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      current == null
+                          ? 'Choose a delivery address'
+                          : '${current.label} • ${current.pincode}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                    if (current != null)
+                      Text(
+                        addressDetailLine(current),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: ShodashaTheme.muted,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Har din paani — Subah 8–12 fixed window',
-          style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
-        ),
-      ],
-    );
-  }
-}
-
-class _ScheduleCard extends StatelessWidget {
-  const _ScheduleCard({
-    required this.title,
-    required this.sub,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-  final String title;
-  final String sub;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return PressScale(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          // 031: brand teal rides the whole structure — selection is a teal
-          // tint fill, never blue (blue stays link-only).
-          color: selected ? ShodashaTheme.tealTint : ShodashaTheme.surface,
-          border: Border.all(
-            color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
-            width: selected ? 2 : 1,
-          ),
-          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              color: selected ? ShodashaTheme.teal : ShodashaTheme.muted,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                color: ShodashaTheme.ink,
+              TextButton(
+                onPressed: onChange,
+                child: Text(current == null ? 'Add' : 'Change'),
               ),
-            ),
-            Text(
-              sub,
-              style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// 014: wallet-safe strip — shows held deposit so trust is earned by
-/// visibility, not a badge. Data comes from ledger when wired; until then
-/// honest fallback copy (no invented balances).
-class _WalletStrip extends StatelessWidget {
-  const _WalletStrip({required this.addresses});
-  final AddressController? addresses;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: ShodashaTheme.surface,
-        border: Border.all(color: ShodashaTheme.border),
-        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.shield_outlined, size: 18, color: ShodashaTheme.teal),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Safety deposit app me safe hai — Profile me dekhein',
-              style: TextStyle(fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Greeting header rhythm (layout echo of the reference ListTile header:
-/// small overline + bold title + round leading mark) — our tokens, Hindi
-/// copy, icon mark instead of an avatar photo (no invented imagery).
 class _GreetingHeader extends StatelessWidget {
   const _GreetingHeader();
 
@@ -453,7 +454,6 @@ class _GreetingHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        // 031: brand mark — teal circle with the water drop, w900 headline.
         Container(
           width: ShodashaTheme.minTarget,
           height: ShodashaTheme.minTarget,
@@ -478,9 +478,9 @@ class _GreetingHeader extends StatelessWidget {
                 ),
               ),
               const Text(
-                'Paani book karein',
+                'Book water',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -0.4,
                   color: ShodashaTheme.ink,
@@ -494,18 +494,318 @@ class _GreetingHeader extends StatelessWidget {
   }
 }
 
-/// Time-aware greeting — pure widget copy, no backend, no session.
 String _greeting() {
-  final h = DateTime.now().hour;
-  if (h >= 5 && h < 12) return 'Shubh prabhat';
-  if (h >= 17 && h < 22) return 'Shubh sandhya';
-  return 'Namaste';
+  final hour = DateTime.now().hour;
+  if (hour >= 5 && hour < 12) return 'GOOD MORNING';
+  if (hour >= 17 && hour < 22) return 'GOOD EVENING';
+  return 'HELLO';
 }
 
-/// Slim photo grid card: photo + name + price + corner add-button.
-/// Qty lives in the detail buy-box — tapping the card OR the + opens it
-/// (the + is a visual affordance; the whole card is the 48dp+ tap target,
-/// so there is no nested-gesture double-open).
+class _ScheduleCards extends StatelessWidget {
+  const _ScheduleCards({required this.controller});
+
+  final BookingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final isOnce = controller.deliveryType == DeliveryType.once;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'BOOK WATER',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+            color: ShodashaTheme.muted,
+          ),
+        ),
+        const Text(
+          'Choose your schedule',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.3,
+            color: ShodashaTheme.ink,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _ScheduleCard(
+                title: 'One-time',
+                sub: kFixedWindowLabel,
+                icon: Icons.bolt_outlined,
+                selected: isOnce,
+                onTap: () => controller.deliveryType = DeliveryType.once,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ScheduleCard(
+                title: 'Daily plan',
+                sub: 'Auto refill',
+                icon: Icons.repeat,
+                selected: !isOnce,
+                onTap: () => controller.deliveryType = DeliveryType.daily,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Every day water — fixed morning 8–12 window.',
+          style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScheduleCard extends StatelessWidget {
+  const _ScheduleCard({
+    required this.title,
+    required this.sub,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String sub;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressScale(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? ShodashaTheme.tealTint : ShodashaTheme.surface,
+          border: Border.all(
+            color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
+            width: selected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon,
+              color: selected ? ShodashaTheme.teal : ShodashaTheme.muted,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                color: ShodashaTheme.ink,
+              ),
+            ),
+            Text(
+              sub,
+              style: const TextStyle(
+                fontSize: 12,
+                color: ShodashaTheme.muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WalletStrip extends StatelessWidget {
+  const _WalletStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.shield_outlined, size: 18, color: ShodashaTheme.teal),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Your safety deposit stays safe in the app — see the Wallet '
+              'tab.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Honest catalog state: loading, error + retry, or no-catalog explanation.
+class _RatesPanel extends StatelessWidget {
+  const _RatesPanel({required this.controller});
+
+  final BookingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.ratesLoading) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: ShodashaTheme.surface,
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Expanded(child: Text("Loading today's prices…")),
+          ],
+        ),
+      );
+    }
+    final error = controller.ratesError;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 20,
+                color: ShodashaTheme.danger,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Prices are not available',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            error ??
+                'Prices load from the server. Check your connection and retry.',
+            style: const TextStyle(
+              fontSize: 13,
+              color: ShodashaTheme.muted,
+            ),
+          ),
+          if (controller.hasCatalog) ...[
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: controller.ratesLoading
+                  ? null
+                  : controller.refreshRates,
+              child: const Text('Retry'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StaleRatesBanner extends StatelessWidget {
+  const _StaleRatesBanner({required this.controller});
+
+  final BookingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.solarTint,
+        border: Border.all(color: ShodashaTheme.solarBorder),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline,
+            size: 18,
+            color: ShodashaTheme.onSolar,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              controller.ratesError ??
+                  'Prices may be out of date. Retry before checkout.',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          if (controller.hasCatalog)
+            TextButton(
+              onPressed:
+                  controller.ratesLoading ? null : controller.refreshRates,
+              child: const Text('Retry'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EstimateStrip extends StatelessWidget {
+  const _EstimateStrip({required this.controller});
+
+  final BookingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final water = controller.waterBillPaise;
+    final deposit = controller.depositDuePaise;
+    final total = controller.quoteTotalPaise;
+    if (water == null || deposit == null || total == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.tealTint,
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: Text(
+        'Water ${rupeesLabel(water)} + Deposit ${rupeesLabel(deposit)} = '
+        'Total ${rupeesLabel(total)}',
+        style: const TextStyle(
+          color: ShodashaTheme.ink,
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class _GridCard extends StatelessWidget {
   const _GridCard({required this.sku, required this.onOpen});
 
@@ -514,11 +814,9 @@ class _GridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // a11y-3: one tap target, one announcement (inner + affordance
-    // excluded — SR hears name + price + action once).
     return Semantics(
       button: true,
-      label: '${sku.name}, ${rupeesLabel(sku.pricePaise)}, detail kholein',
+      label: '${sku.name}, ${rupeesLabel(sku.pricePaise)}, open details',
       child: ExcludeSemantics(
         child: PressScale(
           onTap: onOpen,
@@ -528,7 +826,6 @@ class _GridCard extends StatelessWidget {
               border: Border.all(color: ShodashaTheme.border),
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
-
             child: Stack(
               children: [
                 Column(
@@ -541,12 +838,11 @@ class _GridCard extends StatelessWidget {
                       ),
                       child: Image.asset(
                         sku.asset,
-                        height: 120,
+                        height: 124,
                         fit: BoxFit.cover,
-                        // P4: decode at ~2x display size, never full-res.
                         cacheWidth: 448,
                         errorBuilder: (_, _, _) => Container(
-                          height: 120,
+                          height: 124,
                           color: ShodashaTheme.tealTint,
                           child: const Icon(
                             Icons.water_drop,
@@ -580,6 +876,16 @@ class _GridCard extends StatelessWidget {
                               fontSize: 15,
                             ),
                           ),
+                          const SizedBox(height: 2),
+                          Text(
+                            sku.tagline,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: ShodashaTheme.muted,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -595,7 +901,10 @@ class _GridCard extends StatelessWidget {
                       color: ShodashaTheme.teal,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.add, color: ShodashaTheme.surface),
+                    child: const Icon(
+                      Icons.add,
+                      color: ShodashaTheme.surface,
+                    ),
                   ),
                 ),
               ],
@@ -614,9 +923,11 @@ class _DuesBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final msg = controller.holdBlocked
-        ? '3 se zyada jar hold par — COD band, UPI se order karein'
-        : 'Bakaya: ${rupeesLabel(controller.duesPaise)} — bill me jud jayega';
+    final message = controller.holdBlocked
+        ? 'More than 3 jars are on hold — cash on delivery is blocked. '
+            'Choose UPI or clear your dues.'
+        : 'Dues: ${rupeesLabel(controller.duesPaise)} — this will be added '
+            'to your bill.';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -627,14 +938,14 @@ class _DuesBanner extends StatelessWidget {
         children: [
           const Icon(Icons.info_outline, size: 18, color: ShodashaTheme.blue),
           const SizedBox(width: 8),
-          Expanded(child: Text(msg)),
+          Expanded(child: Text(message)),
         ],
       ),
     );
   }
 }
 
-/// N 6–10 bulk confirm dialog (kept from F3: title/action/close).
+/// N 6–10 bulk quantity confirmation.
 Future<bool?> showBulkConfirmDialog(
   BuildContext context, {
   required int total,
@@ -643,28 +954,30 @@ Future<bool?> showBulkConfirmDialog(
     context: context,
     builder: (ctx) => AlertDialog(
       shape: ShodashaTheme.shape,
-      title: const Text('6+ jar ka order?'),
-      content: Text('$total jar — quantity confirm karein.'),
+      title: const Text('Order 6+ jars?'),
+      content: Text('$total jars — please confirm the quantity.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(false),
           child: const Text(
-            'Wapas',
+            'Go back',
             style: TextStyle(color: ShodashaTheme.muted),
           ),
         ),
         ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: ShodashaTheme.teal,
+            foregroundColor: ShodashaTheme.surface,
+          ),
           onPressed: () => Navigator.of(ctx).pop(true),
-          child: const Text('Confirm karein'),
+          child: const Text('Confirm'),
         ),
       ],
     ),
   );
 }
 
-/// N > 10 tanker sheet: vendor call CTA + dismiss — never creates an order.
-/// Phase 4 §4.5: the Call button dials the real support number (single
-/// [kSupportPhone] constant); [openUrl] is the widget-test seam.
+/// N > 10 tanker sheet: call the vendor — never creates an order.
 Future<void> showTankerSheet(
   BuildContext context, {
   Future<bool> Function(Uri url, {LaunchMode mode})? openUrl,
@@ -672,7 +985,7 @@ Future<void> showTankerSheet(
   Future<void> callVendor(BuildContext ctx) async {
     final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
     final open = openUrl ?? launchUrl;
-    bool ok = false;
+    var ok = false;
     try {
       ok = await open(Uri(scheme: 'tel', path: '+$digits'));
     } catch (_) {
@@ -680,16 +993,17 @@ Future<void> showTankerSheet(
     }
     if (ok || !ctx.mounted) return;
     ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text('Call nahi laga — $kSupportPhone par call karein'),
-      ),
+      SnackBar(content: Text('Could not open the dialer — call $kSupportPhone')),
     );
   }
 
   return showModalBottomSheet<void>(
     context: context,
+    backgroundColor: ShodashaTheme.surface,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(ShodashaTheme.radiusSheet),
+      ),
     ),
     builder: (ctx) => SafeArea(
       child: Padding(
@@ -700,19 +1014,24 @@ Future<void> showTankerSheet(
           children: [
             const Text(
               'Tanker supply',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
             ),
             const SizedBox(height: 8),
             const Text(
-              '10 se zyada jar ke liye tanker lagta hai. Vendor se baat karein.',
+              'More than 10 jars needs a tanker. Talk to the vendor to '
+              'arrange it.',
               style: TextStyle(color: ShodashaTheme.muted),
             ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ShodashaTheme.teal,
+                  foregroundColor: ShodashaTheme.surface,
+                ),
                 onPressed: () => callVendor(ctx),
-                child: const Text('Vendor ko call karein'),
+                child: const Text('Call the vendor'),
               ),
             ),
             const SizedBox(height: 8),
@@ -720,7 +1039,7 @@ Future<void> showTankerSheet(
               width: double.infinity,
               child: TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Ho gaya'),
+                child: const Text('Done'),
               ),
             ),
           ],

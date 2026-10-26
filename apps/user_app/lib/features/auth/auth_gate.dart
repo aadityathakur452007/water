@@ -1,40 +1,27 @@
-// F2 — Auth gate: splash → home / login router by session validity.
+// S2 — Auth gate: cold-start restore splash → authenticated home / register.
 //
-// Guest-browse rule (user-flows flow 1): prices are NEVER walled behind login.
-// The gate routes a valid session straight to [home]; without a session it
-// shows login, and login's guest action drops into [home] as a guest.
-// Register is therefore enforced only at booking commit OR profile (F3 wires
-// those gates against AuthController.isAuthenticated).
+// Guest-browse law (user-flows flow 1): prices are NEVER walled behind
+// login. A valid session routes straight to [home]; without one the gate
+// shows the register screen and its guest action drops into [home] as a
+// guest. Register is enforced only at booking commit OR profile, via
+// [openRegister] (returns true when the user ends up authenticated).
 //
-// States.md covered: splash (page loading), authenticated, guest user,
-// session expired → login (redirecting), logged out.
+// States.md covered: splash (page loading / in-flight restore),
+// authenticated, guest user, session expired → register (redirecting),
+// logged out, in-flight action.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../core/theme.dart';
 import 'auth_controller.dart';
 import 'name_number_screen.dart';
 
-/// Splash → home/login router.
-///
-/// [home] is F3's catalog home (public, guest-browsable). [loginBuilder]
-/// defaults to [NameNumberScreen] with guest-browse wired back into the gate.
+/// Splash → home/register router. Restores the session on first mount.
 class AuthGate extends StatefulWidget {
-  const AuthGate({
-    super.key,
-    required this.controller,
-    required this.home,
-    this.loginBuilder,
-  });
+  const AuthGate({super.key, required this.controller, required this.home});
 
   final AuthController controller;
   final Widget home;
-  final Widget Function(
-    BuildContext context,
-    AuthController controller,
-    VoidCallback onGuestBrowse,
-  )?
-  loginBuilder;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -43,6 +30,7 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool _ready = false;
   bool _guest = false;
+  bool _restoreFailed = false;
 
   @override
   void initState() {
@@ -52,12 +40,23 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _boot() async {
-    await widget.controller.restoreSession();
-    if (mounted) setState(() => _ready = true);
+    var restored = false;
+    try {
+      restored = await widget.controller.restoreSession();
+    } catch (_) {
+      // restoreSession owns its timeout/error path; this is belt-and-braces
+      // so no unexpected throw can leave the splash mounted.
+    }
+    if (!mounted) return;
+    setState(() {
+      _restoreFailed = !restored;
+      _ready = true;
+    });
   }
 
   void _onAuthChanged() {
-    // Logout (or expired wipe) always returns to login — never strand guest UI.
+    // Logout / expired wipe always returns to register — never strand guest
+    // UI on a dead session (legacy gate behavior).
     if (widget.controller.status == AuthStatus.idle && _guest) {
       setState(() => _guest = false);
     }
@@ -74,18 +73,13 @@ class _AuthGateState extends State<AuthGate> {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
-        if (!_ready) return const SplashScreen();
+        if (!_ready) return const _AuthSplash();
         if (widget.controller.isAuthenticated || _guest) return widget.home;
-        final custom = widget.loginBuilder;
-        if (custom != null) {
-          return custom(
-            context,
-            widget.controller,
-            () => setState(() => _guest = true),
-          );
-        }
         return NameNumberScreen(
           controller: widget.controller,
+          notice: _restoreFailed
+              ? 'Couldn’t restore your session. Sign in again.'
+              : null,
           onGuestBrowse: () => setState(() => _guest = true),
         );
       },
@@ -93,42 +87,72 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-/// Cold-start splash: logo + trust line, ≤1.5s branded hold (006-auth-flow).
-/// Transform+opacity entry only (no blur/shadows); images precached here.
-class SplashScreen extends StatelessWidget {
-  const SplashScreen({super.key});
+/// Pushes the register screen and reports whether the user is authenticated
+/// afterwards. Used by future booking/profile gates; guest browsing still
+/// exits normally with false (no dead end).
+Future<bool> openRegister(
+  BuildContext context,
+  AuthController controller,
+) async {
+  if (controller.isAuthenticated) return true;
+  await Navigator.of(context).push<bool>(
+    MaterialPageRoute<bool>(
+      builder: (routeContext) => NameNumberScreen(
+        controller: controller,
+        onGuestBrowse: () => Navigator.of(routeContext).pop(false),
+        onRegistered: () => Navigator.of(routeContext).pop(true),
+      ),
+    ),
+  );
+  return controller.isAuthenticated;
+}
+
+/// Branded cold-start splash while secure-storage restore is in flight.
+class _AuthSplash extends StatelessWidget {
+  const _AuthSplash();
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: AuthTokens.bg,
+    return Scaffold(
+      backgroundColor: ShodashaTheme.bg,
       body: SafeArea(
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _SplashLogo(),
-              SizedBox(height: 12),
-              Text(
+              Image.asset(
+                'assets/logo.png',
+                width: 72,
+                height: 72,
+                cacheWidth: 144,
+                errorBuilder: (_, _, _) => const Icon(
+                  Icons.water_drop,
+                  size: 56,
+                  color: ShodashaTheme.teal,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
                 'Shodasha',
                 style: TextStyle(
                   fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: AuthTokens.text,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                  color: ShodashaTheme.ink,
                 ),
               ),
-              SizedBox(height: 4),
-              Text(
-                'RO+UV • Lab-tested paani',
-                style: TextStyle(fontSize: 13, color: AuthTokens.muted),
+              const SizedBox(height: 4),
+              const Text(
+                'RO+UV • Lab-tested water',
+                style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
               ),
-              SizedBox(height: 16),
-              SizedBox(
+              const SizedBox(height: 16),
+              const SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: AuthTokens.blue,
+                  color: ShodashaTheme.teal,
                 ),
               ),
             ],
@@ -136,27 +160,5 @@ class SplashScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _SplashLogo extends StatelessWidget {
-  const _SplashLogo();
-
-  @override
-  Widget build(BuildContext context) {
-    final logo = Image.asset(
-      'assets/logo.png',
-      width: 72,
-      height: 72,
-      cacheWidth: 144,
-      errorBuilder: (_, _, _) =>
-          const Icon(Icons.water_drop, size: 56, color: AuthTokens.blue),
-    );
-    // a11y-10: static render when the OS asks for reduced motion.
-    if (MediaQuery.disableAnimationsOf(context)) return logo;
-    return logo
-        .animate()
-        .fadeIn(duration: 300.ms)
-        .scale(begin: const Offset(0.92, 0.92), duration: 300.ms);
   }
 }

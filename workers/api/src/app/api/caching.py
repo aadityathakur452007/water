@@ -19,14 +19,22 @@ CACHE_MAX_AGE_S = 300
 
 
 def cached(body: dict, request: Request | None = None,
-         max_age_s: int = CACHE_MAX_AGE_S) -> JSONResponse:
+         max_age_s: int = CACHE_MAX_AGE_S, private: bool = False) -> JSONResponse:
     """Wrap a JSON-serializable body with Cache-Control + ETag.
 
     If-None-Match matches → 304 empty (bandwidth saved on the 15-min cron
     pollers and repeat admin loads). No new deps, no middleware — call it
     at the return site so uncached routes provably stay uncached.
+
+    ``private=True`` is for auth-gated admin reads: bytes must never enter a
+    shared cache, so it emits ``private, no-store`` and no ETag/CDN header.
     """
     raw = json.dumps(body, sort_keys=True, default=str).encode()
+    if private:
+        return JSONResponse(
+            content=json.loads(raw.decode()),
+            headers={"Cache-Control": "private, no-store"},
+        )
     etag = f'"{hashlib.sha256(raw).hexdigest()[:32]}"'
     if request is not None and request.headers.get("if-none-match") == etag:
         return JSONResponse(status_code=304, content=None, headers={"ETag": etag})

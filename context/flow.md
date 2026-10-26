@@ -14,6 +14,12 @@
 
 Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 7 tabs; ADR-056 consolidated to 4 tabs + More drawer): vendor OTP login → duty (off-guard confirmed) → today route (search→customers, stock header, sync chip) → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch (loading branch) → earnings → support queue + verify → drawer (stock log, profile, WhatsApp, logout). See `Feature_docs/vendor-app/spec.md`.
 - 016 dashboard (branch 016-vendor-dashboard, ADR-064): Route tab top composes one screen — TodayStrip (`summarizeToday` pure fold over `RouteStop`s: distinct users, jars, UPI/COD collect paid-excluded) + one CTA per state (Sync backlog → Triple first-pending → all-done text) + inline money (`EarningsController` reuse: jama cash/upi + flagged-hold, display-only) + can-ledger rows (`CustomersController`: held/dues nonzero-only). Backend: `placed_pool(vendor_id)` zone-scoped (zones/vendor_zones instr match; unzoned admin-only) + `today_customers` gains `held`/`dues` via `ledger.get`. No new tabs/endpoints/tables/packages.
+- Production customer auth/deploy (2026-10-24, ADR-132): Cloudflare Worker `water` at `https://water.adityathakur452007.workers.dev` (version `07e98028-2434-4487-aad1-be52938f97cb`); D1 `shodasha` at schema 027 after backfilling 002-023 bookkeeping and applying 024-027. `POST /v1/auth/user/register` validates name/phone/password/device, hashes with PBKDF2-HMAC-SHA256 at the Cloudflare WebCrypto maximum 100,000 iterations, inserts `users`, then `_issue_session`; `POST /v1/auth/user/login` finds the phone, verifies the stored cost/salt, uses `DUMMY_HASH` for unknown/empty-password timing, and issues the same session pair. Existing users with empty `password_hash` fail closed until admin reset. Live checks: catalog 200, empty login 400 VALIDATION, register/login 200, wrong password 401 UNAUTH; the temporary user was removed and 9 production users remain.
+- Audit verification (2026-10-24, read-only, ADR-133): live auth flows and webhook fail-closed behavior match the above. Money/subscription tracing found five P0s that change no routes but invalidate release promises: dues UPI 500s on the `payments.order_id` FK after creating the provider order; canceled `link_sent` orders stay payable, countable as dues, and settleable by webhook; cancellation writes off dues/claims refunds with zero payments; the production cron handler creates no subscription orders; same-key intent retries return a provider ref absent from `payments`. Full call/evidence map: `Feature_docs/platform-audit/2026-10-24-auth-upi-subscriptions-vendor-audit.md`. No code or user flow changed in this audit; destructive live testing stopped after the dues 500 and local SQLite carried the rest.
+- Phase 0 measurement layer (2026-10-25, ADR-140, staging/local only): `GET /health` now lives in `app/api/health.py` and runs `SELECT 1` through the normal DB dependency with a 2 s timeout and a 5 s per-isolate cache; success stays exactly `{"status":"ok"}`, failure is 503 + `{"status":"degraded","checks":{"db":"error"}}`, both `Cache-Control: no-store`. `app/core/observability.py` emits one redacted JSON line per sampled request (`route` template, method, status, duration, trace id, `db_queries`/`db_roundtrips`/`db_rows_read`/`db_rows_written`); 4xx/5xx and slow requests always log, healthy fast paths sample deterministically. `app/db_d1.py` counts D1 `meta.rows_read`/`meta.rows_written` (batch = N statements, one roundtrip); `AsyncSqliteConn` counts local rows. Trace ids are sanitized to `^[A-Za-z0-9._-]{1,64}$` before echo/log. Staging is `water-staging` + `shodasha-staging` with cron disabled; `scripts/seed_phase0.py` builds the deterministic dataset and `scripts/bench_phase0.py` runs the guarded GET-only A/B/C profiles. Free-plan 10 ms CPU returns intermittent `1102`/`1101` before the app; see ADR-140. Results and safe commands: `Feature_docs/performance/2026-10-25-phase0-results.md`, `Feature_docs/performance/phase0-runbook.md`.
+- Capacity audit (2026-10-25, ADR-139, read-only): the 1,000-user model and evidence table live in `Feature_docs/performance/2026-10-25-1000-user-capacity-audit.md`. Hot paths confirmed: `GET /orders/{id}` = 7 sequential queries + `PRAGMA table_info('stops')` (`order_service.py:329-391`, `order_repo.py:164,439`); `GET /billing/dues` = N+1 paid-sum/dues-posted per open order (`payment_service.py:211-231`); vendor `GET /vendor/routes/today` ≈ 82 queries per 40 stops (`vendor_service.py:302-366`); admin metrics/overview = full-table aggregates on a 60s poll (`admin.py:1229-1243,1259+`, `admin_read_repo.py:50-115`); cron `*/15` processes every due subscription sequentially and advances `next_run` before order creation (`scheduler.py:119-143`, `subscription_service.py:885-894`), so ~70–100 due subs approach/exceed the 1,000 D1 queries/invocation Paid cap. Cancel/webhook/transition paths are multi-statement and non-atomic on D1 (`order_repo.py:456-547`, `payment_repo.py:375-442`, `db_d1.py:111-115`). No route or user flow changed; this note records the audited call chain.
+- Agent tooling (2026-10-25, ADR-137): the global OpenCode config registers the remote Cloudflare MCP server (`https://mcp.cloudflare.com/mcp`, OAuth), and 19 official Cloudflare skills are installed under `C:\Users\Hp\.agents\skills`; no app route or runtime flow changed. New OpenCode sessions can call Cloudflare account tools through MCP, while `wrangler` remains the deploy/D1 path used by this project. The OAuth grant is Full access and its token lives at `C:\Users\Hp\.local\share\opencode\mcp-auth.json`, outside the repo. The optional `cf` CLI is not installed.
+- Free-tier launch readiness (2026-10-26, ADR-146, docs only): no route, function, schema, or UI change. The operating flow is **deploy gate (G1) → read-only smoke (G2: `/health` + `/v1/catalog` + `/v1/windows`) → alerts/external `/health` monitor (G5) → daily owner checklist → GO/NO-GO**. The approved pilot envelope is 50 registered / 10 DAU / 5 concurrent, COD only, no UPI, no new auto-delivery subscriptions, vendor route ≤20 stops. Production traces stay off; `/health` remains the one-D1-probe endpoint with a 5 s per-isolate cache and `no-store`. Default is **NO-GO for a transactional pilot** until separately approved staging auth (G3) and cron (G4) probes pass; G0/G6 are approved, G1/G2/G5/G7 are not started. Docs: `Feature_docs/performance/2026-10-26-free-tier-launch-readiness-spec.md`, `free-tier-launch-runbook.md`.
 
 ```
 VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
@@ -93,6 +99,32 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
   2. PRAGMA Self-Heal Convergence: `_ensure_billing_mode` ALTERs `subscriptions.billing_mode` on legacy DBs (ADR-065 precedent), so 012_monthly.sql is belt-and-suspenders; `payment_service.get_dues` gains provider-honesty fields (`provider`, `razorpay_ready`) per the Razorpay-only truth (ADR-096).
   3. Dormant UI treatment: 026's superseded Flutter booking/checkout/subscription UI injections were dropped in the merge (main's green UI kept); the user-app wiring for monthly modes lands with the 031 UI revamp.
   4. Pre-existing main defect (not from this merge): `tests/test_resilience_snapshots.py::test_address_snapshot_preservation_on_edit` fails with `StaleQuoteError` (`order_service.py:153`) on pre-merge main `a90f814` — owner-owed fix.
+- ADR-123 032 Phase A — Session Boundary, Guest Orders Gate & Duplicate-Order Recovery (2026-10-21, supersedes the retry/COD recovery behavior in ADR-110):
+  1. Session boundary: `main.dart` listens to `AuthController`; on an authenticated→guest/expiry transition it calls `BookingController.resetUserScoped()` (ledger values, jars/lines, schedule, idempotency key), `AddressController.reset()`, `OrdersController.reset()` and `ProfileController.reset()`. Each controller carries a `_generation` counter bumped by reset; every async completion (list/detail load, save, delete, rating, cancel, reschedule, profile load/update) checks its captured generation and discards a response from the previous account. Guest Home no longer calls `GET /v1/addresses` (no cached 401); the shell reloads addresses after an in-session guest→login. The old shell-level `_refreshLedger` also re-checks auth after the await.
+  2. Checkout recovery: `placeCheckout` never throws once the server has minted an order/subscription. A failed `POST /payments/upi-intent` (or missing ref/link) is returned as `CheckoutResult.attention` + `attentionMessage`; the controller keeps the same idempotency key, and `_CheckoutSheet` shows `Retry payment` (re-requests the intent / re-opens the issued payment only) + `Check Orders`. Poll timeout shows `Check payment again` + `Check Orders`. No-UPI-app and missing-Razorpay-key failures keep the created order. An unusable create response (missing id/amount) throws `UnconfirmedCreateException` → close-only message pointing at Orders/Subscriptions, never a re-post. `CheckoutResult.withIntent()` swaps in a refreshed intent without losing the created order.
+  3. Key rotation policy: `BookingController` mints/rotates the idempotency key on sheet open and on any payload change (quantity steppers, payment mode, delivery type, custom dates); it never rotates on retry (`Retry`/`Retry payment`/`Check payment again`), so a retried create replays the same row. Orders tab entry triggers `OrdersController.load()` so the recovery/`Track order` path shows the just-placed order.
+  4. Guest Orders gate: `UserShell` renders `_GuestBody` for the Orders tab when unauthenticated (copy “Sign in to see your orders.”), matching Subscriptions; `OrdersScreen` is never mounted for guests, so cached rows/empty state cannot leak.
+  5. Confirmation: `quote_confirm.dart` renders an attention variant for `attention` results — blue info block, amount only when the server confirmed it, no “UPI pending”/deposit blocks, title “Order placed — payment pending” (or “Plan created”).
+  6. Regression tests: `test/session_reset_test.dart` and `test/checkout_recovery_test.dart` lock the reset/discard, single-POST, same-key replay and recovery-UI contracts. Suite 197/197.
+- ADR-125 032 Phase B — P1 State Completeness (2026-10-22):
+  1. Auth boundary: `MaterialApp` owns a `navigatorKey`; on an authenticated→guest transition (401/expiry/logout) the root listener resets user controllers, then post-frame `popUntil(isFirst)` closes every pushed route/sheet above `AuthGate`. Payment History renders a “Sign in” CTA on 401/403; Wallet and the shell wire the callback.
+  2. Orders: a list failure with cached rows keeps `status=loaded` and sets `isOffline` only for network/5xx (`ApiException.isNetwork`), showing the stale banner (4xx keeps the error state). `loadMore()` is single-flight (`_loadingMore`), dedupes by order id across overlapping cursor pages, and sets `loadMoreFailed` on failure; `OrdersScreen` renders an inline footer error + retry, or a spinner while loading. The shell reloads Orders on checkout completion (`_openCheckout.onDone`) as well as on tab entry.
+  3. Tracking: detail retry calls `refreshOrder(id)` under a local `_detailLoading` (no whole-list reload); reschedule and cancel surface success/failure-specific snackbars (`rescheduled`/`rescheduleFailed`/`cancelFailed`).
+  4. Rating: `OrdersController.rate()` returns `RateResult.success|alreadyRated|failed`; 409/`ALREADY_RATED` and the local “already rated” guard map to `alreadyRated`; any other failure maps to `failed`. The sheet closes only for success/alreadyRated; a failure keeps it open with `rateFailed` copy.
+  5. Money display: `core/money.dart` `formatInr(paise)` is the single formatter (₹, 2dp only when paise ≠ 0). Orders `formatRupees` and both `rupeesLabel` helpers (booking, subscriptions) delegate; wallet ledger + payment history call it directly, ending `~/ 100` truncation. Design delta: ₹ everywhere (was mixed `Rs 56` / `₹56`).
+  6. Wallet/Subscriptions: Wallet adds pull-to-refresh, reload after a return request, and a shell `refreshTick` on each Wallet tab entry (dues paid in Subscriptions appear). Skip-today confirms first; plan-builder Start requires a loaded, non-erroring estimate.
+  7. Inputs: address form tracks a dirty baseline and `PopScope` asks before discarding on close/system back/drag (save + confirmed discard pop on the next frame, because `canPop` is a build-time value); null serviceability shows a “couldn’t verify” warning. Return sheet validates the refund VPA (`name@bank`) before enabling Send.
+  8. Regression tests: `test/phase_b_states_test.dart` (11) + 2 subscription widget tests; suite 210/210. Release APK 55.8MB, prod-define verified (prod URL present, localhost absent, Razorpay key present, 3 ABIs).
+- ADR-126 032 Phase C — P2 State Completeness (2026-10-22):
+  1. Cold start: `AuthController.restoreSession()` returns `Future<bool>` and is bounded by an injectable `restoreTimeout` (default 5s) with a restore generation; `AuthGate` always leaves the splash and shows a login note when restore failed/timed out.
+  2. First run: `HomeScreen` triggers `maybeOfferFirstRun` only for authenticated + `AddrStatus.loaded` + zero addresses + unset `firstrun_done_v1`. The sheet's primary action opens the existing Addresses form/map; “Not now” and completion persist the flag, so guests and non-empty accounts never see it.
+  3. Checkout: `showCheckoutSheet` uses `enableDrag:false` and drops the decorative handle; while `_Phase.paying`, barrier/back are intercepted by `PopScope` and show “Payment still processing” with Stay/Leave. Leaving pops immediately without awaiting the pending POST; an idle sheet closes normally.
+  4. Conflict/bill truth: address delete 409 renders the active-orders/subscriptions copy; `BillScreen` always renders Cap / Previous dues / Payment rows and uses `—` for absent values.
+  5. Shell back: `PopScope` selects Home from any sub-tab; on Home the system exit is unchanged.
+  6. Transport: `ApiClient.offline` is a `ValueNotifier<bool>` set false on every HTTP response and true only on timeout/socket failure. The shell shows an offline strip with a `/catalog` Retry probe and a 3s “Back online.” confirmation. The map picker surfaces tile failures with Retry (tile-reset stream) while the pin remains usable.
+  7. Wide screens: shell body and bottom navigation are centered and capped at 560 logical px; phone-first is the documented target.
+  8. List limits: when `/payments/me` returns the full 50-row page, Payment History appends “Showing the latest 50 payments…” with the support number instead of inventing a cursor. Server audit: `/complaints` returns all rows with no cap (Support’s `ListView` builds them all — a future pagination candidate); `/payments/me` defaults to 50 (max 100) with no offset/cursor.
+  9. Regression tests: `test/phase_c_states_test.dart` (5) + restore/dismiss/back/width/offline tests (7); suite 222/222. Release APK 55.8MB, SHA256 `5C372AAA754BE895E5FD3B61F756CC881B116BACB6295CDF0A0D7D490643C4A0`, prod-define verified across 3 ABIs.
 - ADR-114 P2/P3 UI Revamp Batch (2026-10-17, 031 branch): PRESENTATION-ONLY transplants — no route, controller, service, or endpoint changes; call maps unchanged. (1) ProfileScreen wallet region renders the existing `LedgerSnapshot` (`ProfileController.load()` → `ApiClient.ledgerMe()` → `GET /v1/ledger/me`) as the donor wallet-card grammar; payments entries still open `PaymentHistoryScreen` (same `GET /v1/payments/me` wiring). AddressScreen renders the donor DELIVERY-TO treatment over the same controller data (selection/save/default/pickMapPin logic untouched). (2) BookingSheet reskinned (`_pay/_collectUpi/_verifyOrPollPayment` byte-identical; sticky CTA). (3) Orders/Tracking/Subscription/Support reskinned: status pills map OUR states (placed..dispatched→teal, delivered→slate, failed/rejected→danger), delivery-OTP reveal predicate + strings untouched, subscription actions on the same controller calls, 3 banner strings de-emoji'd (no test asserts). (4) Android packaging: adaptive icon (vector drawable drop on teal bg) + `android:roundIcon`, legacy PNGs kept for API<26. ADR-118 hygiene adds: `SupportScreen(api:)` DI via UserShell's authenticated ApiClient (complaints now carry the real Bearer + persisted X-Device-Id; no `unknown-device` fallback), and wa.me share links derive digits from `kSupportPhone` (orders_controller.openWhatsApp, bill_screen._share).
 ```
 
@@ -382,6 +414,23 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 ```
 - `normalizeIndianPhone` / `isValidIndianPhone` / `isValidAccessCode` / `maskPhone` (auth_controller.dart) ← `test/auth_validation_test.dart`; code+demo matrix ← `test/demo_login_test.dart`
 
+### 032 user-app replacement — boot skeleton (S1, 2026-10-19, ADR-121, branch 032-user-app-replacement)
+```
+main.dart _boot() (composition root — donor-based app)
+  ├─ loadOrCreateDeviceId()               (core/session_store.dart — persisted UUID → X-Device-Id)
+  ├─ ApiClient(deviceId, accessTokenGetter: () => _auth.session?.accessToken,
+  │            onUnauthorized: () => _auth.forceLogout())
+  │    └─ https/loopback ArgumentError guard · single-flight GET · keyed-POST retry (ported verbatim)
+  ├─ AuthController(api: ApiBackedAuthApi(_api), store: SecureSessionStore())
+  │    └─ restoreSession() — best-effort (valid session → authenticated, else guest)
+  └─ UserShell (5 tabs: Home / Orders / Subscriptions / Wallet / Profile)
+       └─ lazy mount (ADR-112): a tab mounts on first visit, IndexedStack keeps its state
+            └─ tab bodies land per slice: S3 home · S5 orders · S6 subscriptions · S7 wallet · S8 profile
+AuthGate + register screen land in S2 (S1 boots straight to the shell; guest browsing everywhere)
+```
+- `kApiBaseUrl` (SHODASHA_API_BASE, default loopback) + `kSupportPhone` — core/api_client.dart · `kRazorpayKeyId` (RAZORPAY_KEY_ID) — main.dart
+- S1 gate: `test/{api_client,api_parity,auth_validation,demo_login,location_service,shell,widget}_test.dart` — 41/41 green, analyze clean; legacy suite lives on at `apps/user_app_legacy_flutter/test/` (reference, never built)
+
 ### Feature: [feature name]
 - `[Function A]` calls `[Function B]` to [why]
 - `[Function B]` calls `[Repository X]` to [why]
@@ -428,7 +477,7 @@ AuthGate: splash → restoreSession → shell / VendorCodeScreen (no codeSent br
 | GET/POST | `/v1/admin/vendors/{id}/access-codes`, `.../{code_id}/revoke` | `admin.py` (Admin + `_audit`) → `VendorAccessRepo` | Masked list / issue (plaintext once, 201) / timestamp-revoke; non-vendor → 422, ghost → 404 |
 | GET | `/v1/admin/vendors/{id}/preview` | `admin.py` (Admin) → `AdminReadRepo.vendor_detail` + `VendorService.today_route/earnings/today_customers/vendor_complaints` | Read-only view-as-vendor, no writes |
 | POST | `/api/auth/login` | `authService.login` | Sign in and issue session |
-| GET | `/health` | `app/main.py` | Liveness probe |
+| GET | `/health` | `app/api/health.py:health` → `get_db_conn` → `D1Conn`/`AsyncSqliteConn` | Real probe: `SELECT 1`, 2 s timeout, 5 s per-isolate cache; 200 exact `{"status":"ok"}` or 503 additive degraded body; `Cache-Control: no-store`; failure logs trace id + duration only |
 | GET | `/v1/catalog` | `app/api/v1/catalog.py:get_catalog` → `api/caching.py:cached` | SKUs (2800/3000) + deposit 15000 + cap 300 + hours/holidays from settings; Phase 8: `Cache-Control: public, max-age=300` + ETag + 304 |
 | GET | `/v1/windows?date=&pincode=` | `app/api/v1/catalog.py:get_windows` → `cached` | 30-min slots 08:00–20:00 on next serviceable day (ex-Sun); unserviceable pin → lead_capture; Phase 8: cached 300s + ETag + 304 |
 | GET | `/v1/serviceability?pincode=` | `app/api/v1/catalog.py:check_serviceability` → `cached` | Pincode regex + prefix allowlist (empty=open); Phase 8: cached 300s + ETag + 304 |
@@ -812,6 +861,823 @@ Vendor Web (/vendor/login):
          │           └─ fail → redirect /vendor/login
          └─ true → VendorLayout (Header WhatsApp CTA, Logout CTA, sub-routes: overview, route, collections, etc.)
 ```
+
+## 032 — Customer app replacement (branch 032-user-app-replacement, ADR-119…126)
+
+Donor-based Flutter app at `apps/user_app`; legacy parked read-only at `apps/user_app_legacy_flutter`. One `ApiClient` (Bearer + X-Device-Id, https/loopback guard) is shared by every controller.
+
+```
+ShodashaApp (main.dart)
+ ├─ deviceId (loadOrCreateDeviceId) → ApiClient → AuthController(store: SecureSessionStore)
+ ├─ BookingController()        ← HttpCatalogApi attaches on Home mount (GET /catalog; no fallback)
+ ├─ AddressController(api)     ←bindSelection→ SelectedAddressStore (shared_preferences id)
+ ├─ OrdersController(repo: ApiBackedOrdersRepository(api))
+ └─ ProfileController(api)
+      └─ AuthGate(controller: auth, home: UserShell(...))   ← restoreSession owns cold start
+           ├─ Home (S3): address bar → addresses gate; mode/qty/empties → quote estimate
+           │    └─ shell onBuy → showCheckoutSheet(quote → order → cod | upiIntent)
+           │         ├─ UPI: gateway → GET /orders/{id} poll ≤5×2s until payment_status == paid_upi
+           │         └─ onDone → showOrderConfirm → Orders tab | Subscriptions tab
+           ├─ Orders (S5): GET /orders (paging/search), detail/tracking, cancel/reschedule/rating/COD-confirm, bill
+           │    └─ onReorder → setRefill/setContainer → Home → shell checkout
+           ├─ Subscriptions (S6): guest-gated in shell; GET /subscriptions → pause/resume/skip/cancel + estimate/build
+           │    └─ dues strip → POST /payments/dues-intent via api.send (stable key per amount; link never auto-launched)
+           ├─ Wallet (S7): GET /ledger/me + GET /payments/me; returns via ReturnSheet(pickAddress: shell maps AddressEntry → ReturnAddress)
+           └─ Profile (S8): GET/PATCH /auth/me, addresses, payment history, support; logout → auth.logout
+```
+
+- Shell composition law: `UserShell` is the only multi-feature importer. Props: `api`, `bookingController`, `addresses`, `ordersController`, `profileController`, `isAuthenticated()`, `onLoginRequested(BuildContext) → Future<bool>`, `onLogout`, optional `authListenable`, `razorpayKeyId`. It owns cross-tab pushes (payment history, support, addresses) and the checkout flow, so Home BUY and Orders reorder share one money path. `openAddressesGated` re-checks live auth after register; `openRegister` returns whether the user ended up authenticated.
+- Ledger: shell post-frame + auth-change listener → `GET /ledger/me` → `BookingController.applyLedger(dues, held, depositPaid)`; the server remains the COD authority at commit.
+- Lazy mount: each tab first mounts on visit, then `IndexedStack` retains state (ADR-112). Subscriptions is account-scoped and guest-gated at the shell, so guest mode fires zero authed requests.
+- Money/idempotency: no client-computed payable amounts; one idempotency key per payload until input changes; delivery OTP server-owned (never minted client-side); COD and UPI first-class; UPI settlement only after the order itself reports `paid_upi`.
+- Copy: English v1 (ADR-120). `authStringsHi` / `ordersStringsHi` map keys are stable, values English — a later l10n pass can swap values without touching screens.
+- First run: after an authenticated Home sees `AddrStatus.loaded` + zero addresses, `maybeOfferFirstRun` → `first_run_sheet.dart` (flag `firstrun_done_v1`). Add address opens the normal Addresses screen (three-step form + OSM pin); Not now/completion persist the flag.
+- Shell guards: `PopScope` returns to Home from sub-tabs; body + nav are centered at max 560px; `ApiClient.offline` drives the offline/back-online strips (Retry probes `GET /catalog`).
+- Checkout dismissal: drag disabled; barrier/back while paying ask Stay/Leave; leaving never waits for the pending POST.
+- List limits: Payment History shows the newest 50 and appends an honest cap note (no cursor exists server-side); complaints are unbounded server-side and the Support list builds every returned row (future pagination candidate, no v1 cap).
+- Packaging/release: `flutter build apk --release --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF` → `build/app/outputs/flutter-apk/app-release.apk`; per-ABI `libapp.so` scan confirms prod URL present and `http://localhost:8787` absent (Phase C: 55.8MB, SHA256 `5C372AAA754BE895E5FD3B61F756CC881B116BACB6295CDF0A0D7D490643C4A0`).
+
+## 033 — Donor-parity customer clone (branch 033-donor-parity, ADR-127)
+
+New customer-only app at `apps/user_app_donor`; `apps/user_app` stays in place as
+the fallback. The donor customer screens/flows sit on the proven 032 core and
+controllers; one `ApiClient` (Bearer + X-Device-Id) serves every call.
+
+```
+ShodashaDonorApp (main.dart)
+ ├─ loadOrCreateDeviceId → ApiClient → AuthController(SecureSessionStore)
+ ├─ BookingController / AddressController / OrdersController / ProfileController
+ └─ AuthGate(login-first; bounded restore)
+      └─ DonorShell (5 tabs: Home · My Orders · Subscriptions · Wallet · Profile)
+           ├─ Home: donor top bar → mode cards → featured SKUs → quality card
+           │    ├─ onOrder/instantOrder → shell _openCheckout → 032 quote → order → COD|UPI
+           │    ├─ addresses gate → 032 AddressScreen (server CRUD + OSM pin)
+           │    └─ notifications → real orders + subscriptions
+           ├─ My Orders: 032 OrdersController + donor order card
+           │    └─ Track / Bill only (no customer “deliver”, no fake PIN)
+           ├─ Subscriptions: 032 real plan list/actions (donor title/cards/pills)
+           ├─ Wallet: real GET /ledger/me + receipts/returns (no fake balance/top-up)
+           └─ Profile: real GET/PATCH /auth/me, addresses, support, wallet, logout
+```
+
+- Auth: `AuthController.startOtp` → `POST /auth/otp/start` (`{phone}` → `{resend_after_s, channel}`); `verifyOtp` → `POST /auth/otp/verify` (`{phone, otp_code, device}`); 6 digits. A `channel=firebase` response is an honest configuration error (no Firebase SDK/config). QA path is the server-gated `/auth/demo` sheet; there is no guest path. `AuthGate` restores the stored session with a timeout and falls back to login.
+- Shell: `DonorShell` is the only multi-feature importer. It owns cross-tab pushes (addresses, support, notifications), the shared checkout, the offline strip (Retry probes `GET /catalog`) and the 560px width cap. Tabs lazy-mount; Orders/Profile entry reloads orders; Wallet entry refreshes the ledger.
+- Data law: unchanged from 032 — server quote/total, one idempotency key per payload, UPI settles only when the order reports `paid_upi`, COD is server-confirmed, delivery OTP/PIN server-owned, no client money math.
+- Accepted reuse deviations: Subscriptions, saved addresses and support reuse the real 032 screens with donor copy/cards/pills; the donor's local `Rs 65` plan modal, hardcoded addresses and fake ticket dialogs are not cloned. Notifications derive from real order/subscription state; the donor's third “pump” product is omitted (no backend SKU).
+- Verification: `flutter analyze` clean · `flutter test` **10/10** (6 OTP controller, donor order mapping, login smoke 360dp, five-tab shell smoke 390dp) · `flutter build apk --debug` succeeded. Release signing, physical-device smoke and live-backend smoke remain open.
+
+## 034 — Password auth + 24h delivery code (branch 034-auth-password-delivery-otp, ADR-128)
+
+Customer identity is mobile + password; customer OTP is retired. Delivery codes are
+24h handoff secrets owned by the backend and surfaced only on tracking.
+
+```
+AuthGate (login-first, bounded restore)
+ ├─ DonorLoginScreen
+ │   ├─ Sign in: normalizePhone(raw) → POST /auth/user/login {phone,password,device}
+ │   ├─ Create: name + optional email + mobile + password/confirm
+ │   │    → POST /auth/user/register {name,email,phone,password,device}
+ │   │    ├─ 409 ACCOUNT_EXISTS → sign-in mode, prefill mobile, no claim
+ │   │    ├─ 422 ROLE_RESERVED → staff-number copy
+ │   │    └─ 429 → retry_after_s countdown
+ │   ├─ Forgot password → support reset dialog (no self-service endpoint)
+ │   └─ Demo access → POST /auth/demo (server-gated QA only)
+ ├─ 401/403 on any authed call → ApiClient.onUnauthorized
+ │    → AuthController.forceLogout(sessionExpired:true)
+ │    → one-shot sessionNotice shown on login; no authed retry loop
+ └─ restoreSession failure/timeout → login + notice, never an infinite splash
+```
+
+### Backend auth
+
+```
+POST /v1/auth/user/register   validate → normalize phone/email → PBKDF2 hash
+                              → insert user (never claims an existing row)
+POST /v1/auth/user/login      rate limit → find by phone → verify password
+                              → generic 401 INVALID_CREDENTIALS
+POST /v1/admin/users/{id}/password-reset
+                              require admin → set password → revoke sessions
+                              → audit user.password_reset (no hash/password)
+POST /v1/auth/otp/start|verify → 410 OTP_RETIRED (no body validation)
+```
+
+Passwords: PBKDF2-HMAC-SHA256, 100,000 iterations (Cloudflare WebCrypto maximum;
+the original 600k target cannot run there), 16-byte salt, 32-byte key,
+constant-time compare; unknown phones still verify a dummy hash. Local Python uses
+`hashlib`; Cloudflare uses WebCrypto. Parameters are server constants.
+
+### Delivery-code lifecycle
+
+```
+assign/reassign → mint 6-digit code, expiry NULL (state active)
+dispatch        → code (mint if missing) + expiry = now + 24h in same transaction
+read            → _delivery_view(order_state, stop)
+                  active | expired | locked | unavailable | used | none
+                  detail returns delivery_otp only when active
+reissue         → POST /orders/{id}/delivery-code/reissue
+                  owner + dispatched + pending stop + state in
+                  {expired,locked,unavailable}; max 3/order/24h; audit
+                  errors CODE_ACTIVE | RATE_LIMITED | NOT_FOUND | STATE_CONFLICT
+vendor PoD      → compare code constant-time; wrong ×5 → locked (secret cleared)
+                  expired/unavailable → explicit error; success → stop done,
+                  code/expiry/attempts cleared, order delivered
+PoD replay      → completed stop returns replay:true without a code
+scheduler       → purge expired/terminal secrets, keep expiry tombstone
+```
+
+```
+OrdersController.refreshOrder(id)
+ ├─ success → update row, clear detailFailed/detailOffline/detailServerError
+ └─ failure → keep last row, set detail flags, back off poll
+TrackingScreen
+ ├─ active + expiry → code + “Expires in Xh Ym”; local rollover at timestamp
+ ├─ active, no expiry (assigned) → code + “Rider will ask at delivery.”
+ ├─ expired/locked/unavailable → state copy + Get new code when owner/dispatched
+ ├─ used → “Delivery complete — code used.”
+ ├─ detailFailed → stale banner + Retry (offline/server/normal split)
+ └─ app resume → refresh detail + recompute countdown
+```
+
+The secret is never rendered on order-list cards, never returned in list responses,
+never logged, never put in a URL, and other users get 404 like a missing order.
+`ApiException.isOffline == (code == 'NETWORK')`; 5xx is `isServerError` and must
+not drive the offline strip. Demo login remains server-gated QA, not customer proof.
+
+## 035 — Premium UI states and release foundation (branch 035-premium-ui-states-release, ADR-129)
+
+WS1 added the shared foundation under `apps/user_app_donor`. WS2–WS5 have since
+migrated every donor screen to it; the final wiring is in the last 035 section below.
+Existing screens still import the donor constants facade only where compatibility
+names remain.
+
+```
+core/theme.dart (ONE token source)
+ ├─ ShodashaTheme: palette + radius + minTarget + text/button/input themes
+ │    ├─ money CTA fill = greenDark; structure teal; white-on-teal = tealDeep
+ │    └─ semantic: successDark · warning · link · skeleton · danger
+ ├─ AppSpacing: xs 4 · sm 8 · md 12 · lg 16 · xl 24 · xxl 32
+ ├─ kMaxContentWidth = 560
+ └─ AppMotion: fast 150ms · normal 180ms · slow 220ms
+      └─ AppMotion.reduce(context) → MediaQuery.disableAnimationsOf(context)
+
+core/constants/app_constants.dart (compatibility facade)
+ ├─ AppColors.*      → ShodashaTheme.* (error→danger, primaryDark→tealDeep)
+ └─ AppConstants.*   → AppSpacing / kMaxContentWidth / minTarget / radius
+```
+
+```
+shared/ui/shared_ui.dart (barrel)
+ ├─ AppButton        kind: money|primary|secondary|danger|ghost; busy/disabled; ≥48dp
+ │    └─ money = greenDark, primary = tealDeep, busy blocks taps + keeps full fill
+ ├─ AppIconButton    48dp target, tooltip, selected/badge
+ ├─ AppCard          surface + border + radiusLg + AppSpacing.lg padding; optional onTap
+ ├─ AppSheet         safe-area sheet, title/close, scroll controller, sticky footer
+ │    └─ showAppSheet<T>() → showModalBottomSheet (dismissible/drag policy explicit)
+ ├─ AppStateView     loading | empty | error(isNetwork) | stale | content
+ │    └─ error/stale expose one retry action; no raw status codes cross this boundary
+ ├─ AppBanner        offline | stale | success (icon + text + optional retry)
+ ├─ StatusPill       label + tone neutral|info|success|warning|danger|solar + icon
+ ├─ SectionHeader    title + optional trailing, consistent vertical rhythm
+ └─ AppTextField     label/helper/error/counter, autofill, keyboard/action, focus
+```
+
+- Contract: later workstreams import `core/theme.dart` and `shared/ui/shared_ui.dart`;
+  they do not add screen-local hex, gradients, fonts, pill colours or one-off state
+  widgets. The donor `AppColors`/`AppConstants` names stay only as a temporary facade.
+- Money/state law: green remains money-CTA-only; `AppStateView.error(isNetwork:true)` is
+  the offline branch and `isNetwork:false` is the server branch, matching
+  `ApiException.isOffline == code == 'NETWORK'`; stale content must render `AppBanner`/
+  `AppStateView.stale`, never silently pass as fresh.
+- Motion: use `AppMotion` durations; callers pass reduced-motion-aware values through
+  `AppMotion.reduce(context)`. No new animation package.
+- Verification: `flutter test test/shared_ui_test.dart` **11/11** (buttons disabled/busy/
+  48dp, state variants + retry, banners, pill semantics, token contrast). WS1 did not run
+  the full suite or edit screens/workflows/Android; WS2 starts the migration.
+
+## 035 — WS6–WS8 engineering (branch 035-premium-ui-states-release, ADR-130)
+
+These are behavior/packaging changes under `apps/user_app_donor`; WS2-WS5 screen
+wiring landed after this engineering slice, so see the final 035 section for the
+current screen-level flow.
+
+### Request path and session recovery
+
+```
+send(method, path, authed: true)
+ └─ GET single-flight key = "GET <uri>|" + tokenFingerprint
+      fingerprint = "<length>-<FNV-1a 32-bit hex>"   (raw bearer never in key/log)
+      clearInflight() on login/logout/auth-boundary
+ └─ _sendWithRetry (network/408/429/5xx rules unchanged)
+      └─ HTTP response 401/403
+           ├─ authed && notifyUnauthorized && !refreshed
+           │    └─ await onUnauthorized()            // AuthController.recoverSession
+           │         ├─ one shared in-flight POST /auth/refresh
+           │         │    {refresh_token, device:{id}}     (unauthed, no auto-retry)
+           │         ├─ true  → persist rotated pair, retry original request ONCE
+           │         └─ false → forceLogout(sessionExpired:true); rethrow original
+           └─ refreshed already / hook null / unauthed → rethrow (no loop)
+```
+
+- `refreshSession()` is the only `/auth/refresh` caller. A failed or malformed refresh
+  (including transient network failure) forces logout with the expiry notice: the app
+  never keeps a session it cannot prove.
+- Cold restore: expired access + stored refresh → one `recoverSession()`; success
+  authenticates, failure lands on login with the one-shot expiry notice.
+- `logout()`: increment generation → wipe local store/prefs/state (`isLoggingOut`
+  single-run) → fire-and-forget `POST /auth/logout` with the captured bearer and
+  `notifyUnauthorized:false`, capped at 3s. A slow or failed revoke never blocks exit.
+- Auth-management calls (logout) must not recurse into the refresh hook; everything else
+  authed is eligible for exactly one transparent retry.
+
+### Read cache
+
+```
+catalog({allowStale}) / windows({date,pincode,allowStale})
+ └─ key = "GET <full uri>"          (date + pincode are part of the key)
+      fresh ≤45s       → return cached
+      else fetch       → store on success
+      fetch fails (NETWORK/5xx) && allowStale && cached ≤5min
+                       → return stale value (screen MUST label it)
+      otherwise        → rethrow
+```
+
+No cache for wallet, orders, ledger, delivery code, session, complaints or money calls.
+Default `allowStale: false`, so a failed refresh is never silently masked.
+
+### Packaging and release
+
+- Android: `Shodasha` label; INTERNET + fine/coarse location; optional location/GPS
+  features; `<queries>` for `tel`/`mailto`/`https`/`upi`; debug-only cleartext; no
+  notification/background-location/alarm/contacts/SMS/phone-state permissions.
+- `ci.yml` matrix adds `app: donor` / `apps/user_app_donor` / `Shodasha (customer
+  parity)`; user + vendor legs unchanged.
+- `release.yml` builds user, vendor and donor into one tag with `fail-fast: true`.
+  Donor uses the production Worker URL + Razorpay publishable test key, 2 ABIs
+  (`android-arm,android-arm64`), and fails if the APK exceeds 40,000,000 bytes.
+  Download, existence check, rename, SHA256SUMS, release body and `files:` all include
+  the donor APK. Without owner keystore secrets the published APKs are debug-signed;
+  the workflow says so explicitly.
+- Release base URL guard: `kReleaseMode` + loopback host → `ArgumentError`.
+
+## 035 — WS2–WS5 screen migration + final verification (branch 035-premium-ui-states-release, ADR-131)
+
+All donor screens now import `core/theme.dart` and `shared/ui/shared_ui.dart`; the
+runtime map below is the current shipped flow.
+
+```
+DonorShell (5 tabs: Home / Orders / Plans / Wallet / Profile)
+ ├─ Home (CustomerHomeScreen)
+ │   ├─ shell load: catalog + addresses + ledger (auth only; guest stays zero-network)
+ │   ├─ mode cards: Instant order -> checkout sheet; Subscribe -> Plans tab
+ │   ├─ address bar -> AddressScreen; search -> product detail sheet
+ │   ├─ first-run/no-address states -> Add address CTA
+ │   └─ featured products -> server catalog rates only
+ ├─ Orders (MyOrdersScreen)
+ │   ├─ active / past sections; server status labels in sentence case
+ │   ├─ active: Track order; delivered: View bill + View details
+ │   ├─ rejected/failed: View bill + Get help
+ │   └─ pagination: next_cursor + single-flight loadMore + stale/offline banner
+ ├─ Plans (SubscriptionScreen + plan builder)
+ │   ├─ server-only slots/quote; no fabricated 08:00 fallback
+ │   ├─ plan create is not an online payment: “Plan created / no charge collected”
+ │   └─ dues: launch returned UPI deep link; Copy link + Wallet fallback
+ ├─ Wallet (DonorWalletScreen)
+ │   ├─ dues above hero; real ledger snapshot only (no fake ₹0 flash)
+ │   ├─ stale ledger retained with label; pull-to-refresh
+ │   ├─ receipts + payment history; return action hidden when held = 0
+ │   └─ zero-held / zero-dues / empty states
+ └─ Profile (DonorProfileScreen + support)
+     ├─ identity load skeleton/error/stale; dirty baseline + save guard
+     ├─ support complaint picker, validation, deadline, stale retention
+     └─ expired-window recovery offers Call + WhatsApp
+```
+
+### Auth and session flow
+
+```
+LoginScreen (mobile + password; no customer OTP)
+ ├─ register -> AuthGate; demo door remains server-gated QA
+ ├─ login 401 -> generic wrong-credentials copy (no account oracle)
+ ├─ 429 -> server retry window; offline vs 5xx split
+ └─ AuthGate -> DonorShell
+
+authed 401/403 -> ApiClient once -> AuthController.recoverSession()
+ ├─ POST /auth/refresh (single-flight) -> persist rotated pair -> retry original once
+ └─ failure -> forceLogout(sessionExpired) -> Login + one-shot notice
+
+Logout -> wipe local store/prefs/state first -> fire-and-forget revoke (3s cap)
+```
+
+### Orders / tracking / returns
+
+- `OrdersController.load()` / `loadMore()` keep cached rows on NETWORK/5xx with
+  `isOffline` + stale banner; 4xx shows the error state. Money/ledger/order reads are
+  never cached by `ApiClient`.
+- `TrackingScreen` reads `GET /orders/{id}`: delivery code only when server returns
+  `active`; expired/locked/unavailable/used states have their own copy; reissue is
+  server-authorized; reschedule starts with no slot selected; cancel/reschedule failures
+  get specific snackbars; polling pauses when the app is backgrounded and resumes on
+  foreground.
+- Rating maps `ALREADY_RATED`/409 to already-rated; failures keep the sheet open.
+- Returns validate the refund VPA and map 401/403 to a sign-in recovery action.
+
+### Booking / addresses / subscriptions
+
+- Checkout windows come only from `GET /windows`; a failed/empty response shows
+  retry/empty state, never a fabricated slot. Quote invalidation is explicit; 401/403
+  shows “Sign in again”; no-address shows an Add-address CTA.
+- Map pin fixes keep coordinates on geocode timeout; address serviceability unknown is
+  labelled, not guessed; unsaved edits trigger a dirty guard.
+- Plan builder is capped at 10 jars, submit locks while in flight, and requires a
+  loaded non-error estimate. Creating a plan does not collect money.
+- Dues payment launches the server-returned UPI link; if unavailable, Copy link and
+  Wallet fallback remain.
+
+### Wallet / profile / support
+
+- Wallet renders only `GET /ledger/me`; loading is a skeleton, all-zero is the honest
+  empty state, and a failed refresh keeps stale data labelled.
+- Profile load/edit is generation-guarded; save errors stay inline; sign-out wipes
+  identity.
+- Support uses delivered orders for the complaint picker, validates the deadline,
+  and offers Call + WhatsApp when the response window has expired.
+
+### Verification / release flow
+
+- `dart format --output=none --set-exit-if-changed lib test` → 67 files, 0 changed.
+- `flutter analyze` → No issues found.
+- `flutter test` → **59/59**.
+- `flutter build web --release` → success; Playwright mocked `/v1/**` smoke at
+  **360×800** and **390×844** → login, home, orders, tracking without overflow.
+  (The 360 `Subscriptions` wrap is fixed by the `Plans` nav label.)
+- `flutter build apk --release --target-platform android-arm,android-arm64` with the
+  production Worker URL + Razorpay test key → **38,405,077 bytes**; under the
+  40,000,000-byte gate. Package `com.shodasha.shodasha_donor`, label `Shodasha`;
+  only arm/arm64 engines; manifest has no NFC/phone-state/`POST_NOTIFICATIONS`.
+- Production blocker: `/v1/catalog` is 200 but `/v1/auth/user/login` is 404 until the
+  owner deploys the 034+ Worker. The artifact is debug-signed until owner keystore
+  secrets are wired; no push/merge/deploy happened.
+
+## 036 — P0 money fixes + monthly billing (2026-10-24, ADR-134)
+
+### Billing modes
+
+| Mode | Money at activation | Per delivery | Cancel |
+|---|---|---|---|
+| `per_delivery` | none (COD or UPI) | normal order payment | no prepaid balance |
+| `monthly_prepaid` | `qty × rate × 30` by UPI (water only) | debit `water_bill` from credit; `paid_upi` or `partial_dues` | refund remaining credit to `refund_upi` |
+| `monthly_postpaid` | none | order stays unpaid; dues post on delivery | delivered dues stay owed |
+
+Monthly modes are UPI-only (server rejects COD). The jar deposit is never part of
+the prepaid top-up: it is charged on the first delivery and refunded on pickup.
+
+### Create → top-up → activation
+
+```
+plan_builder_sheet
+ └─ POST /subscriptions {address_id, qty, sku_mix, schedule_type,
+                         billing_mode, payment_method} + Idempotency-Key
+     └─ SubscriptionService.create
+         ├─ validate address/schedule/mode; monthly => payment_method=upi
+         ├─ insert subscriptions (billing_status='pending_payment' for prepaid)
+         └─ return first_cycle_estimate + monthly_topup_paise (qty×rate×30)
+
+POST /payments/subscription-intent {subscription_id} + Idempotency-Key
+ └─ PaymentService.subscription_intent
+     ├─ SubscriptionService.begin_charge
+     │   ├─ same key => replay stored charge (no provider call)
+     │   └─ else reserve subscription_charges row (status pending)
+     ├─ provider.create_intent (first attempt only)
+     └─ attach_charge -> store provider_ref + provider_link
+
+provider webhook -> PaymentService.webhook_ingest
+ └─ find_charge_by_ref -> settle_charge
+     ├─ append subscription_credit_entries(+amount) once per charge
+     └─ billing_status='active' (idempotent; providers may retry)
+```
+
+The app polls `GET /subscriptions` and only treats `billing_status='active'` as
+confirmed. `pending_payment` is rendered as `Awaiting payment`; no delivery is
+generated in that state.
+
+### Dues payment
+
+```
+GET /billing/dues -> PaymentService.get_dues (ledger dues, real value)
+POST /payments/dues-intent + Idempotency-Key
+ └─ reserve_dues_intent (dues_intents row, amount frozen)
+    -> provider.create_intent -> attach_dues_intent(provider_ref, link)
+    -> same key replay returns the stored intent/link, provider not called
+
+webhook -> settle_dues_intent(provider_ref, amount)
+ └─ allocate to open orders: payment row, order paid_upi/partial_dues;
+    orders whose rupees already sit in ledger.dues reduce the ledger once
+ └─ then clear any remaining ledger dues (canceled-order dues included);
+    any over-capture is queued as a refund, never kept
+```
+
+### Subscription scheduler
+
+```
+entry.py scheduled() -> self.env (runtime passes env=None) -> cron_tick(D1Conn(env.DB))
+ └─ run_due_subscriptions
+     ├─ resume holds whose hold_to passed
+     ├─ billing_status='pending_payment' -> low_balance[{reason: payment_pending}]
+     ├─ monthly_prepaid balance < qty×rate -> low_balance[{reason: low_balance}]
+     ├─ otherwise create the delivery order (idempotent per sub/date key)
+     │   ├─ prepaid: append -water_bill credit entry, record synthetic
+     │   │   subcredit:<sub_id>:<order_id> payment, paid_upi/partial_dues
+     │   └─ postpaid: order stays unpaid; dues post when delivery completes
+     └─ return {date, generated, resumed, low_balance}
+```
+
+```
+POD / admin transition -> delivered
+ └─ OrderRepo.transition
+     ├─ read orders.idempotency_key = POST /v1/orders:sub:<sub_id>:<date>
+     ├─ plan must be monthly_postpaid for the same user
+     ├─ post total - paid as ledger dues (event ref order:<id>), once
+     └─ dues then cleared by POST /payments/dues-intent
+```
+
+The rider door is `POST /v1/vendor/stops/{stop_id}/pod` (vendor session +
+delivery code). Regression `tests/test_p0_money.py::test_real_pod_route_posts_postpaid_dues_once`
+drives that real FastAPI route with a seeded vendor, route/stop and delivery code,
+then replays the close: the order reaches `delivered`, dues post once, and the
+replay does not post again.
+
+### Cancel and late capture
+
+```
+POST /subscriptions/{id}/cancel {reason, upi_id}
+ └─ SubscriptionService.cancel
+     ├─ stop future runs; status='paused' + canceled_at (DB CHECK allows only active|paused)
+     ├─ remaining = SUM(subscription_credit_entries.delta)
+     ├─ refunds row (order_id NULL, subscription_id, upi_id) iff remaining > 0
+     ├─ billing_status='canceled', credit_balance_paise=0
+     └─ never clears ledger dues; deposit refund stays tied to pickup
+```
+
+```
+POST /orders/{id}/cancel
+ └─ order_repo.cancel
+     ├─ void open payment links; canceled order is unpayable
+     └─ refund only collected payments (never uncollected dues)
+
+webhook for an already-canceled order
+ └─ mark payment captured + queue pending refund
+     └─ order stays un-paid (never paid_upi/paid_cash)
+```
+
+### New/changed API surface
+
+- `POST /v1/payments/subscription-intent` — `{subscription_id}` + `Idempotency-Key`; returns `{charge, link, provider_ref}`.
+- `POST /v1/payments/dues-intent` — no body; Idempotency-Key required; backed by `dues_intents`.
+- `POST /v1/subscriptions/{sub_id}/cancel` — accepts `{reason, upi_id}`; returns refund fields for the confirmation sheet.
+- `GET /v1/subscriptions` rows now include `billing_mode`, `payment_method`, `billing_status`, `credit_balance_paise`, `low_balance`, `monthly_estimate_paise`.
+- `POST /v1/subscriptions/estimate` now also returns `monthly_topup_paise` (water × 30, deposit excluded).
+- `GET /v1/admin/refunds` now returns `upi_id` and `subscription_id`.
+
+### Closeout — QA cleanup + demo-door shutdown (owner-run, 2026-10-24)
+
+Two reviewed SQL scripts closed the production-only leftovers on 2026-10-24
+after `wrangler login`. The pre-flight caught a one-character allowlist typo
+(`1f28f492…` vs the real `1f28b492…`); the corrected script was dry-run against
+the fresh 18-user production backup before remote execution.
+
+```
+workers/api/scripts/cleanup_qa_20261024.sql
+  └─ explicit 9-id allowlist (never a name/phone pattern)
+     ├─ pre-flight: every id must have role='user'
+     ├─ delete subscription/order children, then orders/subscriptions
+     ├─ delete ledger/address/session/phone-keyed rows
+     ├─ delete the users only when role='user'
+     └─ verify remaining_qa=0, users_total=9, demo_user=1
+
+workers/api/scripts/disable_demo_login.sql
+  ├─ config.demo_login_enabled='0'
+  ├─ DELETE FROM demo_codes
+  └─ verify flag=0, demo_codes=0
+```
+
+Executed runbook (in `workers/api`):
+
+```
+npx wrangler d1 export shodasha --remote --output qa-backup-20261024.sql
+npx wrangler d1 execute shodasha --remote --file scripts/cleanup_qa_20261024.sql
+npx wrangler d1 execute shodasha --remote --file scripts/disable_demo_login.sql
+```
+
+Result: users **18 → 9**, QA ids **0**, `demo-user-1`/`demo-vendor-1`/admin
+intact, the postpaid QA order deleted, `demo_login_enabled=0`, `demo_codes=0`,
+`foreign_key_check` **0 violations**, live demo login **401**, catalog **200**.
+Backup: `%TEMP%\opencode\shodasha_pre_closeout_20261024.sql`, SHA256
+`A7C99F21C52C4CD3228A608C7A8E5C78E57E01FF7F4AFEB9871A632BE50A120D`.
+
+Both scripts are idempotent. The cleanup script keeps `demo-user-1`,
+`demo-vendor-1`, the admin, and every pre-existing customer; the demo accounts
+remain available for local QA after the production door is closed.
+
+### Donor app flow
+
+- Plan builder: schedule chips → billing chips (`Pay for each delivery` / `Monthly prepaid` / `Monthly bill`) → payment chips (COD disabled for monthly) → server estimate. Prepaid shows the monthly top-up plus first-delivery deposit; the CTA says the top-up is paid by UPI now.
+- After create, a prepaid plan immediately opens the top-up dialog: creates/replays the intent, launches/copies the UPI link, polls up to 5×3s, and never claims success while the server says `pending_payment`.
+- Plan card: `Awaiting payment` pill, prepaid balance row, low-balance warning, `Add monthly top-up`. Skip is hidden while awaiting payment.
+- Cancel sheet: reason + UPI (helper says "only if a refund is due after pickup"); result shows real refund amounts and `No refund is due because no deliveries were prepaid.` when zero.
+
+### Customer-flow hardening — session, replay, COD fallback, money guards (2026-10-25, ADR-138)
+
+```
+Cold start / 401 recovery
+  AuthGate._boot
+    └─ AuthController.restoreSession  (20s bound, > ApiClient 12s refresh)
+         └─ _restoreSession → read stored access/refresh
+              ├─ no refresh token → forceLogout(sessionExpired) → login
+              └─ refresh needed → ApiClient.refreshSession
+                   ├─ success → persist rotated pair → authenticated
+                   ├─ ApiException 401/403 → forceLogout(sessionExpired) → login
+                   └─ NETWORK / timeout / 429 / 5xx / storage
+                        └─ keep BOTH stored tokens, not authenticated
+                           (next 401 or cold start may rotate; no forced login)
+```
+
+```
+Checkout create/pay (once)
+  _CheckoutSheet._pay
+    ├─ guard: _placed != null → no-op (never create twice)
+    ├─ guard: c.holdBlocked → Pay disabled (server blocks all new orders)
+    └─ placeCheckout
+         ├─ createOrder(+Idempotency-Key)
+         │    └─ 409 IDEMPOTENT_REPLAY → reuse error.details.order
+         │         (same key; never surface the 409 as a retry loop)
+         ├─ UPI → upiIntent(same key)
+         │    ├─ success → gateway/server link → poll GET /orders/{id}
+         │    └─ failure → CheckoutResult.attention (order stays placed)
+         │         └─ _Recovery.created
+         │              ├─ Retry payment  → intent only, same key
+         │              ├─ Use Cash on Delivery
+         │              │    └─ POST /orders/{id}/switch-to-cod
+         │              │         └─ asCod() → onDone (cash due at door)
+         │              └─ Check Orders  → pending confirmation sheet
+         └─ slot change → c.refreshIdempotencyKey()
+              (window_start is part of the create payload)
+```
+
+```
+Server COD switch (in place, no cancel/re-order)
+  POST /v1/orders/{id}/switch-to-cod  (owner/user role)
+    └─ PaymentService.switch_to_cod
+         ├─ owned order? no → 404
+         ├─ already COD → cod_confirm (replay)
+         ├─ total > 200000 or ledger dues > 200000 → COD_NOT_ALLOWED 422
+         └─ PaymentRepo.switch_to_cod  [WRITE_LOCK]
+              ├─ cancelled/rejected → STATE_CONFLICT
+              ├─ order paid_upi/paid_cash/partial_dues → STATE_CONFLICT
+              ├─ any payments.status paid/partial → STATE_CONFLICT
+              ├─ open link_sent payments → failed
+              ├─ orders.payment_mode='cod', payment_status='unpaid'
+              └─ cod_confirm → ledger dues posted once (idempotent ref)
+```
+
+```
+Create-time money guards (server, ADR-138)
+  OrderService.create
+    ├─ payment_mode ∈ {upi, cod} (normalized; else VALIDATION)
+    ├─ e <= ledger.held (else VALIDATION: no waived deposit for jars not held)
+    ├─ held > 3 → HOLD_BLOCKED 422 (all modes)
+    ├─ COD total > Rs 2,000 → COD_NOT_ALLOWED 422
+    └─ COD carried dues > Rs 2,000 → COD_NOT_ALLOWED 422
+  SubscriptionService.create / SubCreateIn / SubEstimateIn
+    └─ qty <= 10 (else VALIDATION / 422)
+```
+
+New/changed API surface:
+- `POST /v1/orders/{order_id}/switch-to-cod` — no body, owner from session; converts an unpaid UPI order to COD in place, voids open links, posts dues once, refuses captured money.
+- `POST /v1/orders` now rejects non-`upi`/`cod` modes, `e > held`, COD totals/dues over Rs 2,000.
+- `POST /v1/subscriptions` and `/v1/subscriptions/estimate` now cap `qty` at 10.
+- `ApiClient.switchOrderToCod(id)`; `CheckoutResult.asCod()` / `payOnDelivery`; create `IDEMPOTENT_REPLAY` is consumed as the original order.
+
+## Phase 1A - P0 correctness changes (staging verified 2026-10-26)
+
+Spec: `Feature_docs/performance/2026-10-25-phase1-p0-correctness-spec.md`; results: `Feature_docs/performance/2026-10-25-phase1-results.md`. The call shapes below are the implemented behavior. Migration 029 is applied to `shodasha-staging` (28 migrations); the Worker is deployed with cron disabled, and the synthetic atomicity smoke passed (§5.1/§10 of the results doc). Production remains untouched.
+
+```
+Money mutations — one D1 batch() each, first statement is a SQL CAS
+  OrderRepo.cancel_settle
+    ├─ UPDATE orders ... WHERE id=? AND state=?        (mutation_token)
+    ├─ claim payments (refund_id IS NULL) + fail open links
+    ├─ stop-code clear + cancel event + deposit reversal (token-guarded)
+    ├─ restore prepaid credit rows, then recompute balance (token-guarded)
+    └─ insert cancel refund from SUM(payments.amount WHERE refund_id=token)
+  PaymentRepo.apply_webhook
+    ├─ UPDATE payments ... WHERE id=? AND status!='paid'  (settlement_token)
+    ├─ claim refund path (refund_id) + INSERT refund (UNIQUE payment_id)
+    └─ mark order paid OR refund if cancelled/rejected/COD/already paid
+  PaymentRepo.settle_dues_intent
+    ├─ UPDATE dues_intents ... WHERE id=? AND status!='paid'
+    ├─ allocate per open order (guarded) + update order + fail old link
+    ├─ clear posted dues
+    └─ refund remainder derived in SQL (intent - allocated - ledger)
+  OrderRepo.transition
+    └─ UPDATE orders WHERE state=? + event + postpaid dues (token-guarded)
+  SubscriptionService.cancel
+    ├─ UPDATE subscriptions WHERE canceled_at IS NULL
+    ├─ returns/credit/refund rows first
+    └─ zero credit_balance_paise last
+  PaymentRepo.switch_to_cod
+    └─ CAS to COD only when no paid/partial payment; fail open links
+```
+
+```
+Cron (scheduler.run_due_subscriptions)
+  process_due(limit=60, ORDER BY next_run,id, retry filter)
+    ├─ per descriptor: OrderService.create(key='sub:<id>:<date>')
+    ├─ prepaid: settle_prepaid_order (idempotent debit)
+    ├─ success → advance_due CAS (next_run=expected)
+    └─ failure → record_due_failure (attempts++, retry_at 15m→24h)
+  purge chunks = 90 bound params
+```
+
+New schema (migration 029, additive): `orders.mutation_token`, `payments.settlement_token`, `payments.refund_id`, `dues_intents.settlement_token`, `subscriptions.due_attempts/due_last_error/due_retry_at`, `delivery_code_reissues(order_id, seq, created_at)`, unique open dues intent per user, seven hot-path indexes plus the reissue and unique-open-intent indexes.
+
+Webhook response shape: `POST /v1/webhooks/upi` strips `settlement_token`, `mutation_token`, and `refund_id` from payment/dues payloads; a dues duplicate is returned as top-level `duplicate` (not nested in `dues_intent`); `_refund_queued` is preserved. A cancel response keeps the cancel refund (`payment_id=order_id`); a late-capture refund is a separate row in the admin refunds list.
+
+## Phase 1B - read-path N+1 batching (staging verified, ADR-142/143)
+
+```
+VendorService.today_route
+  ├─ route + stop rows (schema probes cached after the first call)
+  ├─ LedgerRepo.held_for_customers(stop customer_ids)   → 1 SELECT ... IN (chunk 90)
+  ├─ PaymentRepo.paid_sums_for_orders(stop order_ids)   → 1 GROUP BY ... IN (chunk 90)
+  └─ per-stop overlay reads the two maps (hold_blocked, paid_sum)
+
+PaymentService.get_dues
+  ├─ ledger.get(user) + open-orders SELECT (unchanged)
+  ├─ PaymentRepo.paid_sums_for_orders(order_ids)        → 1 GROUP BY ... IN (chunk 90)
+  ├─ PaymentRepo.dues_posted_for_orders(order_ids)      → 1 DISTINCT ... IN (chunk 90)
+  └─ lines / order_due / dues computed from the maps
+```
+
+Helpers dedupe and drop empty ids; an empty list issues no query. Chunk = 90 (D1's 100-parameter cap). Single-order `paid_sum_for_order`/`_dues_posted` stay for `get_invoice` and `cod_confirm`. No migration, no `batch()` for reads, no write-path change. Measured on seeded SQLite: route **6 queries / 6 roundtrips** for 40 stops (was 85 statements at the endpoint), dues **4 / 4** for 40 open orders (was 15). Staging deployment and the atomicity smoke are verified (ADR-143); read-path latency is not staging-measured because the Free-plan 10 ms CPU ceiling kills the A/B/C harness.
+
+## Phase 2 - P1 hot paths (implemented locally 2026-10-26, ADR-144)
+
+```
+GET /v1/orders/{id}  (OrderService.detail)
+  ├─ OrderRepo.find_owned(order_id, user_id)          → owner-scoped row (404 if none)
+  ├─ OrderRepo.events(order_id)                       → event list
+  ├─ OrderRepo.stop_delivery_state(order_id)          → stop_columns() cached probe
+  └─ assigned/dispatched only: ONE join
+       stops s JOIN routes r JOIN users u LEFT JOIN vendor_profile p
+       + COUNT(*) subquery for stops_ahead            → rider + stops_ahead
+  Worst case 4 statements / 4 round trips (was 8). Endpoint adds the 1 auth
+  statement: staging 5 warm / 6 cold.
+
+Schema cache (app/db_schema.py)
+  stop_columns(conn) / order_columns(conn)
+    ├─ first call: SELECT name FROM pragma_table_info('<literal>')
+    ├─ success → frozenset cached for the isolate lifetime
+    └─ failure → empty set returned, retried on the next call
+  Consumers: OrderRepo.stop_delivery_state, VendorService._has_pod_cols /
+  _pod_lifecycle / _stop_field_cols / pod_complete.
+  SubscriptionService._ensure_billing_mode: probe → ALTER missing 026/028
+  columns → re-probe once → `_billing_ready` (0 queries after that).
+
+GET /v1/admin/metrics, /v1/admin/metrics/overview
+  ├─ key "metrics" or "overview:<days>" (days 1-90)
+  ├─ hit within 60 s → return the cached dict (0 aggregate statements; the
+  │   endpoint still runs the 1 auth statement — staging 1/1/2 rows)
+  └─ miss → build aggregates, prune expired keys, store
+  Response: Cache-Control: private, no-store (no ETag/CDN header).
+
+GET /v1/admin/config, /v1/admin/zones
+  └─ cached(..., private=True) → private, no-store
+
+GET /v1/windows?date=
+  ├─ past date → clamp to today
+  ├─ date > today+30 → 400 VALIDATION
+  └─ _next_serviceable_day → public 300 s cache
+
+POST /v1/auth/user/login
+  ├─ client_ip(request): CF-Connecting-IP, else socket peer
+  ├─ _limit_checks([phone 5/900, ip 100/3600])
+  │    ├─ L1 per-isolate check (instant deny)
+  │    └─ one D1 batch: multi-row UPSERT + SELECT ... IN   (1 round trip)
+  └─ user lookup + PBKDF2 verify (unchanged)
+  Anon throttle: same client_ip key; map bounded at 2,048 keys.
+
+Flutter public reads (ApiClient)
+  catalog()/windows()
+    ├─ fresh hit (≤300 s) → return cached map
+    ├─ miss → send(maxAttempts: 1)
+    ├─ success → store (prune >20 min)
+    └─ 429/5xx/transport + allowStale + entry ≤20 min → return stale
+  GET 429 never retries (cacheable or not).
+  Auth boundary: clearInflight() + clearReadCache().
+  TrackingScreen: after await refreshOrder, if (!mounted) return before
+  startTracking.
+```
+
+No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Production release is cumulative: back up `shodasha`, apply Phase 1A migration `029`, deploy Phase 1A/1B/2 code, then smoke — pending a separate explicit owner gate. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
+
+## Phase 3 - A/B validation (Phase 3F harness + local evidence; Phase 3P skipped on Free, ADR-148)
+
+```
+Phase 3F (Free, current)
+  bench_phase0.py -> local uvicorn (127.0.0.1:8787) -> seeded SQLite
+  phase3-a / phase3-b: 15% public / 70% authed / 5% session / 5% vendor / 5% admin
+  compressed timeline (0.02): warmup -> steady -> burst -> recovery -> rampdown
+  write probe -> local disposable DB (127.0.0.1:8788), COD only:
+    quote -> create -> cancel/reschedule, probe-owned orders
+  guards: loopback/staging only; --allow-writes; --allow-stress; provider paths refused
+  results: JSON schema v2 + Markdown, counted vs all phases, expected 4xx separated
+
+Phase 3P (Paid) - SKIPPED 2026-10-26 (ADR-148)
+  owner rejected Workers Paid; no A/B/write/cron/soak/cost estimate
+  login probe attempt (2026-10-26):
+    prep_phase3_logins.py -> 90 synthetic users -> shodasha-staging
+    bench_phase0.py --profile login -> 20 requests -> abort at 50% 5xx
+    3x200, 7x409 (shared-device bug; fixed to per-credential IDs),
+    3x503 exceededCpu at 10 ms, 7x500 ErrnoError, p99 3,381.81 ms
+    single fresh-device login -> 200 (route works, CPU does not fit)
+  staging restored: 6242eebe, OBS_LOG_SAMPLE_RATE=0.1, crons [], /health 200
+  retained: 90 synthetic users (no credentials), pre-run backup outside repo
+
+  The original Paid timeline, retained for a future paid decision only:
+  harness -> water-staging -> shodasha-staging
+  timeline: 2m warm-up 25% -> 10m steady avg -> 5m burst 2.5x
+            -> 10m recovery avg -> 3m ramp-down
+  A: 2.78 avg / 6.94 peak rps (50 concurrent)
+  B: 5.56 avg / 13.89 peak rps (100 concurrent)
+
+Separate probes (Paid only):
+  login: 90 requests / 10 min (100/hr IP ceiling)
+  writes: 1.11/s split 0.37 create / 0.37 cancel / 0.37 reschedule,
+          COD only, probe-owned pool, no provider path
+  cron: 60/tick; 500/1,000 drain; zero missed; next_run only after create
+  soak: B average, 30 min
+
+Evidence:
+  harness JSON/MD -> p50/p95/p99, 5xx, bytes
+  wrangler tail JSON -> db_queries/db_roundtrips/rows (sanitized, raw deleted)
+  Cloudflare dashboard -> CPU p50/p95/p99 for the run window
+  GO/NO-GO: SLO gate with 20% headroom; 5xx < 0.5%; cron zero missed
+```
+
+Phase 3F local results (2026-10-26): `phase3-a` 108 counted / 115 all, 0 errors/5xx, p99 64.5 ms; `phase3-b` 217 / 230, 0 errors/5xx, p99 24.2 ms; write probe 2 quotes / 2 creates / 2 cancels / 1 reschedule, all expected 2xx, p99 41.1 ms. The write probe must run on a fresh DB seeded at the current migrations; the stale migration-028 DB fails cancel with `no such column: mutation_token`. These are local SQLite numbers, not Workers CPU or 1,000-user certification. The staging correctness smoke passed (7 routes, 0 5xx); all Paid probes are **skipped** (ADR-148). Production is never a target.
+
+Phase 3P stop (2026-10-26, ADR-148): the owner rejected Workers Paid. The login probe aborted at 20 requests with 50% 5xx (3×200, 7×409, 3×503 `exceededCpu` at 10 ms, 7×500 `ErrnoError`, p99 3,381.81 ms). The 409s were a shared-device harness bug, fixed to one device per credential; the 503/500s are the Free CPU ceiling. G3 independently measured auth CPU p99 1,269.746 ms vs ≤8 ms. No A/B, write, cron, or soak ran. 1,000-user A/B certification is out of scope on Free. Record: `Feature_docs/performance/results/phase3p-skipped-2026-10-26.md`.
+
+## Free-tier gate execution (2026-10-26, ADR-146/147)
+
+```
+Owner approval G0/G6 + "start all" authorization
+  |
+  +-- G1 production (write boundary crossed after backup)
+  |     backup shodasha -> SHA256 + Time Travel bookmark
+  |     migration 029 (additive, 19 statements, 28 records)
+  |     deploy Phase 1A/1B/2 -> f3778132
+  |
+  +-- G2 read-only smoke (production)
+  |     20 x GET /health over ~10.5 min -> 18x200, 1x503/1102, 1x500
+  |     GET /v1/catalog 200; GET /v1/windows 200
+  |     -> FAIL -> rollback to 511879dc (code only, no D1 restore)
+  |     -> /health + catalog + windows re-verified 200
+  |
+  +-- G3 auth probe (staging, cron off)
+  |     1 registration + 5 logins -> 6x200, no 1102
+  |     CPU p99 1,269.746 ms vs <=8 ms -> FAIL
+  |     synthetic user + credentials deleted
+  |
+  +-- G4 cron probe (staging, temporary 1-min cron)
+  |     0-due tick: backlog 0, processed 0, db_roundtrips=19, 5,896 ms
+  |     3-due tick: backlog 3, processed 3, created 3, failed 0,
+  |                 db_roundtrips=46 (gate <=45), 11,497 ms
+  |     next tick: 0 due; orders 10,006 -> 10,009; zero missed; no 1102
+  |     -> FAIL (46 > 45)
+  |     temporary cron removed; staging 47dd50cc, 0 schedules, /health 200
+  |
+  +-- G5 not started (no pilot possible; owner email unnamed)
+  |
+  +-- G7 rollback exercised -> PASS
+
+Decision: NO-GO on Free
+  read-only canary: blocked by G2
+  transactional pilot: blocked by G3 + G4
+  next: Free-only workstream; Phase 3P skipped (ADR-148); C remains stress-only
+```
+
+Measured limits: Free CPU is 10 ms/request and per cron; the login path needs ~1.27 s p99. The cron pilot threshold is 45 `db_roundtrips`; the 3-due tick needs 46. `db_queries` (49) is a statement diagnostic, not the cap metric. GraphQL CPU values are microseconds; `wrangler tail` `cpuTime` is milliseconds.
+
+## 035 — Merge to main, three side-by-side APKs (2026-10-26, ADR-149)
+
+`main` now carries the 035 branch. The CI matrix verifies user + vendor + donor on every
+branch/PR. A push to `main` runs `release.yml`, which builds three release APKs under one
+tag — user (all ABIs), vendor (all ABIs), donor (arm + arm64 with a 40,000,000-byte gate) —
+and publishes `shodasha-user`, `shodasha-vendor`, `shodasha-donor`, and `SHA256SUMS.txt`.
+The donor calls `POST /v1/orders/{id}/switch-to-cod` (ADR-138); production `511879dc`
+predates that endpoint, so the UPI-failure→COD fallback returns 404 until the backend is
+deployed. Merging locally does not trigger the workflow; only a push to `main` does.
 
 ## Update Protocol (MANDATORY)
 

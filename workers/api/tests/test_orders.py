@@ -14,7 +14,7 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from app.core.errors import AppError  # noqa: E402
+from app.core.errors import AppError, RateLimitedError, ValidationError  # noqa: E402
 from app.db import get_connection  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 from app.repositories.ledger_repo import HoldNegativeError, LedgerRepo  # noqa: E402
@@ -25,6 +25,9 @@ from app.repositories.order_repo import (  # noqa: E402
 )
 from app.services import pricing  # noqa: E402
 from app.services.order_service import (  # noqa: E402
+    COD_MAX_PAISE,
+    CodeActiveError,
+    CodNotAllowedError,
     HoldBlockedError,
     IdempotentReplayError,
     OrderService,
@@ -35,6 +38,13 @@ from app.services.order_service import (  # noqa: E402
 
 MIGRATION = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 MIGRATION_005 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
+MIGRATION_010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
+MIGRATION_015 = (API_ROOT / "src" / "app" / "db" / "migrations" / "015_pod_otp.sql").read_text()
+MIGRATION_019 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
+MIGRATION_022 = (API_ROOT / "src" / "app" / "db" / "migrations" / "022_vendor_leaves_and_sub_cancel.sql").read_text()
+MIGRATION_027 = (API_ROOT / "src" / "app" / "db" / "migrations" / "027_pod_otp_lifecycle.sql").read_text()
+MIGRATION_028 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+MIGRATION_029 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 
 WINDOW = "2026-10-01T08:00:00+00:00"
 
@@ -50,6 +60,13 @@ def _conn():
     c = get_connection(":memory:")
     c.executescript(MIGRATION)
     c.executescript(MIGRATION_005)  # cancel_settle refunds paid_sum from payments
+    c.executescript(MIGRATION_010)  # delivery-code reissue audit rows
+    c.executescript(MIGRATION_015)
+    c.executescript(MIGRATION_019)
+    c.executescript(MIGRATION_022)
+    c.executescript(MIGRATION_027)
+    c.executescript(MIGRATION_028)
+    c.executescript(MIGRATION_029)
     return c
 
 
@@ -61,7 +78,7 @@ def _svc(c) -> OrderService:
     return OrderService(OrderRepo(_w(c)), LedgerRepo(_w(c)), pricing, _rates())
 
 
-def _payload(items=None, e=1, **over) -> dict:
+def _payload(items=None, e=0, **over) -> dict:
     items = items if items is not None else [{"sku": "refill", "qty": 2}]
     q = pricing.compute_quote(items, e, _rates(), address_id="a1", window_start=WINDOW,
                               rate_version=pricing.RATE_VERSION)
@@ -130,6 +147,25 @@ async def test_over_limit_and_hold_blocked_422():
     with pytest.raises(HoldBlockedError) as e2:
         await s.create("u2", _payload(), "k2")
     assert e2.value.code == "HOLD_BLOCKED" and e2.value.status_code == 422
+
+
+async def test_returned_empties_cannot_exceed_ledger_held():
+    c = _conn()
+    with pytest.raises(ValidationError) as e:
+        await _svc(c).create(
+            "u1", _payload(items=[{"sku": "container", "qty": 2}], e=2), "k1")
+    assert e.value.code == "VALIDATION" and e.value.details["held"] == 0
+
+
+async def test_cod_refused_when_dues_exceed_cap_but_upi_still_allowed():
+    c = _conn()
+    await LedgerRepo(_w(c)).apply_event(
+        "u1", d_dues=COD_MAX_PAISE + 1, ref="test:dues", reason="dues over cap")
+    with pytest.raises(CodNotAllowedError) as e:
+        await _svc(c).create("u1", _payload(), "k1")
+    assert e.value.code == "COD_NOT_ALLOWED" and e.value.status_code == 422
+    upi = await _svc(c).create("u1", _payload(payment_mode="upi"), "k2")
+    assert upi["payment_mode"] == "upi"
 
 
 async def test_idempotent_replay_returns_same_order():
@@ -312,8 +348,6 @@ def test_router_create_replay_and_cross_user():
 
 # F1: delivery OTP rides order detail for the owner while a stop is active.
 async def test_detail_delivery_otp_visibility_matrix():
-    from app.services.vendor_service import pod_otp
-
     c = _conn()
     now = datetime.now(timezone.utc).isoformat()
     day = "2026-10-03"
@@ -328,14 +362,149 @@ async def test_detail_delivery_otp_visibility_matrix():
     c.execute("INSERT INTO routes(id, date, vendor_id, zone, status) VALUES ('rd', ?, 'v1', 'z1', 'open')", (day,))
     c.execute(
         "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
-        " empties_exp, version, status) VALUES ('sd', 'rd', 'od', 'u1', 0, 2, 1, 1, 'pending')")
+        " empties_exp, version, status, pod_otp, pod_otp_expires_at)"
+        " VALUES ('sd', 'rd', 'od', 'u1', 0, 2, 1, 1, 'pending', '482910', ?)",
+        ((datetime.now(timezone.utc) + timedelta(hours=12)).isoformat(),))
     c.commit()
     s = _svc(c)
-    assert (await s.detail("u1", "od"))["delivery_otp"] == pod_otp("od", day)
+    detail = await s.detail("u1", "od")
+    assert detail["delivery_otp"] == "482910"
+    assert detail["delivery_otp_state"] == "active"
+    assert detail["delivery_otp_expires_at"]
     assert (await s.detail("u1", "op"))["delivery_otp"] is None  # no stop yet
-    assert (await s.detail("u1", "of"))["delivery_otp"] is None  # terminal
+    delivered = await s.detail("u1", "of")
+    assert delivered["delivery_otp"] is None
+    assert delivered["delivery_otp_state"] == "used"
     with pytest.raises(AppError):  # not-yours == not-found, no OTP oracle
         await s.detail("u9", "od")
+
+
+def _seed_delivery_order(
+    c, *, oid="ox", sid="sx", order_state="dispatched",
+    stop_status="pending", code="482910", expiry=None, attempts=0,
+):
+    now = datetime.now(timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill,"
+        " deposit_due, cap_charge, total, payment_mode, state, window_start,"
+        " idempotency_key, created_at)"
+        " VALUES (?, 'u1', 'a1', '[]', 2, 1, 5600, 0, 0, 5600, 'cod', ?, ?,"
+        " 'seed:delivery', ?)",
+        (oid, order_state, WINDOW, now),
+    )
+    c.execute(
+        "INSERT INTO routes(id, date, vendor_id, zone, status)"
+        " VALUES ('rdx', '2026-10-03', 'v1', 'z1', 'open')"
+    )
+    c.execute(
+        "INSERT INTO stops(id, route_id, order_id, customer_id, seq, fulls_exp,"
+        " empties_exp, version, status, pod_otp, pod_otp_expires_at, pod_attempts)"
+        " VALUES (?, 'rdx', ?, 'u1', 0, 2, 1, 1, ?, ?, ?, ?)",
+        (sid, oid, stop_status, code, expiry, attempts),
+    )
+    c.commit()
+
+
+async def test_delivery_code_expired_reissue_active_and_limit():
+    import datetime as dt
+
+    c = _conn()
+    past = (datetime.now(timezone.utc) - dt.timedelta(minutes=1)).isoformat()
+    _seed_delivery_order(c, expiry=past)
+    s = _svc(c)
+
+    detail = await s.detail("u1", "ox")
+    assert detail["delivery_otp"] is None
+    assert detail["delivery_otp_state"] == "expired"
+    assert detail["delivery_otp_expires_at"] == past
+    assert detail["delivery_otp_reissue_available"] is True
+
+    out = await s.reissue_delivery_code("u1", "ox")
+    assert out["reissued"] is True
+    assert out["delivery_otp_state"] == "active"
+    assert len(out["delivery_otp"]) == 6 and out["delivery_otp"] != "482910"
+    assert out["delivery_otp_expires_at"] > datetime.now(timezone.utc).isoformat()
+    row = c.execute(
+        "SELECT pod_otp, pod_attempts FROM stops WHERE id = 'sx'"
+    ).fetchone()
+    assert row["pod_otp"] == out["delivery_otp"] and row["pod_attempts"] == 0
+
+    # An active code cannot be replaced.
+    with pytest.raises(CodeActiveError) as active:
+        await s.reissue_delivery_code("u1", "ox")
+    assert (active.value.code, active.value.status_code) == ("CODE_ACTIVE", 409)
+
+    # Two more successful reissues, then the 3/24h cap.
+    for _ in range(2):
+        c.execute("UPDATE stops SET pod_otp_expires_at = ? WHERE id = 'sx'", (past,))
+        c.commit()
+        assert (await s.reissue_delivery_code("u1", "ox"))["reissued"] is True
+    c.execute("UPDATE stops SET pod_otp_expires_at = ? WHERE id = 'sx'", (past,))
+    c.commit()
+    with pytest.raises(RateLimitedError) as capped:
+        await s.reissue_delivery_code("u1", "ox")
+    assert capped.value.status_code == 429
+    assert capped.value.details["retry_after_s"] == 86400
+    audits = c.execute(
+        "SELECT action, entity, entity_id FROM audit_log"
+        " WHERE action = 'order.delivery_code_reissue'"
+    ).fetchall()
+    assert len(audits) == 3
+    assert all(r["entity"] == "orders" and r["entity_id"] == "ox" for r in audits)
+
+
+async def test_reissue_guards_and_cancel_clears_code():
+    c = _conn()
+    future = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+    _seed_delivery_order(c, expiry=future)
+    s = _svc(c)
+
+    with pytest.raises(AppError) as other:
+        await s.reissue_delivery_code("u2", "ox")
+    assert other.value.status_code == 404
+
+    c.execute("UPDATE stops SET status = 'failed' WHERE id = 'sx'")
+    c.commit()
+    with pytest.raises(AppError) as no_stop:
+        await s.reissue_delivery_code("u1", "ox")
+    assert no_stop.value.status_code == 404
+
+    c.execute(
+        "UPDATE stops SET status = 'pending', pod_otp = '482910',"
+        " pod_otp_expires_at = ?, pod_attempts = 0 WHERE id = 'sx'",
+        (future,),
+    )
+    c.commit()
+    await OrderRepo(_w(c)).cancel_settle("ox", {"id": "admin-1", "role": "admin"})
+    row = c.execute(
+        "SELECT pod_otp, pod_otp_expires_at, pod_attempts FROM stops WHERE id = 'sx'"
+    ).fetchone()
+    assert row["pod_otp"] is None and row["pod_otp_expires_at"] is None
+    assert row["pod_attempts"] == 0
+
+
+async def test_dispatch_arms_window_and_mints_missing_code():
+    import datetime as dt
+
+    from app.services.dispatch_service import set_delivery_window
+
+    c = _conn()
+    _seed_delivery_order(c, order_state="assigned", code="482910")
+    expiry = await set_delivery_window(_w(c), "sx")
+    assert expiry is not None
+    parsed = dt.datetime.fromisoformat(expiry)
+    assert parsed > datetime.now(timezone.utc) + dt.timedelta(hours=23)
+    row = c.execute(
+        "SELECT pod_otp, pod_otp_expires_at, pod_attempts FROM stops WHERE id = 'sx'"
+    ).fetchone()
+    assert row["pod_otp"] == "482910" and row["pod_otp_expires_at"] == expiry
+    assert row["pod_attempts"] == 0
+
+    c.execute("UPDATE stops SET pod_otp = NULL, pod_otp_expires_at = NULL WHERE id = 'sx'")
+    c.commit()
+    await set_delivery_window(_w(c), "sx")
+    row = c.execute("SELECT pod_otp FROM stops WHERE id = 'sx'").fetchone()
+    assert row["pod_otp"] and len(row["pod_otp"]) == 6
 
 
 def test_router_list_pagination_cancel_reschedule():

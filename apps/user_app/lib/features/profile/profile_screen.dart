@@ -1,776 +1,423 @@
-// F5 — Profile tab: identity + ledger card + return-jar + language + logout.
-// ignore_for_file: prefer_initializing_formals
-// WHY: public ctor param `api:` is the API (same pattern as F2 auth);
-// private initializing formals are unusable from other libraries.
-// Contract §4.1 (/auth/me, PATCH /auth/me), §4.6 (GET /ledger/me read-only
-// held/deposit/dues; POST /returns → 10-working-day SLA + request id).
-// Suspended users: read + pay-dues/appeal only (contract §4.1 restrictions
-// surface as a banner; booking actions live on Home and stay gated).
-// Language: Hindi default, English fallback — maps merge so no key is blank.
+// S8 — Profile tab: identity card, edit-profile sheet, logout confirm, and
+// navigation entries. Support lives in this slice too; addresses, payments
+// and returns are other slices, so they arrive as nullable callbacks.
+//
+// States.md coverage: guest/empty (log-in CTA), loading (identity skeleton),
+// error (message + retry), loaded (identity), submitting (edit sheet),
+// validation error (inline), success (snackbar), destructive action
+// (logout confirmation), unauthorized (session-expired copy).
+//
+// HARD LAWS: no wallet/ledger/payments/returns UI or money here (S7 owns
+// them); green is never used (logout is destructive, not a money CTA);
+// every tappable row is >= 48dp; blue is not used for any filled surface.
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
-import 'payment_history_screen.dart';
+import '../support/support_screen.dart';
+import 'edit_profile_sheet.dart';
+import 'profile_controller.dart';
 
-const Map<String, String> profileStringsHi = {
-  'title': 'Profile',
-  'loginToView': 'Login karke apna account dekhein',
-  'ledgerTitle': 'Jar hisaab',
-  'held': 'Aapke paas jar',
-  'deposit': 'Deposit jama',
-  'dues': 'Baki rashi',
-  'returnTitle': 'Jar wapas karne ka request',
-  'returnSub': '10 working days me pickup + refund',
-  'returnQty': 'Kitni jar wapas karni hain?',
-  'returnPick': 'Pickup address',
-  'returnUpi': 'UPI ID (Deposit refund ke liye)',
-  'returnSend': 'Request bhejein',
-  'returnSent': 'Request darj — pickup ke baad UPI par refund',
-  'langTitle': 'Bhasha',
-  'langHi': 'Hindi',
-  'langEn': 'English',
-  'subsLink': 'Subscriptions',
-  'addrLink': 'Pate',
-  'paymentsLink': 'Mere Payments / Hisaab',
-  'logout': 'Logout karein',
-  'logoutConfirmTitle': 'Logout karein?',
-  'logoutConfirmBody': 'Order track karne ke liye dobara login karna hoga.',
-  'logoutYes': 'Haan, logout',
-  'logoutNo': 'Rehne dein',
-  'errLedger': 'Hisaab load nahi hua',
-  'offline': 'Internet nahi — dobara try karein',
-  'errReturn': 'Request nahi gayi — dobara try karein',
-  'suspendedBanner':
-      'Account suspended — dues chukane ya appeal ke alawa '
-      'actions band hain. WhatsApp par appeal karein.',
-};
-
-/// English fallback map (Hindi default; merge guarantees no blank keys).
-const Map<String, String> profileStringsEn = {
-  'title': 'Profile',
-  'loginToView': 'Log in to view your account',
-  'ledgerTitle': 'Jar ledger',
-  'held': 'Jars with you',
-  'deposit': 'Deposit held',
-  'dues': 'Dues',
-  'returnTitle': 'Return jars request',
-  'returnSub': 'Pickup + refund in 10 working days',
-  'returnQty': 'How many jars to return?',
-  'returnPick': 'Pickup address',
-  'returnUpi': 'UPI ID (For deposit refund)',
-  'returnSend': 'Send request',
-  'returnSent': 'Request filed — deposit refund to UPI upon pickup',
-  'langTitle': 'Language',
-  'langHi': 'Hindi',
-  'langEn': 'English',
-  'subsLink': 'Subscriptions',
-  'addrLink': 'Addresses',
-  'paymentsLink': 'My Payments & Deposits',
-  'logout': 'Log out',
-  'logoutConfirmTitle': 'Log out?',
-  'logoutConfirmBody': 'You will need to log in again to track orders.',
-  'logoutYes': 'Yes, log out',
-  'logoutNo': 'Stay',
-  'errLedger': 'Could not load ledger',
-  'offline': 'No internet — try again',
-  'errReturn': 'Request failed — try again',
-  'suspendedBanner':
-      'Account suspended — only dues payment and appeal '
-      'remain available. Appeal via WhatsApp.',
-};
-
-/// v1 language toggle: Hindi default, English fallback (spec screen 11).
-/// Merge order: Hindi wins when present, English fills gaps — never blank.
-String profileText(String key, bool hindi) => hindi
-    ? (profileStringsHi[key] ?? profileStringsEn[key] ?? key)
-    : (profileStringsEn[key] ?? profileStringsHi[key] ?? key);
-
-enum LedgerStatus { initial, loading, loaded, error }
-
-@immutable
-class LedgerSnapshot {
-  const LedgerSnapshot({
-    this.heldJars = 0,
-    this.depositPaise = 0,
-    this.duesPaise = 0,
-    this.suspended = false,
-  });
-
-  final int heldJars;
-  final int depositPaise;
-  final int duesPaise;
-  final bool suspended;
-
-  static LedgerSnapshot fromApi(Map<String, dynamic> j) => LedgerSnapshot(
-    heldJars: (j['held_jars'] ?? j['d_held'] ?? 0) as int,
-    depositPaise: (j['deposit_paise'] ?? j['d_deposit'] ?? 0) as int,
-    duesPaise: (j['dues_paise'] ?? j['d_dues'] ?? 0) as int,
-    suspended: (j['suspended'] ?? false) as bool,
-  );
-}
-
-class ProfileController extends ChangeNotifier {
-  ProfileController({required ApiClient api}) : _api = api;
-
-  final ApiClient _api;
-  ApiClient get api => _api;
-
-  LedgerStatus _status = LedgerStatus.initial;
-  LedgerSnapshot _ledger = const LedgerSnapshot();
-  Map<String, dynamic>? _user;
-  String? _errorMessage;
-  bool _busy = false;
-  bool _hindi = true;
-
-  LedgerStatus get status => _status;
-  LedgerSnapshot get ledger => _ledger;
-  Map<String, dynamic>? get user => _user;
-  String? get errorMessage => _errorMessage;
-  bool get busy => _busy;
-  bool get hindi => _hindi;
-
-  set hindi(bool v) {
-    _hindi = v;
-    _notify();
-  }
-
-  String t(String key) => profileText(key, _hindi);
-
-  Future<void> load() async {
-    if (_status == LedgerStatus.loading) return;
-    _status = LedgerStatus.loading;
-    _errorMessage = null;
-    _notify();
-    try {
-      _ledger = LedgerSnapshot.fromApi(await _api.ledgerMe());
-      try {
-        final meRes = await _api.me();
-        _user = (meRes['user'] as Map<String, dynamic>?) ?? meRes;
-      } catch (_) {
-        // me() best-effort
-      }
-      _status = LedgerStatus.loaded;
-    } on ApiException catch (e) {
-      _status = LedgerStatus.error;
-      _errorMessage = e.isNetwork ? t('offline') : t('errLedger');
-    } catch (_) {
-      _status = LedgerStatus.error;
-      _errorMessage = t('errLedger');
-    }
-    _notify();
-  }
-
-  Future<String?> updateProfile({String? name, String? phone, String? email}) async {
-    _busy = true;
-    _notify();
-    try {
-      final body = <String, dynamic>{
-        if (name != null) 'name': name.trim(),
-        if (phone != null) 'phone': phone.trim(),
-        if (email != null) 'email': email.trim(),
-      };
-      final res = await _api.patchMe(body);
-      final u = (res['user'] as Map<String, dynamic>?) ?? res;
-      _user = u;
-      return null;
-    } on ApiException catch (e) {
-      return e.message.isNotEmpty ? e.message : 'Update fail ho gaya';
-    } catch (_) {
-      return 'Update fail ho gaya';
-    } finally {
-      _busy = false;
-      _notify();
-    }
-  }
-
-
-  /// POST /returns → request id + 10-working-day SLA. Returns error key or
-  /// null on success (screen toasts + closes the sheet).
-  Future<String?> requestReturn({
-    required int qty,
-    required String addressId,
-    String? upiId,
-  }) async {
-    _busy = true;
-    _notify();
-    try {
-      await _api.createReturn(qty: qty, addressId: addressId, upiId: upiId);
-      return null;
-    } on ApiException catch (e) {
-      return e.isNetwork ? 'offline' : 'errReturn';
-    } catch (_) {
-      return 'errReturn';
-    } finally {
-      _busy = false;
-      _notify();
-    }
-  }
-
-  void _notify() {
-    if (!disposed) notifyListeners();
-  }
-
-  @protected
-  bool disposed = false;
-
-  @override
-  void dispose() {
-    disposed = true;
-    super.dispose();
-  }
-}
-
-/// Profile tab-page. Guest mode shows the login CTA (prices were never
-/// walled, but account data is — contract flow 1).
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
+    required this.api,
     required this.isAuthenticated,
     this.controller,
-    this.api,
     this.onLoginRequired,
     this.onLogout,
     this.onOpenAddresses,
-    this.onOpenSubscriptions,
+    this.onOpenPayments,
+    this.onOpenReturns,
   });
 
+  /// The single authenticated transport from the composition root.
+  final ApiClient api;
+
+  /// Guest mode shows the log-in CTA and never fires an authed request.
   final bool isAuthenticated;
+
+  /// Injectable for tests / shell reuse; otherwise created from [api].
   final ProfileController? controller;
-  final ApiClient? api;
+
   final VoidCallback? onLoginRequired;
-  final VoidCallback? onLogout;
+
+  /// Shell owns the AuthController, so logout is a callback (server revoke +
+  /// local wipe happen there). Confirmation stays in this screen.
+  final Future<void> Function()? onLogout;
+
+  /// S8 owns only the entries — the destination screens belong to other
+  /// slices. Null callbacks hide their row (no dead taps).
   final VoidCallback? onOpenAddresses;
-  final VoidCallback? onOpenSubscriptions;
+  final VoidCallback? onOpenPayments;
+  final VoidCallback? onOpenReturns;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  late final ProfileController _c =
-      widget.controller ?? ProfileController(api: widget.api ?? ApiClient());
+  late final ProfileController _controller =
+      widget.controller ?? ProfileController(api: widget.api);
+  late final bool _ownsController = widget.controller == null;
 
   @override
   void initState() {
     super.initState();
-    if (widget.isAuthenticated &&
-        _c.status == LedgerStatus.initial) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _c.load());
+    if (widget.isAuthenticated && _controller.status == ProfileStatus.initial) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _controller.load());
     }
   }
 
-  Future<void> _openReturnSheet() async {
-    final err = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
-      ),
-      builder: (_) => _ReturnSheet(controller: _c),
-    );
-    if (!mounted) return;
-    if (err == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_c.t('returnSent'))));
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_c.t(err))));
+  @override
+  void didUpdateWidget(ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Lazy-mounted tab: a guest can log in while this screen is alive.
+    if (!oldWidget.isAuthenticated &&
+        widget.isAuthenticated &&
+        _controller.status == ProfileStatus.initial) {
+      _controller.load();
     }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsController) _controller.dispose();
+    super.dispose();
   }
 
   Future<void> _openEditProfileSheet() async {
     final updated = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radiusSheet),
+        ),
       ),
-      builder: (_) => _EditProfileSheet(controller: _c),
+      builder: (_) => EditProfileSheet(controller: _controller),
     );
     if (updated == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile update ho gayi')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile updated.')));
     }
   }
 
-
   Future<void> _confirmLogout() async {
-    final ok = await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: ShodashaTheme.shape,
-        title: Text(_c.t('logoutConfirmTitle')),
-        content: Text(_c.t('logoutConfirmBody')),
+        title: const Text(
+          'Log out?',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        content: const Text(
+          'You will need to log in again to track orders and see your account.',
+          style: TextStyle(height: 1.4),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(_c.t('logoutNo')),
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.muted),
+            child: const Text('Stay'),
           ),
-          ElevatedButton(
+          TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(_c.t('logoutYes')),
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.danger),
+            child: const Text('Yes, log out'),
           ),
         ],
       ),
     );
-    if (ok == true) widget.onLogout?.call();
+    if (confirmed == true) await widget.onLogout?.call();
   }
+
+  void _openSupport() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => SupportScreen(api: widget.api)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.isAuthenticated) {
+      return _GuestView(onLoginRequired: widget.onLoginRequired);
+    }
+    return Scaffold(
+      backgroundColor: ShodashaTheme.bg,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+        children: [
+          const Text(
+            'Profile',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              color: ShodashaTheme.ink,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Your account, payments and support.',
+            style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+          ),
+          const SizedBox(height: 18),
+          ListenableBuilder(
+            listenable: _controller,
+            builder: (context, _) => _IdentitySection(
+              controller: _controller,
+              onEdit: _openEditProfileSheet,
+            ),
+          ),
+          if (widget.onOpenAddresses != null ||
+              widget.onOpenPayments != null ||
+              widget.onOpenReturns != null) ...[
+            const _SectionLabel('ACCOUNT'),
+            if (widget.onOpenAddresses != null)
+              _ServiceTile(
+                icon: Icons.location_on_outlined,
+                title: 'Saved addresses',
+                subtitle: 'Manage your delivery addresses',
+                onTap: widget.onOpenAddresses!,
+              ),
+            if (widget.onOpenPayments != null)
+              _ServiceTile(
+                icon: Icons.receipt_long_outlined,
+                title: 'Payments & deposits',
+                subtitle: 'Receipts and deposit history',
+                onTap: widget.onOpenPayments!,
+              ),
+            if (widget.onOpenReturns != null)
+              _ServiceTile(
+                icon: Icons.undo_outlined,
+                title: 'Return jars',
+                subtitle: 'Request a pickup and share your UPI ID',
+                onTap: widget.onOpenReturns!,
+              ),
+          ],
+          const _SectionLabel('HELP'),
+          _ServiceTile(
+            icon: Icons.support_agent_outlined,
+            title: 'Help & support',
+            subtitle: 'WhatsApp, FAQ and complaints',
+            onTap: _openSupport,
+          ),
+          const SizedBox(height: 24),
+          _ServiceTile(
+            icon: Icons.logout,
+            title: 'Log out',
+            subtitle: 'Sign out of this device',
+            onTap: _confirmLogout,
+            iconColor: ShodashaTheme.danger,
+            iconBackground: ShodashaTheme.danger.withValues(alpha: 0.10),
+            titleColor: ShodashaTheme.danger,
+            showChevron: false,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Guest state (States.md authentication): prices were never walled, but
+/// account data is. One action, honest copy, no fake identity.
+class _GuestView extends StatelessWidget {
+  const _GuestView({this.onLoginRequired});
+
+  final VoidCallback? onLoginRequired;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_c.t('title'))),
-      body: !widget.isAuthenticated
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+      backgroundColor: ShodashaTheme.bg,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: const BoxDecoration(
+                    color: ShodashaTheme.tealTint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.person_outline,
+                    size: 36,
+                    color: ShodashaTheme.teal,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Log in to view your account',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: ShodashaTheme.ink,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Your details, payments and support live here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: onLoginRequired,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ShodashaTheme.teal,
+                      foregroundColor: ShodashaTheme.surface,
+                      minimumSize: const Size.fromHeight(52),
+                      shape: ShodashaTheme.shape,
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    child: const Text('Log in'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Loading / loaded / error switch for the identity card only — the account
+/// and help entries stay usable while the read is in flight.
+class _IdentitySection extends StatelessWidget {
+  const _IdentitySection({required this.controller, required this.onEdit});
+
+  final ProfileController controller;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.user != null) {
+      return _IdentityCard(user: controller.user!, onEdit: onEdit);
+    }
+    if (controller.status == ProfileStatus.error) {
+      return _IdentityError(
+        message: controller.errorMessage ?? kProfileLoadError,
+        onRetry: controller.load,
+      );
+    }
+    // initial + loading without a cached identity → skeleton (never a fake
+    // name or phone).
+    return const _IdentitySkeleton();
+  }
+}
+
+class _IdentityCard extends StatelessWidget {
+  const _IdentityCard({required this.user, required this.onEdit});
+
+  final Map<String, dynamic> user;
+  final VoidCallback onEdit;
+
+  String _text(String key) {
+    final value = user[key];
+    return value is String ? value.trim() : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _text('name');
+    final phone = _text('phone');
+    final email = _text('email');
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: ShodashaTheme.tealTint,
+            child: const Icon(
+              Icons.person_outline,
+              size: 28,
+              color: ShodashaTheme.teal,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? 'Customer' : name,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                if (phone.isNotEmpty) ...[
+                  const SizedBox(height: 2),
                   Text(
-                    _c.t('loginToView'),
+                    phone,
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 13,
                       color: ShodashaTheme.muted,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: widget.onLoginRequired,
-                    child: const Text('Login karein'),
+                ],
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    email,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: ShodashaTheme.muted,
+                    ),
                   ),
                 ],
-              ),
-            )
-          : ListenableBuilder(
-              listenable: _c,
-              builder: (context, _) {
-                final l = _c.ledger;
-                return ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    // Identity & Profile edit card
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: ShodashaTheme.bg,
-                        border: Border.all(color: ShodashaTheme.border),
-                        borderRadius: BorderRadius.circular(
-                          ShodashaTheme.radius,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 24,
-                            backgroundColor: ShodashaTheme.blueTint,
-                            child: const Icon(
-                              Icons.person_outline,
-                              color: ShodashaTheme.blue,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  (_c.user?['name'] as String?)?.isNotEmpty == true
-                                      ? _c.user!['name'] as String
-                                      : 'Customer',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                if ((_c.user?['phone'] as String?)?.isNotEmpty == true)
-                                  Text(
-                                    _c.user!['phone'] as String,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: ShodashaTheme.muted,
-                                    ),
-                                  ),
-                                if ((_c.user?['email'] as String?)?.isNotEmpty == true)
-                                  Text(
-                                    _c.user!['email'] as String,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: ShodashaTheme.muted,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          OutlinedButton(
-                            onPressed: _openEditProfileSheet,
-                            child: const Text('Badlein'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (l.suspended)
-
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: ShodashaTheme.danger),
-                          borderRadius: BorderRadius.circular(
-                            ShodashaTheme.radius,
-                          ),
-                        ),
-                        child: Text(
-                          _c.t('suspendedBanner'),
-                          style: const TextStyle(
-                            color: ShodashaTheme.danger,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    // Ledger — 031 premium wallet-card grammar (donor
-                    // wallet_screen): solid teal hero carries the REAL
-                    // refundable deposit, white statement card below. Every
-                    // rupee comes from GET /ledger/me via ProfileController's
-                    // LedgerSnapshot — no fake balance, no add-money flow
-                    // (donor's fake recharge CTA is omitted).
-                    if (_c.status != LedgerStatus.loaded)
-                      // Loading / error / initial: one statement card —
-                      // never a fake Rs 0 hero.
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: ShodashaTheme.surface,
-                          border: Border.all(color: ShodashaTheme.border),
-                          borderRadius: BorderRadius.circular(
-                            ShodashaTheme.radius,
-                          ),
-                        ),
-                        child: _c.status == LedgerStatus.loading
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(8),
-                                  child: CircularProgressIndicator(),
-                                ),
-                              )
-                            // Error branch — message + retry, never fake Rs 0.
-                            : Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _c.errorMessage ?? 'Load nahi hua',
-                                      style: const TextStyle(
-                                        color: ShodashaTheme.muted,
-                                      ),
-                                    ),
-                                  ),
-                                  TextButton(
-                                    onPressed: _c.load,
-                                    child: const Text('Dobara try karein'),
-                                  ),
-                                ],
-                              ),
-                      )
-                    else ...[
-                      // Hero: deposit held (our wallet analog). Donor
-                      // grammar — caps label + wallet glyph row, w900 amount.
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: ShodashaTheme.teal,
-                          borderRadius: BorderRadius.circular(
-                            ShodashaTheme.radius,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  _c.t('deposit').toUpperCase(),
-                                  style: TextStyle(
-                                    color: ShodashaTheme.surface.withValues(
-                                      alpha: 0.85,
-                                    ),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.account_balance_wallet_outlined,
-                                  size: 24,
-                                  color: ShodashaTheme.surface.withValues(
-                                    alpha: 0.85,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              '₹${l.depositPaise ~/ 100}',
-                              style: const TextStyle(
-                                color: ShodashaTheme.surface,
-                                fontSize: 32,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      // Jar ledger statement card (donor CAN SECURITY LEDGER
-                      // grammar): caps header, held + dues lines, refund
-                      // note carries the per-jar rule verbatim.
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: ShodashaTheme.surface,
-                          border: Border.all(color: ShodashaTheme.border),
-                          borderRadius: BorderRadius.circular(
-                            ShodashaTheme.radius,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _c.t('ledgerTitle'),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: ShodashaTheme.muted,
-                                letterSpacing: 0.8,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            _LedgerRow(
-                              label: _c.t('held'),
-                              value: '${l.heldJars}',
-                            ),
-                            _LedgerRow(
-                              label: _c.t('dues'),
-                              value: '₹${l.duesPaise ~/ 100}',
-                              highlight: l.duesPaise > 0,
-                            ),
-                            const Divider(height: 16),
-                            const Text(
-                              'Refundable Security Deposit: Rs 150/jar (container/jar wapas karne par turant refund)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: ShodashaTheme.muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      // Payment history — donor transaction-tile grammar.
-                      // Real statements load in PaymentHistoryScreen
-                      // (GET /payments/me via ApiClient.listUserPayments).
-                      Container(
-                        decoration: BoxDecoration(
-                          color: ShodashaTheme.surface,
-                          border: Border.all(color: ShodashaTheme.border),
-                          borderRadius: BorderRadius.circular(
-                            ShodashaTheme.radius,
-                          ),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                          ),
-                          leading: const CircleAvatar(
-                            radius: 20,
-                            backgroundColor: ShodashaTheme.tealTint,
-                            child: Icon(
-                              Icons.receipt_long_outlined,
-                              size: 20,
-                              color: ShodashaTheme.teal,
-                            ),
-                          ),
-                          title: Text(
-                            _c.t('paymentsLink'),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                              color: ShodashaTheme.ink,
-                            ),
-                          ),
-                          trailing: const Icon(
-                            Icons.chevron_right,
-                            color: ShodashaTheme.muted,
-                          ),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => PaymentHistoryScreen(
-                                  api: widget.api ?? _c.api,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 12),
-                    // Return-jar request (10-day SLA text visible pre-tap).
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: ShodashaTheme.border),
-                        borderRadius: BorderRadius.circular(
-                          ShodashaTheme.radius,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.undo_outlined,
-                            color: ShodashaTheme.blue,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _c.t('returnTitle'),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                Text(
-                                  _c.t('returnSub'),
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: ShodashaTheme.muted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: _openReturnSheet,
-                            child: const Text('Request bhejein'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.home_outlined,
-                        color: ShodashaTheme.ink,
-                      ),
-                      title: Text(_c.t('addrLink')),
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                        color: ShodashaTheme.muted,
-                      ),
-                      onTap: widget.onOpenAddresses,
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.repeat_outlined,
-                        color: ShodashaTheme.ink,
-                      ),
-                      title: Text(_c.t('subsLink')),
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                        color: ShodashaTheme.muted,
-                      ),
-                      onTap: widget.onOpenSubscriptions,
-                    ),
-                    const Divider(),
-                    // Language toggle (Hindi default, English fallback).
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(_c.t('langTitle')),
-                      subtitle: Text(
-                        _c.hindi ? _c.t('langHi') : _c.t('langEn'),
-                      ),
-                      value: _c.hindi,
-                      onChanged: (v) => _c.hindi = v,
-                    ),
-                    const Divider(),
-                    // 015: cache hygiene — clears prefs (address/first-run),
-                    // secure session stays until logout (never leaks tokens).
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.cleaning_services_outlined),
-                      title: const Text('Cache saaf karein'),
-                      onTap: () async {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.remove('selected_address_id');
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Cache saaf ho gaya')),
-                          );
-                        }
-                      },
-                    ),
-                    const Divider(),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.logout,
-                        color: ShodashaTheme.danger,
-                      ),
-                      title: Text(
-                        _c.t('logout'),
-                        style: const TextStyle(color: ShodashaTheme.danger),
-                      ),
-                      onTap: _confirmLogout,
-                    ),
-                  ],
-                );
-              },
-            ),
-    );
-  }
-}
-
-class _LedgerRow extends StatelessWidget {
-  const _LedgerRow({
-    required this.label,
-    required this.value,
-    this.highlight = false,
-  });
-
-  final String label;
-  final String value;
-  final bool highlight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(color: ShodashaTheme.muted, fontSize: 14),
+                if (phone.isEmpty && email.isEmpty) ...[
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Add your contact details',
+                    style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+                  ),
+                ],
+              ],
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: highlight ? ShodashaTheme.danger : ShodashaTheme.ink,
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: onEdit,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(64, ShodashaTheme.minTarget),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+            ),
+            child: const Text(
+              'Edit',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -779,287 +426,108 @@ class _LedgerRow extends StatelessWidget {
   }
 }
 
-/// Return-jar sheet: qty stepper + pickup address id + landmark note.
-class _ReturnSheet extends StatefulWidget {
-  const _ReturnSheet({required this.controller});
-
-  final ProfileController controller;
-
-  @override
-  State<_ReturnSheet> createState() => _ReturnSheetState();
-}
-
-class _ReturnSheetState extends State<_ReturnSheet> {
-  final _address = TextEditingController();
-  final _upi = TextEditingController();
-  int _qty = 1;
-
-  bool get _valid =>
-      _qty >= 1 &&
-      _address.text.trim().isNotEmpty &&
-      _upi.text.trim().isNotEmpty;
-
-  @override
-  void dispose() {
-    _address.dispose();
-    _upi.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    FocusScope.of(context).unfocus();
-    final err = await widget.controller.requestReturn(
-      qty: _qty,
-      addressId: _address.text.trim(),
-      upiId: _upi.text.trim(),
-    );
-    if (!mounted) return;
-    Navigator.of(context).pop(err); // null = success
-  }
+class _IdentitySkeleton extends StatelessWidget {
+  const _IdentitySkeleton();
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.controller;
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 16,
-          bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+    return Semantics(
+      label: 'Loading profile',
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: ShodashaTheme.surface,
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
         ),
-        child: ListenableBuilder(
-          listenable: c,
-          builder: (context, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                c.t('returnTitle'),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(
+                color: ShodashaTheme.tealTint,
+                shape: BoxShape.circle,
               ),
-              Text(
-                c.t('returnSub'),
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: ShodashaTheme.muted,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(c.t('returnQty')),
-              Row(
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  IconButton.outlined(
-                    onPressed: _qty > 1 ? () => setState(() => _qty--) : null,
-                    icon: const Icon(Icons.remove),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      '$_qty',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
+                  Container(
+                    width: 140,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.tealTint,
+                      borderRadius: BorderRadius.circular(4),
                     ),
                   ),
-                  IconButton.outlined(
-                    onPressed: _qty < 10 ? () => setState(() => _qty++) : null,
-                    icon: const Icon(Icons.add),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 110,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.border,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 170,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.border,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _address,
-                onChanged: (_) => setState(() {}),
-                style: const TextStyle(fontSize: 16),
-                decoration: InputDecoration(
-                  labelText: c.t('returnPick'),
-                  hintText: 'address id ya Home/Office',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _upi,
-                onChanged: (_) => setState(() {}),
-                style: const TextStyle(fontSize: 16),
-                decoration: InputDecoration(
-                  labelText: c.t('returnUpi'),
-                  hintText: 'jaise: 9876543210@upi ya name@okhdfcbank',
-                  helperText: 'Security deposit refund isi UPI par transfer hoga',
-                ),
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: (c.busy || !_valid) ? null : _send,
-                  child: c.busy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(c.t('returnSend')),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EditProfileSheet extends StatefulWidget {
-  const _EditProfileSheet({required this.controller});
-  final ProfileController controller;
-
-  @override
-  State<_EditProfileSheet> createState() => _EditProfileSheetState();
-}
-
-class _EditProfileSheetState extends State<_EditProfileSheet> {
-  late final TextEditingController _nameCtrl;
-  late final TextEditingController _phoneCtrl;
-  late final TextEditingController _emailCtrl;
-  String? _error;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final u = widget.controller.user;
-    _nameCtrl = TextEditingController(text: (u?['name'] ?? '') as String);
-    _phoneCtrl = TextEditingController(text: (u?['phone'] ?? '') as String);
-    _emailCtrl = TextEditingController(text: (u?['email'] ?? '') as String);
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _emailCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final name = _nameCtrl.text.trim();
-    final phone = _phoneCtrl.text.trim();
-    final email = _emailCtrl.text.trim();
-
-    if (phone.isNotEmpty && !RegExp(r'^(\+91|91|0)?[6-9]\d{9}$').hasMatch(phone)) {
-      setState(() => _error = 'Sahi 10-digit mobile number likhein');
-      return;
-    }
-    if (email.isNotEmpty && !email.toLowerCase().endsWith('@gmail.com')) {
-      setState(() => _error = 'Kripya sahi @gmail.com email likhein');
-      return;
-    }
-
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-
-    final err = await widget.controller.updateProfile(
-      name: name,
-      phone: phone,
-      email: email,
-    );
-
-    if (!mounted) return;
-    if (err != null) {
-      setState(() {
-        _saving = false;
-        _error = err;
-      });
-    } else {
-      Navigator.of(context).pop(true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Profile Badlein',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _nameCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Aapka Naam (Username)',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.person_outline),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _phoneCtrl,
-            keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(
-              labelText: 'Mobile Number',
-              hintText: '9876543210',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.phone_outlined),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _emailCtrl,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-              labelText: 'Gmail Address',
-              hintText: 'example@gmail.com',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.email_outlined),
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: const TextStyle(color: ShodashaTheme.danger, fontSize: 13),
             ),
           ],
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save Karein'),
+        ),
+      ),
+    );
+  }
+}
+
+class _IdentityError extends StatelessWidget {
+  const _IdentityError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.error_outline,
+            size: 20,
+            color: ShodashaTheme.danger,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: ShodashaTheme.muted,
+              ),
             ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
+            child: const Text('Try again'),
           ),
         ],
       ),
@@ -1067,3 +535,121 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   }
 }
 
+/// Section eyebrow — donor rhythm (11/w800 caps), used as a group label,
+/// not as decoration above the page title.
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 10),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: ShodashaTheme.muted,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+}
+
+/// Donor action-tile grammar: white card, tinted icon chip, chevron. Rows
+/// are 68dp tall (>= 48dp law) and the whole row is the tap target.
+class _ServiceTile extends StatelessWidget {
+  const _ServiceTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.iconColor = ShodashaTheme.teal,
+    this.iconBackground = ShodashaTheme.tealTint,
+    this.titleColor = ShodashaTheme.ink,
+    this.showChevron = true,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Color iconColor;
+  final Color iconBackground;
+  final Color titleColor;
+  final bool showChevron;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: ShodashaTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+          side: const BorderSide(color: ShodashaTheme.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 68),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: iconBackground,
+                      borderRadius: BorderRadius.circular(
+                        ShodashaTheme.radiusSm,
+                      ),
+                    ),
+                    child: Icon(icon, size: 20, color: iconColor),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: titleColor,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.3,
+                            color: ShodashaTheme.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (showChevron)
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: ShodashaTheme.muted,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

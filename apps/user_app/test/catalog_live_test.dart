@@ -1,5 +1,5 @@
-// Phase 4 §4.4 — live catalog: server rates populate, admin rate change
-// flows through, failures keep the hardcoded fallback. MockClient, no backend.
+// Live catalog: server rates populate, admin changes flow through, and
+// failures stay honest — no hardcoded fallback, no cache. MockClient only.
 
 import 'dart:convert';
 
@@ -19,20 +19,27 @@ ApiClient catalogApi(Map<String, dynamic> payload) {
   return ApiClient(client: mock, deviceId: 't');
 }
 
+Map<String, dynamic> _payload({
+  int refill = 2800,
+  int container = 3000,
+  int deposit = 15000,
+  int cap = 300,
+}) =>
+    {
+      'skus': [
+        {'id': 'refill', 'price_paise': refill},
+        {'id': 'container', 'price_paise': container},
+      ],
+      'deposit_per_jar': deposit,
+      'cap_charge': cap,
+      'hours': '08:00-20:00, all days',
+      'holidays': [],
+    };
+
 void main() {
   group('HttpCatalogApi', () {
     test('server payload populates rates', () async {
-      final api = catalogApi({
-        'skus': [
-          {'id': 'refill', 'price_paise': 2800},
-          {'id': 'container', 'price_paise': 3000},
-        ],
-        'deposit_per_jar': 15000,
-        'cap_charge': 300,
-        'hours': '08:00-20:00, all days',
-        'holidays': [],
-      });
-      final rates = await HttpCatalogApi(api).fetchRates();
+      final rates = await HttpCatalogApi(catalogApi(_payload())).fetchRates();
       expect(rates.refillPaise, 2800);
       expect(rates.containerPaise, 3000);
       expect(rates.depositPaise, 15000);
@@ -40,82 +47,86 @@ void main() {
     });
 
     test('admin rate change reaches the client (no app update)', () async {
-      final api = catalogApi({
-        'skus': [
-          {'id': 'refill', 'price_paise': 3200},
-          {'id': 'container', 'price_paise': 3500},
-        ],
-        'deposit_per_jar': 15000,
-        'cap_charge': 500,
-        'hours': '',
-        'holidays': [],
-      });
-      final rates = await HttpCatalogApi(api).fetchRates();
+      final rates = await HttpCatalogApi(
+        catalogApi(_payload(refill: 3200, container: 3500, cap: 500)),
+      ).fetchRates();
       expect(rates.refillPaise, 3200);
       expect(rates.containerPaise, 3500);
       expect(rates.capPaise, 500);
     });
 
-    test('missing fields fall back per-field (never throws to UI)', () async {
+    test('missing price fields throw CatalogUnavailable (no fallback)',
+        () async {
       final api = catalogApi({'skus': [], 'hours': '', 'holidays': []});
-      final rates = await HttpCatalogApi(api).fetchRates();
-      expect(rates.refillPaise, kRateRefillPaise);
-      expect(rates.containerPaise, kRateContainerPaise);
-      expect(rates.depositPaise, kDepositPerJarPaise);
-      expect(rates.capPaise, kCapChargePaise);
+      await expectLater(
+        HttpCatalogApi(api).fetchRates(),
+        throwsA(isA<CatalogUnavailable>()),
+      );
+    });
+
+    test('missing deposit throws CatalogUnavailable', () async {
+      final payload = _payload()..remove('deposit_per_jar');
+      await expectLater(
+        HttpCatalogApi(catalogApi(payload)).fetchRates(),
+        throwsA(isA<CatalogUnavailable>()),
+      );
+    });
+
+    test('network failure throws ApiException (never cached rates)',
+        () async {
+      final mock = MockClient((_) async => http.Response('down', 400));
+      final api = ApiClient(client: mock, deviceId: 't');
+      await expectLater(
+        HttpCatalogApi(api).fetchRates(),
+        throwsA(isA<ApiException>()),
+      );
     });
   });
 
-  group('CachingCatalogApi offline honesty', () {
-    test('failure keeps last cached rates (never throws to UI)', () async {
-      final inner = _FlipCatalog(const CatalogRates(refillPaise: 2900));
-      final caching = CachingCatalogApi(inner);
-      final first = await caching.fetchRates();
-      expect(first.refillPaise, 2900);
-      // Network drops: same call now serves the cached snapshot.
-      inner.rates = null;
-      final second = await caching.fetchRates();
-      expect(second.refillPaise, 2900);
-    });
-
-    test('BookingController.refreshRates applies live rates', () async {
-      final api = catalogApi({
-        'skus': [
-          {'id': 'refill', 'price_paise': 3300},
-          {'id': 'container', 'price_paise': 3600},
-        ],
-        'deposit_per_jar': 15000,
-        'cap_charge': 300,
-        'hours': '',
-        'holidays': [],
-      });
+  group('BookingController.refreshRates', () {
+    test('applies live rates from the server', () async {
       final c = BookingController(
-        catalog: CachingCatalogApi(HttpCatalogApi(api)),
+        catalog: HttpCatalogApi(
+          catalogApi(_payload(refill: 3300, container: 3600)),
+        ),
       );
       await c.refreshRates();
-      expect(c.rates.refillPaise, 3300);
-      expect(c.rates.containerPaise, 3600);
+      expect(c.rates, isNotNull);
+      expect(c.rates!.refillPaise, 3300);
+      expect(c.rates!.containerPaise, 3600);
+      expect(c.ratesError, isNull);
+      c.dispose();
+    });
+
+    test('network failure stays honest: error surfaced, rates null',
+        () async {
+      final c = BookingController(catalog: _FailingCatalog());
+      await c.refreshRates();
+      expect(c.rates, isNull);
+      expect(c.ratesError, contains('No internet'));
+      c.dispose();
+    });
+
+    test('incomplete payload surfaces the catalog message', () async {
+      final c = BookingController(
+        catalog: HttpCatalogApi(catalogApi({'skus': []})),
+      );
+      await c.refreshRates();
+      expect(c.rates, isNull);
+      expect(c.ratesError, isNotEmpty);
       c.dispose();
     });
   });
 }
 
-/// Controllable inner source: serves [rates], or throws NETWORK when null.
-class _FlipCatalog implements CatalogApi {
-  _FlipCatalog(this.rates);
-
-  CatalogRates? rates;
-
+/// Controllable inner source that always reports a network failure.
+class _FailingCatalog implements CatalogApi {
   @override
   Future<CatalogRates> fetchRates() async {
-    final r = rates;
-    if (r == null) {
-      throw ApiException(
-        code: 'NETWORK',
-        message: 'Network unavailable',
-        statusCode: 0,
-      );
-    }
-    return r;
+    throw ApiException(
+      code: 'NETWORK',
+      message: 'Network unavailable',
+      statusCode: 0,
+    );
   }
 }

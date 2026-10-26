@@ -303,13 +303,15 @@ class AdminReadRepo:
         clause = ("WHERE " + " AND ".join(where)) if where else ""
         rows = (
             await self._conn.execute(
-                "SELECT rf.id, rf.order_id, rf.payment_id, rf.amount, rf.method, rf.status,"
-                " rf.claimed_by, rf.created_at, rf.done_at, rf.rowid AS _rowid,"
+                "SELECT rf.id, rf.order_id, rf.subscription_id, rf.payment_id, rf.amount,"
+                " rf.method, rf.upi_id, rf.status, rf.claimed_by, rf.created_at, rf.done_at,"
+                " rf.rowid AS _rowid,"
                 " u.name AS user_name, u.phone AS user_phone"
                 " FROM refunds rf"
                 " LEFT JOIN payments pay ON pay.id = rf.payment_id"
                 " LEFT JOIN orders o ON o.id = rf.order_id"
-                " LEFT JOIN users u ON u.id = o.user_id"
+                " LEFT JOIN subscriptions s ON s.id = rf.subscription_id"
+                " LEFT JOIN users u ON u.id = COALESCE(o.user_id, s.user_id)"
                 f" {clause} ORDER BY rf.rowid DESC LIMIT ?",
                 (*args, limit + 1),
             )

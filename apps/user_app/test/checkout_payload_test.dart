@@ -1,9 +1,9 @@
-// 005-home-ux — checkout payload seams (pure Dart, no widgets).
+// Checkout payload seams (pure Dart, no widgets).
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shodasha_app/features/booking/booking_controller.dart';
-import 'package:shodasha_app/features/orders/orders_controller.dart'
-    show Order, OrderState;
+import 'package:shodasha_app/features/booking/checkout_service.dart';
 
 void main() {
   group('delivery type wire mapping', () {
@@ -66,24 +66,17 @@ void main() {
     });
   });
 
-  group('repeat history gates (006-auth-flow)', () {
-    Order orderOf({int refill = 0, int container = 0}) => Order(
-          id: 'o1',
-          state: OrderState.delivered,
-          windowStart: DateTime.utc(2026, 10, 1, 9),
-          refillQty: refill,
-          containerQty: container,
-        );
-
-    test('reorder hidden when mix unknown, shown when known', () {
-      expect(orderOf().canReorder, isFalse);
-      expect(orderOf(refill: 2).canReorder, isTrue);
-      expect(orderOf(container: 1).canReorder, isTrue);
-    });
-
-    test('bulk badge at N>=6 (matches confirm band)', () {
-      expect(orderOf(refill: 3, container: 2).isBulk, isFalse);
-      expect(orderOf(refill: 4, container: 2).isBulk, isTrue);
+  group('address identity check', () {
+    test('listed id passes, missing id fails, malformed list fails', () {
+      final rows = [
+        {'id': 'a1'},
+        {'id': 'a2'},
+      ];
+      expect(addressStillListed(rows, 'a2'), isTrue);
+      expect(addressStillListed(rows, 'nope'), isFalse);
+      expect(addressStillListed(null, 'a1'), isFalse);
+      expect(addressStillListed('not-a-list', 'a1'), isFalse);
+      expect(addressStillListed(rows, ''), isFalse);
     });
   });
 }

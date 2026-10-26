@@ -1,8 +1,6 @@
-// SelectedAddressStore: persists the chosen delivery address id so
-// Home / checkout / Addresses agree (011_port). Pure ChangeNotifier over
-// SharedPreferences — no new state lib. The AddressController owns the
-// live selection; this store is only the persistence behind it
-// (see AddressController.bindSelection).
+// Persists the chosen delivery address id so Home, checkout and Addresses
+// agree. Pure ChangeNotifier over SharedPreferences; AddressController owns
+// the live selection and this store is only the persistence behind it.
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';

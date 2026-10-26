@@ -27,8 +27,11 @@ from app.db import get_connection, init_schema  # noqa: E402
 from app.db_d1 import AsyncSqliteConn  # noqa: E402
 
 MIGS = ["002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
-        "007_ops.sql", "015_pod_otp.sql"]
+        "007_ops.sql", "010_config_audit.sql", "015_pod_otp.sql",
+        "019_rate_counters.sql", "027_pod_otp_lifecycle.sql",
+        "028_p0_money_monthly.sql", "029_p0_correctness.sql"]
 DAY = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+POD_EXPIRY = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=12)).isoformat()
 
 
 def _conn():
@@ -112,29 +115,30 @@ async def test_unconfigured_webhook_no_ledger_write(monkeypatch):
 # -- §1.6 PoD OTP ---------------------------------------------------------------
 
 def _stored(c, code):
-    c.execute("UPDATE stops SET pod_otp = ? WHERE id = 's1'", (code,))
+    c.execute(
+        "UPDATE stops SET pod_otp = ?, pod_otp_expires_at = ? WHERE id = 's1'",
+        (code, POD_EXPIRY),
+    )
     c.commit()
 
 
-async def test_stored_otp_accepted_and_not_derivable():
-    from app.services.vendor_service import VendorService, pod_otp
+async def test_stored_otp_accepted():
+    from app.services.vendor_service import VendorService
 
     c = _conn()
-    legacy = pod_otp("o1", DAY)
-    code = "482910" if legacy != "482910" else "482911"
-    _stored(c, code)
-    out = await VendorService(_w(c)).pod_complete("v1", "s1", {"delivery_otp": code})
+    _stored(c, "482910")
+    out = await VendorService(_w(c)).pod_complete("v1", "s1", {"delivery_otp": "482910"})
     assert out["status"] == "done"
-    # The stored code is random — knowing order+date does not yield it.
-    assert code != legacy
+    assert c.execute("SELECT pod_otp FROM stops WHERE id = 's1'").fetchone()["pod_otp"] is None
 
 
-async def test_legacy_null_row_accepts_deterministic():
-    from app.services.vendor_service import VendorService, pod_otp
+async def test_null_row_410_unavailable_not_deterministic():
+    from app.services.vendor_service import DeliveryCodeUnavailableError, VendorService
 
-    c = _conn()  # 015 applied, pod_otp stays NULL → legacy fallback
-    out = await VendorService(_w(c)).pod_complete("v1", "s1", {"delivery_otp": pod_otp("o1", DAY)})
-    assert out["status"] == "done"
+    c = _conn()  # 015 applied, pod_otp stays NULL: no fallback code
+    with pytest.raises(DeliveryCodeUnavailableError) as e:
+        await VendorService(_w(c)).pod_complete("v1", "s1", {"delivery_otp": "482910"})
+    assert (e.value.code, e.value.status_code) == ("DELIVERY_CODE_UNAVAILABLE", 410)
 
 
 async def test_wrong_otp_404_and_attempt_counted():
@@ -170,14 +174,14 @@ async def test_detail_discloses_stored_code():
     from app.repositories.order_repo import OrderRepo
     from app.services import pricing
     from app.services.order_service import OrderService
-    from app.services.vendor_service import pod_otp
 
     c = _conn()
     _stored(c, "482910")
     svc = OrderService(OrderRepo(_w(c)), LedgerRepo(_w(c)), pricing, {})
     detail = await svc.detail("u1", "o1")
     assert detail["delivery_otp"] == "482910"
-    assert detail["delivery_otp"] != pod_otp("o1", DAY)
+    assert detail["delivery_otp_state"] == "active"
+    assert detail["delivery_otp_expires_at"] == POD_EXPIRY
 
 
 async def test_assign_mints_fresh_pod_otp():

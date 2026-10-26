@@ -1,0 +1,318 @@
+// Notifications derived from the account's real orders/subscriptions.
+// The donor app kept a local list of fake "delivery partner" and "wallet"
+// notifications. This screen never invents events; it reads the same server
+// state the Orders and Subscriptions tabs show.
+
+import 'package:flutter/material.dart';
+
+import '../../core/api_client.dart';
+import '../../core/theme.dart';
+import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_card.dart';
+import '../../shared/ui/app_state_view.dart';
+import '../orders/orders_controller.dart';
+
+class DonorNotificationsScreen extends StatefulWidget {
+  const DonorNotificationsScreen({
+    super.key,
+    required this.api,
+    required this.orders,
+    this.onOpenOrder,
+    this.onOpenSubscriptions,
+  });
+
+  final ApiClient api;
+  final OrdersController orders;
+  final void Function(String orderId)? onOpenOrder;
+  final VoidCallback? onOpenSubscriptions;
+
+  @override
+  State<DonorNotificationsScreen> createState() =>
+      _DonorNotificationsScreenState();
+}
+
+class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
+  List<_Note> _subs = const [];
+  bool _loadingSubs = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.orders.status == OrdersListStatus.initial) {
+      widget.orders.load();
+    }
+    _loadSubs();
+  }
+
+  Future<void> _loadSubs() async {
+    setState(() {
+      _loadingSubs = true;
+      _error = null;
+    });
+    try {
+      final rows = await widget.api.listSubscriptions();
+      if (!mounted) return;
+      setState(() {
+        _subs = [
+          for (final row in rows)
+            if (row is Map<String, dynamic>)
+              _Note(
+                icon: Icons.autorenew,
+                title: 'Subscription ${_status(row)}',
+                body:
+                    '${(row['qty'] ?? 1)} × 20L · next delivery ${_date(row['next_run'])}',
+                at: _parse(row['next_run']),
+                onTap: widget.onOpenSubscriptions,
+              ),
+        ];
+        _loadingSubs = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.isOffline
+            ? 'No internet — could not load subscription updates.'
+            : e.isServerError
+            ? 'Server problem — could not load subscription updates.'
+            : 'Could not load subscription updates.';
+        _loadingSubs = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not load subscription updates.';
+        _loadingSubs = false;
+      });
+    }
+  }
+
+  Future<void> _refresh() async {
+    await Future.wait([widget.orders.refresh(), _loadSubs()]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: ShodashaTheme.bg,
+      appBar: AppBar(
+        backgroundColor: ShodashaTheme.tealDeep,
+        foregroundColor: ShodashaTheme.surface,
+        elevation: 0,
+        title: const Text(
+          'Notifications',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: ShodashaTheme.surface,
+          ),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh notifications',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: ListenableBuilder(
+        listenable: widget.orders,
+        builder: (context, _) {
+          final notes =
+              <_Note>[
+                for (final o in widget.orders.allOrders.take(20))
+                  _Note(
+                    icon: _orderIcon(o.state),
+                    title: 'Order #${o.id} · ${orderStateLabel(o.state)}',
+                    body: o.itemSummary.isEmpty
+                        ? 'Tap to see delivery details.'
+                        : o.itemSummary,
+                    at: o.createdAt,
+                    onTap: widget.onOpenOrder == null
+                        ? null
+                        : () => widget.onOpenOrder!(o.id),
+                  ),
+                ..._subs,
+              ]..sort((a, b) {
+                final ad = a.at;
+                final bd = b.at;
+                if (ad == null && bd == null) return 0;
+                if (ad == null) return 1;
+                if (bd == null) return -1;
+                return bd.compareTo(ad);
+              });
+
+          final orderError = widget.orders.errorMessage == null
+              ? null
+              : widget.orders.isOffline
+              ? 'No internet — could not refresh order updates.'
+              : 'Could not refresh order updates.';
+          final banners = <Widget>[
+            if (orderError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: AppBanner.stale(message: orderError, onRetry: _refresh),
+              ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: AppBanner.stale(message: _error!, onRetry: _refresh),
+              ),
+          ];
+          final loading =
+              (widget.orders.status == OrdersListStatus.initial ||
+                      widget.orders.status == OrdersListStatus.loading) &&
+                  widget.orders.allOrders.isEmpty ||
+              _loadingSubs && _subs.isEmpty;
+
+          if (notes.isEmpty && banners.isEmpty && loading) {
+            return AppStateView.loading(message: 'Loading updates');
+          }
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              children: [
+                ...banners,
+                if (banners.isNotEmpty) const SizedBox(height: 4),
+                if (notes.isEmpty && banners.isEmpty)
+                  AppStateView.empty(
+                    title: 'No updates yet',
+                    message: 'Order and subscription updates will appear here.',
+                    icon: Icons.notifications_none_rounded,
+                  )
+                else
+                  for (final note in notes)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _NoteTile(note: note),
+                    ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  static IconData _orderIcon(OrderState state) {
+    if (state == OrderState.delivered) return Icons.check_circle_outline;
+    if (state == OrderState.cancelled || state == OrderState.failed) {
+      return Icons.error_outline;
+    }
+    return Icons.local_shipping_outlined;
+  }
+
+  static String _status(Map<String, dynamic> row) {
+    if (row['status'] != null) return '${row['status']}';
+    if (row['paused'] == true) return 'paused';
+    if (row['canceled'] == true) return 'cancelled';
+    return 'active';
+  }
+
+  static DateTime? _parse(Object? value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  static String _date(Object? value) {
+    final parsed = _parse(value);
+    if (parsed == null) return 'not scheduled';
+    final local = parsed.toLocal();
+    return '${local.day}/${local.month}/${local.year}';
+  }
+}
+
+class _Note {
+  const _Note({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.at,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final DateTime? at;
+  final VoidCallback? onTap;
+}
+
+class _NoteTile extends StatelessWidget {
+  const _NoteTile({required this.note});
+
+  final _Note note;
+
+  @override
+  Widget build(BuildContext context) {
+    final at = note.at?.toLocal();
+    final date = at == null
+        ? ''
+        : '${at.day}/${at.month}/${at.year} ${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+    return AppCard(
+      onTap: note.onTap,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 40,
+            width: 40,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.tealTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Icon(note.icon, color: ShodashaTheme.tealDeep, size: 20),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  note.title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  note.body,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    height: 1.4,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+                if (date.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    date,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: ShodashaTheme.muted,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (note.onTap != null)
+            const Padding(
+              padding: EdgeInsets.only(left: 6, top: 8),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: ShodashaTheme.muted,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

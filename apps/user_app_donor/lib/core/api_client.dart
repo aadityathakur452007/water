@@ -1,0 +1,876 @@
+// F5 — API client over the Workers API (contract §3 conventions + §4 map).
+//
+// Envelope: success returns the decoded JSON; errors throw [ApiException]
+// carrying code + status + retryAfter. Screens switch on `code` and show
+// the offline banner on NETWORK (States.md), never raw status numbers.
+// Authed calls carry Bearer access token + X-Device-Id; `Idempotency-Key`
+// where the contract requires it (orders create/cancel/reschedule).
+// 035: one transparent refresh retry on authed 401/403, TTL cache for public
+// catalog/windows reads only, and a release-mode loopback build guard.
+
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+/// One place for the base URL (contract base; override at build time).
+const String kApiBaseUrl = String.fromEnvironment(
+  'SHODASHA_API_BASE',
+  defaultValue: 'http://localhost:8787/v1',
+);
+
+/// Support number for never-dead-end paths (screens show it on 4xx walls).
+const String kSupportPhone = '+91 93021 90067';
+
+/// Thrown for every non-2xx / network failure.
+class ApiException implements Exception {
+  ApiException({
+    required this.code,
+    required this.message,
+    required this.statusCode,
+    this.retryAfterSeconds,
+    this.details,
+  });
+
+  /// Contract §5 error code (VALIDATION, STALE_QUOTE, OVER_LIMIT,
+  /// HOLD_BLOCKED, IDEMPOTENT_REPLAY, RATE_LIMITED, UNAUTH, NETWORK…).
+  final String code;
+  final String message;
+  final int statusCode;
+  final int? retryAfterSeconds;
+  final Map<String, dynamic>? details;
+
+  /// True only for socket/timeout failures. 5xx is a server problem, not
+  /// offline — showing the offline banner for it is a lie (034 §8.2).
+  bool get isOffline => code == 'NETWORK';
+
+  /// Transport worked; the server failed. Never render this as offline.
+  bool get isServerError => statusCode >= 500;
+
+  @override
+  String toString() => 'ApiException($code, $statusCode, $message)';
+}
+
+/// Thin typed client. One method per request; controllers own parsing.
+class ApiClient {
+  ApiClient({
+    http.Client? client,
+    this.baseUrl = kApiBaseUrl,
+    this.accessToken,
+    this.accessTokenGetter,
+    this.deviceId = 'unknown-device',
+    this.onUnauthorized,
+    this.readCacheTtl = const Duration(seconds: 300),
+    this.readCacheMaxAge = const Duration(minutes: 20),
+  }) : _http = client ?? http.Client() {
+    // Fail fast on cleartext prod builds — hard check, NOT assert(): asserts
+    // are stripped in release, and every shell curl in front proves this file
+    // is the single transport (Phase 4 §4.6 keeps the vendor-copy precedent —
+    // two small clients beats one clever shared one). The release pipeline
+    // must pass an https SHODASHA_API_BASE:
+    //   flutter build apk --release --dart-define=SHODASHA_API_BASE=https://<deploy-domain>/v1
+    // Loopback is allowed only for dev/test. A release build pointed at
+    // localhost would install but never reach a server, so it is a build bug.
+    final String host = (Uri.tryParse(baseUrl)?.host ?? '').toLowerCase();
+    final bool loopback =
+        host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '10.0.2.2' ||
+        host == '::1';
+    if (kReleaseMode && loopback) {
+      throw ArgumentError.value(
+        baseUrl,
+        'baseUrl',
+        'Release builds must not use a loopback SHODASHA_API_BASE',
+      );
+    }
+    if (!baseUrl.startsWith('https://') && !loopback) {
+      throw ArgumentError.value(
+        baseUrl,
+        'baseUrl',
+        'ApiClient baseUrl must be https (or a loopback address for dev)',
+      );
+    }
+  }
+
+  final http.Client _http;
+  final String baseUrl;
+
+  /// Static token (guest/simple wiring); [accessTokenGetter] wins when set.
+  final String? accessToken;
+
+  /// Live token supplier — wired to the AuthController so Bearer tracks the
+  /// session without rebuilding every controller after login.
+  final String? Function()? accessTokenGetter;
+
+  /// X-Device-Id (fraud graph, SEC-F01).
+  final String deviceId;
+
+  /// Fired at most once per authed request on 401/403.
+  ///
+  /// Returns true when the session was recovered (e.g. a refresh succeeded),
+  /// in which case the original request is retried once with the new token.
+  /// Returns false when the session is dead; the original error is rethrown.
+  /// Never called for unauthed login/refresh calls. The hook must not call an
+  /// authed endpoint itself (that would recurse), and the client never calls
+  /// it a second time for the same request.
+  final Future<bool> Function()? onUnauthorized;
+
+  /// In-flight GET dedupe (single-flight): two callers, one socket.
+  /// Cleanup uses then/onError (never whenComplete): whenComplete mints a
+  /// derived future that rethrows unlistened and trips test-zone guards.
+  final Map<String, Future<dynamic>> _inflight = {};
+
+  /// Public, non-user-scoped reads only (catalog/windows). Defaults match the
+  /// server's Cache-Control: 300s fresh, 20 min max stale. A stale entry is
+  /// only rendered by callers that explicitly opt in with a stale label.
+  /// Never used for money/orders/ledger/delivery-code/session/complaints.
+  final Duration readCacheTtl;
+  final Duration readCacheMaxAge;
+  final Map<String, _ReadCacheEntry> _readCache = {};
+
+  /// Transport health for the shell banner: true only when the last attempt
+  /// failed at the socket/timeout layer. Any HTTP response — including 4xx/5xx
+  /// — proves the network is up, so it flips back to false.
+  final ValueNotifier<bool> offline = ValueNotifier<bool>(false);
+
+  void _markTransport({required bool online}) {
+    if (offline.value != !online) offline.value = !online;
+  }
+
+  String? get _token => accessTokenGetter?.call() ?? accessToken;
+
+  /// Whether a valid non-empty bearer token is available for authenticated calls.
+  bool get hasToken => (_token ?? '').isNotEmpty;
+
+  /// Drop every in-flight GET join. Called at the auth boundary (login/logout)
+  /// so a request started as user A is never joined by user B. Keys also carry
+  /// a token fingerprint, so a missed boundary cannot leak across users.
+  void clearInflight() => _inflight.clear();
+
+  /// Drop the public-read cache. Called at the same auth boundary so a new
+  /// session never renders bytes fetched under the previous one.
+  void clearReadCache() => _readCache.clear();
+
+  /// Non-reversible 32-bit FNV-1a fingerprint. The raw token never enters a
+  /// map key, log, or error message.
+  String _tokenFingerprint([String? explicitToken]) {
+    final token = explicitToken ?? _token ?? '';
+    if (token.isEmpty) return 'anon';
+    var hash = 0x811c9dc5;
+    for (final unit in token.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return '${token.length}-${hash.toRadixString(16).padLeft(8, '0')}';
+  }
+
+  Map<String, String> _headers({
+    required bool authed,
+    String? idempotencyKey,
+    String? bearerToken,
+  }) {
+    final h = <String, String>{
+      'Content-Type': 'application/json',
+      'X-Device-Id': deviceId,
+    };
+    final token = bearerToken ?? _token;
+    if (authed && token != null && token.isNotEmpty) {
+      h['Authorization'] = 'Bearer $token';
+    }
+    if (idempotencyKey != null) h['Idempotency-Key'] = idempotencyKey;
+    return h;
+  }
+
+  Uri _uri(String path, Map<String, String>? query) {
+    final base = Uri.parse(baseUrl);
+    return base.replace(
+      path: base.path.endsWith('/')
+          ? '${base.path}${path.substring(1)}'
+          : '${base.path}$path',
+      queryParameters: (query == null || query.isEmpty) ? null : query,
+    );
+  }
+
+  /// Single request path: send → decode → typed error. JSON body in/out.
+  ///
+  /// Resilience (Phase 4 §4.3: copied from the vendor client — minimum
+  /// requests, no retry storms):
+  /// - GETs are single-flighted (concurrent duplicates join one socket).
+  /// - Retried (max 3, backoff 500ms·2ⁿ + jitter, honors Retry-After): only
+  ///   NETWORK/timeout, 408, 429, 5xx — and POSTs only when an
+  ///   [idempotencyKey] is present or [retryPost] is set (caller guarantees
+  ///   the operation is replay-safe: same key + same body). Never retries
+  ///   400/404/409. GETs never retry 429: they fall back to the read cache.
+  /// - Authed 401/403 asks [onUnauthorized] once; a true answer retries the
+  ///   request once with the rotated token. A second 401/403 is final.
+  Future<dynamic> send(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool authed = true,
+    String? idempotencyKey,
+    String? bearerToken,
+    bool notifyUnauthorized = true,
+    bool retryPost = false,
+    int maxAttempts = 3,
+    Duration timeout = const Duration(seconds: 12),
+  }) {
+    if (method == 'GET') {
+      // Authed keys are token-scoped: user B must never join user A's request.
+      final key =
+          'GET ${_uri(path, query)}'
+          '${authed ? '|${_tokenFingerprint(bearerToken)}' : ''}'
+          '|a$maxAttempts';
+      final flying = _inflight[key];
+      if (flying != null) return flying;
+      final fut = _sendWithRetry(
+        method,
+        path,
+        body: body,
+        query: query,
+        authed: authed,
+        idempotencyKey: idempotencyKey,
+        bearerToken: bearerToken,
+        notifyUnauthorized: notifyUnauthorized,
+        retryPost: retryPost,
+        maxAttempts: maxAttempts,
+        timeout: timeout,
+      );
+      _inflight[key] = fut;
+      unawaited(
+        fut.then<void>(
+          (_) {
+            _inflight.remove(key);
+          },
+          onError: (_) {
+            _inflight.remove(key);
+          },
+        ),
+      );
+      return fut;
+    }
+    return _sendWithRetry(
+      method,
+      path,
+      body: body,
+      query: query,
+      authed: authed,
+      idempotencyKey: idempotencyKey,
+      bearerToken: bearerToken,
+      notifyUnauthorized: notifyUnauthorized,
+      retryPost: retryPost,
+      maxAttempts: maxAttempts,
+      timeout: timeout,
+    );
+  }
+
+  /// TTL cache for public reads. Returns the same successful shape as [send].
+  /// [allowStale] is opt-in: only a caller that renders a stale banner may ask
+  /// for an expired entry after a transport/server/429 failure.
+  Future<Map<String, dynamic>> _cachedMapGet(
+    String path, {
+    Map<String, String>? query,
+    required bool allowStale,
+  }) async {
+    final key = 'GET ${_uri(path, query)}';
+    final cached = _readCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.storedAt) <= readCacheTtl) {
+      return Map<String, dynamic>.from(cached.value);
+    }
+    try {
+      final value =
+          (await send('GET', path, query: query, authed: false, maxAttempts: 1))
+              as Map<String, dynamic>;
+      final now = DateTime.now();
+      _readCache.removeWhere(
+        (_, entry) => now.difference(entry.storedAt) > readCacheMaxAge,
+      );
+      _readCache[key] = _ReadCacheEntry(value, now);
+      return value;
+    } on ApiException catch (e) {
+      final usable =
+          allowStale &&
+          cached != null &&
+          (e.isOffline || e.isServerError || e.statusCode == 429) &&
+          DateTime.now().difference(cached.storedAt) <= readCacheMaxAge;
+      if (usable) return Map<String, dynamic>.from(cached.value);
+      rethrow;
+    }
+  }
+
+  bool _retryable(Object e) {
+    if (e is! ApiException) return false;
+    if (e.code == 'NETWORK') return true;
+    return e.statusCode == 408 || e.statusCode == 429 || e.statusCode >= 500;
+  }
+
+  Future<dynamic> _sendWithRetry(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool authed = true,
+    String? idempotencyKey,
+    String? bearerToken,
+    bool notifyUnauthorized = true,
+    bool retryPost = false,
+    int maxAttempts = 3,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    // POST without an idempotency key (or explicit replay-safety) must never
+    // auto-retry: a timeout may mean the server already applied it.
+    final retryableMethod =
+        method == 'GET' ||
+        method == 'DELETE' ||
+        idempotencyKey != null ||
+        retryPost;
+    var attempt = 0;
+    var refreshed = false;
+    while (true) {
+      attempt += 1;
+      try {
+        return await _sendOnce(
+          method,
+          path,
+          body: body,
+          query: query,
+          authed: authed,
+          idempotencyKey: idempotencyKey,
+          bearerToken: bearerToken,
+          timeout: timeout,
+        );
+      } on ApiException catch (e) {
+        // Only an authed call proves the session may be recoverable. A 401
+        // from login/refresh is bad credentials, never a refresh trigger.
+        // One transparent retry at most: if the retried request is still
+        // rejected, the error is final (no second hook, no loop).
+        if (authed &&
+            notifyUnauthorized &&
+            (e.statusCode == 401 || e.statusCode == 403)) {
+          final hook = onUnauthorized;
+          if (refreshed || hook == null) rethrow;
+          refreshed = true;
+          var recovered = false;
+          try {
+            recovered = await hook();
+          } catch (_) {
+            recovered = false;
+          }
+          if (!recovered) rethrow;
+          continue;
+        }
+        // A 429 means "back off", not "try again now": GETs fall through to
+        // the caller's stale cache instead of burning three retries.
+        final canRetry =
+            retryableMethod &&
+            attempt < maxAttempts &&
+            _retryable(e) &&
+            !(method == 'GET' && e.statusCode == 429);
+        if (!canRetry) rethrow;
+        var waitMs = 500 * (1 << (attempt - 1));
+        final serverWait = (e.retryAfterSeconds ?? 0) * 1000;
+        if (serverWait > waitMs) waitMs = serverWait;
+        if (waitMs > 10000) waitMs = 10000;
+        // Full jitter: spread retries so fleets don't thunder.
+        final jitter = DateTime.now().microsecond % (waitMs + 1);
+        await Future<void>.delayed(Duration(milliseconds: jitter));
+      }
+    }
+  }
+
+  Future<dynamic> _sendOnce(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool authed = true,
+    String? idempotencyKey,
+    String? bearerToken,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final uri = _uri(path, query);
+    final http.Response resp;
+    try {
+      final req = http.Request(method, uri)
+        ..headers.addAll(
+          _headers(
+            authed: authed,
+            idempotencyKey: idempotencyKey,
+            bearerToken: bearerToken,
+          ),
+        );
+      if (body != null) req.body = jsonEncode(body);
+      resp = await _http
+          .send(req)
+          .then(http.Response.fromStream)
+          .timeout(timeout);
+    } on TimeoutException {
+      _markTransport(online: false);
+      throw ApiException(
+        code: 'NETWORK',
+        message: 'Request timed out',
+        statusCode: 0,
+      );
+    } catch (_) {
+      _markTransport(online: false);
+      throw ApiException(
+        code: 'NETWORK',
+        message: 'Network unavailable',
+        statusCode: 0,
+      );
+    }
+    // Any response (even an error envelope) means the transport works.
+    _markTransport(online: true);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      if (resp.body.isEmpty) return null;
+      return jsonDecode(utf8.decode(resp.bodyBytes));
+    }
+    // Error envelope {error: {code, message, details}} — tolerant parse.
+    var code = 'UNKNOWN';
+    var message = 'Request failed (${resp.statusCode})';
+    Map<String, dynamic>? details;
+    int? retryAfter;
+    try {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+      if (decoded is Map<String, dynamic>) {
+        final err = decoded['error'];
+        if (err is Map<String, dynamic>) {
+          code = (err['code'] as String?) ?? code;
+          message = (err['message'] as String?) ?? message;
+          final d = err['details'];
+          if (d is Map<String, dynamic>) details = d;
+        }
+      }
+    } on FormatException {
+      // Non-JSON error body → keep defaults.
+    }
+    final ra = resp.headers['retry-after'];
+    if (ra != null) retryAfter = int.tryParse(ra);
+    throw ApiException(
+      code: code,
+      message: message,
+      statusCode: resp.statusCode,
+      retryAfterSeconds: retryAfter,
+      details: details,
+    );
+  }
+
+  // ── Session refresh (§4.1) ────────────────────────────────────────────────
+  /// POST /auth/refresh {refresh_token, device} → rotated token pair.
+  /// Unauthed and never retried automatically: rotation is not replay-safe.
+  Future<Map<String, dynamic>> refreshSession({
+    required String refreshToken,
+  }) async =>
+      (await send(
+            'POST',
+            '/auth/refresh',
+            body: {
+              'refresh_token': refreshToken,
+              'device': {'id': deviceId},
+            },
+            authed: false,
+          ))
+          as Map<String, dynamic>;
+
+  // ── Addresses (§4.3) ──────────────────────────────────────────────────────
+  // NOTE (ADR-051 port): every typed method awaits [send] then casts the
+  // VALUE — `send(...) as Future<Map>` is a runtime type error in Dart.
+  Future<List<dynamic>> listAddresses() async =>
+      (await send('GET', '/addresses', authed: true)) as List<dynamic>;
+
+  Future<Map<String, dynamic>> createAddress(Map<String, dynamic> body) async =>
+      (await send('POST', '/addresses', body: body)) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> patchAddress(
+    String id,
+    Map<String, dynamic> body,
+  ) async =>
+      (await send('PATCH', '/addresses/$id', body: body))
+          as Map<String, dynamic>;
+
+  Future<void> deleteAddress(String id) =>
+      send('DELETE', '/addresses/$id', authed: true);
+
+  // ── Subscriptions / pause / skip (§4.5, EC-S) ─────────────────────────────
+  // Backend returns {data:[...]} — unwrap to List (014 contract fix).
+  Future<List<dynamic>> listSubscriptions() async {
+    final res = await send('GET', '/subscriptions');
+    if (res is List<dynamic>) return res;
+    return ((res as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+  Future<Map<String, dynamic>> pauseSubscription(
+    String id,
+    String holdFrom,
+    String holdTo,
+  ) async =>
+      (await send(
+            'POST',
+            '/subscriptions/$id/pause',
+            body: {'hold_from': holdFrom, 'hold_to': holdTo},
+          ))
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> resumeSubscription(
+    String id,
+    String preferredDate,
+  ) async =>
+      (await send(
+            'POST',
+            '/subscriptions/$id/resume',
+            body: {'preferred_date': preferredDate},
+          ))
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> skipSubscriptionDay(
+    String id,
+    String date,
+  ) async =>
+      (await send('POST', '/subscriptions/$id/skips', body: {'date': date}))
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> cancelSubscription({
+    required String id,
+    String reason = '',
+    String upiId = '',
+  }) async =>
+      (await send(
+            'POST',
+            '/subscriptions/$id/cancel',
+            body: {'reason': reason, 'upi_id': upiId},
+          ))
+          as Map<String, dynamic>;
+
+  // ── Ledger / returns (§4.6) ───────────────────────────────────────────────
+  Future<Map<String, dynamic>> ledgerMe() async =>
+      (await send('GET', '/ledger/me')) as Map<String, dynamic>;
+
+  /// GET /billing/dues → {dues, lines, pay_link} (sub Paid-till-now).
+  Future<Map<String, dynamic>> billingDues() async =>
+      (await send('GET', '/billing/dues')) as Map<String, dynamic>;
+
+  /// POST /returns {qty, address_id, upi_id} → request id + 10-working-day SLA.
+  Future<Map<String, dynamic>> createReturn({
+    required int qty,
+    required String addressId,
+    String? upiId,
+  }) async =>
+      (await send(
+            'POST',
+            '/returns',
+            body: {
+              'qty': qty,
+              'address_id': addressId,
+              if (upiId != null && upiId.trim().isNotEmpty)
+                'upi_id': upiId.trim(),
+            },
+          ))
+          as Map<String, dynamic>;
+
+  /// GET /payments/me → user payment history list
+  Future<List<dynamic>> listUserPayments({int limit = 50}) async {
+    final res = await send('GET', '/payments/me', query: {'limit': '$limit'});
+    if (res is List<dynamic>) return res;
+    return ((res as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+  // ── Complaints (§4.7, no-photo v1: reason codes + text ≤500) ──────────────
+  Future<Map<String, dynamic>> createComplaint({
+    required String orderId,
+    required String reasonCode,
+    required String text,
+  }) async =>
+      (await send(
+            'POST',
+            '/complaints',
+            body: {
+              'order_id': orderId,
+              'reason_code': reasonCode,
+              'text': text,
+            },
+          ))
+          as Map<String, dynamic>;
+
+  Future<List<dynamic>> listComplaints() async {
+    final res = await send('GET', '/complaints');
+    if (res is List<dynamic>) return res;
+    return ((res as Map<String, dynamic>)['data'] as List?) ?? [];
+  }
+
+  // ── Profile (§4.1 /auth/me) ───────────────────────────────────────────────
+  Future<Map<String, dynamic>> me() async =>
+      (await send('GET', '/auth/me')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> patchMe(Map<String, dynamic> body) async =>
+      (await send('PATCH', '/auth/me', body: body)) as Map<String, dynamic>;
+
+  // ── Catalog (§4.2 — guest-callable, prices never walled) ─────────────────
+  /// 300s TTL. [allowStale] is only for a screen that renders "Showing last
+  /// update"; the default never hides a failed refresh behind old prices.
+  Future<Map<String, dynamic>> catalog({bool allowStale = false}) =>
+      _cachedMapGet('/catalog', allowStale: allowStale);
+
+  // ── Windows / quotes / orders (§4.2/§4.4 — 005-home-ux live checkout) ────
+  /// GET /windows?date=YYYY-MM-DD&pincode= → {date, windows, serviceable}.
+  /// Cache key is the full URI, so date + pincode are part of the key.
+  Future<Map<String, dynamic>> windows({
+    String? date,
+    String? pincode,
+    bool allowStale = false,
+  }) => _cachedMapGet(
+    '/windows',
+    query: {
+      ...?date == null ? null : {'date': date},
+      ...?pincode == null ? null : {'pincode': pincode},
+    },
+    allowStale: allowStale,
+  );
+
+  /// POST /quotes {items:[{sku,qty}], e, address_id, window_start}.
+  Future<Map<String, dynamic>> createQuote({
+    required List<Map<String, dynamic>> items,
+    required int empties,
+    required String addressId,
+    required String windowStart,
+  }) async =>
+      (await send(
+            'POST',
+            '/quotes',
+            body: {
+              'items': items,
+              'e': empties,
+              'address_id': addressId,
+              'window_start': windowStart,
+            },
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /subscriptions/estimate {qty, sku_mix} → first-cycle server
+  /// amount (water + once-only deposit). Pure read — the sheet shows
+  /// this on Pay instead of client math (Phase 7 F5).
+  Future<Map<String, dynamic>> subscriptionEstimate({
+    required int qty,
+    required String skuMix,
+  }) async =>
+      (await send(
+            'POST',
+            '/subscriptions/estimate',
+            body: {'qty': qty, 'sku_mix': skuMix},
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /orders {items, e, address_id, window_start, quote_hash,
+  /// quote_total, quote_rate_version, quote_expires_at, payment_mode}
+  /// + Idempotency-Key → 201 server-minted order.
+  Future<Map<String, dynamic>> createOrder({
+    required List<Map<String, dynamic>> items,
+    required int empties,
+    required String addressId,
+    required String windowStart,
+    required String quoteHash,
+    required int quoteTotal,
+    required String quoteRateVersion,
+    required String quoteExpiresAt,
+    required String paymentMode,
+    required String idempotencyKey,
+  }) async =>
+      (await send(
+            'POST',
+            '/orders',
+            body: {
+              'items': items,
+              'e': empties,
+              'address_id': addressId,
+              'window_start': windowStart,
+              'quote_hash': quoteHash,
+              'quote_total': quoteTotal,
+              'quote_rate_version': quoteRateVersion,
+              'quote_expires_at': quoteExpiresAt,
+              'payment_mode': paymentMode,
+            },
+            idempotencyKey: idempotencyKey,
+          ))
+          as Map<String, dynamic>;
+
+  /// GET /orders/{id} → order + tracker + bill (verify paid status here,
+  /// never trust the client-side gateway callback alone).
+  /// Same path as [getOrderFull] (kept for existing callers).
+  Future<Map<String, dynamic>> getOrder(String id) => getOrderFull(id);
+
+  // ── Orders list/detail/mutations (§4.4 — ApiBackedOrdersRepository seam) ──
+  /// GET /orders?limit=&cursor= → {data:[OrderOut], next_cursor}.
+  Future<Map<String, dynamic>> listOrders({
+    String? cursor,
+    int limit = 20,
+  }) async =>
+      (await send(
+            'GET',
+            '/orders',
+            query: {
+              'limit': '$limit',
+              ...?cursor == null ? null : {'cursor': cursor},
+            },
+          ))
+          as Map<String, dynamic>;
+
+  /// GET /orders/{id} → OrderDetailOut (tracker + rider {name,call} + bill).
+  Future<Map<String, dynamic>> getOrderFull(String id) async =>
+      (await send('GET', '/orders/$id')) as Map<String, dynamic>;
+
+  /// POST /orders/{id}/cancel {reason} + Idempotency-Key → CancelOut
+  /// ({order_id, state, bill_total, deposit_reversed, refund} — no full
+  /// order; callers re-read via [getOrderFull]).
+  Future<Map<String, dynamic>> cancelOrderApi(
+    String id,
+    String reason,
+    String idemKey,
+  ) async =>
+      (await send(
+            'POST',
+            '/orders/$id/cancel',
+            body: {'reason': reason},
+            idempotencyKey: idemKey,
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /orders/{id}/reschedule {window_start} → OrderOut.
+  /// Key sent (replay-safe on retry) though the server currently ignores it.
+  Future<Map<String, dynamic>> rescheduleApi(
+    String id,
+    String windowStart,
+    String idemKey,
+  ) async =>
+      (await send(
+            'POST',
+            '/orders/$id/reschedule',
+            body: {'window_start': windowStart},
+            idempotencyKey: idemKey,
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /orders/{id}/rating {stars} → {order_id, stars,
+  /// complaint_shortcut}. Endpoint verified live in
+  /// workers/api/src/app/api/v1/ratings.py (once per delivered order).
+  Future<Map<String, dynamic>> submitRatingApi(String id, int stars) async =>
+      (await send('POST', '/orders/$id/rating', body: {'stars': stars}))
+          as Map<String, dynamic>;
+
+  /// POST /orders/{id}/delivery-code/reissue → the four delivery fields.
+  /// No Idempotency-Key by design: each accepted call mints a new code, and
+  /// the server caps it at 3/order/24h. Never auto-retried.
+  Future<Map<String, dynamic>> reissueDeliveryCodeApi(String id) async =>
+      (await send('POST', '/orders/$id/delivery-code/reissue'))
+          as Map<String, dynamic>;
+
+  /// POST /orders/{id}/cod-confirm → posts COD dues now (idempotent) so dues
+  /// stay visible before doorstep cash; without it dues only appear via the
+  /// vendor cash carry. Best-effort at checkout — the carry covers failures.
+  Future<Map<String, dynamic>> codConfirmApi(String id) async =>
+      (await send('POST', '/orders/$id/cod-confirm')) as Map<String, dynamic>;
+
+  /// POST /orders/{id}/switch-to-cod → converts this unpaid UPI order to COD
+  /// in place, voids its open UPI link, and posts COD dues once. Repeat calls
+  /// replay the same order; an order with captured money is refused.
+  Future<Map<String, dynamic>> switchOrderToCod(String id) async =>
+      (await send('POST', '/orders/$id/switch-to-cod')) as Map<String, dynamic>;
+
+  // ── Subscriptions create (§4.5 — recurring buy path) ─────────────────────
+  /// POST /subscriptions {address_id, qty, sku_mix, window, schedule_type,
+  /// recurrence, billing_mode, payment_method} + Idempotency-Key
+  /// (double-tap → single row) → server-minted subscription.
+  ///
+  /// Monthly modes require UPI (server-enforced). Defaults preserve the
+  /// per-delivery cash plan the donor app shipped with.
+  Future<Map<String, dynamic>> createSubscription({
+    required String addressId,
+    required int qty,
+    required String skuMix,
+    required String window,
+    required String scheduleType,
+    String recurrence = '',
+    String billingMode = 'per_delivery',
+    String paymentMethod = 'cod',
+    String? idempotencyKey,
+  }) async =>
+      (await send(
+            'POST',
+            '/subscriptions',
+            body: {
+              'address_id': addressId,
+              'qty': qty,
+              'sku_mix': skuMix,
+              'window': window,
+              'schedule_type': scheduleType,
+              'recurrence': recurrence,
+              'billing_mode': billingMode,
+              'payment_method': paymentMethod,
+            },
+            idempotencyKey: idempotencyKey,
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /payments/subscription-intent {subscription_id} + Idempotency-Key
+  /// → {charge, link, provider_ref}. One prepaid top-up; retries replay the
+  /// same open charge instead of minting a second provider order.
+  Future<Map<String, dynamic>> subscriptionIntent({
+    required String subscriptionId,
+    required String idempotencyKey,
+  }) async =>
+      (await send(
+            'POST',
+            '/payments/subscription-intent',
+            body: {'subscription_id': subscriptionId},
+            idempotencyKey: idempotencyKey,
+          ))
+          as Map<String, dynamic>;
+
+  // ── UPI intent (§4.4 — Razorpay order for the in-app gateway) ─────────────
+  /// POST /payments/upi-intent {order_id} + Idempotency-Key →
+  /// {payment, link, provider_ref (Razorpay order id)}.
+  Future<Map<String, dynamic>> upiIntent({
+    required String orderId,
+    required String idempotencyKey,
+  }) async =>
+      (await send(
+            'POST',
+            '/payments/upi-intent',
+            body: {'order_id': orderId},
+            idempotencyKey: idempotencyKey,
+          ))
+          as Map<String, dynamic>;
+
+  /// POST /devices {device_id, fcm_token, platform} → token registered
+  /// for order/dispatch updates (015 client half; server send deferred).
+  Future<void> registerDevice({
+    required String deviceId,
+    required String fcmToken,
+    String platform = 'android',
+  }) async {
+    await send(
+      'POST',
+      '/devices',
+      body: {
+        'device_id': deviceId,
+        'fcm_token': fcmToken,
+        'platform': platform,
+      },
+    );
+  }
+
+  /// date → `YYYY-MM-DD` (hold_from/hold_to/skips date format).
+  static String dateOnly(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
+
+class _ReadCacheEntry {
+  _ReadCacheEntry(this.value, this.storedAt);
+
+  final Map<String, dynamic> value;
+  final DateTime storedAt;
+}

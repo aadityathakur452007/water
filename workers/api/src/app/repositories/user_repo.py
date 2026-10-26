@@ -89,6 +89,51 @@ class UserRepo:
     async def find_by_phone(self, phone: str) -> dict | None:
         return await self._select_email_tolerant("phone = ?", phone)
 
+    async def find_for_login_by_phone(self, phone: str) -> dict | None:
+        """User row plus password fields for the customer login path.
+
+        Kept separate from ``find_by_phone`` so password hashes never ride on
+        the general public-user read shape. Tolerates pre-026 DBs (empty hash).
+        """
+        user = await self._select_email_tolerant("phone = ?", phone)
+        if user is None:
+            return None
+        try:
+            row = (
+                await self._conn.execute(
+                    "SELECT password_hash, password_updated_at FROM users WHERE id = ?",
+                    (user["id"],),
+                )
+            ).fetchone()
+        except Exception as e:  # noqa: BLE001 — pre-026 DB
+            if not _no_such_column(e):
+                raise
+            user["password_hash"] = ""
+            user["password_updated_at"] = None
+            return user
+        if row is not None:
+            user["password_hash"] = row["password_hash"] or ""
+            user["password_updated_at"] = row["password_updated_at"]
+        return user
+
+    async def phone_exists(self, phone: str, *, exclude_user_id: str = "") -> bool:
+        row = (
+            await self._conn.execute(
+                "SELECT id FROM users WHERE phone = ? AND id <> ? LIMIT 1",
+                (phone, exclude_user_id),
+            )
+        ).fetchone()
+        return row is not None
+
+    async def set_password(self, user_id: str, password_hash: str) -> dict | None:
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "UPDATE users SET password_hash = ?, password_updated_at = ? WHERE id = ?",
+                (password_hash, _now(), user_id),
+            )
+            self._conn.commit()
+        return await self.find_by_id(user_id)
+
     async def find_by_firebase_uid(self, uid: str) -> dict | None:
         row = (
             await self._conn.execute(
@@ -149,25 +194,18 @@ class UserRepo:
             return await self.find_by_id(user_id)  # type: ignore[return-value]
 
     async def create_register_user(self, *, user_id: str, phone: str, name: str,
-                               email: str = "") -> dict:
-        """Name+email+phone onboarding: role=user, kyc_status=unverified."""
+                               email: str = "", password_hash: str) -> dict:
+        """Name+email+phone+password onboarding: role=user, kyc_status=unverified."""
         with WRITE_LOCK:
-            try:
-                await self._conn.execute(
-                    "INSERT INTO users(id, phone, name, email, role, language,"
-                    " kyc_status, suspended, created_at)"
-                    " VALUES (?, ?, ?, ?, 'user', 'hi', 'unverified', 0, ?)",
-                    (user_id, phone, name, email, _now()),
-                )
-            except Exception as e:  # noqa: BLE001 — pre-020 DB without email
-                if not _no_such_column(e):
-                    raise
-                await self._conn.execute(
-                    "INSERT INTO users(id, phone, name, role, language,"
-                    " kyc_status, suspended, created_at)"
-                    " VALUES (?, ?, ?, 'user', 'hi', 'unverified', 0, ?)",
-                    (user_id, phone, name, _now()),
-                )
+            # Migration 026 is a hard prerequisite for password auth. Do not
+            # silently create an unusable account on a stale database.
+            await self._conn.execute(
+                "INSERT INTO users(id, phone, name, email, password_hash,"
+                " password_updated_at, role, language, kyc_status, suspended,"
+                " created_at) VALUES (?, ?, ?, ?, ?, ?, 'user', 'hi',"
+                " 'unverified', 0, ?)",
+                (user_id, phone, name, email, password_hash, _now(), _now()),
+            )
             self._conn.commit()
             result = await self.find_by_id(user_id)
             assert result is not None

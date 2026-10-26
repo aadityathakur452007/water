@@ -15,11 +15,13 @@ import logging
 
 from app.api.deps import get_settings
 from app.core.errors import error_envelope, get_trace_id
+from app.core.worker_env import env_get
 
 log = logging.getLogger(__name__)
 
 _THROTTLED_PATHS = frozenset({"/v1/catalog", "/v1/windows", "/v1/serviceability"})
 _THROTTLE_WINDOW_S = 60
+_THROTTLE_MAX_KEYS = 2048
 
 _throttle_hits: dict[str, list[float]] = {}
 _throttle_lock = threading.Lock()
@@ -83,20 +85,52 @@ def _throttled(request: Request, retry_after_s: int) -> JSONResponse:
     return _secure(response)
 
 
+def client_ip(request: Request) -> str:
+    """Rate-key IP. Cloudflare overwrites CF-Connecting-IP on Workers; local
+    and test runs fall back to the socket peer. Never logged."""
+    cf = (request.headers.get("cf-connecting-ip") or "").strip()
+    if cf:
+        return cf[:45]
+    host = request.client.host if request.client and request.client.host else ""
+    return host or "unknown"
+
+
+def _prune_throttle(now: float) -> None:
+    """Drop expired keys, then the oldest insertions until under the cap."""
+    stale = [k for k, hits in _throttle_hits.items()
+             if not hits or hits[-1] <= now - _THROTTLE_WINDOW_S]
+    for k in stale:
+        _throttle_hits.pop(k, None)
+    while len(_throttle_hits) > _THROTTLE_MAX_KEYS:
+        _throttle_hits.pop(next(iter(_throttle_hits)), None)
+
+
+def _throttle_limit() -> int:
+    """Settings default, overridable per Worker env (staging benchmark)."""
+    raw = env_get("THROTTLE_ANON_PER_MIN")
+    if raw:
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            pass
+    return get_settings().throttle_anon_per_min
+
+
 async def throttle_middleware(request: Request, call_next):
     path = request.url.path.rstrip("/") or "/"
     if request.method == "OPTIONS" or path not in _THROTTLED_PATHS:
         return await call_next(request)
-    limit = get_settings().throttle_anon_per_min
-    host = request.client.host if request.client and request.client.host else "unknown"
-    key = f"throttle:{host}:{path}"
+    limit = _throttle_limit()
+    key = f"throttle:{client_ip(request)}:{path}"
     now = time.monotonic()
     with _throttle_lock:
+        if key not in _throttle_hits:
+            _prune_throttle(now)
         hits = [t for t in _throttle_hits.get(key, []) if t > now - _THROTTLE_WINDOW_S]
         if len(hits) >= limit:
             retry = int(max(1, _THROTTLE_WINDOW_S - (now - hits[0])))
-            # Phase 8 §8.4: observability on limit hits (pairs with Phase 10 alerting).
-            log.warning("rate_limit edge_hit path=%s host=%s retry_after_s=%d", path, host, retry)
+            # Never log the client IP (Phase 0 redaction contract).
+            log.warning("rate_limit edge_hit path=%s retry_after_s=%d", path, retry)
             return _throttled(request, retry)
         hits.append(now)
         _throttle_hits[key] = hits

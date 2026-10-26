@@ -1,16 +1,17 @@
-// F5 — Support tab: WhatsApp entry + FAQ + complaint form. Contract §4.7
-// 031 restyle: donor contact-row grammar on tokens only (tinted icon chips,
-// teal actions, white tiles on the slate ground). Real support options,
-// strings and complaint wiring untouched.
-// ignore_for_file: prefer_initializing_formals
-// WHY: public ctor param `api:` is the API (same pattern as F2 auth);
-// private initializing formals are unusable from other libraries.
-// (POST /complaints {order_id, reason_code, text ≤500}; window: 24h for
-// water_quality, 3 days general; server enforces — client shows the help
-// path on 422, never silently drops). NO photo field in v1 (ADR-017:
-// reason codes + words; uploader must not render at all).
-// Checklist (Contacting Support): entry here + from error pages, hours,
-// expected response time. GET /complaints → open → progress → resolved.
+// S8 — Support: WhatsApp help path, static FAQ, and complaints.
+//
+// States.md coverage: loading (complaint skeleton), loaded, empty ("no
+// complaints yet" with the next action), error (message + retry), form
+// default/focused/filled/invalid, submitting, success (snackbar), server 422
+// (complaint window closed → WhatsApp path), offline, unauthorized.
+//
+// Contract: POST /complaints {order_id, reason_code, text <= 500}; no photo
+// field in v1 (ADR-017). Windows (24h water quality / 3 days general) are
+// enforced by the server — the client never hides a 422.
+//
+// HARD LAWS: the authenticated ApiClient is injected (ADR-118) — never an
+// unauthenticated fallback or 'unknown-device'; WhatsApp digits derive from
+// the single kSupportPhone constant; no money, amounts or ticket promises.
 
 import 'dart:async';
 
@@ -20,181 +21,53 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import 'support_controller.dart';
 
-const Map<String, String> supportStringsHi = {
-  'title': 'Madad',
-  'waTitle': 'WhatsApp par madad',
-  'waSub': '8AM–8PM • orders, delivery, jar sab kuch',
-  'faqTitle': 'Aksar poochhe jaane wale sawaal',
-  'complaintTitle': 'Shikayat karein',
-  'complaintSub': 'Order juda hoga • 24h (paani) / 3 din (baaki)',
-  'myComplaints': 'Meri shikayatein',
-  'reasonLabel': 'Shikayat ka kaaran',
-  'orderLabel': 'Order',
-  'textLabel': 'Vivaran (500 ansh tak)',
-  'textError': 'Kam se kam 10 ansh likhein',
-  'submit': 'Shikayat bhejein',
-  'sending': 'Bheji ja rahi hai…',
-  'sent': 'Shikayat darj ho gayi — 48 ghante me jawab',
-  'windowExpiredTitle': 'Shikayat window nikal gayi',
-  'windowExpiredBody':
-      'Is order ke liye shikayat window khatam ho gayi. WhatsApp par baat karein.',
-  'errServer': 'Shikayat nahi lagi — dobara try karein',
-  'offline': 'Internet nahi — dobara try karein',
-  'statusOpen': 'Khuli',
-  'statusProgress': 'Jaanch me',
-  'statusResolved': 'Hal ho gayi',
-  'none': 'Abhi koi shikayat nahi',
-  'waFail': 'WhatsApp nahi khula — number copy ho gaya',
-};
+/// Static FAQ copy — no money amounts, no invented delivery promises.
+const List<({String question, String answer})> _faqs = [
+  (
+    question: 'How do I schedule a delivery?',
+    answer:
+        'Pick an available slot on the Home screen before you place your order.',
+  ),
+  (
+    question: 'How do jar returns work?',
+    answer:
+        'Request a pickup from your profile and add the UPI ID for the refund. '
+        'The refund is processed after the jars are collected.',
+  ),
+  (
+    question: 'Which payment methods can I use?',
+    answer:
+        'Pay by UPI, or choose cash on delivery when your order is eligible.',
+  ),
+  (
+    question: 'Where can I see my payments?',
+    answer:
+        'Open Payments & deposits from your profile to see server-verified '
+        'receipts.',
+  ),
+];
 
-/// The 11 contract reason codes (schema `complaints.reason_code`).
-const Map<String, String> kComplaintReasonsHi = {
-  'water_quality': 'Paani ki quality',
-  'damaged_jar': 'Jar tooti / kharab',
-  'wrong_item': 'Galat item aaya',
-  'short_delivery': 'Kam jar aayi',
-  'late_delivery': 'Delivery late hui',
-  'deposit_dispute': 'Deposit ka hisaab',
-  'cap_dispute': 'Cap ka charge',
-  'duplicate_app_order': 'Duplicate order',
-  'not_needed_today': 'Aaj jaroorat nahi thi',
-  'vendor_behavior': 'Rider ka behavior',
-  'other': 'Kuch aur',
-};
-
-enum ComplaintStatus { initial, loading, loaded, error }
-
-@immutable
-class ComplaintEntry {
-  const ComplaintEntry({
-    required this.id,
-    required this.orderId,
-    required this.reasonCode,
-    required this.text,
-    required this.status,
-    this.createdAt,
-  });
-
-  final String id;
-  final String orderId;
-  final String reasonCode;
-  final String text;
-  final String status; // open | progress | resolved
-  final String? createdAt;
-
-  static ComplaintEntry fromApi(Map<String, dynamic> j) => ComplaintEntry(
-    id: (j['id'] ?? '') as String,
-    orderId: (j['order_id'] ?? '') as String,
-    reasonCode: (j['reason_code'] ?? 'other') as String,
-    text: (j['text'] ?? '') as String,
-    status: (j['status'] ?? 'open') as String,
-    createdAt: j['created_at'] as String?,
-  );
-}
-
-class SupportController extends ChangeNotifier {
-  SupportController({required ApiClient api}) : _api = api;
-
-  final ApiClient _api;
-
-  ComplaintStatus _status = ComplaintStatus.initial;
-  List<ComplaintEntry> _items = [];
-  String? _errorMessage;
-  bool _busy = false;
-  String? _lastError;
-
-  ComplaintStatus get status => _status;
-  List<ComplaintEntry> get items => List.unmodifiable(_items);
-  String? get errorMessage => _errorMessage;
-  bool get busy => _busy;
-  String? get lastError => _lastError;
-
-  Future<void> load() async {
-    if (_status == ComplaintStatus.loading) return;
-    _status = ComplaintStatus.loading;
-    _errorMessage = null;
-    _notify();
-    try {
-      final raw = await _api.listComplaints();
-      _items = raw
-          .whereType<Map<String, dynamic>>()
-          .map(ComplaintEntry.fromApi)
-          .toList();
-      _status = ComplaintStatus.loaded;
-    } on ApiException catch (e) {
-      _status = ComplaintStatus.error;
-      _errorMessage = e.isNetwork
-          ? supportStringsHi['offline']
-          : supportStringsHi['errServer'];
-    } catch (_) {
-      _status = ComplaintStatus.error;
-      _errorMessage = supportStringsHi['errServer'];
-    }
-    _notify();
-  }
-
-  /// POST /complaints. Returns error-string-key or null on success.
-  /// Server 422 (window) → caller shows the help-contact path, never hides.
-  Future<String?> submit({
-    required String orderId,
-    required String reasonCode,
-    required String text,
-  }) async {
-    _busy = true;
-    _lastError = null;
-    _notify();
-    try {
-      await _api.createComplaint(
-        orderId: orderId,
-        reasonCode: reasonCode,
-        text: text,
-      );
-      await load();
-      return null;
-    } on ApiException catch (e) {
-      _busy = false;
-      _lastError = e.code;
-      _notify();
-      if (e.statusCode == 422) return 'windowExpiredTitle';
-      return e.isNetwork ? 'offline' : 'errServer';
-    } catch (_) {
-      _busy = false;
-      _notify();
-      return 'errServer';
-    }
-  }
-
-  void _notify() {
-    if (!disposed) notifyListeners();
-  }
-
-  @protected
-  bool disposed = false;
-
-  @override
-  void dispose() {
-    disposed = true;
-    super.dispose();
-  }
-}
-
-/// Support tab-page.
 class SupportScreen extends StatefulWidget {
   const SupportScreen({
     super.key,
+    required this.api,
     this.controller,
     this.orderContext,
     this.openUrl,
-    this.api,
   });
 
-  final SupportController? controller;
-  final String? orderContext; // prefilled wa.me text when opened from orders
-  final ApiClient? api;
+  /// Authenticated transport from the shell — complaints carry the real
+  /// Bearer and persisted X-Device-Id.
+  final ApiClient api;
 
-  /// Opens [url] externally. Injectable for widget tests (defaults to
-  /// url_launcher's external-application launch).
+  final SupportController? controller;
+
+  /// Prefilled WhatsApp text when opened from an order (contextual help).
+  final String? orderContext;
+
+  /// Injectable for widget tests (defaults to url_launcher's external app).
   final Future<bool> Function(Uri url, {LaunchMode mode})? openUrl;
 
   @override
@@ -202,28 +75,31 @@ class SupportScreen extends StatefulWidget {
 }
 
 class _SupportScreenState extends State<SupportScreen> {
-  // Injected transport (ADR-112 DI): UserShell passes the authenticated
-  // ApiClient so complaints carry the real Bearer + persisted X-Device-Id —
-  // never the identity-splitting 'unknown-device' fallback.
-  late final SupportController _c =
-      widget.controller ?? SupportController(api: widget.api!);
+  late final SupportController _controller =
+      widget.controller ?? SupportController(api: widget.api);
+  late final bool _ownsController = widget.controller == null;
 
   @override
   void initState() {
     super.initState();
-    if (widget.controller == null && _c.status == ComplaintStatus.initial) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _c.load());
+    if (_ownsController && _controller.status == ComplaintStatus.initial) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _controller.load());
     }
   }
 
+  @override
+  void dispose() {
+    if (_ownsController) _controller.dispose();
+    super.dispose();
+  }
+
   Future<void> _openWhatsApp() async {
-    // Phase 4 §4.5: launch primary (orders_controller pattern), clipboard
-    // copy stays as the fallback — never the primary. Digits derive from
-    // the single [kSupportPhone] constant (no second source of truth).
+    // Single source: digits derive from kSupportPhone (ADR-118). Launch is
+    // primary; clipboard stays a best-effort fallback, never the main path.
     final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
     final text =
         widget.orderContext ??
-        'Namaste! Mujhe paani ke order me madad chahiye.';
+        'Hi Shodasha support, I need help with my order.';
     final uri = Uri.parse(
       'https://wa.me/$digits?text=${Uri.encodeComponent(text)}',
     );
@@ -235,273 +111,64 @@ class _SupportScreenState extends State<SupportScreen> {
       ok = false;
     }
     if (ok || !mounted) return;
-    // Copy runs unawaited: a slow/denied clipboard must never delay the
-    // fallback message (and never strand it — the snackbar is the signal,
-    // the copy is best-effort).
     unawaited(
       Clipboard.setData(
         ClipboardData(text: kSupportPhone),
       ).then<void>((_) {}, onError: (_) {}),
     );
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(supportStringsHi['waFail']!)));
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('WhatsApp did not open — number copied.')),
+    );
   }
 
   Future<void> _openComplaintForm() async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: RoundedRectangleBorder(
+      backgroundColor: ShodashaTheme.surface,
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(ShodashaTheme.radius),
+          top: Radius.circular(ShodashaTheme.radiusSheet),
         ),
       ),
-      builder: (_) => _ComplaintFormSheet(controller: _c),
+      builder: (_) => _ComplaintFormSheet(
+        controller: _controller,
+        onWhatsApp: _openWhatsApp,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(supportStringsHi['title']!)),
+      backgroundColor: ShodashaTheme.bg,
+      appBar: AppBar(
+        title: const Text('Help & support'),
+        leading: const BackButton(color: ShodashaTheme.ink),
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          // 031: donor contact-row grammar — white tile on the slate ground,
-          // tinted icon chip, action opens WhatsApp (flat card, token cues).
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: ShodashaTheme.surface,
-              border: Border.all(color: ShodashaTheme.border),
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          _HelplineCard(phone: kSupportPhone, onWhatsApp: _openWhatsApp),
+          const _SectionLabel('COMMON QUESTIONS'),
+          for (final faq in _faqs)
+            _Faq(question: faq.question, answer: faq.answer),
+          const _SectionLabel('COMPLAINTS'),
+          _ComplaintEntryCard(onNewComplaint: _openComplaintForm),
+          const SizedBox(height: 20),
+          const Text(
+            'Your complaints',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: ShodashaTheme.ink,
             ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: ShodashaTheme.tealTint,
-                    borderRadius: BorderRadius.circular(
-                      ShodashaTheme.radius / 2,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.chat_bubble_outline,
-                    size: 22,
-                    color: ShodashaTheme.teal,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        supportStringsHi['waTitle']!,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: ShodashaTheme.ink,
-                        ),
-                      ),
-                      Text(
-                        supportStringsHi['waSub']!,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: ShodashaTheme.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: _openWhatsApp,
-                  style: TextButton.styleFrom(
-                    foregroundColor: ShodashaTheme.teal,
-                  ),
-                  child: const Text('Kholein'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            supportStringsHi['faqTitle']!,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-          ),
-          const _Faq(
-            q: 'Deposit kitna hai?',
-            a: 'Rs 150 per jar — one time, refundable. Return par 10 din me wapas.',
-          ),
-          const _Faq(
-            q: 'Delivery window kya hai?',
-            a: 'Subah 8–12 fixed window, har din delivery (Sunday bhi).',
-          ),
-          const _Faq(
-            q: 'Khali jar kab wapas karein?',
-            a: 'Jitni jar aayi, utni khali agle delivery par de dein. Cap bhi laga dein.',
-          ),
-          const _Faq(
-            q: 'COD limit kya hai?',
-            a: 'Rs 2,000 tak COD chalega. Usse bada order UPI se karein.',
-          ),
-          const SizedBox(height: 24),
-          // Complaint entry — the 3-day window is enforced server-side;
-          // expiry shows the WhatsApp path instead of a dead form.
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: ShodashaTheme.surface,
-              border: Border.all(color: ShodashaTheme.border),
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: ShodashaTheme.tealTint,
-                    borderRadius: BorderRadius.circular(
-                      ShodashaTheme.radius / 2,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.report_outlined,
-                    size: 22,
-                    color: ShodashaTheme.teal,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        supportStringsHi['complaintTitle']!,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: ShodashaTheme.ink,
-                        ),
-                      ),
-                      Text(
-                        supportStringsHi['complaintSub']!,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: ShodashaTheme.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: _openComplaintForm,
-                  style: TextButton.styleFrom(
-                    foregroundColor: ShodashaTheme.teal,
-                  ),
-                  child: const Text('Form bharein'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            supportStringsHi['myComplaints']!,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
           ),
           const SizedBox(height: 8),
           ListenableBuilder(
-            listenable: _c,
-            builder: (context, _) {
-              if (_c.status == ComplaintStatus.loading && _c.items.isEmpty) {
-                // Phase 9 §9.1: compact skeleton (was a bare spinner).
-                return const _ComplaintsSkeleton();
-              }
-              // Error branch (was: silent 'none') — message + retry.
-              if (_c.status == ComplaintStatus.error && _c.items.isEmpty) {
-                return Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _c.errorMessage ?? supportStringsHi['errServer']!,
-                        style: const TextStyle(color: ShodashaTheme.muted),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: _c.load,
-                      child: const Text('Dobara try karein'),
-                    ),
-                  ],
-                );
-              }
-              if (_c.items.isEmpty) {
-                return Text(
-                  supportStringsHi['none']!,
-                  style: const TextStyle(color: ShodashaTheme.muted),
-                );
-              }
-              return Column(
-                children: [
-                  for (final cm in _c.items)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: ShodashaTheme.surface,
-                        border: Border.all(color: ShodashaTheme.border),
-                        borderRadius: BorderRadius.circular(
-                          ShodashaTheme.radius,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  kComplaintReasonsHi[cm.reasonCode] ??
-                                      cm.reasonCode,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: ShodashaTheme.ink,
-                                  ),
-                                ),
-                                Text(
-                                  '#${cm.orderId}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: ShodashaTheme.muted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          // Status treatment: token-colored micro label —
-                          // teal for live states, success for resolved.
-                          Text(
-                            cm.status == 'resolved'
-                                ? supportStringsHi['statusResolved']!
-                                : cm.status == 'progress'
-                                ? supportStringsHi['statusProgress']!
-                                : supportStringsHi['statusOpen']!,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.3,
-                              color: cm.status == 'resolved'
-                                  ? ShodashaTheme.success
-                                  : ShodashaTheme.teal,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              );
-            },
+            listenable: _controller,
+            builder: (context, _) =>
+                _ComplaintsSection(controller: _controller),
           ),
         ],
       ),
@@ -509,34 +176,125 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 }
 
-/// Phase 9 §9.1: compact skeleton for the complaints section
-/// (031: teal-tint boxes — palette v2 rhythm).
-class _ComplaintsSkeleton extends StatelessWidget {
-  const _ComplaintsSkeleton();
+/// Solid teal helpline banner (donor grammar, gradient flattened). The
+/// WhatsApp action is white-on-teal — green stays reserved for money CTAs.
+class _HelplineCard extends StatelessWidget {
+  const _HelplineCard({required this.phone, required this.onWhatsApp});
+
+  final String phone;
+  final VoidCallback onWhatsApp;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        for (var i = 0; i < 2; i++)
-          Container(
-            height: 64,
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.teal,
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.surface.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_outline,
+                  size: 20,
+                  color: ShodashaTheme.surface,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Shodasha support',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: ShodashaTheme.surface,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Order, delivery or jar help — message us on WhatsApp.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
               color: ShodashaTheme.tealTint,
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
           ),
-      ],
+          const SizedBox(height: 8),
+          Text(
+            phone,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: ShodashaTheme.surface,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onWhatsApp,
+              style: FilledButton.styleFrom(
+                backgroundColor: ShodashaTheme.surface,
+                foregroundColor: ShodashaTheme.teal,
+                minimumSize: const Size.fromHeight(ShodashaTheme.minTarget),
+                shape: ShodashaTheme.shape,
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+              label: const Text('Chat on WhatsApp'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// One FAQ row (expand/collapse, hairline border, no accordion deps).
-class _Faq extends StatefulWidget {  const _Faq({required this.q, required this.a});
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.label);
 
-  final String q;
-  final String a;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 10),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: ShodashaTheme.muted,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+}
+
+/// One FAQ row: 48dp tap target, inline expand/collapse, no extra deps.
+class _Faq extends StatefulWidget {
+  const _Faq({required this.question, required this.answer});
+
+  final String question;
+  final String answer;
 
   @override
   State<_Faq> createState() => _FaqState();
@@ -548,7 +306,7 @@ class _FaqState extends State<_Faq> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(top: 8),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: ShodashaTheme.surface,
         border: Border.all(color: ShodashaTheme.border),
@@ -556,38 +314,57 @@ class _FaqState extends State<_Faq> {
       ),
       child: Column(
         children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-            onTap: () => setState(() => _open = !_open),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.q,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: ShodashaTheme.ink,
+          Semantics(
+            button: true,
+            expanded: _open,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+              onTap: () => setState(() => _open = !_open),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: ShodashaTheme.minTarget,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.question,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: ShodashaTheme.ink,
+                          ),
+                        ),
                       ),
-                    ),
+                      Icon(
+                        _open
+                            ? Icons.keyboard_arrow_up
+                            : Icons.keyboard_arrow_down,
+                        color: ShodashaTheme.muted,
+                      ),
+                    ],
                   ),
-                  Icon(
-                    _open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: ShodashaTheme.muted,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
           if (_open)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: Text(
-                widget.a,
-                style: const TextStyle(
-                  color: ShodashaTheme.muted,
-                  fontSize: 14,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  widget.answer,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: ShodashaTheme.muted,
+                  ),
                 ),
               ),
             ),
@@ -597,153 +374,532 @@ class _FaqState extends State<_Faq> {
   }
 }
 
-/// Complaint form sheet: reason select (11 codes) + order + text ≤500.
-/// No photo field (v1 contract). 24h/3d windows enforced server-side;
-/// 422 → expiry dialog with WhatsApp fallback (never a silent removal).
-class _ComplaintFormSheet extends StatefulWidget {
-  const _ComplaintFormSheet({required this.controller});
+class _ComplaintEntryCard extends StatelessWidget {
+  const _ComplaintEntryCard({required this.onNewComplaint});
+
+  final VoidCallback onNewComplaint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.tealTint,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+            ),
+            child: const Icon(
+              Icons.report_outlined,
+              size: 20,
+              color: ShodashaTheme.teal,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Raise a complaint',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Tell us what went wrong with an order.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.3,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: onNewComplaint,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(64, ShodashaTheme.minTarget),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+            ),
+            child: const Text(
+              'New',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComplaintsSection extends StatelessWidget {
+  const _ComplaintsSection({required this.controller});
 
   final SupportController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.status == ComplaintStatus.loading &&
+        controller.items.isEmpty) {
+      return const _ComplaintsSkeleton();
+    }
+    if (controller.status == ComplaintStatus.error &&
+        controller.items.isEmpty) {
+      return _ComplaintsError(
+        message: controller.errorMessage ?? supportStrings['loadError']!,
+        onRetry: controller.load,
+      );
+    }
+    if (controller.items.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: ShodashaTheme.surface,
+          border: Border.all(color: ShodashaTheme.border),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        ),
+        child: const Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 18,
+              color: ShodashaTheme.muted,
+            ),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'No complaints yet. If an order goes wrong, raise one above.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Column(
+      children: [
+        for (final complaint in controller.items)
+          _ComplaintCard(complaint: complaint),
+      ],
+    );
+  }
+}
+
+class _ComplaintCard extends StatelessWidget {
+  const _ComplaintCard({required this.complaint});
+
+  final ComplaintEntry complaint;
+
+  (String, Color, Color) get _statusStyle => switch (complaint.status) {
+    'resolved' => ('Resolved', ShodashaTheme.muted, ShodashaTheme.bg),
+    'progress' || 'in_progress' => (
+      'In review',
+      ShodashaTheme.onSolar,
+      ShodashaTheme.solarTint,
+    ),
+    _ => ('Open', ShodashaTheme.teal, ShodashaTheme.tealTint),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final (statusLabel, statusColor, statusBackground) = _statusStyle;
+    final reason =
+        kComplaintReasonLabels[complaint.reasonCode] ?? complaint.reasonCode;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reason,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '#${complaint.orderId}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: ShodashaTheme.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusBackground,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (complaint.text.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              complaint.text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: ShodashaTheme.muted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ComplaintsSkeleton extends StatelessWidget {
+  const _ComplaintsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Loading complaints',
+      child: Column(
+        children: [
+          for (var i = 0; i < 2; i++)
+            Container(
+              height: 64,
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.tealTint,
+                borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComplaintsError extends StatelessWidget {
+  const _ComplaintsError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.error_outline,
+            size: 18,
+            color: ShodashaTheme.danger,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: ShodashaTheme.muted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
+            child: const Text('Try again'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComplaintFormSheet extends StatefulWidget {
+  const _ComplaintFormSheet({
+    required this.controller,
+    required this.onWhatsApp,
+  });
+
+  final SupportController controller;
+  final Future<void> Function() onWhatsApp;
 
   @override
   State<_ComplaintFormSheet> createState() => _ComplaintFormSheetState();
 }
 
 class _ComplaintFormSheetState extends State<_ComplaintFormSheet> {
-  final _order = TextEditingController();
-  final _text = TextEditingController();
+  final _orderCtrl = TextEditingController();
+  final _textCtrl = TextEditingController();
   String _reason = 'water_quality';
   bool _touched = false;
+  bool _sending = false;
 
-  bool get _textOk =>
-      _text.text.trim().length >= 10 && _text.text.trim().length <= 500;
-  bool get _orderOk => _order.text.trim().isNotEmpty;
+  bool get _textOk {
+    final length = _textCtrl.text.trim().length;
+    return length >= 10 && length <= 500;
+  }
+
+  bool get _orderOk => _orderCtrl.text.trim().isNotEmpty;
   bool get _valid => _textOk && _orderOk;
 
   @override
   void dispose() {
-    _order.dispose();
-    _text.dispose();
+    _orderCtrl.dispose();
+    _textCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     setState(() => _touched = true);
-    if (!_valid) return;
+    if (!_valid || _sending) return;
     FocusScope.of(context).unfocus();
-    final err = await widget.controller.submit(
-      orderId: _order.text.trim(),
+    setState(() => _sending = true);
+    final error = await widget.controller.submit(
+      orderId: _orderCtrl.text.trim(),
       reasonCode: _reason,
-      text: _text.text.trim(),
+      text: _textCtrl.text.trim(),
     );
     if (!mounted) return;
-    if (err == null) {
+    setState(() => _sending = false);
+    if (error == null) {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(supportStringsHi['sent']!)));
+      ).showSnackBar(const SnackBar(content: Text('Complaint submitted.')));
       return;
     }
-    if (err == 'windowExpiredTitle') {
-      await showDialog<void>(
+    if (error == 'windowExpired') {
+      final openWhatsApp = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           shape: ShodashaTheme.shape,
-          title: Text(supportStringsHi['windowExpiredTitle']!),
-          content: Text(supportStringsHi['windowExpiredBody']!),
+          title: const Text(
+            'Complaint window closed',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          content: const Text(
+            'The complaint window for this order has closed. Message us on '
+            'WhatsApp and we will help.',
+            style: TextStyle(height: 1.4),
+          ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Theek hai'),
+              onPressed: () => Navigator.of(ctx).pop(false),
+              style: TextButton.styleFrom(foregroundColor: ShodashaTheme.muted),
+              child: const Text('Close'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: TextButton.styleFrom(foregroundColor: ShodashaTheme.teal),
+              child: const Text('WhatsApp us'),
             ),
           ],
         ),
       );
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(supportStringsHi[err] ?? err)));
+      if (openWhatsApp == true && mounted) {
+        Navigator.of(context).pop();
+        unawaited(widget.onWhatsApp());
+      }
+      return;
     }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(supportStrings[error] ?? supportStrings['sendError']!),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.controller;
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: EdgeInsets.only(
           left: 20,
           right: 20,
-          top: 16,
-          bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+          top: 12,
+          bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: ListenableBuilder(
-          listenable: c,
-          builder: (context, _) => SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SheetHandle(),
+            Row(
               children: [
-                Text(
-                  supportStringsHi['complaintTitle']!,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
+                const Expanded(
+                  child: Text(
+                    'New complaint',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: ShodashaTheme.ink,
+                      letterSpacing: -0.3,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 14),
-                DropdownButtonFormField<String>(
-                  initialValue: _reason,
-                  decoration: InputDecoration(
-                    labelText: supportStringsHi['reasonLabel'],
-                  ),
-                  items: [
-                    for (final e in kComplaintReasonsHi.entries)
-                      DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ],
-                  onChanged: (v) => setState(() => _reason = v ?? _reason),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _order,
-                  // WHY: 16px stops iOS auto-zoom (mobile-native A4).
-                  style: const TextStyle(fontSize: 16),
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: supportStringsHi['orderLabel'],
-                    hintText: '#A3F9',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _text,
-                  // WHY: 16px stops iOS auto-zoom (mobile-native A4).
-                  style: const TextStyle(fontSize: 16),
-                  minLines: 3,
-                  maxLines: 5,
-                  maxLength: 500,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    labelText: supportStringsHi['textLabel'],
-                    counterText: '',
-                    errorText: _touched && !_textOk
-                        ? supportStringsHi['textError']
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (c.busy || !_valid) ? null : _submit,
-                    child: c.busy
-                        ? Text(supportStringsHi['sending']!)
-                        : Text(supportStringsHi['submit']!),
-                  ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: _sending
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, color: ShodashaTheme.muted),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 4),
+            const Text(
+              'Share the order and what happened. We review every complaint.',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: ShodashaTheme.muted,
+              ),
+            ),
+            const SizedBox(height: 18),
+            DropdownButtonFormField<String>(
+              initialValue: _reason,
+              decoration: const InputDecoration(
+                labelText: 'Reason',
+                prefixIcon: Icon(Icons.tune),
+              ),
+              items: [
+                for (final entry in kComplaintReasonLabels.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (value) => setState(() => _reason = value ?? _reason),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('complaint-order'),
+              controller: _orderCtrl,
+              enabled: !_sending,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Order ID',
+                hintText: 'A3F9',
+                prefixIcon: Icon(Icons.receipt_long_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('complaint-text'),
+              controller: _textCtrl,
+              enabled: !_sending,
+              minLines: 3,
+              maxLines: 5,
+              maxLength: 500,
+              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'What happened?',
+                helperText: '10–500 characters',
+                counterText: '',
+                alignLabelWithHint: true,
+                errorText: _touched && !_textOk
+                    ? 'Write at least 10 characters.'
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('complaint-submit'),
+                onPressed: (_sending || !_valid) ? null : _submit,
+                style: FilledButton.styleFrom(
+                  backgroundColor: ShodashaTheme.teal,
+                  foregroundColor: ShodashaTheme.surface,
+                  disabledBackgroundColor: ShodashaTheme.teal.withValues(
+                    alpha: 0.4,
+                  ),
+                  minimumSize: const Size.fromHeight(52),
+                  shape: ShodashaTheme.shape,
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: _sending
+                    ? const Text('Sending…')
+                    : const Text('Send complaint'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared sheet drag handle (donor checkout chrome, no image assets).
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: ShodashaTheme.border,
+          borderRadius: BorderRadius.circular(2),
         ),
       ),
     );

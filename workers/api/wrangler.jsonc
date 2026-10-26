@@ -47,9 +47,47 @@
 			"enabled": false,
 			"head_sampling_rate": 1,
 			"persist": true
-		},
-		"issue_detection": {
-			"enabled": false
+		}
+	},
+	"env": {
+		"staging": {
+			"name": "water-staging",
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "shodasha-staging",
+					"database_id": "05772775-a957-4852-8ec3-6b14082d4a62",
+					"migrations_dir": "src/app/db/migrations"
+				}
+			],
+			"vars": {
+				// Synthetic benchmark staging only. No secrets here.
+				"APP_ENV": "staging",
+				"FIREBASE_PROJECT_ID": "water-delivery-system-26",
+				"OBS_LOG_SAMPLE_RATE": "0.1",
+				"OBS_SLOW_MS": "750",
+				// The benchmark exits from one source IP; keep the edge throttle
+				// out of the way so latency numbers are not 429s.
+				"THROTTLE_ANON_PER_MIN": "100000"
+			},
+			"triggers": {
+				// No cron in staging: synthetic due subscriptions must not mutate
+				// the dataset while a benchmark is running.
+				"crons": []
+			},
+			"observability": {
+				"logs": {
+					"enabled": true,
+					"head_sampling_rate": 1,
+					"invocation_logs": true,
+					"persist": true
+				},
+				"traces": {
+					"enabled": true,
+					"head_sampling_rate": 1,
+					"persist": true
+				}
+			}
 		}
 	}
 }

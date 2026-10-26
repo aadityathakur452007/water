@@ -28,6 +28,10 @@ class UpiIntentIn(BaseModel):
     order_id: str = Field(min_length=1)
 
 
+class SubscriptionIntentIn(BaseModel):
+    subscription_id: str = Field(min_length=1)
+
+
 def _service(conn) -> PaymentService:
     return PaymentService(PaymentRepo(conn), OrderRepo(conn), LedgerRepo(conn), get_provider())
 
@@ -65,10 +69,24 @@ async def cod_confirm(order_id: str, conn=Depends(get_db_conn), user=Depends(_us
     return await _service(conn).cod_confirm(_uid(user), order_id)
 
 
+@router.post("/orders/{order_id}/switch-to-cod")
+async def switch_to_cod(order_id: str, conn=Depends(get_db_conn), user=Depends(_user)):
+    """Owner-only fallback: convert this unpaid UPI order to COD in place."""
+    return await _service(conn).switch_to_cod(_uid(user), order_id)
+
+
 @router.post("/payments/dues-intent", status_code=201)
 async def dues_intent(conn=Depends(get_db_conn), user=Depends(_user),
                 idem: str | None = Header(default=None, alias="Idempotency-Key")):
     return await _service(conn).dues_intent(_uid(user), _require_idem(idem))
+
+
+@router.post("/payments/subscription-intent", status_code=201)
+async def subscription_intent(payload: SubscriptionIntentIn, conn=Depends(get_db_conn),
+                              user=Depends(_user),
+                              idem: str | None = Header(default=None, alias="Idempotency-Key")):
+    return await _service(conn).subscription_intent(
+        _uid(user), payload.subscription_id.strip(), _require_idem(idem))
 
 
 @router.get("/billing/dues")

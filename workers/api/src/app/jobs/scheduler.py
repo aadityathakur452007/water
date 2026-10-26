@@ -46,9 +46,12 @@ SUB_WINDOW_START = "08:00:00+00:00"  # subs carry free-text window; orders need 
 
 # Phase 8 §8.2: bounded background work — descriptor batches, ledger pages,
 # purge IN-chunks. Small literals (never config) per the minimum-code mandate.
+# Phase 1A: 60 due subs/tick (≤30 min drain for a 100-sub cluster) and 90-param
+# purge chunks (D1's 100-bound-parameter limit leaves headroom for filters).
 _SCHED_BATCH = 100
 _LEDGER_PAGE = 500
-_PURGE_CHUNK = 500
+_PURGE_CHUNK = 90
+_DUE_LIMIT = 60
 
 Conn = D1Conn | AsyncSqliteConn
 
@@ -78,25 +81,41 @@ def _order_service(conn: Conn) -> OrderService:
 async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
     """Run ``process_due`` then create one order per descriptor, fresh quote.
 
-    Idempotent per day: ``process_due`` advances ``next_run`` (replay ⇒ empty)
-    AND the order key ``sub:{sub}:{date}`` replays to the original order.
-    One bad descriptor never blocks the rest (→ ``failed`` with code/message).
-    Phase 8 §8.2: descriptors run in batches of 100 with a progress log
-    (bounded work per tick, visible in the persisted invocation logs).
+    Order creation (and prepaid settlement) must succeed before ``next_run``
+    is advanced. A failure records a backoff and leaves the plan due; the next
+    tick replays the same ``sub:{sub}:{date}`` key, so a delivery is never
+    skipped and no second order is created. Bounded to ``_DUE_LIMIT`` rows.
     """
-    due = await SubscriptionService(conn).process_due(today)
+    sub_svc = SubscriptionService(conn)
+    due_backlog = await sub_svc.due_backlog(today)
+    due = await sub_svc.process_due(today, limit=_DUE_LIMIT)
     date = due["date"]
     svc = _order_service(conn)
     created: list[dict] = []
     failed: list[dict] = []
+    low_balance: list[dict] = list(due.get("low_balance") or [])
     pending = list(due["generated"])
     total = len(pending)
+
+    async def _fail(d: dict, code: str, message: str) -> None:
+        entry = {"sub_id": d["sub_id"], "user_id": d["user_id"],
+                 "code": code, "message": str(message)[:200]}
+        try:
+            entry.update(await sub_svc.record_due_failure(
+                str(d["sub_id"]), code, message))
+        except Exception:  # noqa: BLE001 — a failed failure-write must not kill the tick
+            pass
+        failed.append(entry)
+        log.warning("due_failed sub=%s attempts=%s code=%s",
+                    d["sub_id"], entry.get("attempts"), code)
+
     while pending:
         batch, pending = pending[:_SCHED_BATCH], pending[_SCHED_BATCH:]
         for d in batch:
             sku = str(d.get("sku_mix") or "refill").lower()
             items = [{"sku": sku if sku in ("refill", "container") else "refill", "qty": int(d["qty"])}]
             window_start = f"{d['date']}T{SUB_WINDOW_START}"
+            billing_mode = str(d.get("billing_mode") or "per_delivery")
             try:
                 from app.repositories.ledger_repo import LedgerRepo
                 led = await LedgerRepo(conn).get(str(d["user_id"]))
@@ -104,31 +123,47 @@ async def run_due_subscriptions(conn: Conn, today: object = None) -> dict:
                 q = pricing.compute_quote(items, 0, _rates(), address_id=d["address_id"],
                                           window_start=window_start, rate_version=pricing.RATE_VERSION,
                                           deposit_already_paid_paise=dep_paid)
+                payment_mode = "upi" if billing_mode in ("monthly_prepaid", "monthly_postpaid") \
+                    else (d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod")
                 payload = {
                     "items": items, "e": 0, "address_id": d["address_id"], "window_start": window_start,
                     "quote_hash": q["quote_hash"], "quote_total": q["total"],
                     "quote_rate_version": q["rate_version"],
                     "quote_expires_at": (_now() + _dt.timedelta(minutes=QUOTE_TTL_MIN)).isoformat(),
-                    "payment_mode": d.get("payment_method") if d.get("payment_method") in ("upi", "cod") else "cod",
+                    "payment_mode": payment_mode,
                 }
                 order = await svc.create(str(d["user_id"]), payload, f"sub:{d['sub_id']}:{date}")
+                if billing_mode == "monthly_prepaid":
+                    await sub_svc.settle_prepaid_order(
+                        str(d["sub_id"]), str(order["id"]), int(q["water_bill"]))
+                await sub_svc.advance_due(str(d["sub_id"]), d["date"], date)
                 created.append({"order_id": order["id"], "sub_id": d["sub_id"],
                                 "user_id": d["user_id"], "total": order["total"],
-                                "billing_mode": d.get("billing_mode", "per_delivery")})
+                                "billing_mode": billing_mode})
             except IdempotentReplayError as e:
                 order = (e.details or {}).get("order") or {}
-                created.append({"order_id": order.get("id"), "sub_id": d["sub_id"],
-                                "user_id": d["user_id"], "total": order.get("total"), "replayed": True})
+                try:
+                    if billing_mode == "monthly_prepaid" and order.get("id"):
+                        await sub_svc.settle_prepaid_order(
+                            str(d["sub_id"]), str(order["id"]), int(q["water_bill"]))
+                    await sub_svc.advance_due(str(d["sub_id"]), d["date"], date)
+                    created.append({"order_id": order.get("id"), "sub_id": d["sub_id"],
+                                    "user_id": d["user_id"], "total": order.get("total"),
+                                    "replayed": True})
+                except AppError as e2:
+                    await _fail(d, e2.code, e2.message)
+                except Exception as e2:  # noqa: BLE001
+                    await _fail(d, "SERVER", str(e2))
             except AppError as e:
-                failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
-                               "code": e.code, "message": e.message})
+                await _fail(d, e.code, e.message)
             except Exception as e:  # never let one descriptor kill the run
-                failed.append({"sub_id": d["sub_id"], "user_id": d["user_id"],
-                               "code": "SERVER", "message": str(e)[:200]})
+                await _fail(d, "SERVER", str(e))
         done = total - len(pending)
-        log.info("due_subscriptions date=%s progress=%d/%d created=%d failed=%d",
-                 date, done, total, len(created), len(failed))
-    return {"date": date, "created": created, "resumed": due["resumed"], "failed": failed}
+        log.info("due_subscriptions date=%s progress=%d/%d created=%d failed=%d low=%d",
+                 date, done, total, len(created), len(failed), len(low_balance))
+    return {"date": date, "due_backlog": due_backlog, "processed": total,
+            "created": created, "resumed": due["resumed"], "failed": failed,
+            "low_balance": low_balance}
 
 
 async def collect_reminders(conn: Conn, today: object = None) -> dict:
@@ -194,9 +229,10 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
     """Delete rows past retention; idempotent (replay deletes nothing new).
 
     Quotes are stateless (TTL enforced at POST /v1/orders) → count + note only.
-    Phase 8 §8.2: IN-list deletes run in chunks of 500 with the lock
-    released (and committed) between chunks — one giant txn never holds
-    the D1 single writer for the whole audit table.
+    Phase 8 §8.2: IN-list deletes run in bounded chunks (90 params, below
+    D1's 100-bound-parameter limit) with the lock released (and committed)
+    between chunks — one giant txn never holds the D1 single writer for the
+    whole audit table.
     """
     now = now or _now()
     cutoff_72h = (now - _dt.timedelta(hours=ORDERS_RETENTION_H)).isoformat()
@@ -206,7 +242,7 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
     pay_filter = "(scoped_key LIKE 'POST /v1/payments%' OR scoped_key LIKE '%refund%')"
 
     async def _delete_chunked(ids: list) -> int:
-        """DELETE one 500-chunk per lock-hold; returns rows deleted."""
+        """DELETE one 90-chunk per lock-hold; returns rows deleted."""
         done = 0
         for i in range(0, len(ids), _PURGE_CHUNK):
             chunk = ids[i:i + _PURGE_CHUNK]
@@ -253,7 +289,7 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
         n_ops = await _delete_chunked(kill_ops)
         if maybe_money:
             # Chunk the money-row probe too: one bounded placeholder list
-            # per 500 (SQLite/D1 cap bound variables per statement).
+            # per 90 (D1's 100-bound-parameter limit).
             ancient_ids: list = []
             for i in range(0, len(maybe_money), _PURGE_CHUNK):
                 chunk = maybe_money[i:i + _PURGE_CHUNK]
@@ -279,12 +315,113 @@ async def purge_expired(conn: Conn, now: _dt.datetime | None = None) -> dict:
             "quotes_note": "quotes are stateless (15-min TTL enforced at POST /v1/orders); nothing stored"}
 
 
+async def purge_delivery_codes(conn: Conn, now: _dt.datetime | None = None) -> dict:
+    """Remove expired/terminal delivery secrets; keep the expiry tombstone.
+
+    The code is deleted at expiry (or terminal state) but ``pod_otp_expires_at``
+    stays so the customer UI can show "expired" and offer a reissue. Idempotent.
+    Reissue slots older than 48h are purged by time range (no IN list).
+    """
+    now = now or _now()
+    reissues_deleted = 0
+    try:
+        with WRITE_LOCK:
+            cur = await conn.execute(
+                "DELETE FROM delivery_code_reissues WHERE created_at < ?",
+                ((now - _dt.timedelta(hours=48)).isoformat(),),
+            )
+            reissues_deleted = cur.rowcount or 0
+            conn.commit()
+    except Exception:  # noqa: BLE001 — pre-029 DB may not have the table yet
+        conn.rollback()
+    cols = await _cols(conn, "stops")
+    if "pod_otp" not in cols:
+        return {"expired_cleared": 0, "terminal_cleared": 0,
+                "reissues_deleted": reissues_deleted}
+    terminal = (
+        "status IN ('failed', 'skipped') OR order_id IN"
+        " (SELECT id FROM orders WHERE state IN ('cancelled', 'rejected', 'failed'))"
+    )
+    sets = ["pod_otp = NULL"]
+    if "pod_attempts" in cols:
+        sets.append("pod_attempts = 0")
+    if "pod_otp_expires_at" in cols:
+        sets.append("pod_otp_expires_at = NULL")
+    with WRITE_LOCK:
+        try:
+            expired_cleared = 0
+            if "pod_otp_expires_at" in cols:
+                cur = await conn.execute(
+                    "UPDATE stops SET pod_otp = NULL"
+                    " WHERE pod_otp IS NOT NULL AND pod_otp_expires_at IS NOT NULL"
+                    " AND pod_otp_expires_at <= ?",
+                    (now.isoformat(),),
+                )
+                expired_cleared = cur.rowcount or 0
+            cur = await conn.execute(
+                f"UPDATE stops SET {', '.join(sets)} WHERE pod_otp IS NOT NULL AND ({terminal})",  # noqa: S608
+                (),
+            )
+            terminal_cleared = cur.rowcount or 0
+            # ``done`` is also set by the triple, which can arrive before the
+            # PoD code is used. Only a closed triple is truly terminal.
+            done = (await conn.execute(
+                "SELECT id, triple FROM stops WHERE status = 'done' AND pod_otp IS NOT NULL"
+            )).fetchall()
+            closed_ids = []
+            for row in done:
+                try:
+                    triple = json.loads(row["triple"] or "{}")
+                except (TypeError, ValueError):
+                    triple = {}
+                if triple.get("pod"):
+                    closed_ids.append(row["id"])
+            if closed_ids:
+                marks = ", ".join("?" for _ in closed_ids)
+                cur = await conn.execute(
+                    f"UPDATE stops SET {', '.join(sets)} WHERE id IN ({marks})",  # noqa: S608
+                    tuple(closed_ids),
+                )
+                terminal_cleared += cur.rowcount or 0
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+            return {"expired_cleared": 0, "terminal_cleared": 0,
+                    "reissues_deleted": reissues_deleted}
+    return {"expired_cleared": expired_cleared, "terminal_cleared": terminal_cleared,
+            "reissues_deleted": reissues_deleted}
+
+
+async def cron_tick(conn: Conn, today: object = None,
+                    now: _dt.datetime | None = None) -> dict:
+    """One production cron invocation: run every job and log the summary."""
+    from app.core.observability import current_metrics, reset_metrics, start_metrics  # noqa: PLC0415
+
+    started = _now()
+    _, token = start_metrics()
+    try:
+        summary = await run_all(conn, today, now)
+        metrics = current_metrics()
+        if metrics is not None:
+            summary["db_queries"] = metrics.db_queries
+            summary["db_roundtrips"] = metrics.db_roundtrips
+        summary["duration_ms"] = int((_now() - started).total_seconds() * 1000)
+        try:
+            log.info("cron tick %s", json.dumps(summary, default=str))
+        except Exception:  # noqa: BLE001, S110 — logging must never fail the tick
+            pass
+        return summary
+    finally:
+        reset_metrics(token)
+
+
 async def run_all(conn: Conn, today: object = None,
             now: _dt.datetime | None = None) -> dict:
     """Run every job once; returns the combined summary."""
     return {"due": await run_due_subscriptions(conn, today),
             "reminders": await collect_reminders(conn, today),
-            "purge": await purge_expired(conn, now)}
+            "purge": await purge_expired(conn, now),
+            "delivery_codes": await purge_delivery_codes(conn, now)}
 
 
 def main(argv: list[str] | None = None) -> dict:

@@ -1,13 +1,19 @@
 """Shared FastAPI dependencies: settings, trace middleware, db session."""
 
-import uuid
 from collections.abc import Iterator
 from functools import lru_cache
+from time import perf_counter
 
 from fastapi import Request
 
 from app.core.config import Settings
-from app.core.errors import TRACE_HEADER
+from app.core.errors import TRACE_HEADER, safe_trace_id
+from app.core.observability import (
+    elapsed_ms,
+    log_request,
+    reset_metrics,
+    start_metrics,
+)
 
 
 @lru_cache
@@ -16,11 +22,33 @@ def get_settings() -> Settings:
 
 
 async def trace_middleware(request: Request, call_next):
-    trace_id = request.headers.get(TRACE_HEADER) or uuid.uuid4().hex[:16]
+    """Outermost request middleware: sanitize trace id, time, and log.
+
+    Registered last in ``create_app`` so throttle/body-cap rejections also get
+    a trace id and a structured log line. Logging failures never escape.
+    """
+    trace_id = safe_trace_id(request.headers.get(TRACE_HEADER))
     request.state.trace_id = trace_id
-    response = await call_next(request)
-    response.headers[TRACE_HEADER] = trace_id
-    return response
+    metrics, token = start_metrics()
+    started = perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers[TRACE_HEADER] = trace_id
+        return response
+    finally:
+        try:
+            log_request(
+                request,
+                status_code=status_code,
+                duration_ms=elapsed_ms(started),
+                metrics=metrics,
+                trace_id=trace_id,
+            )
+        except Exception:  # noqa: BLE001 - never break the request path
+            pass
+        reset_metrics(token)
 
 
 def get_db() -> Iterator:

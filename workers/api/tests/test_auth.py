@@ -35,7 +35,9 @@ from app.services.auth_service import (  # noqa: E402
 )
 
 MIGRATION = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_text()
+M026 = (API_ROOT / "src" / "app" / "db" / "migrations" / "026_user_password.sql").read_text()
 PHONE = "+919876543210"
+PASSWORD = "correct-horse-9"
 
 
 @pytest.fixture(autouse=True)
@@ -64,6 +66,7 @@ def _conn():
 
     raw = get_connection(":memory:")
     raw.executescript(MIGRATION)
+    raw.executescript(M026)
     try:
         raw.execute("ALTER TABLE users ADD COLUMN email TEXT")
     except Exception:
@@ -90,6 +93,20 @@ async def _verify(c, token="good", device=None, verifier=None) -> dict:
     return await _svc(c, verifier).otp_verify(token, device or _device())
 
 
+async def _register(c, phone=PHONE, password=PASSWORD, device="dev-1") -> dict:
+    return await _svc(c).user_register("Test User", phone, "", password, device)
+
+
+def _register_http(client, phone=PHONE, password=PASSWORD, device="dev-1") -> dict:
+    r = client.post(
+        "/v1/auth/user/register",
+        json={"name": "Test User", "phone": phone, "password": password,
+              "device": {"id": device}},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 async def _suspend(c, user_id: str, role: str = "user") -> None:
     await c.execute(
         "UPDATE users SET suspended = 1, suspended_reason = 'dues', role = ? WHERE id = ?",
@@ -105,6 +122,7 @@ def test_phone_normalize_variants():
     assert normalize_phone("+919876543210") == PHONE
     assert normalize_phone("919876543210") == PHONE
     assert normalize_phone("9876543210") == PHONE
+    assert normalize_phone("09876543210") == PHONE
     assert normalize_phone(" 98765 43210 ") == PHONE
 
 
@@ -340,23 +358,21 @@ def _auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_router_start_202():
-    r = _client(_conn()).post("/v1/auth/otp/start", json={"phone": "9876543210"})
-    assert r.status_code == 202, r.text
-    assert r.json() == {"sent_to_masked": "+91******3210", "resend_after_s": 30, "channel": "firebase"}
-
-
-def test_router_start_bad_phone_400():
-    assert _client(_conn()).post("/v1/auth/otp/start", json={"phone": "abc"}).status_code == 400
+def test_router_otp_retired_410():
+    client = _client(_conn())
+    for path, body in (("/v1/auth/otp/start", {"phone": "9876543210"}),
+                       ("/v1/auth/otp/verify", {"firebase_id_token": "good",
+                                                "device": {"id": "dev-1"}})):
+        r = client.post(path, json=body)
+        assert r.status_code == 410, r.text
+        assert r.json()["error"]["code"] == "OTP_RETIRED"
 
 
 def test_router_verify_me_patch():
     c = _conn()
     client = _client(c)
-    r = client.post("/v1/auth/otp/verify",
-                    json={"firebase_id_token": "good", "device": {"id": "dev-1"}})
-    assert r.status_code == 200, r.text
-    token = r.json()["access_token"]
+    out = _register_http(client)
+    token = out["access_token"]
     me = client.get("/v1/auth/me", headers=_auth_headers(token))
     assert me.status_code == 200, me.text
     assert me.json()["user"]["phone"] == PHONE
@@ -367,27 +383,34 @@ def test_router_verify_me_patch():
 def test_router_patch_me_phone_and_email():
     c = _conn()
     client = _client(c)
-    r = client.post("/v1/auth/otp/verify",
-                    json={"firebase_id_token": "good", "device": {"id": "dev-1"}})
-    token = r.json()["access_token"]
-    p = client.patch("/v1/auth/me", json={"name": "Rahul", "phone": "9811122233", "email": "rahul@gmail.com"}, headers=_auth_headers(token))
+    out = _register_http(client)
+    token = out["access_token"]
+    p = client.patch(
+        "/v1/auth/me",
+        json={"name": "Rahul", "phone": "9811122233", "email": "rahul@yahoo.com"},
+        headers=_auth_headers(token),
+    )
     assert p.status_code == 200, p.text
     user = p.json()["user"]
     assert user["name"] == "Rahul"
     assert user["phone"] == "+919811122233"
-    assert user["email"] == "rahul@gmail.com"
-    # Invalid email rejected
-    bad_email = client.patch("/v1/auth/me", json={"email": "notgmail@yahoo.com"}, headers=_auth_headers(token))
+    assert user["email"] == "rahul@yahoo.com"
+    # Invalid email rejected; optional empty is allowed.
+    bad_email = client.patch("/v1/auth/me", json={"email": "not-an-email"},
+                             headers=_auth_headers(token))
     assert bad_email.status_code == 400
+    cleared = client.patch("/v1/auth/me", json={"email": ""}, headers=_auth_headers(token))
+    assert cleared.status_code == 200 and cleared.json()["user"]["email"] == ""
     # Invalid phone rejected
     bad_phone = client.patch("/v1/auth/me", json={"phone": "123"}, headers=_auth_headers(token))
     assert bad_phone.status_code == 400
 
 
-def test_router_verify_missing_device_400():
+def test_router_register_missing_device_400():
     c = _conn()
-    r = _client(c).post("/v1/auth/otp/verify",
-                        json={"firebase_id_token": "good", "device": {}})
+    r = _client(c).post("/v1/auth/user/register",
+                        json={"name": "No Device", "phone": PHONE,
+                              "password": PASSWORD, "device": {}})
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "VALIDATION"
 
@@ -395,8 +418,7 @@ def test_router_verify_missing_device_400():
 async def test_router_suspended_patch_403_me_200():
     c = _conn()
     client = _client(c)
-    token = client.post("/v1/auth/otp/verify",
-                        json={"firebase_id_token": "good", "device": {"id": "dev-1"}}).json()["access_token"]
+    token = _register_http(client)["access_token"]
     uid = client.get("/v1/auth/me", headers=_auth_headers(token)).json()["user"]["id"]
     await _suspend(c, uid)
     me = client.get("/v1/auth/me", headers=_auth_headers(token))
@@ -410,8 +432,7 @@ async def test_router_suspended_patch_403_me_200():
 def test_router_refresh_logout():
     c = _conn()
     client = _client(c)
-    v = client.post("/v1/auth/otp/verify",
-                    json={"firebase_id_token": "good", "device": {"id": "dev-1"}}).json()
+    v = _register_http(client)
     r = client.post("/v1/auth/refresh",
                     json={"refresh_token": v["refresh_token"], "device": {"id": "dev-1"}})
     assert r.status_code == 200, r.text
@@ -464,18 +485,17 @@ def _hook_client(c, verifier=None):
             pass
 
 
-def test_hook_start_202():
+def test_hook_otp_retired():
     for client in _hook_client(_conn()):
         r = client.post("/v1/auth/otp/start", json={"phone": "9876543210"})
-        assert r.status_code == 202, r.text
+        assert r.status_code == 410, r.text
+        assert r.json()["error"]["code"] == "OTP_RETIRED"
 
 
-def test_hook_verify_me_200():
+def test_hook_register_me_200():
     for client in _hook_client(_conn()):
-        v = client.post("/v1/auth/otp/verify",
-                        json={"firebase_id_token": "good", "device": {"id": "dev-1"}})
-        assert v.status_code == 200, v.text
+        v = _register_http(client)
         me = client.get("/v1/auth/me",
-                        headers=_auth_headers(v.json()["access_token"]))
+                        headers=_auth_headers(v["access_token"]))
         assert me.status_code == 200, me.text
         assert me.json()["user"]["phone"] == PHONE

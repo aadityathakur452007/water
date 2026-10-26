@@ -38,6 +38,11 @@ from app.services.payment_service import PaymentService  # noqa: E402
 
 MIG4 = (API_ROOT / "src" / "app" / "db" / "migrations" / "004_orders.sql").read_text()
 MIG5 = (API_ROOT / "src" / "app" / "db" / "migrations" / "005_payments.sql").read_text()
+MIG10 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
+MIG19 = (API_ROOT / "src" / "app" / "db" / "migrations" / "019_rate_counters.sql").read_text()
+MIG22 = (API_ROOT / "src" / "app" / "db" / "migrations" / "022_vendor_leaves_and_sub_cancel.sql").read_text()
+MIG28 = (API_ROOT / "src" / "app" / "db" / "migrations" / "028_p0_money_monthly.sql").read_text()
+MIG29 = (API_ROOT / "src" / "app" / "db" / "migrations" / "029_p0_correctness.sql").read_text()
 WINDOW = "2026-10-01T08:00:00+00:00"
 
 
@@ -53,6 +58,11 @@ def _conn():
     c = get_connection(":memory:")
     c.executescript(MIG4)
     c.executescript(MIG5)
+    c.executescript(MIG10)
+    c.executescript(MIG19)
+    c.executescript(MIG22)
+    c.executescript(MIG28)
+    c.executescript(MIG29)
     return c
 
 
@@ -75,7 +85,7 @@ def _osvc(c) -> OrderService:
     return OrderService(OrderRepo(ac), LedgerRepo(ac), pricing, _rates())
 
 
-def _payload(items=None, e=1, mode="upi", **over) -> dict:
+def _payload(items=None, e=0, mode="upi", **over) -> dict:
     items = items if items is not None else [{"sku": "refill", "qty": 2}]
     q = pricing.compute_quote(items, e, _rates(), address_id="a1", window_start=WINDOW,
                               rate_version=pricing.RATE_VERSION)
@@ -92,6 +102,21 @@ def _payload(items=None, e=1, mode="upi", **over) -> dict:
 
 async def _order(c, user="u1", mode="upi", key="k1") -> dict:
     return await _osvc(c).create(user, _payload(mode=mode), key)
+
+
+def _add_open_orders(c, n: int, prefix: str = "open") -> list[str]:
+    """Insert n unpaid orders directly (dues query-count/chunk tests)."""
+    now = datetime.now(timezone.utc).isoformat()
+    ids = [f"{prefix}{i}" for i in range(n)]
+    c.executemany(
+        "INSERT INTO orders(id, user_id, address_id, items, n, e, water_bill,"
+        " deposit_due, total, payment_mode, payment_status, state, window_start,"
+        " idempotency_key, created_at) VALUES (?, 'u1', 'a1', '[]', 1, 0, 2800,"
+        " 0, 2800, 'upi', 'unpaid', 'placed', ?, ?, ?)",
+        [(oid, WINDOW, f"seed:{oid}", now) for oid in ids],
+    )
+    c.commit()
+    return ids
 
 
 # -- captured event → paid_upi + dues zeroed ---------------------------------
@@ -157,9 +182,17 @@ async def test_webhook_wrong_amount_rejected():
 async def test_double_claim_refund_one_winner():
     c = _conn()
     o = await _order(c, mode="upi")
+    now = datetime.now(timezone.utc).isoformat()
+    c.execute(
+        "INSERT INTO payments(id, order_id, user_id, amount, method, provider_ref, status,"
+        " created_at, verified_at) VALUES ('p-paid', ?, 'u1', ?, 'upi', 'upi_paid_test',"
+        " 'paid', ?, ?)",
+        (o["id"], o["total"], now, now),
+    )
     c.execute("UPDATE orders SET payment_status='paid_upi' WHERE id=?", (o["id"],))
     c.commit()
     outcome = await _osvc(c).cancel("u1", o["id"], "changed mind", "c1")
+    assert outcome["refund"]["amount"] == o["total"]  # only money actually collected
     rid = outcome["refund"]["id"]
     s = _svc(c)
     first = await s.claim_refund("admin-1", rid)
@@ -199,6 +232,108 @@ async def test_cod_partial_cash_carried():
     res = await s.mark_cash(o["id"], half, "vendor-1")
     assert res["order"]["payment_status"] == "partial_dues"
     assert (await s.get_dues("u1"))["dues"] == o["total"] - half  # partials carried, never zeroed
+
+
+async def test_get_dues_query_count_independent_of_open_orders():
+    from app.core.observability import reset_metrics, start_metrics
+
+    async def count(c):
+        metrics, token = start_metrics()
+        try:
+            await _svc(c).get_dues("u1")
+        finally:
+            reset_metrics(token)
+        return metrics.db_queries, metrics.db_roundtrips
+
+    one = _conn()
+    _add_open_orders(one, 1)
+    many = _conn()
+    _add_open_orders(many, 40)
+
+    q1 = await count(one)
+    q40 = await count(many)
+    assert q1 == q40
+    assert q1[0] <= 6  # ledger + open orders + paid aggregate + dues-posted aggregate
+
+
+async def test_get_dues_chunks_paid_and_posted_aggregates():
+    from app.core.observability import reset_metrics, start_metrics
+
+    c = _conn()
+    ids = _add_open_orders(c, 95)
+    now = datetime.now(timezone.utc).isoformat()
+    for i, oid in enumerate(ids):
+        if i % 2 == 0:
+            c.execute(
+                "INSERT INTO payments(id, order_id, user_id, amount, method,"
+                " provider_ref, status, created_at) VALUES (?, ?, 'u1', 1000,"
+                " 'upi', ?, 'paid', ?)",
+                (f"pay{i}", oid, f"ref{i}", now),
+            )
+        if i % 3 == 0:
+            c.execute(
+                "INSERT INTO ledger_events(id, customer_id, kind, d_dues, ref_type,"
+                " ref_id, actor_id, reason, created_at) VALUES (?, 'u1', 'dues',"
+                " 2800, 'order', ?, 'system', 'cod dues', ?)",
+                (f"ev{i}", oid, now),
+            )
+    c.execute("INSERT INTO ledger(customer_id, dues) VALUES ('u1', 500)")
+    c.commit()
+
+    metrics, token = start_metrics()
+    try:
+        out = await _svc(c).get_dues("u1")
+    finally:
+        reset_metrics(token)
+
+    expected_order_due = sum(
+        2800 - (1000 if i % 2 == 0 else 0)
+        for i in range(95) if i % 3 != 0
+    )
+    assert out["dues"] == 500 + expected_order_due
+    assert len(out["lines"]) == 95
+    assert out["lines"][0] == {"order_id": "open0", "total": 2800, "paid": 1000,
+                               "due": 1800, "status": "unpaid"}
+    assert out["lines"][1]["paid"] == 0 and out["lines"][1]["due"] == 2800
+    assert metrics.db_queries == 6  # 1 ledger + 1 orders + 2 paid + 2 posted
+    assert metrics.db_roundtrips == 6
+
+
+async def test_switch_unpaid_upi_to_cod_reuses_order_and_voids_link():
+    c = _conn()
+    s = _svc(c)
+    o = await _order(c, mode="upi")
+    intent = await s.intent("u1", o["id"], "switch-1")
+
+    bill = await s.switch_to_cod("u1", o["id"])
+
+    row = c.execute("SELECT payment_mode, payment_status FROM orders WHERE id=?",
+                    (o["id"],)).fetchone()
+    assert (row["payment_mode"], row["payment_status"]) == ("cod", "unpaid")
+    assert bill["dues"] == o["total"]
+    link = c.execute("SELECT status FROM payments WHERE id=?",
+                     (intent["payment"]["id"],)).fetchone()
+    assert link["status"] == "failed"
+    assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
+
+    again = await s.switch_to_cod("u1", o["id"])  # replay: same order, dues once
+    assert again["dues"] == o["total"]
+    assert c.execute("SELECT COUNT(*) n FROM orders").fetchone()["n"] == 1
+
+
+async def test_switch_refuses_an_order_with_captured_money():
+    c = _conn()
+    s = _svc(c)
+    o = await _order(c, mode="upi")
+    out = await s.intent("u1", o["id"], "switch-paid")
+    raw, sig = signed_event(out["provider_ref"], o["total"], order_id=o["id"])
+    await s.webhook_ingest(raw, sig)
+
+    with pytest.raises(AppError) as e:
+        await s.switch_to_cod("u1", o["id"])
+    assert e.value.code == "STATE_CONFLICT"
+    row = c.execute("SELECT payment_mode FROM orders WHERE id=?", (o["id"],)).fetchone()
+    assert row["payment_mode"] == "upi"
 
 
 # -- adapter unit: failed event declines without settling -------------------
@@ -242,14 +377,15 @@ def _client(c, user="u1", role="user"):
 
 async def test_router_intent_dues_invoice_cod():
     c = _conn()
-    await _order(c, mode="upi", key="rk1")
+    o1 = await _order(c, mode="upi", key="rk1")
     o2 = await _order(c, user="u1", mode="cod", key="rk2")
     client = _client(c)
     assert client.post("/v1/payments/upi-intent", json={}).status_code in (400, 422)
     r = client.get("/v1/billing/dues")
     assert r.status_code == 200 and "dues" in r.json()
     cod = client.post(f"/v1/orders/{o2['id']}/cod-confirm")
-    assert cod.status_code == 200 and cod.json()["dues"] == o2["total"]
+    # BOTH open orders are real dues; the COD one lives in the ledger.
+    assert cod.status_code == 200 and cod.json()["dues"] == o1["total"] + o2["total"]
     inv = client.get(f"/v1/invoices/{o2['id']}")
     assert inv.status_code == 200 and inv.json()["total"] == o2["total"]
 

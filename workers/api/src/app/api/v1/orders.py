@@ -105,6 +105,14 @@ async def get_tracking(order_id: str, conn=Depends(get_db_conn), user=Depends(ge
     return await _service(conn).tracking(_uid(user), order_id)
 
 
+@router.post("/orders/{order_id}/delivery-code/reissue")
+async def reissue_delivery_code(
+    order_id: str, conn=Depends(get_db_conn), user=Depends(require_active_user)
+):
+    """Owner-only reissue for expired/locked/unavailable; 3 per 24h."""
+    return await _service(conn).reissue_delivery_code(_uid(user), order_id)
+
+
 class InstructionsIn(BaseModel):
     instructions: str = Field(default="", max_length=500)
 

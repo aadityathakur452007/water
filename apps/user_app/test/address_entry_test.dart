@@ -1,6 +1,6 @@
-// 012-address-auth — regression tests for the address entry fix.
-// F1: the shared client sends the live Bearer (the missing wire that 401'd
-// every address call). F2: the entry gate never strands guests on a 401.
+// Address entry regression tests.
+// F1: the shared client sends the live Bearer.
+// F2: the entry gate never strands guests on a 401.
 // F4: load() re-adopts a persisted selection that arrived before the items.
 
 import 'dart:convert';
@@ -13,7 +13,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shodasha_app/core/api_client.dart';
 import 'package:shodasha_app/features/addresses/address_screen.dart';
 import 'package:shodasha_app/features/addresses/selected_address_store.dart';
-import 'package:shodasha_app/main.dart' show openAddressesGated;
 
 Map<String, dynamic> _row(String id, String label) => {
       'id': id,
@@ -34,7 +33,7 @@ void main() {
       client: MockClient((req) async {
         seen = req.headers['Authorization'];
         if (req.url.path.endsWith('/addresses')) {
-          return http.Response(jsonEncode([_row('a1', 'Ghar')]), 200);
+          return http.Response(jsonEncode([_row('a1', 'Home')]), 200);
         }
         return http.Response('not found', 404);
       }),
@@ -62,30 +61,28 @@ void main() {
     var addressesOpened = 0;
     var authed = false;
 
-    Future<void> harness(WidgetTester t) async {
-      await t.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (ctx) => TextButton(
-              onPressed: () => openAddressesGated(
-                ctx,
-                isAuthed: () => authed,
-                openLogin: (_) async {
-                  logins++;
-                  authed = true; // fake OTP success
-                },
-                openAddresses: (_) => addressesOpened++,
-              ),
-              child: const Text('go'),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (ctx) => TextButton(
+            onPressed: () => openAddressesGated(
+              ctx,
+              isAuthed: () => authed,
+              ensureAuth: (_) async {
+                logins++;
+                authed = true; // fake OTP success
+                return true;
+              },
+              openAddresses: (_) => addressesOpened++,
             ),
+            child: const Text('go'),
           ),
         ),
-      );
-      await t.tap(find.text('go'));
-      await t.pumpAndSettle();
-    }
+      ),
+    );
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
 
-    await harness(tester);
     expect(logins, 1);
     expect(addressesOpened, 1);
   });
@@ -102,9 +99,9 @@ void main() {
             onPressed: () => openAddressesGated(
               ctx,
               isAuthed: () => false,
-              openLogin: (_) async {
+              ensureAuth: (_) async {
                 logins++;
-                // user backs out: still a guest
+                return false; // user backs out: still a guest
               },
               openAddresses: (_) => addressesOpened++,
             ),
@@ -131,8 +128,9 @@ void main() {
             onPressed: () => openAddressesGated(
               ctx,
               isAuthed: () => true,
-              openLogin: (_) async {
+              ensureAuth: (_) async {
                 logins++;
+                return false;
               },
               openAddresses: (_) => addressesOpened++,
             ),
@@ -148,10 +146,8 @@ void main() {
     expect(addressesOpened, 1);
   });
 
-  test('F4: load() re-adopts a persisted selection (restart race)',
-      () async {
-    SharedPreferences.setMockInitialValues(
-        {SelectedAddressStore.key: 'a2'});
+  test('F4: load() re-adopts a persisted selection (restart race)', () async {
+    SharedPreferences.setMockInitialValues({SelectedAddressStore.key: 'a2'});
     final store = SelectedAddressStore();
     await store.load();
     expect(store.selectedId, 'a2');
@@ -159,7 +155,7 @@ void main() {
     final mock = MockClient((req) async {
       if (req.url.path.endsWith('/addresses')) {
         return http.Response(
-            jsonEncode([_row('a1', 'Ghar'), _row('a2', 'Office')]), 200);
+            jsonEncode([_row('a1', 'Home'), _row('a2', 'Office')]), 200);
       }
       return http.Response('not found', 404);
     });
@@ -174,5 +170,6 @@ void main() {
     // After load the persisted choice is adopted and resolves.
     expect(c.selectedId, 'a2');
     expect(c.resolve()?.id, 'a2');
+    c.dispose();
   });
 }

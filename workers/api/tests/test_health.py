@@ -30,11 +30,20 @@ def _ensure_router_module(name: str) -> None:
 _ensure_router_module("app.api.v1.catalog")
 _ensure_router_module("app.api.v1.quotes")
 
+import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.api.health import reset_health_cache  # noqa: E402
 from app.main import create_app  # noqa: E402
 
 client = TestClient(create_app())
+
+
+@pytest.fixture(autouse=True)
+def _fresh_health_cache():
+    reset_health_cache()
+    yield
+    reset_health_cache()
 
 
 def test_health_ok():
@@ -42,6 +51,7 @@ def test_health_ok():
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
     assert r.headers["X-Trace-Id"]
+    assert r.headers["Cache-Control"] == "no-store"
 
 
 def test_404_envelope_shape():

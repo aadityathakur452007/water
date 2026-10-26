@@ -25,6 +25,7 @@ M002 = (API_ROOT / "src" / "app" / "db" / "migrations" / "002_auth.sql").read_te
 M010 = (API_ROOT / "src" / "app" / "db" / "migrations" / "010_config_audit.sql").read_text()
 M014 = (API_ROOT / "src" / "app" / "db" / "migrations" / "014_access_codes.sql").read_text()
 M020 = (API_ROOT / "src" / "app" / "db" / "migrations" / "020_user_email.sql").read_text()
+M026 = (API_ROOT / "src" / "app" / "db" / "migrations" / "026_user_password.sql").read_text()
 
 NOW = _dt.datetime.now(_dt.timezone.utc)
 FUTURE = (NOW + _dt.timedelta(days=30)).isoformat()
@@ -36,6 +37,9 @@ PHONE_U = "+919000000033"  # plain user uu
 PHONE_N = "+919000000034"  # fresh number for register-new
 PHONE_B = "+919000000035"  # blank-name user ub
 PHONE_X = "+919999999931"  # unknown phone (valid shape)
+PHONE_Y = "+919999999932"  # fresh number for router register variants
+
+PASSWORD = "correct-horse-9"
 
 CODE_V = "access-vendor-11"
 CODE_A = "access-admin-22"
@@ -51,7 +55,7 @@ def _H(s: str) -> str:
 
 def _conn(flag=True):
     raw = get_connection(":memory:")
-    raw.executescript(M002 + M010 + M014 + M020)
+    raw.executescript(M002 + M010 + M014 + M020 + M026)
     now = NOW.isoformat()
     raw.execute(
         "INSERT INTO users(id, phone, name, role, kyc_status, created_at) VALUES "
@@ -122,28 +126,35 @@ async def test_register_new_user_unverified_plus_session():
     reset_rate_limits()
     raw = _conn()
     out = await _svc(raw).user_register("Naya User", PHONE_N, "naya@gmail.com",
-                                        "reg-dev-1", ip="10.0.0.1")
+                                        PASSWORD, "reg-dev-1", ip="10.0.0.1")
     assert out["role"] == "user" and out["access_token"] and out["refresh_token"]
     assert out["verified"] is False
-    row = raw.execute("SELECT role, kyc_status, name, email FROM users WHERE phone = ?",
-                      (PHONE_N,)).fetchone()
+    assert "password" not in out and "password_hash" not in out
+    row = raw.execute(
+        "SELECT role, kyc_status, name, email, password_hash FROM users WHERE phone = ?",
+        (PHONE_N,)).fetchone()
     assert row["role"] == "user" and row["kyc_status"] == "unverified"
     assert row["name"] == "Naya User" and row["email"] == "naya@gmail.com"
+    assert row["password_hash"].startswith("pbkdf2_sha256$100000$")
 
 
-async def test_register_blank_name_filled_once_never_overwritten():
+async def test_register_duplicate_is_409_and_never_overwrites():
     reset_rate_limits()
     raw = _conn()
-    out1 = await _svc(raw).user_register("First Name", PHONE_B, "first@gmail.com",
-                                        "reg-dev-2", ip="10.0.0.2")
+    out1 = await _svc(raw).user_register("First Name", PHONE_N, "first@gmail.com",
+                                         PASSWORD, "reg-dev-2", ip="10.0.0.2")
     assert out1["role"] == "user"
-    row = raw.execute("SELECT name, email FROM users WHERE id = 'ub'").fetchone()
-    assert row["name"] == "First Name" and row["email"] == "first@gmail.com"
-    out2 = await _svc(raw).user_register("Second Name", PHONE_B, "second@gmail.com",
-                                        "reg-dev-3", ip="10.0.0.3")
-    assert out2["role"] == "user"
-    row = raw.execute("SELECT name, email FROM users WHERE id = 'ub'").fetchone()
-    assert row["name"] == "First Name" and row["email"] == "first@gmail.com"
+    before = raw.execute(
+        "SELECT name, email, password_hash FROM users WHERE phone = ?", (PHONE_N,)
+    ).fetchone()
+    with pytest.raises(AppError) as e:
+        await _svc(raw).user_register("Second Name", PHONE_N, "second@gmail.com",
+                                      "another-pass-9", "reg-dev-3", ip="10.0.0.3")
+    assert (e.value.code, e.value.status_code) == ("ACCOUNT_EXISTS", 409)
+    after = raw.execute(
+        "SELECT name, email, password_hash FROM users WHERE phone = ?", (PHONE_N,)
+    ).fetchone()
+    assert dict(after) == dict(before)
 
 
 async def test_register_staff_number_422():
@@ -151,7 +162,7 @@ async def test_register_staff_number_422():
     for phone in (PHONE_V, PHONE_A):
         with pytest.raises(AppError) as e:
             await _svc(_conn()).user_register("Intruder", phone, "i@gmail.com",
-                                              "reg-dev-4", ip="10.0.0.4")
+                                              PASSWORD, "reg-dev-4", ip="10.0.0.4")
         assert e.value.status_code == 422
         assert e.value.code == "ROLE_RESERVED"
 
@@ -160,52 +171,132 @@ async def test_register_bad_phone_400():
     reset_rate_limits()
     with pytest.raises(AppError) as e:
         await _svc(_conn()).user_register("Bad", "123", "b@gmail.com",
-                                          "reg-dev-5", ip="10.0.0.5")
+                                          PASSWORD, "reg-dev-5", ip="10.0.0.5")
     assert e.value.status_code == 400
 
 
 async def test_register_bad_email_400():
     reset_rate_limits()
-    for bad in ("nope", "a@b", "a@b.", "@x.in", "a b@c.in", "other@yahoo.com"):
+    for bad in ("nope", "a@b", "a@b.", "@x.in", "a b@c.in"):
         with pytest.raises(AppError) as e:
             await _svc(_conn()).user_register("Bad", PHONE_N, bad,
-                                              "reg-dev-6", ip="10.0.0.6")
+                                              PASSWORD, "reg-dev-6", ip="10.0.0.6")
         assert e.value.status_code == 400
+
+
+async def test_register_password_rules_400():
+    reset_rate_limits()
+    for bad in ("short1", "allletters", "12345678", " " * 8):
+        with pytest.raises(AppError) as e:
+            await _svc(_conn()).user_register("Bad", PHONE_N, "",
+                                              bad, "reg-dev-7", ip="10.0.0.7")
+        assert (e.value.code, e.value.status_code) == ("VALIDATION", 400)
 
 
 async def test_register_rate_limit_phone():
     reset_rate_limits()
     raw = _conn()
     for i in range(5):
-        await _svc(raw).user_register(f"Rate {i}", PHONE_N, f"r{i}@gmail.com",
-                                      f"reg-dev-rl-{i}", ip=f"10.9.9.{i}")
+        try:
+            await _svc(raw).user_register(f"Rate {i}", PHONE_N, f"r{i}@gmail.com",
+                                          PASSWORD, f"reg-dev-rl-{i}", ip=f"10.9.9.{i}")
+        except AppError as e:
+            assert e.code == "ACCOUNT_EXISTS"
     with pytest.raises(AppError) as e:
         await _svc(raw).user_register("Rate 5", PHONE_N, "r5@gmail.com",
-                                      "reg-dev-rl-5", ip="10.9.9.99")
+                                      PASSWORD, "reg-dev-rl-5", ip="10.9.9.99")
     assert e.value.status_code == 429
 
 
-def test_register_router_end_to_end():
+async def test_login_and_wrong_password_are_generic():
     reset_rate_limits()
-    client = _client(_conn())
-    r = client.post("/v1/auth/user/register",
-                    json={"name": "Router User", "email": "router@gmail.com",
-                          "phone": PHONE_N, "device": {"id": "reg-dev-9"}})
+    raw = _conn()
+    svc = _svc(raw)
+    await svc.user_register("Login User", PHONE_N, "", PASSWORD, "login-dev-1")
+    out = await svc.user_login(PHONE_N, PASSWORD, "login-dev-1")
+    assert out["role"] == "user" and out["access_token"]
+    for password in ("wrong-pass-9", ""):
+        with pytest.raises(AppError) as e:
+            await svc.user_login(PHONE_N, password, "login-dev-1")
+        assert (e.value.code, e.value.status_code) == ("UNAUTH", 401)
+        assert "Invalid mobile number or password" in e.value.message
+    # Staff numbers are the same generic 401, not a role oracle.
+    with pytest.raises(AppError) as e:
+        await svc.user_login(PHONE_A, PASSWORD, "login-dev-1")
+    assert e.value.status_code == 401
+
+
+def test_register_login_otp_retired_and_admin_reset():
+    reset_rate_limits()
+    raw = _conn()
+    client = _client(raw)
+    body = {"name": "Router User", "email": "router@gmail.com",
+            "phone": PHONE_N, "password": PASSWORD, "device": {"id": "reg-dev-9"}}
+    r = client.post("/v1/auth/user/register", json=body)
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["role"] == "user" and body["verified"] is False and body["access_token"]
-    non_gmail = client.post("/v1/auth/user/register",
-                            json={"name": "Non Gmail", "email": "user@yahoo.com",
-                                  "phone": PHONE_N, "device": {"id": "reg-dev-9"}})
-    assert non_gmail.status_code == 400
-    bad = client.post("/v1/auth/user/register",
-                      json={"name": "X", "email": "x@gmail.com",
-                            "phone": PHONE_V, "device": {"id": "reg-dev-9"}})
-    assert bad.status_code == 422
+    out = r.json()
+    assert out["role"] == "user" and out["verified"] is False and out["access_token"]
+    # Create-only, not an upsert.
+    dup = client.post("/v1/auth/user/register", json=body)
+    assert dup.status_code == 409
+    assert dup.json()["error"]["code"] == "ACCOUNT_EXISTS"
+    # Optional email is real; any valid domain is accepted.
     no_email = client.post("/v1/auth/user/register",
-                           json={"name": "No Mail", "phone": PHONE_N,
-                                 "device": {"id": "reg-dev-9"}})
-    assert no_email.status_code in (400, 422)
+                           json={"name": "No Mail", "phone": PHONE_Y,
+                                 "password": PASSWORD, "device": {"id": "reg-dev-10"}})
+    assert no_email.status_code == 200, no_email.text
+    non_gmail = client.post("/v1/auth/user/register",
+                            json={"name": "Other Mail", "email": "user@yahoo.com",
+                                  "phone": PHONE_X, "password": PASSWORD,
+                                  "device": {"id": "reg-dev-11"}})
+    assert non_gmail.status_code == 200, non_gmail.text
+    bad_email = client.post("/v1/auth/user/register",
+                            json={"name": "Bad Mail", "email": "not-an-email",
+                                  "phone": "+919999999933", "password": PASSWORD,
+                                  "device": {"id": "reg-dev-12"}})
+    assert bad_email.status_code == 400
+    bad = client.post("/v1/auth/user/register",
+                      json={"name": "X", "email": "x@gmail.com", "phone": PHONE_V,
+                            "password": PASSWORD, "device": {"id": "reg-dev-9"}})
+    assert bad.status_code == 422
+    # OTP is retired at the wire, not silently still live.
+    for path in ("/v1/auth/otp/start", "/v1/auth/otp/verify"):
+        assert client.post(path, json={}).json()["error"]["code"] == "OTP_RETIRED"
+        assert client.post(path, json={}).status_code == 410
+    login = client.post("/v1/auth/user/login",
+                        json={"phone": PHONE_N, "password": PASSWORD,
+                              "device": {"id": "reg-dev-13"}})
+    assert login.status_code == 200, login.text
+    wrong = client.post("/v1/auth/user/login",
+                        json={"phone": PHONE_N, "password": "wrong-pass-9",
+                              "device": {"id": "reg-dev-13"}})
+    assert wrong.status_code == 401
+    # No password material ever rides a profile response.
+    me = client.get("/v1/auth/me",
+                    headers={"Authorization": f"Bearer {login.json()['access_token']}"})
+    assert me.status_code == 200
+    assert "password" not in me.text.lower()
+    # Admin reset revokes every session and flips the credential.
+    _session(raw, "aa", "admin", "tok-admin")
+    uid = me.json()["user"]["id"]
+    reset = client.post(
+        f"/v1/admin/users/{uid}/password-reset",
+        json={"new_password": "brand-new-pass-9"},
+        headers={"Authorization": "Bearer tok-admin"},
+    )
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["sessions_revoked"] >= 1
+    assert client.get("/v1/auth/me",
+                      headers={"Authorization": f"Bearer {login.json()['access_token']}"}).status_code == 401
+    old = client.post("/v1/auth/user/login",
+                      json={"phone": PHONE_N, "password": PASSWORD,
+                            "device": {"id": "reg-dev-14"}})
+    assert old.status_code == 401
+    new = client.post("/v1/auth/user/login",
+                      json={"phone": PHONE_N, "password": "brand-new-pass-9",
+                            "device": {"id": "reg-dev-14"}})
+    assert new.status_code == 200, new.text
+    assert ("user.password_reset", "users", uid) in _audit(raw)
 
 
 # -- code login matrix --------------------------------------------------------

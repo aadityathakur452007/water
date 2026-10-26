@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field
 from app.adapters.firebase import get_verifier
 from app.api.auth_deps import get_current_user, require_active_user
 from app.api.deps import get_db_conn
-from app.services.auth_service import AuthService
+from app.api.middleware import client_ip
+from app.services.auth_service import AuthService, OtpRetiredError
 
 router = APIRouter(tags=["auth"])
 
@@ -23,17 +24,6 @@ router = APIRouter(tags=["auth"])
 class DeviceIn(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     integrity: str | None = Field(default=None, max_length=256)
-
-
-class OtpStartIn(BaseModel):
-    phone: str = Field(min_length=10, max_length=16)
-
-
-class OtpVerifyIn(BaseModel):
-    firebase_id_token: str | None = Field(default=None, min_length=1)
-    phone: str | None = Field(default=None, min_length=10, max_length=16)
-    otp_code: str | None = Field(default=None, min_length=4, max_length=12)
-    device: DeviceIn
 
 
 class DemoLoginIn(BaseModel):
@@ -58,10 +48,17 @@ class AdminLoginIn(BaseModel):
 
 class UserRegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    email: str = Field(min_length=3, max_length=254,
-                       pattern=r"^[a-zA-Z0-9._%+-]+@[gG][mM][aA][iI][lL]\.[cC][oO][mM]$")
+    email: str | None = Field(default=None, max_length=254)
     phone: str = Field(min_length=10, max_length=16,
                        pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
+    password: str = Field(min_length=8, max_length=128)
+    device: DeviceIn
+
+
+class UserLoginIn(BaseModel):
+    phone: str = Field(min_length=10, max_length=16,
+                       pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
+    password: str = Field(min_length=1, max_length=128)
     device: DeviceIn
 
 
@@ -78,27 +75,29 @@ class LogoutIn(BaseModel):
 class MePatchIn(BaseModel):
     name: str | None = Field(default=None, max_length=80)
     language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
-    phone: str | None = Field(default=None, max_length=15)
-    email: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=16)
+    email: str | None = Field(default=None, max_length=254)
 
 
 def _service(conn=Depends(get_db_conn), verifier=Depends(get_verifier)) -> AuthService:
     return AuthService(conn, verifier)
 
 
-@router.post("/auth/otp/start", status_code=202)
-async def otp_start(payload: OtpStartIn, request: Request, svc: AuthService = Depends(_service)):
-    ip = request.client.host if request.client else "unknown"
-    return await svc.otp_start(payload.phone, ip)
+@router.post("/auth/otp/start")
+async def otp_start():
+    """Retired customer OTP door (034). Kept as an explicit 410, not a 404."""
+    raise OtpRetiredError(
+        "Customer sign-in no longer uses an OTP. Use your mobile number and password.",
+        {"replacement": "/auth/user/login"},
+    )
 
 
 @router.post("/auth/otp/verify")
-async def otp_verify(payload: OtpVerifyIn, svc: AuthService = Depends(_service)):
-    return await svc.otp_verify(
-        payload.firebase_id_token,
-        payload.device.model_dump(),
-        phone=payload.phone,
-        code=payload.otp_code,
+async def otp_verify():
+    """Retired customer OTP proof (034). Never mints a session."""
+    raise OtpRetiredError(
+        "Customer sign-in no longer uses an OTP. Use your mobile number and password.",
+        {"replacement": "/auth/user/login"},
     )
 
 
@@ -145,13 +144,29 @@ async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service
 async def user_register(
     payload: UserRegisterIn, request: Request, svc: AuthService = Depends(_service)
 ):
-    """User name+email+phone onboarding: upsert role=user + session (no OTP).
-    Staff numbers → 422 ROLE_RESERVED. Rate-limited per phone+IP."""
-    ip = request.client.host if request.client else "unknown"
+    """Create-only customer signup: name + optional email + phone + password.
+    Existing phones → 409 ACCOUNT_EXISTS; staff numbers → 422 ROLE_RESERVED."""
+    ip = client_ip(request)
     return await svc.user_register(
         payload.name,
         payload.phone,
         payload.email,
+        payload.password,
+        payload.device.id,
+        payload.device.model_dump(),
+        ip=ip,
+    )
+
+
+@router.post("/auth/user/login")
+async def user_login(
+    payload: UserLoginIn, request: Request, svc: AuthService = Depends(_service)
+):
+    """Customer phone + password login; one generic 401 for unknown/staff/wrong."""
+    ip = client_ip(request)
+    return await svc.user_login(
+        payload.phone,
+        payload.password,
         payload.device.id,
         payload.device.model_dump(),
         ip=ip,

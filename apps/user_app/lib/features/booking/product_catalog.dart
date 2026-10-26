@@ -1,24 +1,28 @@
-// 005-home-ux — Product catalog (user-locked prices).
+// Product catalog — presentation facts only; prices come from GET /catalog.
 //
-// Exactly two SKUs (user-confirmed 2026-09-30): Refill Rs 28 (no container)
-// + Jar+Container Rs 30. "Jar with tap" is detail-copy only — never a third
-// priced line (hallmark honest-copy: no invented prices).
-// Tap/copy facts mirror the Bisleri rulebook (ADR-007): Rs 150 refundable
-// deposit per jar, Rs 3 cap-missing charge, empties-with-cap handover.
+// Exactly two SKUs (owner-confirmed): Refill (Rs 28) + Jar + Container
+// (Rs 30). No price is written in this file: [catalogFor] stamps the
+// latest server snapshot onto the two product cards.
+//
+// Rs 150 refundable deposit per new container, Rs 3 cap-missing charge and
+// empties-with-cap handover mirror the Bisleri rulebook (ADR-007).
 
 import 'package:flutter/foundation.dart';
 
-/// Catalog SKU ids match the backend wire contract (SkuId refill|container).
+import 'booking_controller.dart';
+
+/// Catalog SKU ids match the backend wire contract (refill|container).
 enum SkuId { refill, container }
 
-/// One sellable product: everything the buy-box needs in one place
-/// (ui-checklist Cart: name + image exactly as on the item page).
+/// One sellable product: everything the buy-box needs in one place.
 @immutable
 class CatalogSku {
   const CatalogSku({
     required this.id,
     required this.name,
     required this.pricePaise,
+    required this.depositPaise,
+    required this.capPaise,
     required this.asset,
     required this.tagline,
     required this.description,
@@ -29,6 +33,10 @@ class CatalogSku {
   final SkuId id;
   final String name;
   final int pricePaise;
+
+  /// Server deposit + cap values, carried for the honest fact rows.
+  final int depositPaise;
+  final int capPaise;
   final String asset;
   final String tagline;
   final String description;
@@ -38,37 +46,44 @@ class CatalogSku {
   String get wireId => id == SkuId.refill ? 'refill' : 'container';
 }
 
-/// The full storefront (two SKUs — search/chips filter this list).
-const List<CatalogSku> kCatalog = [
-  CatalogSku(
-    id: SkuId.refill,
-    name: 'Refill (20L)',
-    pricePaise: 2800,
-    asset: 'assets/20l.jpg',
-    tagline: 'RO+UV • Lab-tested • khali jar dekar refill',
-    description:
-        '20 litre RO+UV treated paani aapke khali jar mein. Khali jar '
-        '(dhakkan sahit) wapas dein — (N−E)×Rs 150 deposit sirf naye jar par.',
-    tapNote:
-        'Bina tap wala jar: ulta karke dispenser/stand par rakhein. '
-        'Tap wala jar chahiye to Container wala option dekhein.',
-    relatedId: SkuId.container,
-  ),
-  CatalogSku(
-    id: SkuId.container,
-    name: 'Jar + Container (20L)',
-    pricePaise: 3000,
-    asset: 'assets/20l.jpg',
-    tagline: 'Naya jar + container • Rs 150 refundable deposit',
-    description:
-        'Naya 20L jar food-grade container ke saath. Pehli baar lene par '
-        'Rs 150 refundable deposit judta hai — jar wapas par refund.',
-    tapNote:
-        'Tap (nal) wala jar: seedha istemal, dispenser ki zaroorat nahi. '
-        'Tap ke bina wala sasta option Refill mein hai.',
-    relatedId: SkuId.refill,
-  ),
-];
+/// Builds the two storefront cards from the latest server snapshot.
+List<CatalogSku> catalogFor(CatalogRates rates) => [
+      CatalogSku(
+        id: SkuId.refill,
+        name: 'Refill (20L)',
+        pricePaise: rates.refillPaise,
+        depositPaise: rates.depositPaise,
+        capPaise: rates.capPaise,
+        asset: 'assets/20l.jpg',
+        tagline: 'RO+UV • Lab-tested • refill your empty jar',
+        description:
+            '20 litres of RO+UV treated water, filled into your empty 20L '
+            'jar. Return the empty jar with its cap. A refundable safety '
+            'deposit applies only to new containers.',
+        tapNote:
+            'No tap on this jar: place it upside down on a dispenser or '
+            'stand. Need a tap? Choose the Jar + Container option.',
+        relatedId: SkuId.container,
+      ),
+      CatalogSku(
+        id: SkuId.container,
+        name: 'Jar + Container (20L)',
+        pricePaise: rates.containerPaise,
+        depositPaise: rates.depositPaise,
+        capPaise: rates.capPaise,
+        asset: 'assets/20l.jpg',
+        tagline: 'New jar + container • refundable safety deposit',
+        description:
+            'A new 20L food-grade jar with a container. The first container '
+            'carries a refundable safety deposit; it comes back when you '
+            'return the jar.',
+        tapNote:
+            'Tap (nozzle) jar: ready to use, no dispenser needed. The '
+            'cheaper no-tap option is Refill.',
+        relatedId: SkuId.refill,
+      ),
+    ];
 
-/// Lookup by id (related-SKU cross-link).
-CatalogSku skuById(SkuId id) => kCatalog.firstWhere((s) => s.id == id);
+/// Lookup by id from the current server-priced list.
+CatalogSku skuById(SkuId id, CatalogRates rates) =>
+    catalogFor(rates).firstWhere((s) => s.id == id);

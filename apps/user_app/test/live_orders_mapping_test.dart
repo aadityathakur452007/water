@@ -1,6 +1,7 @@
-// Live orders mapping proof (015): ApiBackedOrdersRepository over a
-// MockClient serving real wire shapes (OrderOut / OrderDetailOut /
-// CancelOut per workers/api schemas/orders.py + ratings.py).
+// S5 — live orders mapping proof, ported from the legacy F4 suite:
+// ApiBackedOrdersRepository over a MockClient serving real wire shapes
+// (OrderOut / OrderDetailOut / CancelOut per workers/api schemas/orders.py +
+// ratings.py). Plugin-free: the only transport is the injected http client.
 // Pure unit tests — no tracking timer started, no pump needed.
 // Run: flutter test test/live_orders_mapping_test.dart
 

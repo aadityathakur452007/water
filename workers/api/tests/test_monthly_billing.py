@@ -2,6 +2,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
@@ -12,7 +14,10 @@ from app.repositories.ledger_repo import LedgerRepo  # noqa: E402
 from app.repositories.order_repo import OrderRepo  # noqa: E402
 from app.repositories.payment_repo import PaymentRepo  # noqa: E402
 from app.services.payment_service import PaymentService  # noqa: E402
-from app.services.subscription_service import SubscriptionService  # noqa: E402
+from app.services.subscription_service import (  # noqa: E402
+    SubValidationError,
+    SubscriptionService,
+)
 
 
 class _NoOpProvider:
@@ -23,7 +28,10 @@ class _NoOpProvider:
 def _conn():
     c = get_connection(":memory:")
     base = API_ROOT / "src" / "app" / "db" / "migrations"
-    for m in ("002_auth.sql", "003_addresses.sql", "004_orders.sql", "012_monthly.sql"):
+    for m in ("002_auth.sql", "003_addresses.sql", "004_orders.sql", "005_payments.sql",
+              "010_config_audit.sql", "012_monthly.sql", "019_rate_counters.sql",
+              "022_vendor_leaves_and_sub_cancel.sql", "028_p0_money_monthly.sql",
+              "029_p0_correctness.sql"):
         c.executescript((base / m).read_text())
     return c
 
@@ -51,11 +59,22 @@ async def test_create_monthly_prepaid_upi():
     assert s["payment_method"] == "upi"
 
 
-async def test_create_monthly_postpaid_cod():
+async def test_create_monthly_postpaid_upi():
     c = _conn()
-    s = await _mk(c, billing_mode="monthly_postpaid", payment_method="cod")
+    s = await _mk(c, billing_mode="monthly_postpaid", payment_method="upi")
     assert s["billing_mode"] == "monthly_postpaid"
-    assert s["payment_method"] == "cod"
+    assert s["payment_method"] == "upi"
+
+
+async def test_monthly_cod_rejected():
+    c = _conn()
+    _addr(c)
+    try:
+        await _mk(c, billing_mode="monthly_postpaid", payment_method="cod")
+    except Exception as e:
+        assert getattr(e, "code", "") == "VALIDATION"
+    else:
+        raise AssertionError("monthly plans must be UPI")
 
 
 async def test_invalid_billing_mode_rejected():
@@ -68,6 +87,17 @@ async def test_invalid_billing_mode_rejected():
         assert getattr(e, "code", "") == "VALIDATION"
     else:
         raise AssertionError("expected VALIDATION")
+
+
+async def test_plan_qty_over_household_cap_rejected():
+    c = _conn()
+    _addr(c)
+    with pytest.raises(SubValidationError) as e:
+        await SubscriptionService(AsyncSqliteConn(c)).create("u1", {
+            "address_id": "a1", "qty": 11, "schedule_type": "daily",
+            "payment_method": "upi", "billing_mode": "monthly_prepaid"})
+    assert e.value.code == "VALIDATION" and e.value.details["max"] == 10
+    assert c.execute("SELECT COUNT(*) n FROM subscriptions").fetchone()["n"] == 0
 
 
 async def test_list_carries_mode_and_estimate():
@@ -95,5 +125,7 @@ async def test_convergence_without_012():
     base = API_ROOT / "src" / "app" / "db" / "migrations"
     for m in ("002_auth.sql", "003_addresses.sql", "004_orders.sql"):
         c.executescript((base / m).read_text())
-    s = await _mk(c, billing_mode="monthly_postpaid", payment_method="cod")
+    s = await _mk(c, billing_mode="monthly_postpaid", payment_method="upi")
     assert s["billing_mode"] == "monthly_postpaid"
+    assert s["billing_status"] == "active"
+    assert s["credit_balance_paise"] == 0

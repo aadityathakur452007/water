@@ -1,22 +1,23 @@
-// F4 — Orders list screen (search + cursor list + skeleton + empty +
+// S5 — Orders list screen (search + cursor list + skeleton + empty +
 // error/offline rows). Contract §4.4 + flows 3/5.
 //
-// States.md covered: loading (skeleton) / empty / no-results / error /
-// offline / refreshing / searching. Search filters client-side (no `q`
-// server param).
+// Ported from apps/user_app_legacy_flutter F4; the donor order-card grammar
+// is kept as the visual language: white card on the slate ground, hairline
+// border + 3% soft shadow, 800-weight order id in brand teal, tinted status
+// pill, 12px icon meta rows, 900-weight server total.
 //
-// 031 restyle: donor order-card grammar (white card on the slate ground,
-// hairline border + 3% soft shadow, 800-weight order id in the brand teal,
-// tinted status pill, 12px icon meta rows, 900-weight price). Palette v2:
-// teal = in-flight states, neutral slate = done, danger = fail only.
-// Strings + navigation are frozen (tests assert exact copy).
+// States.md covered: loading (skeleton) / empty / no-results / error /
+// offline (cached rows stay visible) / refreshing / searching / action busy.
+//
+// Cross-feature doors are nullable callbacks (no feature-folder imports):
+//   onReorder       → booking sheet with the order's SKU mix (S4/S3)
+//   onOpenPayments  → payments history (S7)
+//   onSupport       → complaints/support screen (S8)
+// Strings + navigation are frozen (the ported tests assert exact copy).
 
 import 'package:flutter/material.dart';
 
-import '../../core/api_client.dart';
 import '../../core/theme.dart';
-import '../profile/payment_history_screen.dart';
-import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'tracking_screen.dart';
 
@@ -25,18 +26,24 @@ class OrdersScreen extends StatefulWidget {
   const OrdersScreen({
     super.key,
     required this.controller,
-    this.api,
     this.isAuthenticated,
     this.onReorder,
+    this.onOpenPayments,
+    this.onSupport,
   });
 
   final OrdersController controller;
-  final ApiClient? api;
   final bool Function()? isAuthenticated;
 
   /// One-tap repeat: fills the booking lines from [order], then opens
   /// checkout (caller). Null = reorder hidden (guest wiring pending).
   final ValueChanged<Order>? onReorder;
+
+  /// Payments history entry (S7). Hidden when null — never a dead icon.
+  final VoidCallback? onOpenPayments;
+
+  /// Complaints/support entry (S8), forwarded to the rating sheet shortcut.
+  final VoidCallback? onSupport;
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -69,8 +76,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Future<void> _openTracking(Order order) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            TrackingScreen(controller: widget.controller, orderId: order.id),
+        builder: (_) => TrackingScreen(
+          controller: widget.controller,
+          orderId: order.id,
+          onSupport: widget.onSupport,
+        ),
       ),
     );
   }
@@ -89,33 +99,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: OrdersTokens.white,
+      backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: OrdersTokens.white,
+        backgroundColor: ShodashaTheme.bg,
         elevation: 0,
         title: Text(
           ordersStringsHi['ordersTitle']!,
           style: const TextStyle(
             fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: OrdersTokens.ink,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.3,
+            color: ShodashaTheme.ink,
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: 'Mere Payments / Hisaab',
-            icon: const Icon(
-              Icons.receipt_long_outlined,
-              color: OrdersTokens.ink,
+          if (widget.onOpenPayments != null)
+            IconButton(
+              tooltip: 'Mere Payments / Hisaab',
+              icon: const Icon(
+                Icons.receipt_long_outlined,
+                color: ShodashaTheme.ink,
+              ),
+              onPressed: widget.onOpenPayments,
             ),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => PaymentHistoryScreen(api: widget.api),
-                ),
-              );
-            },
-          ),
         ],
       ),
       body: SafeArea(
@@ -127,25 +133,25 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 controller: _search,
                 textInputAction: TextInputAction.search,
                 // WHY: 16px stops iOS auto-zoom (mobile-native §4).
-                style: const TextStyle(fontSize: 16, color: OrdersTokens.ink),
+                style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
                 decoration: InputDecoration(
                   labelText: ordersStringsHi['searchHint'],
                   hintText: ordersStringsHi['searchHint'],
-                  hintStyle: const TextStyle(color: OrdersTokens.muted),
+                  hintStyle: const TextStyle(color: ShodashaTheme.muted),
                   prefixIcon: const Icon(
                     Icons.search,
-                    color: OrdersTokens.muted,
+                    color: ShodashaTheme.muted,
                   ),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 14,
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
-                    borderSide: const BorderSide(color: OrdersTokens.border),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                    borderSide: const BorderSide(color: ShodashaTheme.border),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                     borderSide: const BorderSide(color: ShodashaTheme.teal),
                   ),
                 ),
@@ -186,7 +192,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       itemCount:
                           orders.length +
-                          (c.hasMore ? 1 : 0) +
+                          ((c.hasMore || c.loadMoreFailed) ? 1 : 0) +
                           (c.isOffline ? 1 : 0),
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, i) {
@@ -195,10 +201,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         }
                         final idx = c.isOffline ? i - 1 : i;
                         if (idx >= orders.length) {
+                          if (c.loadMoreFailed) {
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    ordersStringsHi['loadMoreFailed']!,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: ShodashaTheme.muted,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: c.retryLoadMore,
+                                  child: Text(ordersStringsHi['retry']!),
+                                ),
+                              ],
+                            );
+                          }
                           return SizedBox(
-                            height: OrdersTokens.minTarget,
+                            height: ShodashaTheme.minTarget,
                             child: OutlinedButton(
-                              onPressed: c.loadMore,
+                              onPressed: c.loadingMore ? null : c.loadMore,
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: ShodashaTheme.teal,
                                 side: const BorderSide(
@@ -206,11 +231,20 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
-                                    OrdersTokens.radius,
+                                    ShodashaTheme.radius,
                                   ),
                                 ),
                               ),
-                              child: Text(ordersStringsHi['loadMore']!),
+                              child: c.loadingMore
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: ShodashaTheme.teal,
+                                      ),
+                                    )
+                                  : Text(ordersStringsHi['loadMore']!),
                             ),
                           );
                         }
@@ -227,11 +261,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           order: order,
                           historyTag: tag,
                           onTap: () => _openTracking(order),
-                          onOpenBill: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => BillScreen(order: order),
-                            ),
-                          ),
                           onReorder: widget.onReorder == null
                               ? null
                               : () => widget.onReorder!(order),
@@ -254,7 +283,6 @@ class _OrderCard extends StatelessWidget {
     required this.order,
     required this.historyTag,
     required this.onTap,
-    required this.onOpenBill,
     this.onReorder,
   });
 
@@ -263,22 +291,21 @@ class _OrderCard extends StatelessWidget {
   /// '' = unknown (legacy rows) → no tag rendered, never guessed.
   final String historyTag;
   final VoidCallback onTap;
-  final VoidCallback onOpenBill;
   final VoidCallback? onReorder;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(OrdersTokens.radius),
+      borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
       onTap: onTap,
       child: Container(
-        // 031: donor order-card craft — white surface on the slate ground,
+        // Donor order-card craft — white surface on the slate ground,
         // hairline border + 3% soft shadow. Flat, no gradients.
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: ShodashaTheme.surface,
           border: Border.all(color: ShodashaTheme.border),
-          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
           boxShadow: [
             BoxShadow(
               color: ShodashaTheme.ink.withValues(alpha: 0.03),
@@ -408,22 +435,19 @@ class _OrderCard extends StatelessWidget {
               // Money CTA → token green (locked). 48dp target.
               SizedBox(
                 width: double.infinity,
-                height: OrdersTokens.minTarget,
+                height: ShodashaTheme.minTarget,
                 child: ElevatedButton.icon(
                   onPressed: onReorder,
                   icon: const Icon(Icons.repeat, size: 18),
                   label: const Text(
-                    'Phir se order karein',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
+                    'Reorder',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: ShodashaTheme.green,
                     foregroundColor: ShodashaTheme.surface,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(OrdersTokens.radius),
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                     ),
                     textStyle: const TextStyle(
                       fontWeight: FontWeight.w800,
@@ -483,7 +507,7 @@ class _StatusChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(OrdersTokens.radius / 2),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius / 2),
       ),
       child: Text(
         state.name,
@@ -508,7 +532,7 @@ class _BulkPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: ShodashaTheme.ink,
-        borderRadius: BorderRadius.circular(OrdersTokens.radius / 2),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius / 2),
       ),
       child: Text(
         'Bulk',
@@ -536,7 +560,7 @@ class _SkeletonList extends StatelessWidget {
         height: 96,
         decoration: BoxDecoration(
           color: ShodashaTheme.tealTint,
-          borderRadius: BorderRadius.circular(OrdersTokens.radius),
+          borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         ),
       ),
     );
@@ -568,14 +592,14 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
-                color: OrdersTokens.ink,
+                color: ShodashaTheme.ink,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             Text(
               hint,
-              style: const TextStyle(fontSize: 14, color: OrdersTokens.muted),
+              style: const TextStyle(fontSize: 14, color: ShodashaTheme.muted),
               textAlign: TextAlign.center,
             ),
           ],
@@ -602,24 +626,24 @@ class _ErrorRow extends StatelessWidget {
             const Icon(
               Icons.error_outline,
               size: 40,
-              color: OrdersTokens.muted,
+              color: ShodashaTheme.muted,
             ),
             const SizedBox(height: 12),
             Text(
               message,
-              style: const TextStyle(fontSize: 15, color: OrdersTokens.ink),
+              style: const TextStyle(fontSize: 15, color: ShodashaTheme.ink),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: OrdersTokens.minTarget,
+              height: ShodashaTheme.minTarget,
               child: ElevatedButton(
                 onPressed: onRetry,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: ShodashaTheme.ink,
-                  foregroundColor: OrdersTokens.white,
+                  foregroundColor: ShodashaTheme.bg,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(OrdersTokens.radius),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                   ),
                 ),
                 child: Text(ordersStringsHi['retry']!),
@@ -641,7 +665,7 @@ class _OfflineBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: ShodashaTheme.tealTint,
-        borderRadius: BorderRadius.circular(OrdersTokens.radius),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
       ),
       child: Row(
         children: [
