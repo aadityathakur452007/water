@@ -1579,6 +1579,33 @@ Flutter public reads (ApiClient)
 
 No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Production release is cumulative: back up `shodasha`, apply Phase 1A migration `029`, deploy Phase 1A/1B/2 code, then smoke — pending a separate explicit owner gate. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
 
+## Phase 3 - A/B validation plan (not implemented, 2026-10-26, ADR-145)
+
+```
+Read run A/B (Paid staging only)
+  harness -> water-staging -> shodasha-staging
+  mix: 15% public / 70% authed reads / 5% session / 5% vendor / 5% admin
+  timeline: 2m warm-up 25% -> 10m steady avg -> 5m burst 2.5x
+            -> 10m recovery avg -> 3m ramp-down
+  A: 2.78 avg / 6.94 peak rps (50 concurrent)
+  B: 5.56 avg / 13.89 peak rps (100 concurrent)
+
+Separate probes (no blended writes/login):
+  login: 90 requests / 10 min (100/hr IP ceiling)
+  writes: 1.11/s split 0.37 create / 0.37 cancel / 0.37 reschedule,
+          COD only, probe-owned pool, no provider path
+  cron: 60/tick; 500/1,000 drain; zero missed; next_run only after create
+  soak: B average, 30 min
+
+Evidence:
+  harness JSON/MD -> p50/p95/p99, 5xx, bytes
+  wrangler tail JSON -> db_queries/db_roundtrips/rows (sanitized, raw deleted)
+  Cloudflare dashboard -> CPU p50/p95/p99 for the run window
+  GO/NO-GO: SLO gate with 20% headroom; 5xx < 0.5%; cron zero missed
+```
+
+No harness code exists yet. Production is never a target; the Free plan is a hard blocker.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
