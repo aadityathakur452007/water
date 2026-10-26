@@ -1669,6 +1669,16 @@ Decision: NO-GO on Free
 
 Measured limits: Free CPU is 10 ms/request and per cron; the login path needs ~1.27 s p99. The cron pilot threshold is 45 `db_roundtrips`; the 3-due tick needs 46. `db_queries` (49) is a statement diagnostic, not the cap metric. GraphQL CPU values are microseconds; `wrangler tail` `cpuTime` is milliseconds.
 
+## 035 — Merge to main, three side-by-side APKs (2026-10-26, ADR-149)
+
+`main` now carries the 035 branch. The CI matrix verifies user + vendor + donor on every
+branch/PR. A push to `main` runs `release.yml`, which builds three release APKs under one
+tag — user (all ABIs), vendor (all ABIs), donor (arm + arm64 with a 40,000,000-byte gate) —
+and publishes `shodasha-user`, `shodasha-vendor`, `shodasha-donor`, and `SHA256SUMS.txt`.
+The donor calls `POST /v1/orders/{id}/switch-to-cod` (ADR-138); production `511879dc`
+predates that endpoint, so the UPI-failure→COD fallback returns 404 until the backend is
+deployed. Merging locally does not trigger the workflow; only a push to `main` does.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:

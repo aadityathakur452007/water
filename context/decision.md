@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-149 | 2026-10-26 | Merge `035-premium-ui-states-release` into `main` (Option A) — donor stays a third side-by-side APK alongside the old customer app; pre-merge gates re-run (backend **487 passed / 1 skipped**, ruff no new findings, Flutter **222 / 70 / 75**, release APKs user 58,553,026 / vendor 53,899,225 / donor 38,437,881 bytes ≤40 MB), `--no-ff` merge, **no conflicts**; local only, not pushed; production untouched at `511879dc`; donor `switch-to-cod` fallback needs a backend deploy; all APKs debug-signed | Accepted (merged locally 2026-10-26; push/release pending owner approval) | `.github/workflows/{ci,release}.yml`, `apps/user_app_donor`, `workers/api/tests/test_p0_money.py`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-148 | 2026-10-26 | Free-only — owner rejected Workers Paid; **Phase 3P skipped, not deferred**; 1,000-user A/B certification out of scope on Free; login probe aborted at 20 requests (3×200, 7×409 shared-device-cap bug, 3×503 `exceededCpu` at the 10 ms ceiling, 7×500 `ErrnoError`, p99 3,381.81 ms); harness fixed to per-credential device IDs; staging restored to `OBS_LOG_SAMPLE_RATE=0.1` at `6242eebe` with `crons: []`; 90 synthetic staging users remain without credentials; no A/B/write/cron/soak, no paid upgrade | Accepted (2026-10-26; Free-only) | Feature_docs/performance/{2026-10-26-phase3-ab-validation-spec.md,phase3-runbook.md,results/phase3p-skipped-2026-10-26.md}, workers/api/{scripts/{prep_phase3_logins.py,bench_phase0.py},tests/{test_prep_phase3_logins.py,test_bench_guard.py}}, context/{progress-tracker,flow,decision}.md |
 | ADR-147 | 2026-10-26 | Free-tier gate execution — G1 deployed migration 029 + Phase 1A/1B/2 (`f3778132`) after a verified backup, G2 failed (18×200, 1×503 `exceededResources`/1102, 1×500 in 20 `/health` probes), G3 failed (staging auth CPU p99 1,269.746 ms vs ≤8 ms), G4 failed (staging 3-due cron `db_roundtrips=46` vs ≤45, zero missed, no 1102), G5 not started, G7 rollback exercised; production rolled back to `511879dc`, migration 029 remains (additive); **NO-GO on Free**, recommend Workers Paid + Phase 3P, do not retry the Free pilot | Accepted (execution complete 2026-10-26; Free pilot closed); Paid recommendation superseded by ADR-148 | Feature_docs/performance/{2026-10-26-free-tier-launch-readiness-spec.md,free-tier-launch-runbook.md}, workers/api/wrangler.jsonc, context/{progress-tracker,flow,decision}.md |
 | ADR-146 | 2026-10-26 | Free-tier launch readiness — bounded pilot + GO/NO-GO instead of a 1,000-user capacity claim; Free hard limits (100k requests/day, 10 ms CPU/request and per cron, 50 D1 roundtrips/invocation, 100k rows written/day, 500 MB D1, 7-day Time Travel); observability is structured logs + Cloudflare Alerts with production traces **off**; production probes are `/health` + public GETs only; 50% warn / 80% critical; owner daily + email; approved pilot envelope 50 registered / 10 DAU / 5 concurrent, COD only, no UPI, no new auto-delivery subscriptions, vendor route ≤20 stops; gates G0–G7; G3 (auth) and G4 (cron) require separate approval; default **NO-GO for a transactional pilot** until they pass; G0/G6 approved 2026-10-26; no code/config/deploy/migration/production write | Superseded by ADR-147 (G0/G6 approved; G1/G2/G3/G4/G7 executed, G2/G3/G4 failed, G5 not started) | Feature_docs/performance/{2026-10-26-free-tier-launch-readiness-spec.md,free-tier-launch-runbook.md}, context/{progress-tracker,flow,decision}.md |
@@ -200,6 +201,30 @@
 ---
 
 ## Decision Entries
+
+### ADR-149: Merge 035 into main — Option A, three side-by-side APKs (2026-10-26)
+
+- **Date**: 2026-10-26
+- **Status**: **Accepted — merged locally into `main` with `--no-ff`; not pushed.** Production and the release workflow are untouched.
+- **Context**: The owner chose Option A: keep `apps/user_app` (package `com.shodasha.shodasha_app`) as the fallback and add `apps/user_app_donor` (`com.shodasha.shodasha_donor`) as a third side-by-side APK. `035-premium-ui-states-release` was 52 commits ahead of `main` and 0 behind. The branch carries the 035 UI/state work, the Phase 1A/1B/2 backend hardening, migration 029, and the donor CI/release legs; `main`'s release workflow still built only user + vendor.
+- **Options considered**:
+  1. **Merge locally with `--no-ff`, do not push.** Chosen. Records the release integration explicitly, keeps the push-triggered release under owner control, and leaves production read-only.
+  2. **Fast-forward.** Rejected: the merge changes CI/release behavior, so an explicit merge commit is worth keeping.
+  3. **Replace the old customer app or migrate the package ID.** Rejected by the owner (Option A); the old app stays installed and the donor is additive.
+  4. **Deploy the backend as part of the merge.** Rejected: no deploy was approved; production stays `511879dc`. The donor's `switch-to-cod` fallback therefore 404s until a backend deploy.
+- **Decision**: Merge `035-premium-ui-states-release` into `main` with `--no-ff` after all gates pass. Keep the old user app, vendor app, and donor app side by side. Do not push, tag, or deploy.
+- **Gates (pre-merge, branch tip + lint fix `60e2198`)**:
+  - Backend: `uv run pytest -q` → **487 passed, 1 skipped**; `ruff check` clean on the new/changed code after removing two unused locals in `tests/test_p0_money.py` (17 remaining findings in touched legacy tests are identical to `main`'s baseline; 43 repo-wide are pre-existing).
+  - Flutter: `flutter analyze` → **No issues found** for all three apps; tests **user 222 / vendor 70 / donor 75**.
+  - Release builds with production defines: user **58,553,026** bytes (`com.shodasha.shodasha_app`, 3 ABIs), vendor **53,899,225** bytes (`com.shodasha.vendor_app`, 3 ABIs), donor **38,437,881** bytes (`com.shodasha.shodasha_donor`, arm + arm64; 40,000,000-byte gate ✓).
+  - Toolchain: Flutter 3.44.9, Dart 3.12.2, AGP 9.0.1, Gradle 9.1.0, Kotlin 2.3.20, SDK 36, Java target 17. CI uses JDK 17; the local build used Android Studio JBR 25, so the JDK-17 CI leg remains the canonical runner.
+  - Merge simulation (`git merge-tree --write-tree`) and the real merge produced **no conflicts**; `main` was an ancestor.
+- **Consequences**:
+  - `main` now has the donor CI leg and a three-APK release workflow (`shodasha-user`, `shodasha-vendor`, `shodasha-donor`, `SHA256SUMS.txt`).
+  - Nothing is pushed, so no release workflow run, no tag, and no APK published.
+  - Production stays `511879dc` with migration 029 applied; no backend deploy. The donor UPI→COD fallback is not usable against production until `switch-to-cod` is deployed.
+  - All three APKs are debug-signed (Android debug cert `edbd8844…`); the owner keystore is still absent. Do not call them production-signed.
+- **Verification**: `git log --oneline -1` on `main` shows the merge commit; `git diff 035-premium-ui-states-release main` is empty; `ci.yml`/`release.yml` on `main` contain the donor matrix entry and `shodasha-donor` asset.
 
 ### ADR-148: Free-only - Phase 3P skipped, no Workers Paid (2026-10-26)
 
