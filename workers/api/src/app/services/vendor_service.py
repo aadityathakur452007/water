@@ -27,6 +27,7 @@ import math
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
 from app.db_d1 import AsyncSqliteConn, D1Conn
+from app.db_schema import order_columns, stop_columns
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
 from app.services import delivery_code
@@ -103,20 +104,14 @@ POD_MAX_ATTEMPTS = 5  # wrong codes per stop before the stop locks (DB-backed)
 
 async def _has_pod_cols(conn: Conn) -> bool:
     """Whether this DB has the 015 columns (tolerates pre-migration DBs)."""
-    try:
-        rows = (await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()
-    except Exception:
-        return False
-    names = {r["name"] for r in rows}
+    names = await stop_columns(conn)
     return "pod_otp" in names and "pod_attempts" in names
 
 
 async def _pod_lifecycle(conn: Conn, stop_id: str) -> dict:
     """Read code, attempts, and expiry together (tolerant of pre-015/027)."""
-    try:
-        cols = {r["name"] for r in (
-            await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
-    except Exception:
+    cols = await stop_columns(conn)
+    if not cols:
         return {"has_otp": False, "has_expiry": False,
                 "code": None, "attempts": 0, "expires_at": None}
     selected = ["id"]
@@ -140,22 +135,14 @@ async def _pod_lifecycle(conn: Conn, stop_id: str) -> dict:
 
 async def _stop_field_cols(conn: Conn) -> dict[str, bool]:
     """016/023 presence flags (tolerates pre-migration DBs)."""
-    out = {"items_json": False, "instructions": False, "failure_reason": False, "address_snapshot_json": False}
-    try:
-        stops_cols = {
-            r["name"] for r in (
-                await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
-        out["items_json"] = "items_json" in stops_cols
-        out["failure_reason"] = "failure_reason" in stops_cols
-
-        order_cols = {
-            r["name"] for r in (
-                await conn.execute("SELECT name FROM pragma_table_info('orders')")).fetchall()}
-        out["instructions"] = "instructions" in order_cols
-        out["address_snapshot_json"] = "address_snapshot_json" in order_cols
-    except Exception:
-        pass
-    return out
+    stops_cols = await stop_columns(conn)
+    order_cols = await order_columns(conn)
+    return {
+        "items_json": "items_json" in stops_cols,
+        "failure_reason": "failure_reason" in stops_cols,
+        "instructions": "instructions" in order_cols,
+        "address_snapshot_json": "address_snapshot_json" in order_cols,
+    }
 
 
 def _parse_items(raw: object) -> list:
@@ -680,9 +667,7 @@ class VendorService:
                 current["pod"] = {k: v for k, v in pod.items() if v is not None}
                 if cash_paise > 0 and not current.get("cash"):
                     current["cash"] = cash_paise
-                stop_cols = {r["name"] for r in (
-                    await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
-                ).fetchall()}
+                stop_cols = await stop_columns(self._conn)
                 sets = ["triple = ?", "status = 'done'", "synced_at = ?"]
                 for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts"):
                     if name in stop_cols:

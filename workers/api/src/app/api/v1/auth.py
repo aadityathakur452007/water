@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.adapters.firebase import get_verifier
 from app.api.auth_deps import get_current_user, require_active_user
 from app.api.deps import get_db_conn
+from app.api.middleware import client_ip
 from app.services.auth_service import AuthService, OtpRetiredError
 
 router = APIRouter(tags=["auth"])
@@ -145,7 +146,7 @@ async def user_register(
 ):
     """Create-only customer signup: name + optional email + phone + password.
     Existing phones → 409 ACCOUNT_EXISTS; staff numbers → 422 ROLE_RESERVED."""
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     return await svc.user_register(
         payload.name,
         payload.phone,
@@ -162,7 +163,7 @@ async def user_login(
     payload: UserLoginIn, request: Request, svc: AuthService = Depends(_service)
 ):
     """Customer phone + password login; one generic 401 for unknown/staff/wrong."""
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     return await svc.user_login(
         payload.phone,
         payload.password,

@@ -340,29 +340,27 @@ class OrderService:
         rider_info: dict | None = None
         if order["state"] in ("assigned", "dispatched"):
             try:
-                stop_row = (await self.orders._conn.execute(
-                    "SELECT s.id, s.route_id, s.seq, r.vendor_id FROM stops s"
+                # One join replaces three sequential reads: the pending stop,
+                # its stops-ahead count, and the rider contact.
+                row = (await self.orders._conn.execute(
+                    "SELECT s.id, s.route_id, s.seq, r.vendor_id,"
+                    " (SELECT COUNT(*) FROM stops x WHERE x.route_id = s.route_id"
+                    "   AND x.status = 'pending' AND x.seq < s.seq) AS ahead,"
+                    " u.name, u.phone, p.name AS prof_name, p.phone AS prof_phone"
+                    " FROM stops s"
                     " JOIN routes r ON r.id = s.route_id"
+                    " JOIN users u ON u.id = r.vendor_id"
+                    " LEFT JOIN vendor_profile p ON p.user_id = r.vendor_id"
                     " WHERE s.order_id = ? AND s.status = 'pending'",
                     (order_id,)
                 )).fetchone()
-                if stop_row is not None:
-                    ahead_row = (await self.orders._conn.execute(
-                        "SELECT COUNT(*) c FROM stops WHERE route_id = ? AND status = 'pending' AND seq < ?",
-                        (stop_row["route_id"], stop_row["seq"])
-                    )).fetchone()
-                    stops_ahead = int(ahead_row["c"]) if ahead_row else 0
-                    v_row = (await self.orders._conn.execute(
-                        "SELECT u.name, u.phone, p.name AS prof_name, p.phone AS prof_phone FROM users u"
-                        " LEFT JOIN vendor_profile p ON p.user_id = u.id WHERE u.id = ?",
-                        (stop_row["vendor_id"],)
-                    )).fetchone()
-                    if v_row is not None:
-                        rider_info = {
-                            "name": v_row["prof_name"] or v_row["name"] or "Water Delivery Partner",
-                            "phone": v_row["prof_phone"] or v_row["phone"] or "",
-                            "stops_ahead": stops_ahead,
-                        }
+                if row is not None:
+                    stops_ahead = int(row["ahead"] or 0)
+                    rider_info = {
+                        "name": row["prof_name"] or row["name"] or "Water Delivery Partner",
+                        "phone": row["prof_phone"] or row["phone"] or "",
+                        "stops_ahead": stops_ahead,
+                    }
             except Exception:
                 pass
 

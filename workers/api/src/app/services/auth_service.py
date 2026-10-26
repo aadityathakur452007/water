@@ -40,7 +40,7 @@ REFRESH_USER_LIMIT = (30, 3600)  # 30/user/hr
 REGISTER_PHONE_LIMIT = (5, 3600)  # 5/phone/hr
 REGISTER_IP_LIMIT = (20, 3600)  # 20/IP/hr
 LOGIN_PHONE_LIMIT = (5, 900)  # 5 attempts/phone/15 min
-LOGIN_IP_LIMIT = (20, 3600)  # 20/IP/hr
+LOGIN_IP_LIMIT = (100, 3600)  # 100/IP/hr: shared NAT stays usable; phone cap is the primary guard
 
 # 028 access-code auth (spec §1-§3, §5): generalized codes table.
 ACCESS_CODE_DEVICE_LIMIT = (10, 3600)  # 10/device/hr (mirrors DEMO pattern)
@@ -219,40 +219,67 @@ class AuthService:
         self._verifier = verifier  # duck-typed verify_id_token(); None = only local ops
 
     async def _limit_check(self, key: str, limit: int, window_s: int) -> None:
-        """Phase 8 §8.4: L1 fast-deny + D1 authoritative count.
+        await self._limit_checks([(key, limit, window_s)])
+
+    async def _limit_checks(self, checks: list[tuple[str, int, int]]) -> None:
+        """Phase 8 §8.4 + Phase 2: L1 fast-deny + one D1 batch for N keys.
 
         L1 raises first (per-isolate, instant). D1 (rate_counters keyed by
-        key:window-bucket) then denies abuse spread across isolates. D1
-        outage or pre-019 table → debug-logged, L1 still enforced (fail-open
-        on counting only — counter writes never fail the auth call itself).
-        Keys are server-derived (normalized phone, socket IP, session
+        key:window-bucket) then denies abuse spread across isolates. One
+        multi-row UPSERT plus one IN(...) SELECT makes every check one round
+        trip. D1 outage or pre-019 table → debug-logged, L1 still enforced
+        (fail-open on counting only — counter writes never fail the auth call
+        itself). Keys are server-derived (normalized phone, socket IP, session
         device_fp) — never client-supplied identity (ssdlc).
         """
-        _LIMITER.check(key, limit, window_s)  # raises RateLimitedError when over
+        for key, limit, window_s in checks:
+            _LIMITER.check(key, limit, window_s)  # raises RateLimitedError when over
         try:
-            bucket = int(time.time() // window_s) * window_s
-            dkey = f"{key}:{bucket}"
-            # Window start is the bucket start (NOT wall-clock now): every
-            # hit in the same window shares one row so the UPSERT actually
-            # increments instead of scattering count=1 rows.
-            window_start = _dt.datetime.fromtimestamp(
-                bucket, tz=_dt.timezone.utc).isoformat()
-            await self._conn.execute(
-                "INSERT INTO rate_counters(key, window_start, count) VALUES (?, ?, 1)"
-                " ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1",
-                (dkey, window_start),
-            )
-            row = (await self._conn.execute(
-                "SELECT count FROM rate_counters WHERE key = ?", (dkey,))).fetchone()
+            now = time.time()
+            dkeys: list[str] = []
+            params: list[object] = []
+            for key, _, window_s in checks:
+                bucket = int(now // window_s) * window_s
+                dkey = f"{key}:{bucket}"
+                dkeys.append(dkey)
+                params.extend([
+                    dkey,
+                    # Window start is the bucket start (NOT wall-clock now):
+                    # every hit in the same window shares one row so the
+                    # UPSERT increments instead of scattering count=1 rows.
+                    _dt.datetime.fromtimestamp(
+                        bucket, tz=_dt.timezone.utc).isoformat(),
+                ])
+            values = ", ".join("(?, ?, 1)" for _ in checks)
+            marks = ", ".join("?" for _ in dkeys)
+            results = await self._conn.batch([
+                (
+                    f"INSERT INTO rate_counters(key, window_start, count)"
+                    f" VALUES {values}"
+                    " ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1",
+                    tuple(params),
+                ),
+                (
+                    f"SELECT key, count FROM rate_counters WHERE key IN ({marks})",
+                    tuple(dkeys),
+                ),
+            ])
             self._conn.commit()
-            if row is not None and int(row["count"]) > limit:
-                retry = int(window_s - (time.time() % window_s)) or 1
-                log.warning("rate_limit d1_hit key=%s count=%d limit=%d", key, int(row["count"]), limit)
-                raise RateLimitedError("Too many requests.", {"retry_after_s": retry})
+            counts = {r["key"]: int(r["count"]) for r in results[1].fetchall()}
+            for (key, limit, window_s), dkey in zip(checks, dkeys):
+                count = counts.get(dkey, 0)
+                if count > limit:
+                    retry = int(window_s - (now % window_s)) or 1
+                    log.warning(
+                        "rate_limit d1_hit key=%s count=%d limit=%d",
+                        key, count, limit,
+                    )
+                    raise RateLimitedError(
+                        "Too many requests.", {"retry_after_s": retry})
         except RateLimitedError:
             raise
         except Exception:  # pre-019 DBs / D1 hiccups: L1 already enforced above
-            log.debug("rate_limit d1_unavailable key=%s", key)
+            log.debug("rate_limit d1_unavailable keys=%d", len(checks))
 
     # -- OTP ---------------------------------------------------------------
 
@@ -574,8 +601,10 @@ class AuthService:
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
         phone_n = normalize_phone(phone or "")
-        await self._limit_check(f"login:phone:{phone_n}", *LOGIN_PHONE_LIMIT)
-        await self._limit_check(f"login:ip:{ip or 'unknown'}", *LOGIN_IP_LIMIT)
+        await self._limit_checks([
+            (f"login:phone:{phone_n}", *LOGIN_PHONE_LIMIT),
+            (f"login:ip:{ip or 'unknown'}", *LOGIN_IP_LIMIT),
+        ])
         user = await self._users.find_for_login_by_phone(phone_n)
         encoded = (user or {}).get("password_hash") or ""
         if user is None or user.get("role") != "user" or not encoded:

@@ -19,6 +19,7 @@ import uuid
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
 from app.db_d1 import AsyncSqliteConn, D1Conn
+from app.db_schema import stop_columns
 from app.repositories.ledger_repo import LedgerRepo
 
 Conn = D1Conn | AsyncSqliteConn
@@ -166,9 +167,7 @@ class OrderRepo:
         Tolerates pre-015/027 schemas by returning empty/NULL defaults. Read-only;
         the service resolves active/expired/locked/unavailable from these fields.
         """
-        cols = {r["name"] for r in (
-            await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
-        ).fetchall()}
+        cols = await stop_columns(self._conn)
         selected = ["id", "status", "version"]
         for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts", "triple"):
             if name in cols:

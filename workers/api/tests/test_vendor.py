@@ -682,10 +682,15 @@ async def test_today_route_query_count_independent_of_stop_count():
     many = _conn()
     _add_route_stops(many, 36)  # 4 seeded + 36 = 40
 
+    # Warm the per-isolate schema cache: the 2 probes are paid once per
+    # isolate, not per request, so steady state is what this test measures.
+    await _svc(one).today_route("v1", DAY)
+    await _svc(many).today_route("v1", DAY)
+
     q1 = await count(one)
     q40 = await count(many)
     assert q1 == q40
-    assert q1[0] <= 6  # route + 2 schema probes + stops + ledger + paid
+    assert q1[0] == 4  # stops + ledger + paid + route (schema probes cached)
 
 
 async def test_held_for_customers_chunks_and_dedupes():

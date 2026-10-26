@@ -1505,7 +1505,7 @@ Webhook response shape: `POST /v1/webhooks/upi` strips `settlement_token`, `muta
 
 ```
 VendorService.today_route
-  ├─ route + 2 pragma probes + stop rows (unchanged)
+  ├─ route + stop rows (schema probes cached after the first call)
   ├─ LedgerRepo.held_for_customers(stop customer_ids)   → 1 SELECT ... IN (chunk 90)
   ├─ PaymentRepo.paid_sums_for_orders(stop order_ids)   → 1 GROUP BY ... IN (chunk 90)
   └─ per-stop overlay reads the two maps (hold_blocked, paid_sum)
@@ -1518,6 +1518,64 @@ PaymentService.get_dues
 ```
 
 Helpers dedupe and drop empty ids; an empty list issues no query. Chunk = 90 (D1's 100-parameter cap). Single-order `paid_sum_for_order`/`_dues_posted` stay for `get_invoice` and `cod_confirm`. No migration, no `batch()` for reads, no write-path change. Measured on seeded SQLite: route **6 queries / 6 roundtrips** for 40 stops (was 85 statements at the endpoint), dues **4 / 4** for 40 open orders (was 15). Staging deployment and the atomicity smoke are verified (ADR-143); read-path latency is not staging-measured because the Free-plan 10 ms CPU ceiling kills the A/B/C harness.
+
+## Phase 2 - P1 hot paths (implemented locally 2026-10-26, ADR-144)
+
+```
+GET /v1/orders/{id}  (OrderService.detail)
+  ├─ OrderRepo.find_owned(order_id, user_id)          → owner-scoped row (404 if none)
+  ├─ OrderRepo.events(order_id)                       → event list
+  ├─ OrderRepo.stop_delivery_state(order_id)          → stop_columns() cached probe
+  └─ assigned/dispatched only: ONE join
+       stops s JOIN routes r JOIN users u LEFT JOIN vendor_profile p
+       + COUNT(*) subquery for stops_ahead            → rider + stops_ahead
+  Worst case 4 statements / 4 round trips (was 8).
+
+Schema cache (app/db_schema.py)
+  stop_columns(conn) / order_columns(conn)
+    ├─ first call: SELECT name FROM pragma_table_info('<literal>')
+    ├─ success → frozenset cached for the isolate lifetime
+    └─ failure → empty set returned, retried on the next call
+  Consumers: OrderRepo.stop_delivery_state, VendorService._has_pod_cols /
+  _pod_lifecycle / _stop_field_cols / pod_complete.
+  SubscriptionService._ensure_billing_mode: probe → ALTER missing 026/028
+  columns → re-probe once → `_billing_ready` (0 queries after that).
+
+GET /v1/admin/metrics, /v1/admin/metrics/overview
+  ├─ key "metrics" or "overview:<days>" (days 1-90)
+  ├─ hit within 60 s → return the cached dict (0 statements)
+  └─ miss → build aggregates, prune expired keys, store
+  Response: Cache-Control: private, no-store (no ETag/CDN header).
+
+GET /v1/admin/config, /v1/admin/zones
+  └─ cached(..., private=True) → private, no-store
+
+GET /v1/windows?date=
+  ├─ past date → clamp to today
+  ├─ date > today+30 → 400 VALIDATION
+  └─ _next_serviceable_day → public 300 s cache
+
+POST /v1/auth/user/login
+  ├─ client_ip(request): CF-Connecting-IP, else socket peer
+  ├─ _limit_checks([phone 5/900, ip 100/3600])
+  │    ├─ L1 per-isolate check (instant deny)
+  │    └─ one D1 batch: multi-row UPSERT + SELECT ... IN   (1 round trip)
+  └─ user lookup + PBKDF2 verify (unchanged)
+  Anon throttle: same client_ip key; map bounded at 2,048 keys.
+
+Flutter public reads (ApiClient)
+  catalog()/windows()
+    ├─ fresh hit (≤300 s) → return cached map
+    ├─ miss → send(maxAttempts: 1)
+    ├─ success → store (prune >20 min)
+    └─ 429/5xx/transport + allowStale + entry ≤20 min → return stale
+  GET 429 never retries (cacheable or not).
+  Auth boundary: clearInflight() + clearReadCache().
+  TrackingScreen: after await refreshOrder, if (!mounted) return before
+  startTracking.
+```
+
+No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md`.
 
 ## Update Protocol (MANDATORY)
 

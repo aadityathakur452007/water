@@ -94,7 +94,10 @@ class _TrackingScreenState extends State<TrackingScreen>
     _detailLoading = widget.controller.findById(widget.orderId) == null;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await widget.controller.refreshOrder(widget.orderId);
-      if (mounted && _detailLoading) {
+      // A fast back can dispose this screen mid-refresh; never arm a poll
+      // loop for a screen that is already gone.
+      if (!mounted) return;
+      if (_detailLoading) {
         setState(() => _detailLoading = false);
       }
       widget.controller.startTracking(widget.orderId);

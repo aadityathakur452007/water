@@ -61,6 +61,8 @@ class ApiClient {
     this.accessTokenGetter,
     this.deviceId = 'unknown-device',
     this.onUnauthorized,
+    this.readCacheTtl = const Duration(seconds: 300),
+    this.readCacheMaxAge = const Duration(minutes: 20),
   }) : _http = client ?? http.Client() {
     // Fail fast on cleartext prod builds — hard check, NOT assert(): asserts
     // are stripped in release, and every shell curl in front proves this file
@@ -120,12 +122,12 @@ class ApiClient {
   /// derived future that rethrows unlistened and trips test-zone guards.
   final Map<String, Future<dynamic>> _inflight = {};
 
-  /// Public, non-user-scoped reads only (catalog/windows). 45s fresh window;
-  /// a stale entry survives up to 5 minutes for callers that explicitly opt
-  /// in to rendering it with a stale label. Never used for money/orders/
-  /// ledger/delivery-code/session/complaints.
-  static const Duration _readCacheTtl = Duration(seconds: 45);
-  static const Duration _readCacheMaxAge = Duration(minutes: 5);
+  /// Public, non-user-scoped reads only (catalog/windows). Defaults match the
+  /// server's Cache-Control: 300s fresh, 20 min max stale. A stale entry is
+  /// only rendered by callers that explicitly opt in with a stale label.
+  /// Never used for money/orders/ledger/delivery-code/session/complaints.
+  final Duration readCacheTtl;
+  final Duration readCacheMaxAge;
   final Map<String, _ReadCacheEntry> _readCache = {};
 
   /// Transport health for the shell banner: true only when the last attempt
@@ -146,6 +148,10 @@ class ApiClient {
   /// so a request started as user A is never joined by user B. Keys also carry
   /// a token fingerprint, so a missed boundary cannot leak across users.
   void clearInflight() => _inflight.clear();
+
+  /// Drop the public-read cache. Called at the same auth boundary so a new
+  /// session never renders bytes fetched under the previous one.
+  void clearReadCache() => _readCache.clear();
 
   /// Non-reversible 32-bit FNV-1a fingerprint. The raw token never enters a
   /// map key, log, or error message.
@@ -196,7 +202,7 @@ class ApiClient {
   ///   NETWORK/timeout, 408, 429, 5xx — and POSTs only when an
   ///   [idempotencyKey] is present or [retryPost] is set (caller guarantees
   ///   the operation is replay-safe: same key + same body). Never retries
-  ///   400/404/409.
+  ///   400/404/409. GETs never retry 429: they fall back to the read cache.
   /// - Authed 401/403 asks [onUnauthorized] once; a true answer retries the
   ///   request once with the rotated token. A second 401/403 is final.
   Future<dynamic> send(
@@ -209,13 +215,15 @@ class ApiClient {
     String? bearerToken,
     bool notifyUnauthorized = true,
     bool retryPost = false,
+    int maxAttempts = 3,
     Duration timeout = const Duration(seconds: 12),
   }) {
     if (method == 'GET') {
       // Authed keys are token-scoped: user B must never join user A's request.
       final key =
           'GET ${_uri(path, query)}'
-          '${authed ? '|${_tokenFingerprint(bearerToken)}' : ''}';
+          '${authed ? '|${_tokenFingerprint(bearerToken)}' : ''}'
+          '|a$maxAttempts';
       final flying = _inflight[key];
       if (flying != null) return flying;
       final fut = _sendWithRetry(
@@ -228,6 +236,7 @@ class ApiClient {
         bearerToken: bearerToken,
         notifyUnauthorized: notifyUnauthorized,
         retryPost: retryPost,
+        maxAttempts: maxAttempts,
         timeout: timeout,
       );
       _inflight[key] = fut;
@@ -253,13 +262,14 @@ class ApiClient {
       bearerToken: bearerToken,
       notifyUnauthorized: notifyUnauthorized,
       retryPost: retryPost,
+      maxAttempts: maxAttempts,
       timeout: timeout,
     );
   }
 
   /// TTL cache for public reads. Returns the same successful shape as [send].
   /// [allowStale] is opt-in: only a caller that renders a stale banner may ask
-  /// for an expired entry after a transport/server failure.
+  /// for an expired entry after a transport/server/429 failure.
   Future<Map<String, dynamic>> _cachedMapGet(
     String path, {
     Map<String, String>? query,
@@ -268,16 +278,16 @@ class ApiClient {
     final key = 'GET ${_uri(path, query)}';
     final cached = _readCache[key];
     if (cached != null &&
-        DateTime.now().difference(cached.storedAt) <= _readCacheTtl) {
+        DateTime.now().difference(cached.storedAt) <= readCacheTtl) {
       return Map<String, dynamic>.from(cached.value);
     }
     try {
       final value =
-          (await send('GET', path, query: query, authed: false))
+          (await send('GET', path, query: query, authed: false, maxAttempts: 1))
               as Map<String, dynamic>;
       final now = DateTime.now();
       _readCache.removeWhere(
-        (_, entry) => now.difference(entry.storedAt) > _readCacheMaxAge,
+        (_, entry) => now.difference(entry.storedAt) > readCacheMaxAge,
       );
       _readCache[key] = _ReadCacheEntry(value, now);
       return value;
@@ -285,8 +295,8 @@ class ApiClient {
       final usable =
           allowStale &&
           cached != null &&
-          (e.isOffline || e.isServerError) &&
-          DateTime.now().difference(cached.storedAt) <= _readCacheMaxAge;
+          (e.isOffline || e.isServerError || e.statusCode == 429) &&
+          DateTime.now().difference(cached.storedAt) <= readCacheMaxAge;
       if (usable) return Map<String, dynamic>.from(cached.value);
       rethrow;
     }
@@ -308,6 +318,7 @@ class ApiClient {
     String? bearerToken,
     bool notifyUnauthorized = true,
     bool retryPost = false,
+    int maxAttempts = 3,
     Duration timeout = const Duration(seconds: 12),
   }) async {
     // POST without an idempotency key (or explicit replay-safety) must never
@@ -352,7 +363,13 @@ class ApiClient {
           if (!recovered) rethrow;
           continue;
         }
-        final canRetry = retryableMethod && attempt < 3 && _retryable(e);
+        // A 429 means "back off", not "try again now": GETs fall through to
+        // the caller's stale cache instead of burning three retries.
+        final canRetry =
+            retryableMethod &&
+            attempt < maxAttempts &&
+            _retryable(e) &&
+            !(method == 'GET' && e.statusCode == 429);
         if (!canRetry) rethrow;
         var waitMs = 500 * (1 << (attempt - 1));
         final serverWait = (e.retryAfterSeconds ?? 0) * 1000;
@@ -592,7 +609,7 @@ class ApiClient {
       (await send('PATCH', '/auth/me', body: body)) as Map<String, dynamic>;
 
   // ── Catalog (§4.2 — guest-callable, prices never walled) ─────────────────
-  /// 45s TTL. [allowStale] is only for a screen that renders "Showing last
+  /// 300s TTL. [allowStale] is only for a screen that renders "Showing last
   /// update"; the default never hides a failed refresh behind old prices.
   Future<Map<String, dynamic>> catalog({bool allowStale = false}) =>
       _cachedMapGet('/catalog', allowStale: allowStale);

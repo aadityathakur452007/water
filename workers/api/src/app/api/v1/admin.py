@@ -15,9 +15,10 @@ import hashlib
 import json
 import secrets
 import sqlite3
+import time
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-export for test overrides)
@@ -597,8 +598,9 @@ async def zone_list(request: Request, conn=Depends(get_db_conn), user=Admin):
            ORDER BY z.name
            LIMIT 200"""
     )).fetchall()
-    # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
-    return cached({"data": [dict(r) for r in rows]}, request)
+    # Phase 8 §8.5: auth still required; admin bytes must never enter a
+    # shared cache, so private=True emits `private, no-store`.
+    return cached({"data": [dict(r) for r in rows]}, request, private=True)
 
 
 @router.post("/admin/zones", status_code=201)
@@ -1148,8 +1150,9 @@ async def config_read(request: Request, conn=Depends(get_db_conn), user=Admin):
                             " FROM config ORDER BY key")).fetchall()
     except sqlite3.OperationalError:
         rows = (await conn.execute("SELECT key, value FROM config ORDER BY key")).fetchall()
-    # Phase 8 §8.5: cached 5 min + ETag (auth still required; BFF opts in).
-    return cached({"data": [dict(r) for r in rows]}, request)
+    # Phase 8 §8.5: auth still required; admin bytes must never enter a
+    # shared cache, so private=True emits `private, no-store`.
+    return cached({"data": [dict(r) for r in rows]}, request, private=True)
 
 
 @router.get("/admin/audit")
@@ -1226,21 +1229,51 @@ async def audit_export(entity: str | None = Query(default=None),
     return PlainTextResponse(buf.getvalue(), media_type="text/csv")
 
 
+_METRICS_TTL_S = 60
+_metrics_cache: dict[str, tuple[float, dict]] = {}
+
+
+async def _metrics_cached(key: str, build):
+    """Single-tenant dashboard aggregates; 60 s per-isolate cache.
+
+    Only global counts live here (never per-user data), and the key set is
+    bounded by `days` (1-90), so the map cannot grow without limit.
+    """
+    hit = _metrics_cache.get(key)
+    now = time.monotonic()
+    if hit is not None and now - hit[0] < _METRICS_TTL_S:
+        return hit[1]
+    value = await build()
+    for stale in [k for k, v in _metrics_cache.items() if now - v[0] >= _METRICS_TTL_S]:
+        _metrics_cache.pop(stale, None)
+    _metrics_cache[key] = (now, value)
+    return value
+
+
+def reset_metrics_cache() -> None:  # tests only
+    _metrics_cache.clear()
+
+
 @router.get("/admin/metrics")
-async def metrics(conn=Depends(get_db_conn), user=Admin):
-    orders = {r["state"]: int(r["c"])
-              for r in (await conn.execute("SELECT state, COUNT(*) c FROM orders GROUP BY state")).fetchall()}
-    users = {r["role"]: int(r["c"])
-             for r in (await conn.execute("SELECT role, COUNT(*) c FROM users GROUP BY role")).fetchall()}
-    dues = (await conn.execute("SELECT COALESCE(SUM(dues),0) d FROM ledger")).fetchone()["d"]
-    open_q = 0
-    try:
-        open_q = int((await conn.execute(
-            "SELECT COUNT(*) c FROM quality_incidents WHERE status = 'open'")).fetchone()["c"])
-    except sqlite3.OperationalError:
-        pass
-    return {"orders_by_state": orders, "users_by_role": users,
-            "dues_paise": int(dues), "quality_open": open_q}
+async def metrics(response: Response, conn=Depends(get_db_conn), user=Admin):
+    async def build():
+        orders = {r["state"]: int(r["c"])
+                  for r in (await conn.execute("SELECT state, COUNT(*) c FROM orders GROUP BY state")).fetchall()}
+        users = {r["role"]: int(r["c"])
+                 for r in (await conn.execute("SELECT role, COUNT(*) c FROM users GROUP BY role")).fetchall()}
+        dues = (await conn.execute("SELECT COALESCE(SUM(dues),0) d FROM ledger")).fetchone()["d"]
+        open_q = 0
+        try:
+            open_q = int((await conn.execute(
+                "SELECT COUNT(*) c FROM quality_incidents WHERE status = 'open'")).fetchone()["c"])
+        except sqlite3.OperationalError:
+            pass
+        return {"orders_by_state": orders, "users_by_role": users,
+                "dues_paise": int(dues), "quality_open": open_q}
+
+    body = await _metrics_cached("metrics", build)
+    response.headers["Cache-Control"] = "private, no-store"
+    return body
 
 
 # -- F-SA super-admin panel (additive, contract §4.11 + §14.5) ----------------
@@ -1257,38 +1290,43 @@ def _cursor(value: str) -> int:
 
 
 @router.get("/admin/metrics/overview")
-async def metrics_overview(days: int = Query(default=14, ge=1, le=90),
+async def metrics_overview(response: Response, days: int = Query(default=14, ge=1, le=90),
                      conn=Depends(get_db_conn), user=Admin):
-    repo = AdminReadRepo(conn)
-    today = ist_today()
-    since = (_dt.datetime.fromisoformat(today) - _dt.timedelta(days=days)).date().isoformat()
-    daily = await repo.daily_series(since)
-    on_time = {r["day"]: r for r in await repo.on_time_series(since)}
-    series = []
-    for row in daily:
-        ot = on_time.get(row["day"], {})
-        delivered = ot.get("delivered") or 0
-        series.append({
-            "day": row["day"],
-            "orders": int(row["orders"] or 0),
-            "gmv_paise": int(row["gmv_paise"] or 0),
-            "delivered": int(row["delivered"] or 0),
-            "cancelled": int(row["cancelled"] or 0),
-            "failed": int(row["failed"] or 0),
-            "upi_orders": int(row["upi_orders"] or 0),
-            "cod_orders": int(row["cod_orders"] or 0),
-            "on_time_pct": round(100.0 * (ot.get("on_time") or 0) / delivered, 1) if delivered else None,
-        })
-    today_row = next((r for r in series if r["day"] == today), None)
-    return {
-        "today": today_row or {
-            "day": today, "orders": 0, "gmv_paise": 0, "delivered": 0,
-            "cancelled": 0, "failed": 0, "upi_orders": 0, "cod_orders": 0,
-            "on_time_pct": None,
-        },
-        "series": series,
-        "money": await repo.money_totals(),
-    }
+    async def build():
+        repo = AdminReadRepo(conn)
+        today = ist_today()
+        since = (_dt.datetime.fromisoformat(today) - _dt.timedelta(days=days)).date().isoformat()
+        daily = await repo.daily_series(since)
+        on_time = {r["day"]: r for r in await repo.on_time_series(since)}
+        series = []
+        for row in daily:
+            ot = on_time.get(row["day"], {})
+            delivered = ot.get("delivered") or 0
+            series.append({
+                "day": row["day"],
+                "orders": int(row["orders"] or 0),
+                "gmv_paise": int(row["gmv_paise"] or 0),
+                "delivered": int(row["delivered"] or 0),
+                "cancelled": int(row["cancelled"] or 0),
+                "failed": int(row["failed"] or 0),
+                "upi_orders": int(row["upi_orders"] or 0),
+                "cod_orders": int(row["cod_orders"] or 0),
+                "on_time_pct": round(100.0 * (ot.get("on_time") or 0) / delivered, 1) if delivered else None,
+            })
+        today_row = next((r for r in series if r["day"] == today), None)
+        return {
+            "today": today_row or {
+                "day": today, "orders": 0, "gmv_paise": 0, "delivered": 0,
+                "cancelled": 0, "failed": 0, "upi_orders": 0, "cod_orders": 0,
+                "on_time_pct": None,
+            },
+            "series": series,
+            "money": await repo.money_totals(),
+        }
+
+    body = await _metrics_cached(f"overview:{days}", build)
+    response.headers["Cache-Control"] = "private, no-store"
+    return body
 
 
 @router.get("/admin/users")

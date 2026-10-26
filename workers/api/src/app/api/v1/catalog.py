@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field
 
 from app.api.caching import cached
 from app.api.deps import get_db_conn, get_settings
+from app.core.errors import ValidationError
 from app.schemas.catalog import CatalogOut, SkuOut
 
 router = APIRouter(tags=["catalog"])
 
 _PINCODE_RE = r"^[1-9]\d{5}$"
 _HOURS_DEFAULT = "08:00-20:00, all days"
+WINDOW_HORIZON_DAYS = 30
 
 
 def _prefixes() -> list[str]:
@@ -60,7 +62,18 @@ def _next_serviceable_day(day: dt.date | None) -> dt.date:
 @router.get("/windows")
 async def get_windows(request: Request, date: dt.date | None = None,
                 pincode: str | None = Query(default=None, pattern=_PINCODE_RE)):
-    day = _next_serviceable_day(date)
+    # Bounded cache cardinality: past dates normalize to today, anything
+    # beyond the booking horizon is rejected (audit P1-10).
+    today = dt.date.today()
+    day_in = date or today
+    if day_in < today:
+        day_in = today
+    if day_in > today + dt.timedelta(days=WINDOW_HORIZON_DAYS):
+        raise ValidationError(
+            f"Choose a delivery date within the next {WINDOW_HORIZON_DAYS} days.",
+            {"date": day_in.isoformat()},
+        )
+    day = _next_serviceable_day(day_in)
     if pincode is not None and not _is_serviceable(pincode):
         return cached({"date": day.isoformat(), "windows": [], "serviceable": False,
                        "lead_capture": True}, request)

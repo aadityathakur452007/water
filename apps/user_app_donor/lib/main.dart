@@ -87,8 +87,10 @@ class _ShodashaDonorAppState extends State<ShodashaDonorApp> {
     final authed = _auth.isAuthenticated;
     if (authed == _wasAuthenticated) return;
     _wasAuthenticated = authed;
-    // Auth boundary: never let user B join a GET started by user A.
+    // Auth boundary: never let user B join a GET started by user A, and never
+    // render public bytes fetched under the previous session.
     _api.clearInflight();
+    _api.clearReadCache();
     if (authed) return;
     _booking.resetUserScoped();
     _addresses.reset();

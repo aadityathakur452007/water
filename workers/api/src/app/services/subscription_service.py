@@ -106,24 +106,43 @@ BILLING_MODES = ("per_delivery", "monthly_prepaid", "monthly_postpaid")
 PAYMENT_METHODS = ("upi", "cod")
 
 
+_BILLING_COLS = (
+    ("billing_mode", "TEXT NOT NULL DEFAULT 'per_delivery'"),
+    ("billing_status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("credit_balance_paise", "INTEGER NOT NULL DEFAULT 0"),
+    ("refund_upi", "TEXT NOT NULL DEFAULT ''"),
+)
+
+_billing_ready = False
+
+
+def reset_billing_mode_cache() -> None:  # tests only
+    global _billing_ready
+    _billing_ready = False
+
+
 async def _ensure_billing_mode(conn: Conn) -> None:
     """026/028 convergence: apply-once ALTERs for old DBs (PRAGMA + conditional).
 
     Precedent: vendor_profile ensure convergence (ADR-065) — ALTER is
     apply-once, CREATE would no-op on the real table. Keeps :memory: test DBs
     built from 004-only harnesses working without a migration run.
+
+    The probe runs once per isolate: migrations are static at runtime, so a
+    ready schema costs 0 queries on later calls.
     """
+    global _billing_ready
+    if _billing_ready:
+        return
     try:
         cols = (await conn.execute("PRAGMA table_info(subscriptions)")).fetchall()
         names = {str(dict(r).get("name", "")) for r in cols}
     except Exception:
         return
-    for name, ddl in (
-        ("billing_mode", "TEXT NOT NULL DEFAULT 'per_delivery'"),
-        ("billing_status", "TEXT NOT NULL DEFAULT 'active'"),
-        ("credit_balance_paise", "INTEGER NOT NULL DEFAULT 0"),
-        ("refund_upi", "TEXT NOT NULL DEFAULT ''"),
-    ):
+    if all(name in names for name, _ in _BILLING_COLS):
+        _billing_ready = True
+        return
+    for name, ddl in _BILLING_COLS:
         if name in names:
             continue
         try:
@@ -134,6 +153,13 @@ async def _ensure_billing_mode(conn: Conn) -> None:
                 conn.rollback()
             except Exception:
                 pass
+    # Confirm once: a swallowed ALTER error must not mark a broken schema ready.
+    try:
+        cols = (await conn.execute("PRAGMA table_info(subscriptions)")).fetchall()
+        names = {str(dict(r).get("name", "")) for r in cols}
+        _billing_ready = all(name in names for name, _ in _BILLING_COLS)
+    except Exception:
+        pass
 
 
 def _due_today(qty: object, sku_mix: object) -> int:
