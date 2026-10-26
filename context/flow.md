@@ -1577,7 +1577,7 @@ Flutter public reads (ApiClient)
   startTracking.
 ```
 
-No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
+No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Production release is cumulative: back up `shodasha`, apply Phase 1A migration `029`, deploy Phase 1A/1B/2 code, then smoke — pending a separate explicit owner gate. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
 
 ## Update Protocol (MANDATORY)
 

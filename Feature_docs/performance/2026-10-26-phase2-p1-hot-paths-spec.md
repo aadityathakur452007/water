@@ -254,7 +254,7 @@ No polling starts after the screen is gone. `dispose()` keeps its existing cance
 
 - **Staging only.** Deploy `water-staging`, run the smoke routes, verify headers and `/windows` bounds, and capture `db_queries` / `db_roundtrips` deltas from the Phase 0 logs. No writes beyond synthetic fixtures already present.
 - **No migration.** Nothing to apply; rollback is a code revert.
-- **Production** stays untouched until a separate explicit gate after staging evidence.
+- **Production** stays untouched until a separate explicit gate after staging evidence. That release is cumulative: back up D1 `shodasha`, apply Phase 1A migration `029` (production is at 028), deploy the Phase 1A/1B/2 code, then smoke. Phase 2 itself adds no migration; it cannot ship ahead of 029.
 - **Staging result (2026-10-26):** `water-staging` deployed at `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; smoke and query-count deltas pass (results §3.2). A/B/C remains blocked by the Free-plan CPU ceiling.
 - Each slice (2A/2B/2C/2D) is an independent commit; any slice can be reverted alone.
 - Flutter ships as a client build; the server changes are backward compatible.

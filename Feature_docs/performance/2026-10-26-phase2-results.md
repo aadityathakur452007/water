@@ -122,6 +122,16 @@ committed. No tokens, phones, UPI ids, or secrets were printed.
 
 ## 5. Rollout
 
-Staging is deployed and verified; no migration. Rollback is a code revert. Each
-slice is independently revertable. Production remains untouched until a
-separate explicit gate after staging verification.
+Staging is deployed and verified; Phase 2 itself adds no migration. Rollback is
+a code revert, and each slice is independently revertable.
+
+The production release is **cumulative**, because Phase 2 sits on top of the
+Phase 1A/1B code that requires schema 029:
+
+1. Take a fresh D1 `shodasha` backup.
+2. Apply Phase 1A migration `029` (production is at 028).
+3. Deploy the Phase 1A/1B/2 Worker code.
+4. Run the production smoke (read-only routes; no load test).
+
+Production remains untouched until a separate explicit owner gate authorizes
+that sequence. Staging evidence does not authorize production.

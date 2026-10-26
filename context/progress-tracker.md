@@ -380,7 +380,7 @@ Lock Shodasha scope and research scaffold so Series-2 agents can run the 6-group
 ## Next Up
 
 - **Phase 2 staging smoke (done 2026-10-26):** `water-staging` deployed at `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; private headers, `/windows` bounds, and `db_queries`/`db_roundtrips` deltas verified. No migration; production untouched. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
-- **Phase 2 production gate:** separate explicit owner approval; no migration, code-only deploy, then smoke. Production remains untouched until then.
+- **Phase 2 production gate:** separate explicit owner approval; the release is cumulative — apply Phase 1A migration 029 first, then deploy the Phase 1A/1B/2 code, then smoke. Phase 2 itself adds no migration. Production remains untouched until then.
 - **Phase 1A/1B staging (done 2026-10-26):** migration 029 applied to `shodasha-staging`, schema verified, `water-staging` deployed with cron disabled, and the synthetic atomicity smoke passed. Evidence: `Feature_docs/performance/2026-10-25-phase1-results.md` §5.1/§10.
 - **Phase 1A production gate:** separate explicit owner approval after staging verification; read-only duplicate-open-intent pre-flight, apply 029 before the code deploy, then smoke without load-testing production.
 - **Workers Paid (or an architecture change):** required before any meaningful A/B/C staging run; the Free-plan 10 ms CPU ceiling is the remaining launch blocker.

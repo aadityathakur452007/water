@@ -200,7 +200,7 @@
 ### ADR-144: Phase 2 P1 hot paths - schema cache, private admin reads, edge login, client cache (2026-10-26)
 
 - **Date**: 2026-10-26
-- **Status**: **Accepted (implemented locally and staging-verified 2026-10-26; production gate pending)**. Resolves the Phase 2 scope questions recorded in the spec. Production remains untouched.
+- **Status**: **Accepted (implemented locally and staging-verified 2026-10-26; production gate pending)**. Resolves the Phase 2 scope questions recorded in the spec. Production remains untouched. The production release is cumulative: back up `shodasha`, apply Phase 1A migration `029` (production is at 028), deploy the Phase 1A/1B/2 code, then smoke. Phase 2 adds no migration of its own.
 - **Context**: Phase 0 measured the dominant read/auth waste at A/B: order detail 7 statements + a stops `PRAGMA`, vendor route 8 statements (2 `PRAGMA`s), a subscription `PRAGMA` on every call, 3–4 full-table admin aggregates per dashboard poll, login 4 statements / 2 round trips before user lookup using the Cloudflare edge socket as the IP key, an unbounded per-isolate anon-throttle map, and a Flutter client that retried 429s and cached for only 45 s. The Free-plan 10 ms CPU ceiling still blocks a meaningful A/B/C benchmark, so this phase cuts waste rather than certifying capacity.
 - **Decision**:
   1. **Cache migration-static schema metadata per isolate** in `app/db_schema.py` (`stop_columns`, `order_columns`). Cache only on a successful probe; a failed probe returns an empty set and retries. Never cache request or user data.
