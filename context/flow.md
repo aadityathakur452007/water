@@ -1529,7 +1529,8 @@ GET /v1/orders/{id}  (OrderService.detail)
   └─ assigned/dispatched only: ONE join
        stops s JOIN routes r JOIN users u LEFT JOIN vendor_profile p
        + COUNT(*) subquery for stops_ahead            → rider + stops_ahead
-  Worst case 4 statements / 4 round trips (was 8).
+  Worst case 4 statements / 4 round trips (was 8). Endpoint adds the 1 auth
+  statement: staging 5 warm / 6 cold.
 
 Schema cache (app/db_schema.py)
   stop_columns(conn) / order_columns(conn)
@@ -1543,7 +1544,8 @@ Schema cache (app/db_schema.py)
 
 GET /v1/admin/metrics, /v1/admin/metrics/overview
   ├─ key "metrics" or "overview:<days>" (days 1-90)
-  ├─ hit within 60 s → return the cached dict (0 statements)
+  ├─ hit within 60 s → return the cached dict (0 aggregate statements; the
+  │   endpoint still runs the 1 auth statement — staging 1/1/2 rows)
   └─ miss → build aggregates, prune expired keys, store
   Response: Cache-Control: private, no-store (no ETag/CDN header).
 
@@ -1575,7 +1577,7 @@ Flutter public reads (ApiClient)
   startTracking.
 ```
 
-No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md`.
+No migration, no money-path change, no `batch()` for authed reads. Order detail keeps its response shape. Admin metrics may be up to 60 s stale; no money decision reads them. Staging verification (2026-10-26): `water-staging` `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`; detail 5 warm / 6 cold, route 5 warm / 7 cold, metrics 5 first / 1 per cache hit; `/windows` far 400 `VALIDATION`; admin reads `private, no-store`; A/B/C still blocked by the Free-plan CPU ceiling. Evidence: `Feature_docs/performance/2026-10-26-phase2-results.md` §3.2.
 
 ## Update Protocol (MANDATORY)
 

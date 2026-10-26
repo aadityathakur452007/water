@@ -1,7 +1,8 @@
 # Phase 2 results — P1 hot paths
 
 **Date:** 2026-10-26  
-**Status:** Implemented and verified locally. Backend **459 passed**, Flutter **75 passed**, both analyzers clean. No migration, no money-path change, no staging deploy yet; production untouched.  
+**Status:** Implemented and verified locally; **staging verified on 2026-10-26** (Worker `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`, no migration, cron off). Backend **459 passed**, Flutter **75 passed**, both analyzers clean. Production untouched and still gated.
+
 **Spec:** `2026-10-26-phase2-p1-hot-paths-spec.md`  
 **Audit:** `2026-10-25-1000-user-capacity-audit.md`  
 **Prior evidence:** `2026-10-25-phase0-results.md`, `2026-10-25-phase1-results.md`
@@ -13,8 +14,8 @@ paths. Steady-state costs:
 
 | Path | Before | After | Proof |
 |---|---|---|---|
-| Order detail (assigned/dispatched) | 7 statements + 1 stops `PRAGMA` = 8 | 4 statements, 0 `PRAGMA` | `test_order_detail_statements_flat_with_event_count` |
-| Vendor route | 6 statements + 2 `PRAGMA`s = 8 | 6 statements, 0 `PRAGMA` steady state | `test_today_route_query_count_independent_of_stop_count` |
+| Order detail (assigned/dispatched) | 7 statements + 1 stops `PRAGMA` = 8 | 4 statements (service) / 5 endpoint incl. auth, 0 `PRAGMA` | `test_order_detail_statements_flat_with_event_count` |
+| Vendor route | 6 statements + 2 `PRAGMA`s = 8 | 4 statements (service) / 5 endpoint incl. auth, 0 `PRAGMA` steady state | `test_today_route_query_count_independent_of_stop_count` |
 | Vendor PoD / sync item | 1–3 `PRAGMA`s per stop | 0 after the first probe | `_pod_lifecycle` / `pod_complete` use `stop_columns` |
 | Subscription read/write | 1 `PRAGMA` per call | 0 after the first call | `test_billing_mode_probe_once_per_isolate` |
 | Login pre-lookup | 4 statements / 2 round trips | 2 statements / 1 round trip | `test_login_checks_are_one_batch` |
@@ -62,6 +63,50 @@ or state matrix was touched.
 - The `duration.zero` Flutter tests prove the stale path without sleeping for a
   real TTL; request counts prove no hidden retry.
 
+### 3.2 Staging verification (2026-10-26)
+
+`water-staging` was deployed at version `70e86bc9-4caf-4bdd-ae2a-ffacf6830895`
+(100% traffic, 2026-10-26 06:17 UTC). No migration was applied — `wrangler d1
+migrations list` reports "No migrations to apply!" — cron stays off, and
+production was not touched.
+
+The smoke used a curl-compatible User-Agent: Cloudflare's bot rules return 403
+for the default Python-urllib UA, and the Free-plan isolate returns
+intermittent 503/1102 on cold start, so each GET retried transient
+503/transport failures.
+
+| Check | Result |
+|---|---|
+| `GET /health` | 200 `{"status":"ok"}`, `Cache-Control: no-store` |
+| `GET /v1/catalog` | 200 `public, max-age=300`, ETag + CDN-Cache-Control present |
+| `GET /v1/windows?date=today` | 200 |
+| `GET /v1/windows?date=today-5` | 200, `date` clamped to today |
+| `GET /v1/windows?date=today+30` | 200, `date` = 2026-11-25 |
+| `GET /v1/windows?date=today+31` | 400 `VALIDATION` |
+| `GET /v1/admin/config`, `/admin/zones`, `/admin/metrics`, `/admin/metrics/overview` | 200 `Cache-Control: private, no-store`, no ETag/CDN header |
+| `GET /v1/orders?limit=50` + `GET /v1/orders/{id}` | 200, 10 orders, detail shape intact |
+| `GET /v1/vendor/routes/today?date=2026-10-25` | 200, 41 stops |
+
+`wrangler tail --env staging --format json` was used with trace ids that the
+10% sampler always logs. Counts are endpoint-level and include the one auth
+statement; the service-level counts in §1 exclude it.
+
+| Path | First request on a cold isolate | Warm steady state |
+|---|---|---|
+| Order detail (dispatched `load-order-001082`) | 6 statements / 6 round trips / 61 rows | **5 / 5 / 44 rows** (4 service + auth; the extra cold statement is the cached `stop_columns` probe) |
+| Vendor route (41 stops) | 7 / 7 / 3,298 rows | **5 / 5 / 3,257 rows** (4 service + auth; cold adds the two cached schema probes) |
+| `GET /admin/metrics` | 5 / 5 / 13,050 rows | **1 / 1 / 2 rows** on 11 observed cache hits (auth only; 0 aggregate queries), 157-172 ms |
+
+The metrics hits prove the 60 s cache works per isolate. No cross-isolate hit
+is expected or claimed; a different isolate pays the first aggregate pass
+again.
+
+These are correctness and query-count checks, not a capacity certification.
+The Free-plan 10 ms CPU ceiling still causes cold starts and intermittent
+503/1102, so the A/B/C benchmark remains blocked. Raw tail dumps contain
+request headers and IPs; they were parsed outside the repo and are not
+committed. No tokens, phones, UPI ids, or secrets were printed.
+
 ## 4. Deferred
 
 - **Vendor sync chunked batching (P2-12).** D1 `batch()` is all-or-nothing, so
@@ -71,11 +116,12 @@ or state matrix was touched.
 - **Admin rollup table.** A 60 s cache is enough for a dashboard; a rollup needs
   a migration, cron writes, and a backfill.
 - **`batch()` for authed reads.** The Phase 1B decision stands.
-- **Staging deploy and A/B/C measurement.** The Free-plan 10 ms CPU ceiling still
-  blocks a meaningful benchmark; this phase is code-ready for Phase 3.
+- **A/B/C measurement.** Staging is deployed and the smoke/query counts are
+  captured, but the Free-plan 10 ms CPU ceiling still blocks a meaningful
+  benchmark; this phase is code-ready for Phase 3.
 
 ## 5. Rollout
 
-No migration. Rollback is a code revert. Each slice is independently revertable.
-Production remains untouched until a separate explicit gate after staging
-verification.
+Staging is deployed and verified; no migration. Rollback is a code revert. Each
+slice is independently revertable. Production remains untouched until a
+separate explicit gate after staging verification.
