@@ -1679,6 +1679,39 @@ The donor calls `POST /v1/orders/{id}/switch-to-cod` (ADR-138); production `5118
 predates that endpoint, so the UPI-failure→COD fallback returns 404 until the backend is
 deployed. Merging locally does not trigger the workflow; only a push to `main` does.
 
+## v1.0.65 — three-APK release published (2026-10-26, ADR-150)
+
+`main` was pushed `a836fe8..9ba3a75`, which triggered `release.yml` run **40321611850**.
+The pipeline computed the next tag once, built all three apps, and published one release:
+
+```
+push main (9ba3a75)
+  |
+  +-- compute next tag (once) -> v1.0.65
+  |
+  +-- build user   (prod defines, all ABIs) -> shodasha-user-v1.0.65.apk   58,552,926 B
+  +-- build vendor (prod defines, all ABIs) -> shodasha-vendor-v1.0.65.apk 53,915,149 B
+  +-- build donor  (prod defines, arm+arm64, <=40,000,000 B)
+  |                                         -> shodasha-donor-v1.0.65.apk  38,454,185 B
+  |
+  +-- stage SHA256SUMS.txt (279 B)
+  |
+  +-- publish GitHub Release v1.0.65 (non-draft, non-prerelease)
+        assets: user + vendor + donor + SHA256SUMS.txt
+```
+
+Verified after download: all three hashes match `SHA256SUMS.txt`; aapt2 reports
+`com.shodasha.shodasha_app`, `com.shodasha.vendor_app`, `com.shodasha.shodasha_donor`,
+versionCode **73**, versionName **1.0.65**; the production Worker URL is present and
+`localhost:8787` is absent in every `libapp.so`; the donor engine is arm/arm64 only.
+All three are debug-signed with the CI runner's ephemeral certs (user `843dc592…`,
+vendor `5655e917…`, donor `a42dbfb9…`), so they are not production-signed.
+
+No backend deploy happened: production stays `511879dc`, and the donor
+`switch-to-cod` fallback remains a 404 until a separate deploy is approved. The
+release-notes/docs commit uses `[skip ci]`, because any `main` push without it would
+mint v1.0.66 and publish a second release.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
