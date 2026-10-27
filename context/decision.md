@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-151 | 2026-10-27 | Donor wiring verified — **no backend deploy**. The Worker is a shared JSON API with no root route, redirect, or per-app env var; the donor APK already embeds `https://water.adityathakur452007.workers.dev/v1` via `release.yml` (verified in `libapp.so`, `localhost:8787` absent); live `/health`, `/v1/catalog`, `/v1/windows` all 200; live Worker stays `511879dc`, donor `switch-to-cod` still 404s; old user app remains the side-by-side fallback | Accepted (verification only 2026-10-27) | `context/{progress-tracker,flow,decision}.md`; no code/config/deploy/production change |
 | ADR-150 | 2026-10-26 | Push `main` and publish **v1.0.65** through `release.yml` — three side-by-side APKs (user 58,552,926 / vendor 53,915,149 / donor 38,454,185 bytes) + `SHA256SUMS.txt`; run **40321611850** succeeded; versionCode **73**, packages unchanged; all three debug-signed with the CI runner's ephemeral cert; **no backend deploy** (production stays `511879dc`, donor `switch-to-cod` still 404s); docs commit uses `[skip ci]` to avoid a second release | Accepted (pushed and released 2026-10-26) | `.github/workflows/release.yml`, GitHub Release v1.0.65, `apps/{user_app,vendor_app,user_app_donor}`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-149 | 2026-10-26 | Merge `035-premium-ui-states-release` into `main` (Option A) — donor stays a third side-by-side APK alongside the old customer app; pre-merge gates re-run (backend **487 passed / 1 skipped**, ruff no new findings, Flutter **222 / 70 / 75**, release APKs user 58,553,026 / vendor 53,899,225 / donor 38,437,881 bytes ≤40 MB), `--no-ff` merge, **no conflicts**; production untouched at `511879dc`; donor `switch-to-cod` fallback needs a backend deploy; all APKs debug-signed | Accepted (merged locally 2026-10-26; push/release completed in ADR-150) | `.github/workflows/{ci,release}.yml`, `apps/user_app_donor`, `workers/api/tests/test_p0_money.py`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-148 | 2026-10-26 | Free-only — owner rejected Workers Paid; **Phase 3P skipped, not deferred**; 1,000-user A/B certification out of scope on Free; login probe aborted at 20 requests (3×200, 7×409 shared-device-cap bug, 3×503 `exceededCpu` at the 10 ms ceiling, 7×500 `ErrnoError`, p99 3,381.81 ms); harness fixed to per-credential device IDs; staging restored to `OBS_LOG_SAMPLE_RATE=0.1` at `6242eebe` with `crons: []`; 90 synthetic staging users remain without credentials; no A/B/write/cron/soak, no paid upgrade | Accepted (2026-10-26; Free-only) | Feature_docs/performance/{2026-10-26-phase3-ab-validation-spec.md,phase3-runbook.md,results/phase3p-skipped-2026-10-26.md}, workers/api/{scripts/{prep_phase3_logins.py,bench_phase0.py},tests/{test_prep_phase3_logins.py,test_bench_guard.py}}, context/{progress-tracker,flow,decision}.md |
@@ -202,6 +203,27 @@
 ---
 
 ## Decision Entries
+
+### ADR-151: Donor wiring verified — no backend deploy (2026-10-27)
+
+- **Date**: 2026-10-27
+- **Status**: **Accepted — verification only.** No code, config, deploy, or production write.
+- **Context**: After v1.0.65, the owner asked whether the Cloudflare Worker is "properly showcasing to the donor application, not the previous user app," and whether the environment variable is set for the donor. The Worker is a shared JSON API for all three APKs; it has no root route, redirect, or per-app setting. The donor's API base is a compile-time `--dart-define`, not a server-side variable.
+- **Options considered**:
+  1. **Verify only.** Chosen: confirm the donor APK embeds the production Worker URL and the live API is reachable; change nothing.
+  2. **Deploy the merged backend.** Rejected for now: it would make `switch-to-cod` and the Phase 1/2 fixes live, but it is a production change that was not approved and carries the known Free CPU risk.
+  3. **Add a Worker root redirect/download page.** Rejected: it would not change which API the app uses, and it is a new feature requiring a spec.
+  4. **Make donor the primary download.** Rejected as out of scope for this verification; it is a release/docs decision, not a backend change.
+- **Decision**: Do not deploy. The donor APK already targets the production Worker; keep the old user app as the side-by-side fallback; leave the live Worker at `511879dc`.
+- **Evidence**:
+  - `release.yml` donor leg: `--dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1`.
+  - Published `shodasha-donor-v1.0.65.apk` (`com.shodasha.shodasha_donor`): production URL present in `libapp.so`; `localhost:8787` absent.
+  - Live read-only GETs: `/health` **200** (15 B), `/v1/catalog` **200** (170 B), `/v1/windows` **200** (1,324 B).
+  - `wrangler` is not installed locally, so the deployment list was not queried; the live version remains `511879dc` because no deploy was run (ADR-147/148).
+  - Worker config has no per-app var: `APP_ENV=prod` and `FIREBASE_PROJECT_ID` are shared; there is no root route or redirect.
+- **Why**: The backend cannot "switch" apps — the app chooses the backend at build time. The donor already points at production, so no server change is needed for it to use the API. Deploying is a separate production decision with an unapproved write and a known Free CPU constraint.
+- **Consequences**: Donor login/catalog/orders work on the existing endpoints; `switch-to-cod` still returns 404 until a backend deploy. The old app remains installable side by side. Any future deploy needs explicit approval and a post-deploy verification plan.
+- **Affects**: `context/{progress-tracker,flow,decision}.md`; no code or production change.
 
 ### ADR-150: Push main and publish v1.0.65 — three side-by-side APKs (2026-10-26)
 

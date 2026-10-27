@@ -1712,6 +1712,13 @@ No backend deploy happened: production stays `511879dc`, and the donor
 release-notes/docs commit uses `[skip ci]`, because any `main` push without it would
 mint v1.0.66 and publish a second release.
 
+**Wiring verification (2026-10-27, ADR-151):** the donor APK embeds
+`https://water.adityathakur452007.workers.dev/v1` (production URL present,
+`localhost:8787` absent); live `/health`, `/v1/catalog`, and `/v1/windows` return 200.
+The Worker is app-agnostic — no root route, no redirect, no per-app env var — so there
+is nothing server-side to "switch" from the old app to the donor. No backend deploy;
+the live Worker remains `511879dc`.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
