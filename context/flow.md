@@ -1675,9 +1675,10 @@ Measured limits: Free CPU is 10 ms/request and per cron; the login path needs ~1
 branch/PR. A push to `main` runs `release.yml`, which builds three release APKs under one
 tag — user (all ABIs), vendor (all ABIs), donor (arm + arm64 with a 40,000,000-byte gate) —
 and publishes `shodasha-user`, `shodasha-vendor`, `shodasha-donor`, and `SHA256SUMS.txt`.
-The donor calls `POST /v1/orders/{id}/switch-to-cod` (ADR-138); production `511879dc`
-predates that endpoint, so the UPI-failure→COD fallback returns 404 until the backend is
-deployed. Merging locally does not trigger the workflow; only a push to `main` does.
+The donor calls `POST /v1/orders/{id}/switch-to-cod` (ADR-138). The backend is now live
+at `c93ec134` (ADR-152), so the UPI-failure→COD route exists; `GET` on it returns 405,
+as expected for a POST-only route. Merging locally does not trigger the release workflow;
+only a push to `main` does.
 
 ## v1.0.65 — three-APK release published (2026-10-26, ADR-150)
 
@@ -1707,17 +1708,47 @@ versionCode **73**, versionName **1.0.65**; the production Worker URL is present
 All three are debug-signed with the CI runner's ephemeral certs (user `843dc592…`,
 vendor `5655e917…`, donor `a42dbfb9…`), so they are not production-signed.
 
-No backend deploy happened: production stays `511879dc`, and the donor
-`switch-to-cod` fallback remains a 404 until a separate deploy is approved. The
-release-notes/docs commit uses `[skip ci]`, because any `main` push without it would
-mint v1.0.66 and publish a second release.
+The release workflow itself does not deploy the backend. An out-of-band deploy went live
+at 2026-10-26T12:19:48Z as `4fd380e2`; the agent then deployed `c93ec134` on 2026-10-27
+(ADR-152). The donor `switch-to-cod` route is live. The release-notes/docs commit uses
+`[skip ci]`, because any `main` push without it would mint v1.0.66 and publish a second
+release.
 
 **Wiring verification (2026-10-27, ADR-151):** the donor APK embeds
 `https://water.adityathakur452007.workers.dev/v1` (production URL present,
 `localhost:8787` absent); live `/health`, `/v1/catalog`, and `/v1/windows` return 200.
 The Worker is app-agnostic — no root route, no redirect, no per-app env var — so there
-is nothing server-side to "switch" from the old app to the donor. No backend deploy;
-the live Worker remains `511879dc`.
+is nothing server-side to "switch" from the old app to the donor. The live Worker is
+`c93ec134` (ADR-152); the donor already points at it.
+
+## Backend deploy — c93ec134 (2026-10-27, ADR-152)
+
+The production Worker was deployed from `main` (`d586bd5`; backend tree identical to
+`9ba3a75`) after a D1 export backup (97,960 bytes, SHA256 `C9E281D1…D06A2`).
+
+```
+main (d586bd5)
+  |
+  +-- uv run pywrangler deploy
+  |     tag: donor-backend-20261027
+  |     message: donor backend parity: merged 035 code (ADR-152)
+  |
+  +-- version c93ec134-18ef-41f3-a8cb-0183eb283398 (100%)
+  |     handlers: fetch + scheduled
+  |     cron: */15 * * * *
+  |     D1: shodasha
+  |     secrets: AGENCY_UPI_VPA, UPI_KEY_ID, UPI_KEY_SECRET, UPI_WEBHOOK_SECRET
+  |
+  +-- live checks after warm-up
+        GET /health                       -> 200 {"status":"ok"}
+        GET /v1/catalog                   -> 200, public max-age=300 + ETag
+        GET /v1/windows?date=2027-12-31   -> 400 VALIDATION (30-day horizon)
+        GET /v1/orders/{id}/switch-to-cod -> 405 (POST-only route exists)
+```
+
+No migration was applied; migration 029 was already live. The first post-deploy requests
+hit transient Free-tier 503/500 (cold start), then all checks passed. Production is no
+longer on `511879dc`; the earlier out-of-band version was `4fd380e2`.
 
 ## Update Protocol (MANDATORY)
 
