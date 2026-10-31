@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-165 | 2026-10-31 | Slice 9 implemented: P3 Subtle Elevation Shadows & Telemetry Shimmer — defined unified subtleCardShadow token (2dp soft shadow) across donor and vendor themes; upgraded AppCard and vendor route stop cards with normalized elevation; added gentle telemetry entrance pulse on LivePurityCard with reduced-motion support; 80/80 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/theme.dart,shared/ui/app_card.dart,features/home/widgets/live_purity_card.dart}, apps/vendor_app/lib/{core/theme.dart,features/route/route_screen.dart}, context/{progress-tracker,flow,decision}.md |
 | ADR-164 | 2026-10-31 | Slice 8 implemented: Vendor App Single-Locale Toggle & String Unslop — eliminated slash-separated strings across vendor screens; created VendorLocaleController with SharedPreferences persistence and reactive language toggle in ProfileScreen (DEF-11, Option A); 74/74 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/vendor_locale.dart,main.dart,features/{customers,duty,earnings,inventory,profile,shell,stops,support,sync}/*}, apps/vendor_app/test/{vendor_locale_test,vendor_shell_test,wave1_ux_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-163 | 2026-10-31 | Slice 7 implemented: Cross-App Error Resilience & Tracking Navigation — Tracking route pop & stopTracking() on cancel (DEF-06); typed ratesOffline getter on BookingController & typed SyncResultTone on SyncController replacing fragile substring inspection (DEF-18); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{booking/booking_controller,home/customer_home_screen,orders/{my_orders_screen,tracking_screen}}.dart, apps/vendor_app/lib/features/sync/{sync_controller,sync_screen}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-162 | 2026-10-31 | Slice 6 implemented: Donor App Polish, Touch Targets & Telephone Sync — StatusPill 8dp radius standardization (DEF-19); AppConstants.kSupportPhone single-source unification (DEF-20); 48dp minimum touch targets on plan builder steppers & chips; HapticFeedback on steppers and primary buttons; 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart, context/{progress-tracker,flow,decision}.md |
@@ -216,6 +217,21 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-165: Slice 9 Implemented — P3 Subtle Elevation Shadows & Telemetry Shimmer (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of Section 3 P3 craft polish items from `Feature_docs/ux-unslop-audit/22-backlog.md` covering card elevation inconsistency and static telemetry presentation.
+- **Decisions**:
+  1. **Unified Elevation Token (`subtleCardShadow`)**: Defined `static const List<BoxShadow> subtleCardShadow = [BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2))];` in both `apps/user_app_donor/lib/core/theme.dart` and `apps/vendor_app/lib/core/theme.dart`. This provides a subtle 4% alpha diffused drop shadow that eliminates flat/harsh boundaries while remaining soft and modern.
+  2. **Cross-App Card Elevation**:
+     - Upgraded `AppCard` (`apps/user_app_donor/lib/shared/ui/app_card.dart`) with `Container(decoration: BoxDecoration(boxShadow: elevation ? ShodashaTheme.subtleCardShadow : null))` wrapping `Material`, projecting consistent elevation across donor order cards and home cards.
+     - Upgraded vendor route stop cards (`apps/vendor_app/lib/features/route/route_screen.dart:515`) with `subtleCardShadow` and wrapped `ListTile` in `Material(color: ShodashaTheme.bg)` to preserve ink splash visibility and eliminate Flutter framework `DecoratedBox` assertions.
+  3. **Telemetry Entrance Shimmer Pulse**: Converted `LivePurityCard` (`apps/user_app_donor/lib/features/home/widgets/live_purity_card.dart`) to a `StatefulWidget` with a gentle 1200ms `Tween<double>(begin: 0.65, end: 1.0)` entrance pulse on the lab-tested verification badge. Guarded by `MediaQuery.maybeDisableAnimationsOf(context)` for strict OS accessibility compliance; designed with a finite single-cycle pulse on mount to avoid infinite test loop timeouts.
+- **Consequences**: Consistent, agency-grade physical depth across donor and vendor cards; responsive, breathing verified-purity visual feedback; 80/80 donor tests + 74/74 vendor tests passing; 487 passed / 1 skipped backend pytest.
+- **Affects**: `apps/user_app_donor/lib/{core/theme.dart,shared/ui/app_card.dart,features/home/widgets/live_purity_card.dart}`, `apps/vendor_app/lib/{core/theme.dart,features/route/route_screen.dart}`, `context/{progress-tracker,flow,decision}.md`.
 
 
 ### ADR-164: Slice 8 Implemented — Vendor App Single-Locale Toggle & String Unslop (2026-10-31)

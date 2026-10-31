@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 
-/// Flat card: 16 radius, 1px border, zero elevation, 16dp padding.
+/// Elevated/Flat card: 16 radius, 1px border, 2dp subtle drop shadow, 16dp padding.
 class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
@@ -11,6 +11,7 @@ class AppCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(AppSpacing.lg),
     this.color = ShodashaTheme.surface,
     this.borderColor = ShodashaTheme.border,
+    this.elevation = true,
   });
 
   final Widget child;
@@ -18,6 +19,7 @@ class AppCard extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final Color color;
   final Color borderColor;
+  final bool elevation;
 
   @override
   Widget build(BuildContext context) {
@@ -27,15 +29,21 @@ class AppCard extends StatelessWidget {
     return Semantics(
       container: true,
       button: onTap != null,
-      child: Material(
-        color: color,
-        elevation: 0,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
+      child: Container(
+        decoration: BoxDecoration(
           borderRadius: radius,
-          side: BorderSide(color: borderColor),
+          boxShadow: elevation ? ShodashaTheme.subtleCardShadow : null,
         ),
-        child: onTap == null ? content : InkWell(onTap: onTap, child: content),
+        child: Material(
+          color: color,
+          elevation: 0,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: radius,
+            side: BorderSide(color: borderColor),
+          ),
+          child: onTap == null ? content : InkWell(onTap: onTap, child: content),
+        ),
       ),
     );
   }

@@ -514,10 +514,17 @@ class _RouteScreenState extends State<RouteScreen> {
       // lead, name + facts, status/nav trailing. Hairline border, no shadow.
       child: Container(
         decoration: BoxDecoration(
-          border: Border.all(color: ShodashaTheme.border),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          boxShadow: ShodashaTheme.subtleCardShadow,
         ),
-        child: ListTile(
+        child: Material(
+          color: ShodashaTheme.bg,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(color: ShodashaTheme.border),
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          ),
+          child: ListTile(
           minTileHeight: ShodashaTheme.minTarget,
           onTap: greyed ? null : () => widget.onOpenStop(s),
           leading: CircleAvatar(
@@ -603,6 +610,7 @@ class _RouteScreenState extends State<RouteScreen> {
                 ),
             ],
           ),
+        ),
         ),
       ),
     );
