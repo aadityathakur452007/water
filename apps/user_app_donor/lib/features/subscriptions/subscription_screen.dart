@@ -1061,7 +1061,7 @@ class _StatusPill extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 10.5,
+            fontSize: 12,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.3,
             color: fg,

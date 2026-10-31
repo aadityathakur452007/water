@@ -2,6 +2,7 @@
 // Motion: opacity/transform only, press scale 0.97, 150ms.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 
@@ -74,7 +75,10 @@ class QtyStepper extends StatelessWidget {
 
   void _step(int delta) {
     final next = (value + delta).clamp(min, max);
-    if (next != value) onChanged(next);
+    if (next != value) {
+      HapticFeedback.lightImpact();
+      onChanged(next);
+    }
   }
 
   @override

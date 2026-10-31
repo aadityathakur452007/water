@@ -14,6 +14,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'constants/app_constants.dart';
+
 /// One place for the base URL (contract base; override at build time).
 const String kApiBaseUrl = String.fromEnvironment(
   'SHODASHA_API_BASE',
@@ -21,7 +23,7 @@ const String kApiBaseUrl = String.fromEnvironment(
 );
 
 /// Support number for never-dead-end paths (screens show it on 4xx walls).
-const String kSupportPhone = '+91 93021 90067';
+const String kSupportPhone = AppConstants.kSupportPhone;
 
 /// Thrown for every non-2xx / network failure.
 class ApiException implements Exception {

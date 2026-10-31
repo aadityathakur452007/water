@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_banner.dart';
@@ -122,7 +123,7 @@ class _SupportScreenState extends State<SupportScreen> {
   Future<void> _openWhatsApp() async {
     // Single source: digits derive from kSupportPhone (ADR-118). Launch is
     // primary; clipboard stays a best-effort fallback, never the main path.
-    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final digits = AppConstants.kSupportPhone.replaceAll(RegExp(r'\D'), '');
     final text =
         widget.orderContext ??
         'Hi Shodasha support, I need help with my order.';
@@ -139,7 +140,7 @@ class _SupportScreenState extends State<SupportScreen> {
     if (ok || !mounted) return;
     unawaited(
       Clipboard.setData(
-        ClipboardData(text: kSupportPhone),
+        ClipboardData(text: AppConstants.kSupportPhone),
       ).then<void>((_) {}, onError: (_) {}),
     );
     ScaffoldMessenger.of(context).showSnackBar(
@@ -152,7 +153,7 @@ class _SupportScreenState extends State<SupportScreen> {
     bool ok = false;
     try {
       ok = await open(
-        Uri(scheme: 'tel', path: kSupportPhone),
+        Uri(scheme: 'tel', path: AppConstants.kSupportPhone),
         mode: LaunchMode.externalApplication,
       );
     } catch (_) {
@@ -161,7 +162,7 @@ class _SupportScreenState extends State<SupportScreen> {
     if (ok || !mounted) return;
     unawaited(
       Clipboard.setData(
-        ClipboardData(text: kSupportPhone),
+        ClipboardData(text: AppConstants.kSupportPhone),
       ).then<void>((_) {}, onError: (_) {}),
     );
     ScaffoldMessenger.of(context).showSnackBar(
@@ -228,7 +229,7 @@ class _SupportScreenState extends State<SupportScreen> {
           ),
           children: [
             _HelplineCard(
-              phone: kSupportPhone,
+              phone: AppConstants.kSupportPhone,
               onWhatsApp: _openWhatsApp,
               onCall: _openCall,
             ),

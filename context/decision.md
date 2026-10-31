@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-162 | 2026-10-31 | Slice 6 implemented: Donor App Polish, Touch Targets & Telephone Sync — StatusPill 8dp radius standardization (DEF-19); AppConstants.kSupportPhone single-source unification (DEF-20); 48dp minimum touch targets on plan builder steppers & chips; HapticFeedback on steppers and primary buttons; 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-161 | 2026-10-31 | Slice 5 implemented: Cross-Cutting Reliability, Addresses & Hygiene — Bhopal map default (DEF-08); plan builder zero-schedule guard (DEF-10); wallet zero-flash guard (DEF-09); engineering leak scrubbing in copy and notifications (DEF-12); centralized date_utils (DEF-15); authStrings/ordersStrings dictionary rename (DEF-16); a11y semantics for avatar, purity, and tracking (DEF-17); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/utils/date_utils.dart,features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}}, context/{progress-tracker,flow,decision}.md |
 | ADR-160 | 2026-10-31 | Slice 4 implemented: Vendor Shell, Duty Gate & Navigation Hub — replaced drawer with dedicated MoreHubScreen (DEF-05); replaced blocking off-duty lockout with soft sticky banner & locked route state allowing off-duty access to Earnings and More (DEF-07); 71/71 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/theme.dart,features/shell/*,features/route/route_screen.dart,features/earnings/earnings_screen.dart,shared/ui/app_button.dart}, apps/vendor_app/test/vendor_shell_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-159 | 2026-10-31 | Slice 3 implemented: Donor Core Home & Checkout Machine - retired search modal cul-de-sac (_SearchSheet, DEF-13); added 1-tap QuickReorderCard on home scroll using OrdersController.reorderCandidate (DEF-03); 80/80 donor + 70/70 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{home,orders,shell}, apps/user_app_donor/test/quick_reorder_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -213,6 +214,21 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-162: Slice 6 Implemented — Donor App Polish, Touch Targets & Telephone Sync (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Final craft polish pass, defect remediation (DEF-19, DEF-20), and P3 micro-polish across `apps/user_app_donor`.
+- **Decisions**:
+  1. **DEF-19 (StatusPill Token & Typography Consistency)**: Standardized `StatusPill` border radius from stadium (999) to `ShodashaTheme.radiusSm` (8dp token) in `apps/user_app_donor/lib/shared/ui/status_pill.dart`. Standardized inline status pill typography in `subscription_screen.dart:1064` from off-scale 10.5px to canonical 12px token.
+  2. **DEF-20 (Support Phone Constant Unification)**: Added `AppConstants.kSupportPhone = '+91 93021 90067'` in `apps/user_app_donor/lib/core/constants/app_constants.dart`. Aliased `kSupportPhone = AppConstants.kSupportPhone` in `api_client.dart` for backward compatibility. Updated `support_screen.dart` to use `AppConstants.kSupportPhone` strictly across WhatsApp intents, telephone dialer, and clipboard fallbacks.
+  3. **P3 Touch Targets & Steppers**: Constrained stepper `IconButton`s (`removeJar` / `addJar`) in `plan_builder_sheet.dart` to 48dp minimum bounding boxes (`ShodashaTheme.minTarget`). Wrapped `_choiceChip` in `ConstrainedBox(constraints: const BoxConstraints(minHeight: ShodashaTheme.minTarget))` with `materialTapTargetSize: MaterialTapTargetSize.padded`.
+  4. **P3 Haptic Feedback**: Added subtle `HapticFeedback.lightImpact()` to `QtyStepper` in `stepper.dart`, `PlanBuilderSheet._setQty` in `plan_builder_sheet.dart`, and interactive primary action buttons (`AppButtonKind.primary`, `money`, `danger`) in `app_button.dart`.
+  5. **Financial Invariant Check**: Maintained strict server-authoritative financial invariant (zero client-side money math).
+- **Consequences**: Consistent tokenized pill radius and typography, robust touch accessibility (48dp), tactile feedback on quantity changes and CTA presses, and unified phone launcher single-source.
+- **Affects**: `apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart`, `context/{progress-tracker,flow,decision}.md`.
 
 
 ### ADR-161: Slice 5 Implemented — Cross-Cutting Reliability, Addresses & Hygiene (2026-10-31)

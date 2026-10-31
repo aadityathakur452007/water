@@ -38,6 +38,7 @@ class AppColors {
 
 class AppConstants {
   static const String appName = 'SHODASHA';
+  static const String kSupportPhone = '+91 93021 90067';
   static const double smallPadding = AppSpacing.sm;
   static const double defaultPadding = AppSpacing.lg;
   static const double largePadding = AppSpacing.xl;
