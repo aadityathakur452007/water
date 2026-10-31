@@ -23,11 +23,11 @@ import '../../core/api_client.dart';
 // pass can supply the same map without touching the screens.
 const Map<String, String> authStrings = {
   'appName': 'Shodasha',
-  'appTagline': 'Shodasha Mineral Water • RO+UV, lab-tested',
+  'appTagline': 'Pure 20L water delivered to your doorstep',
   'signInTitle': 'Welcome back',
-  'signInSubtitle': 'Sign in with your mobile number and password.',
+  'signInSubtitle': 'Sign in with your mobile number and password',
   'createTitle': 'Create your account',
-  'createSubtitle': 'One account for every delivery.',
+  'createSubtitle': 'One account for every delivery',
   'nameLabel': 'Name',
   'nameHint': 'Your name',
   'nameError': 'Enter a valid name (1–100 characters)',
@@ -48,23 +48,17 @@ const Map<String, String> authStrings = {
   'confirmError': 'Passwords do not match.',
   'signInGo': 'Sign in',
   'createGo': 'Create account',
-  'signingIn': 'Signing in…',
-  'creating': 'Creating your account…',
   'forgotPassword': 'Forgot password? Contact support',
   'newHere': 'New here? Create account',
   'alreadyHere': 'Already have an account? Sign in',
-  'terms':
-      'By creating an account, you agree to Shodasha Terms & Privacy Policy.',
   'staffNumber': 'This number belongs to a staff account — contact support',
   'invalidCredentials': 'Mobile number or password is incorrect.',
   'accountExists': 'This number already has an account. Sign in.',
   'rateLimited': 'Too many attempts — wait a moment and try again',
-  'rateLimitedWait': 'Too many attempts. Try again in',
   'serverError': 'Server problem — retry in a moment',
   'networkError': 'No internet — check your connection and try again',
   'validationError': 'Check your details and try again.',
-  'sessionExpired': 'Your session expired. Sign in again.',
-  'newDevice': 'New device detected — your old session stays safe',
+  'sessionExpired': 'Please sign in to continue',
   'notUser': 'This account is not for the customer app',
 };
 
@@ -141,18 +135,12 @@ class AuthSession {
     required this.refreshToken,
     required this.expiresAt,
     required this.role,
-    this.newDeviceAlert = false,
-    this.verified = false,
   });
 
   final String accessToken;
   final String refreshToken;
   final DateTime expiresAt;
   final String role;
-  final bool newDeviceAlert;
-
-  /// Doorstep-verification flag (server: always false until first PoD).
-  final bool verified;
 
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }
@@ -271,7 +259,6 @@ class AuthController extends ChangeNotifier {
   String? _lastErrorCode;
   String? _sessionNotice;
   int _errorSeq = 0;
-  bool _newDeviceAlert = false;
   AuthSession? _session;
   int _restoreGeneration = 0;
   bool _disposed = false;
@@ -291,7 +278,6 @@ class AuthController extends ChangeNotifier {
 
   /// Bumps on every new error so screens can react to fresh failures.
   int get errorSeq => _errorSeq;
-  bool get newDeviceAlert => _newDeviceAlert;
 
   AuthSession? get session => _session;
   bool get isAuthenticated =>
@@ -308,12 +294,6 @@ class AuthController extends ChangeNotifier {
     if (until == null) return 0;
     final ms = until.difference(DateTime.now()).inMilliseconds;
     return ms <= 0 ? 0 : (ms / 1000).ceil();
-  }
-
-  /// Consume the new-device flag after home/profile has shown it.
-  void consumeNewDeviceAlert() {
-    _newDeviceAlert = false;
-    _notify();
   }
 
   /// Clear the one-shot expiry notice after AuthGate has handed it to login.
@@ -415,7 +395,6 @@ class AuthController extends ChangeNotifier {
         role: session.role,
       );
       _session = session;
-      _newDeviceAlert = session.newDeviceAlert;
       _status = AuthStatus.authenticated;
       _notify();
       return true;
@@ -526,8 +505,6 @@ class AuthController extends ChangeNotifier {
             : rotated.refreshToken,
         expiresAt: rotated.expiresAt,
         role: role,
-        newDeviceAlert: rotated.newDeviceAlert,
-        verified: rotated.verified,
       );
       _sessionNotice = null;
       _status = AuthStatus.authenticated;
@@ -721,7 +698,6 @@ class AuthController extends ChangeNotifier {
     _errorMessage = null;
     _lastErrorCode = null;
     _rateLimitUntil = null;
-    _newDeviceAlert = false;
   }
 
   void _notify() {

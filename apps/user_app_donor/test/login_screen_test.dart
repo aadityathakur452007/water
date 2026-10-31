@@ -1,3 +1,4 @@
+import 'package:shodasha_donor/core/api_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shodasha_donor/features/auth/auth_controller.dart';
@@ -116,6 +117,81 @@ void main() {
     expect(api.loginPassword, 'water123');
     expect(controller.isAuthenticated, isTrue);
   });
+  testWidgets(
+    'registration 409 ACCOUNT_EXISTS pivots to sign-in and focuses password',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final api = _StubAuthApi();
+      api.registerError = ApiException(
+        code: 'ACCOUNT_EXISTS',
+        message: 'This number already has an account',
+        statusCode: 409,
+      );
+      final controller = _controller(api);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: DonorLoginScreen(controller: controller)),
+      );
+
+      final createLink = find.text('New here? Create account');
+      await tester.ensureVisible(createLink);
+      await tester.tap(createLink);
+      await tester.pumpAndSettle();
+
+      final fields = find.byType(TextFormField);
+      expect(fields, findsNWidgets(5));
+      await tester.enterText(fields.at(0), 'Asha');
+      await tester.enterText(fields.at(1), 'asha@example.com');
+      await tester.enterText(fields.at(2), '98765 43210');
+      await tester.enterText(fields.at(3), 'water123');
+      await tester.enterText(fields.at(4), 'water123');
+
+      final createButton = find.text('Create account').last;
+      await tester.ensureVisible(createButton);
+      await tester.tap(createButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Welcome back'), findsOneWidget);
+      expect(
+        find.text('This number already has an account. Sign in.'),
+        findsOneWidget,
+      );
+      final passField = find.byType(TextFormField).at(1);
+      final focusNode = tester
+          .widget<TextField>(
+            find.descendant(of: passField, matching: find.byType(TextField)),
+          )
+          .focusNode;
+      expect(focusNode?.hasFocus, isTrue);
+    },
+  );
+
+  testWidgets('hero renders tactile 20L emblem and canonical tagline', (
+    tester,
+  ) async {
+    final controller = _controller(_StubAuthApi());
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: DonorLoginScreen(controller: controller)),
+    );
+
+    expect(
+      find.text('Pure 20L water delivered to your doorstep'),
+      findsOneWidget,
+    );
+    expect(find.text('RO+UV · Lab Tested · Bhopal'), findsOneWidget);
+    expect(find.byIcon(Icons.water_drop_rounded), findsOneWidget);
+    expect(
+      find.text('Shodasha customer app · Password protected'),
+      findsNothing,
+    );
+  });
 }
 
 AuthController _controller(_StubAuthApi api) => AuthController(
@@ -144,6 +220,8 @@ class _StubAuthApi implements AuthApi {
     );
   }
 
+  ApiException? registerError;
+
   @override
   Future<AuthSession> register({
     required String name,
@@ -151,7 +229,15 @@ class _StubAuthApi implements AuthApi {
     required String phone,
     required String password,
     required String deviceId,
-  }) async => throw UnimplementedError();
+  }) async {
+    if (registerError != null) throw registerError!;
+    return AuthSession(
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      role: 'user',
+    );
+  }
 
   @override
   Future<AuthSession> refresh({required String refreshToken}) async =>
