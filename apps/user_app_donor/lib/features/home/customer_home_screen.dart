@@ -9,6 +9,7 @@ import '../../core/theme.dart';
 import '../../shared/ui/app_banner.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_card.dart';
+import '../../shared/ui/status_pill.dart';
 import '../addresses/address_screen.dart';
 import '../booking/booking_controller.dart';
 import '../orders/orders_controller.dart';
@@ -119,7 +120,7 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                 },
                 child: ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 28),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(
@@ -156,34 +157,10 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                               ],
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.sm,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: ShodashaTheme.tealTint,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.verified_outlined,
-                                  size: 16,
-                                  color: ShodashaTheme.tealDeep,
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  'RO + UV',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: ShodashaTheme.tealDeep,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          const StatusPill(
+                            label: 'RO + UV',
+                            tone: StatusPillTone.brand,
+                            icon: Icons.verified_outlined,
                           ),
                         ],
                       ),
@@ -192,12 +169,14 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                       ListenableBuilder(
                         listenable: widget.orders!,
                         builder: (context, _) {
-                          final candidate =
-                              widget.orders!.reorderCandidate;
+                          final candidate = widget.orders!.reorderCandidate;
                           if (candidate == null) return const SizedBox.shrink();
                           return Padding(
                             padding: const EdgeInsets.fromLTRB(
-                              AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.md,
+                              AppSpacing.lg,
+                              0,
+                              AppSpacing.lg,
+                              AppSpacing.md,
                             ),
                             child: _QuickReorderCard(
                               order: candidate,
@@ -313,9 +292,9 @@ class _SupportCard extends StatelessWidget {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Our Bhopal plant desk is one tap away.',
+                  'Call or WhatsApp Bhopal support directly',
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     height: 1.35,
                     color: ShodashaTheme.muted,
                   ),
@@ -344,7 +323,9 @@ class _QuickReorderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final summary = order.itemSummary.isEmpty ? 'last order' : order.itemSummary;
+    final summary = order.itemSummary.isEmpty
+        ? 'last order'
+        : order.itemSummary;
     return AppCard(
       color: ShodashaTheme.tealTint,
       borderColor: ShodashaTheme.teal.withValues(alpha: 0.22),
@@ -378,7 +359,7 @@ class _QuickReorderCard extends StatelessWidget {
                 Text(
                   summary,
                   style: const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     height: 1.35,
                     color: ShodashaTheme.muted,
                   ),

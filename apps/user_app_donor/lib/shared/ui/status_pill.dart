@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 
-enum StatusPillTone { neutral, info, success, warning, danger, solar }
+enum StatusPillTone { neutral, info, success, warning, danger, solar, brand }
 
 /// User-facing status chip: icon + sentence-case label + semantic tone.
 /// Callers pass the translated label, never a raw enum or status code.
@@ -50,6 +50,11 @@ class StatusPill extends StatelessWidget {
         ShodashaTheme.solar,
         ShodashaTheme.onSolar,
         ShodashaTheme.solarDark.withValues(alpha: 0.35),
+      ),
+      StatusPillTone.brand => (
+        ShodashaTheme.tealTint,
+        ShodashaTheme.tealDeep,
+        ShodashaTheme.teal.withValues(alpha: 0.25),
       ),
     };
 

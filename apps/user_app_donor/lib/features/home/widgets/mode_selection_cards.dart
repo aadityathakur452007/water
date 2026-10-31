@@ -23,9 +23,9 @@ class ModeSelectionCards extends StatelessWidget {
         children: [
           Expanded(
             child: _ModeCard(
-              ground: ShodashaTheme.tealDeep,
-              foreground: ShodashaTheme.surface,
               icon: Icons.bolt_rounded,
+              iconColor: ShodashaTheme.tealDeep,
+              iconBg: ShodashaTheme.tealTint,
               eyebrow: 'One delivery',
               title: 'Instant order',
               subtitle: 'Pick a 30-min slot',
@@ -35,9 +35,9 @@ class ModeSelectionCards extends StatelessWidget {
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: _ModeCard(
-              ground: ShodashaTheme.solarTint,
-              foreground: ShodashaTheme.ink,
               icon: Icons.event_repeat_rounded,
+              iconColor: ShodashaTheme.tealDeep,
+              iconBg: ShodashaTheme.tealTint,
               eyebrow: 'Regular delivery',
               title: 'Subscribe',
               subtitle: 'Set a repeat plan',
@@ -52,18 +52,18 @@ class ModeSelectionCards extends StatelessWidget {
 
 class _ModeCard extends StatelessWidget {
   const _ModeCard({
-    required this.ground,
-    required this.foreground,
     required this.icon,
+    required this.iconColor,
+    required this.iconBg,
     required this.eyebrow,
     required this.title,
     required this.subtitle,
     required this.onTap,
   });
 
-  final Color ground;
-  final Color foreground;
   final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
   final String eyebrow;
   final String title;
   final String subtitle;
@@ -76,8 +76,11 @@ class _ModeCard extends StatelessWidget {
       button: true,
       label: '$title. $subtitle',
       child: Material(
-        color: ground,
-        borderRadius: radius,
+        color: ShodashaTheme.surface,
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(color: ShodashaTheme.border),
+          borderRadius: radius,
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -97,15 +100,15 @@ class _ModeCard extends StatelessWidget {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: foreground.withValues(alpha: 0.12),
+                          color: iconBg,
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(icon, color: foreground, size: 20),
+                        child: Icon(icon, color: iconColor, size: 20),
                       ),
                       const Spacer(),
-                      Icon(
+                      const Icon(
                         Icons.arrow_outward_rounded,
-                        color: foreground.withValues(alpha: 0.85),
+                        color: ShodashaTheme.muted,
                         size: 20,
                       ),
                     ],
@@ -115,33 +118,33 @@ class _ModeCard extends StatelessWidget {
                     eyebrow,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: foreground,
+                    style: const TextStyle(
+                      color: ShodashaTheme.muted,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: foreground,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                    style: const TextStyle(
+                      color: ShodashaTheme.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: -0.2,
                       height: 1.2,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     subtitle,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: foreground,
-                      fontSize: 12.5,
+                    style: const TextStyle(
+                      color: ShodashaTheme.muted,
+                      fontSize: 12,
                       height: 1.35,
                     ),
                   ),

@@ -62,7 +62,7 @@ class DonorTopBar extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
           AppSpacing.sm,
-          AppSpacing.sm,
+          AppSpacing.lg,
           AppSpacing.md,
         ),
         child: Column(
@@ -138,7 +138,9 @@ class DonorTopBar extends StatelessWidget {
                     minHeight: ShodashaTheme.minTarget,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                    ),
                     child: Row(
                       children: [
                         Icon(
@@ -148,7 +150,7 @@ class DonorTopBar extends StatelessWidget {
                           color: ShodashaTheme.surface,
                           size: 18,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: AppSpacing.sm),
                         Expanded(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -158,7 +160,9 @@ class DonorTopBar extends StatelessWidget {
                                 children: [
                                   if (addressLoading)
                                     const Padding(
-                                      padding: EdgeInsets.only(right: 6),
+                                      padding: EdgeInsets.only(
+                                        right: AppSpacing.sm,
+                                      ),
                                       child: SizedBox(
                                         width: 12,
                                         height: 12,

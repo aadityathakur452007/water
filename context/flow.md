@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop 03 Donor Home & Mode Cards (2026-10-31, ADR-168): Unified ModeSelectionCards on neutral ShodashaTheme.surface with border and circular tinted icon badges; standardized RO+UV trust badge to StatusPill with StatusPillTone.brand; standardized copy on 20L refill exchange, refundable jar deposit, support contact, and lab reports.
+
 - Screen Unslop 02 Donor Shell, Navigation & Notifications (2026-10-31, ADR-167): Double-tap back protection on Home tab via PopScope (2s threshold with snackbar prompt); non-home back navigates to Home. Neutral surface AppBar on NotificationsScreen. Truncated 8-character uppercase order IDs in notifications; capitalized Plan status badges (Active, Paused, Cancelled). Calm offline strip ("You're offline · Showing saved data") with 8dp vertical padding and 12px token; restored banner trailing period removed.
 
 - Screen Unslop 01 Donor Auth, Shell Entry & Onboarding (2026-10-31, ADR-166): Replaced stock model and bulbous header in `DonorLoginScreen` with a tactile 20L canister badge, quiet trust pill, and canonical tagline. Standardized form inputs on `AppTextField` and `AppSpacing` tokens; auto-focuses password on 409 account pivot. `AuthGate` eliminates false cold-boot restore failures; `first_run_sheet.dart` protects against accidental scrim dismissal by only persisting flag on explicit user choices.

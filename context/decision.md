@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-168 | 2026-10-31 | Screen Unslop 03: Donor Home, Quick Reorder & Product Cards — unified surface ModeSelectionCards eliminating dark-teal vs yellow visual clash; added StatusPillTone.brand to StatusPill primitive for RO+UV; eliminated fractional 12.5px/11.5px font sizes; clarified doorstep exchange and deposit copy; 93/93 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{features/home/customer_home_screen.dart,features/home/widgets/{featured_products,live_purity_card,mode_selection_cards,top_bar}.dart,shared/ui/status_pill.dart}, apps/user_app_donor/test/home_tab_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-167 | 2026-10-31 | Screen Unslop 02: Donor Shell, Navigation & Notifications — double-tap back protection on Home tab with 2s threshold; neutral surface AppBar in notifications screen; truncated 8-character uppercase order ID and capitalized Plan status badges; offline strip tokenized to 8dp padding and calm copy ("You're offline · Showing saved data"); 92/92 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{shell/donor_shell,home/notifications_screen}.dart, apps/user_app_donor/test/{donor_shell_test,notifications_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-166 | 2026-10-31 | Screen Unslop 01: Donor Auth, Shell Entry & Onboarding — tactile 20L canister emblem & quiet trust pill on neutral surface; standardized inputs on AppTextField and AppSpacing tokens; 409 account pivot auto-focuses password; AuthGate eliminates false cold-boot error notice; first-run address prompt guarded against accidental scrim tap; dead fields pruned; 87/87 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/auth_impls.dart,features/{addresses/first_run_sheet,auth/{auth_controller,auth_gate,login_screen}}.dart}, apps/user_app_donor/test/{auth_gate_test,first_run_sheet_test,login_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-165 | 2026-10-31 | Slice 9 implemented: P3 Subtle Elevation Shadows & Telemetry Shimmer — defined unified subtleCardShadow token (2dp soft shadow) across donor and vendor themes; upgraded AppCard and vendor route stop cards with normalized elevation; added gentle telemetry entrance pulse on LivePurityCard with reduced-motion support; 80/80 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/theme.dart,shared/ui/app_card.dart,features/home/widgets/live_purity_card.dart}, apps/vendor_app/lib/{core/theme.dart,features/route/route_screen.dart}, context/{progress-tracker,flow,decision}.md |
@@ -220,6 +221,22 @@
 
 ## Decision Entries
 
+
+### ADR-168: Screen Unslop 03 Implemented — Donor Home, Quick Reorder & Product Cards (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 03 (`Feature_docs/ux-unslop-audit/03-donor-home.md`) covering `DonorHomeTab` (`apps/user_app_donor/lib/features/home/customer_home_screen.dart`) and its widget components (`mode_selection_cards.dart`, `featured_products.dart`, `live_purity_card.dart`, `top_bar.dart`). Prior implementation exhibited visual clutter from clashing asymmetric card colors (Card 1 dark teal vs Card 2 pastel yellow), fractional font sizes (`12.5px` and `11.5px`), custom ad-hoc badge containers, and colloquial/verbose product and support copy.
+- **Decisions**:
+  1. **Unified Surface Cards (`D3-04`):** Redesigned `ModeSelectionCards` so both Instant Order and Subscribe share a calm, unified neutral surface (`ShodashaTheme.surface`, 1dp `ShodashaTheme.border`, ink typography, muted 12px subtitle, and circular tinted icon badges). Eliminates the jarring visual asymmetry while maintaining distinct iconography and 48dp+ tap targets.
+  2. **First-Class Brand Tone on StatusPill (`D3-06`):** Added `StatusPillTone.brand` (`tealTint` background, `tealDeep` text/icon, subtle teal line) to `StatusPill` primitive. Replaced the ad-hoc custom Container on the home greeting with `StatusPill(label: 'RO + UV', tone: StatusPillTone.brand)`.
+  3. **Design System Token Hygiene (`D3-06`):** Standardized all fractional typography (`12.5px` and `11.5px`) to standard tokens (12px `bodySmall` and 11px `labelSmall`) across `featured_products.dart`, `live_purity_card.dart`, `mode_selection_cards.dart`, and `customer_home_screen.dart` (`_QuickReorderCard`, `_SupportCard`). Normalized off-scale 7px/3px padding to `AppSpacing` tokens and list bottom padding to `AppSpacing.xxl` (32dp).
+  4. **Doorstep Exchange & Pricing Copy Clarity (`D3-03`):** Refined 20L refill subtitle to `"Exchange empty jar at delivery · RO + UV purified"` (replaces "Bring your own jar"). Refined container subtitle to `"Includes ₹150 refundable jar deposit"`. Refined support subtitle to `"Call or WhatsApp Bhopal support directly"` and purity card detail to `"On WhatsApp"`.
+  5. **Verification & Automated Tests:** Created `apps/user_app_donor/test/home_tab_test.dart` verifying unified mode card interaction, `StatusPill` brand tone, and updated product/support copy. Donor test suite expanded to **93 / 93 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Home tab presents a serene, cohesive morning delivery interface adhering to Gestalt grouping laws.
+  - Doorstep swap mechanics and deposit charges are unambiguously explained to customers.
+  - Zero contract changes to backend or pricing calculations.
 
 ### ADR-167: Screen Unslop 02 Implemented — Donor Shell, Navigation & Notifications (2026-10-31)
 

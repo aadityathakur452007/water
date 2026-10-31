@@ -27,10 +27,7 @@ class _LivePurityCardState extends State<LivePurityCard>
       duration: const Duration(milliseconds: 1200),
     );
     _pulseAnimation = Tween<double>(begin: 0.65, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _pulseController,
-        curve: Curves.easeInOut,
-      ),
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     // Gentle telemetry confirmation pulse on load
     _pulseController.forward().then((_) {
@@ -63,7 +60,7 @@ class _LivePurityCardState extends State<LivePurityCard>
               children: [
                 disableMotion
                     ? Container(
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(AppSpacing.sm),
                         decoration: BoxDecoration(
                           color: ShodashaTheme.tealTint,
                           borderRadius: BorderRadius.circular(8),
@@ -81,7 +78,7 @@ class _LivePurityCardState extends State<LivePurityCard>
                           child: child,
                         ),
                         child: Container(
-                          padding: const EdgeInsets.all(6),
+                          padding: const EdgeInsets.all(AppSpacing.sm),
                           decoration: BoxDecoration(
                             color: ShodashaTheme.tealTint,
                             borderRadius: BorderRadius.circular(8),
@@ -147,7 +144,7 @@ class _LivePurityCardState extends State<LivePurityCard>
                     child: _Fact(
                       value: 'On request',
                       title: 'Lab report',
-                      detail: 'Ask support',
+                      detail: 'On WhatsApp',
                     ),
                   ),
                 ],
@@ -194,7 +191,7 @@ class _Fact extends StatelessWidget {
               letterSpacing: -0.1,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: AppSpacing.xs),
           Text(
             title,
             maxLines: 1,
@@ -203,10 +200,10 @@ class _Fact extends StatelessWidget {
             style: const TextStyle(
               color: ShodashaTheme.ink,
               fontWeight: FontWeight.w700,
-              fontSize: 11.5,
+              fontSize: 11,
             ),
           ),
-          const SizedBox(height: 1),
+          const SizedBox(height: 2),
           Text(
             detail,
             maxLines: 2,
