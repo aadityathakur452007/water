@@ -165,13 +165,6 @@ class _FakeAuthApi implements AuthApi {
   }) async => throw UnimplementedError();
 
   @override
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
-    required String deviceId,
-  }) async => throw UnimplementedError();
-
-  @override
   Future<AuthSession> refresh({required String refreshToken}) async =>
       throw UnimplementedError();
 

@@ -1,7 +1,6 @@
 // Vendor auth state — access-code-only (028, spec §4). No OTP, no SMS round-trip,
 // no guest: phone + admin-issued code → vendorCodeLogin → role gate
-// (role must be `vendor`, else wiped with notVendor). Demo door stays as the
-// server-gated QA fallback.
+// (role must be `vendor`, else wiped with notVendor).
 
 // ignore_for_file: prefer_initializing_formals
 // (Ctor param `api` must stay public-named for main.dart wiring.)
@@ -134,13 +133,6 @@ abstract class AuthApi {
     required String refreshToken,
     required String deviceId,
   });
-  /// POST /auth/demo `{phone, demo_code, device}` → session (QA demo door;
-  /// server enforces the config flag + demo_codes row, closed in prod).
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
-    required String deviceId,
-  });
 }
 
 enum AuthStatus { idle, verifying, authenticated, error }
@@ -251,51 +243,6 @@ class AuthController extends ChangeNotifier {
       return false;
     } catch (_) {
       _fail(vendorStringsHi['serverError']!, AuthStatus.error);
-      return false;
-    }
-  }
-
-  /// Demo login (no OTP): seeded phone + demo code → session. Same
-  /// persistence + vendor role gate as the code path. Fails with a Hindi
-  /// message when the server door is closed (prod default).
-  Future<bool> demoLogin(String phone, String code) async {
-    _status = AuthStatus.verifying;
-    _errorMessage = null;
-    _notify();
-    try {
-      final session = await _api.demoLogin(
-        phone: phone.trim(),
-        code: code.trim(),
-        deviceId: deviceId,
-      );
-      if (session.role != 'vendor') {
-        await _store.clear();
-        _fail(vendorStringsHi['notVendor']!, AuthStatus.error);
-        _notify();
-        return false;
-      }
-      await _store.saveSession(
-        accessToken: session.accessToken,
-        refreshToken: session.refreshToken,
-        expiresAtIso: session.expiresAt.toIso8601String(),
-        role: session.role,
-      );
-      await _stampStarted();
-      _session = session;
-      _newDeviceAlert = session.newDeviceAlert;
-      _status = AuthStatus.authenticated;
-      _notify();
-      return true;
-    } on ApiException catch (e) {
-      _fail(
-        e.isNetwork ? vendorStringsHi['networkError']! : e.message,
-        AuthStatus.error,
-      );
-      _notify();
-      return false;
-    } catch (_) {
-      _fail(vendorStringsHi['serverError']!, AuthStatus.error);
-      _notify();
       return false;
     }
   }

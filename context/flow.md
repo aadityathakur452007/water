@@ -1750,6 +1750,90 @@ No migration was applied; migration 029 was already live. The first post-deploy 
 hit transient Free-tier 503/500 (cold start), then all checks passed. Production is no
 longer on `511879dc`; the earlier out-of-band version was `4fd380e2`.
 
+## Demo cleanup + one admin code (2026-10-31, ADR-154)
+
+### D1 topology (both kept)
+
+```
+Cloudflare account
+  +-- D1 shodasha (da762aad-1d5c-46eb-992e-acc79505cc95)
+  |     bound to Worker water (production)
+  |     696,320 B after cleanup; 8 users / 4 orders / 0 stops / 0 routes
+  |
+  +-- D1 shodasha-staging (05772775-a957-4852-8ec3-6b14082d4a62)
+        bound to Worker water-staging (performance/test bench)
+        ~14.5 MB seeded dataset; not used by any live app
+```
+
+Neither database is a dummy: `shodasha` is production, `shodasha-staging` is the
+Phase 0/3 test bench. No database was deleted.
+
+### Demo data removal
+
+```
+workers/api/scripts/cleanup_demo_20261031.sql
+  +-- allowlist: demo-user-1, demo-vendor-1, demo-order-1,
+  |              demo-route-1, demo-stop-1 and their phone-keyed rows
+  +-- delete owned rows in FK-safe order (42 queries, 74 rows written)
+  +-- verify demo users/orders/stops/routes = 0
+```
+
+Production result: demo users / orders / stops / routes **0**; the real admin,
+six real customers and the real Bhopal vendor remain. Audit log retained.
+
+### Admin access code
+
+```
+old live row c1743f07… -> revoked_at set (kept for audit)
+old revoked row 921bae… -> untouched
+new row                -> expected_role=admin
+                          user_id=1a276f3033644bc496e31f115c5950f2
+                          code=452007 (owner-approved)
+                          masked_hint=..07
+                          expires_at=2027-04-29 (180 days)
+```
+
+Verification: `POST /v1/auth/admin/login` with phone `+917828442476` and code
+`452007` returns 200 / `role=admin`; exactly one live admin code remains.
+
+### App flows after removal
+
+```
+Donor (apps/user_app_donor)
+  LoginScreen -> AuthController.login(rawPhone, password)
+              -> AuthApi.login -> POST /v1/auth/user/login
+  Register    -> AuthController.register -> POST /v1/auth/user/register
+  (no demo CTA, no UserDemoSheet, no AuthApi.demoLogin)
+
+Vendor (apps/vendor_app)
+  VendorCodeScreen -> AuthController.codeLogin(phone, code)
+                   -> AuthApi.vendorCodeLogin -> POST /v1/auth/vendor/login
+  (no demo CTA, no DemoSheet, no AuthApi.demoLogin)
+```
+
+The backend `POST /v1/auth/demo` route was **not** changed and remains
+fail-closed (`demo_login_enabled=0`, no `demo_codes`). Files deleted:
+`apps/user_app_donor/lib/features/auth/demo_sheet.dart`,
+`apps/vendor_app/lib/features/auth/demo_sheet.dart`. The vendor test file was
+renamed `demo_login_test.dart` → `vendor_code_login_test.dart`; it now covers
+only the real access-code path.
+
+### Verification
+
+```
+flutter analyze                 donor clean / vendor clean
+flutter test                    donor 75 / vendor 68
+flutter build apk --release     donor 38,437,749 B  SHA256 AA47D124…CBF3
+  + production defines          vendor 53,899,221 B SHA256 40392F0F…F0F0
+binary scan                     demo strings + seeded phones absent
+                                prod Worker URL present
+GET /health                     200 {"status":"ok"}
+GET /v1/catalog                 200
+```
+
+Nothing was pushed; no GitHub release was created; both APKs are debug-signed
+and live only under each app's `build/app/outputs/flutter-apk/`.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
