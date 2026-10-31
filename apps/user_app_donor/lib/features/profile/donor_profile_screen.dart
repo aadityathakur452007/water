@@ -5,7 +5,6 @@
 
 import 'package:flutter/material.dart';
 
-import '../../core/constants/app_constants.dart';
 import '../../core/theme.dart';
 import '../../shared/ui/app_banner.dart';
 import '../../shared/ui/app_button.dart';
@@ -132,23 +131,24 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: ShodashaTheme.tealDeep,
-        foregroundColor: ShodashaTheme.surface,
+        backgroundColor: ShodashaTheme.surface,
+        foregroundColor: ShodashaTheme.ink,
         elevation: 0,
+        scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
           'Profile',
           style: TextStyle(
             fontWeight: FontWeight.w700,
             fontSize: 18,
-            color: ShodashaTheme.surface,
+            color: ShodashaTheme.ink,
           ),
         ),
         actions: [
           IconButton(
             tooltip: 'Refresh profile',
             onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded, color: ShodashaTheme.ink),
           ),
         ],
       ),
@@ -175,7 +175,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
             onRefresh: _refresh,
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(AppConstants.defaultPadding),
+              padding: const EdgeInsets.all(AppSpacing.xl),
               children: [
                 if (loading)
                   const _ProfileSkeleton()
@@ -188,11 +188,11 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                   )
                 else
                   Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(AppSpacing.lg),
                     decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
+                      color: ShodashaTheme.surface,
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                      border: Border.all(color: ShodashaTheme.border),
                     ),
                     child: Column(
                       children: [
@@ -202,7 +202,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                               label: 'Profile avatar for $name',
                               child: CircleAvatar(
                                 radius: 32,
-                                backgroundColor: AppColors.primary.withValues(
+                                backgroundColor: ShodashaTheme.teal.withValues(
                                   alpha: 0.12,
                                 ),
                                 child: Text(
@@ -210,7 +210,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                                   style: const TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.w900,
-                                    color: AppColors.primary,
+                                    color: ShodashaTheme.teal,
                                   ),
                                 ),
                               ),
@@ -223,10 +223,10 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                                   Text(
                                     name.isEmpty ? 'Your profile' : name,
                                     style: const TextStyle(
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: -0.3,
-                                      color: AppColors.textPrimary,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.2,
+                                      color: ShodashaTheme.ink,
                                     ),
                                   ),
                                   if (phone.isNotEmpty) ...[
@@ -234,8 +234,8 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                                     Text(
                                       phone,
                                       style: const TextStyle(
-                                        fontSize: 12.5,
-                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                        color: ShodashaTheme.muted,
                                       ),
                                     ),
                                   ],
@@ -244,7 +244,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                                       email,
                                       style: const TextStyle(
                                         fontSize: 12,
-                                        color: AppColors.textSecondary,
+                                        color: ShodashaTheme.muted,
                                       ),
                                     ),
                                 ],
@@ -255,20 +255,20 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                               onPressed: _edit,
                               icon: const Icon(
                                 Icons.edit_outlined,
-                                color: AppColors.primary,
+                                color: ShodashaTheme.teal,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSpacing.lg),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 12,
                           ),
                           decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(12),
+                            color: ShodashaTheme.teal.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -277,18 +277,9 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                               Container(
                                 height: 28,
                                 width: 1,
-                                color: AppColors.border,
+                                color: ShodashaTheme.border,
                               ),
                               _stat('$addresses', 'Addresses'),
-                              Container(
-                                height: 28,
-                                width: 1,
-                                color: AppColors.border,
-                              ),
-                              _stat(
-                                widget.auth.isAuthenticated ? 'Active' : '—',
-                                'Session',
-                              ),
                             ],
                           ),
                         ),
@@ -314,7 +305,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                     color: ShodashaTheme.muted,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 _menuTile(
                   icon: Icons.location_on_outlined,
                   title: 'Saved addresses',
@@ -350,7 +341,7 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                     color: ShodashaTheme.muted,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 _menuTile(
                   icon: Icons.headset_mic_outlined,
                   title: 'Help & support',
@@ -399,10 +390,9 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
           onPressed: () => Navigator.of(ctx).pop(),
         ),
         child: const Text(
-          'Every Shodasha 20L jar is purified through a 9-stage RO + UV + '
-          'ozone process and sealed in a food-grade jar. Live batch reports '
-          'and mineral analysis are verified daily at our Bhopal plant and '
-          'available upon request.',
+          'Every Shodasha 20L can undergoes automated 9-stage purification '
+          '(RO + UV + Ozonation), batch tested daily at our certified Bhopal '
+          'facility. Mineral analysis reports are verified and available upon request.',
           style: TextStyle(height: 1.5, fontSize: 14, color: ShodashaTheme.ink),
         ),
       ),
@@ -511,10 +501,10 @@ class _ProfileSkeleton extends StatelessWidget {
     );
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: ShodashaTheme.surface,
-        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         border: Border.all(color: ShodashaTheme.border),
       ),
       child: Column(
@@ -541,7 +531,7 @@ class _ProfileSkeleton extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.lg),
           box(double.infinity, 42),
         ],
       ),

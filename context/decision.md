@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-176 | 2026-10-31 | Screen Unslop 11: Donor Profile & Settings — standardized AppBar to surface white with ink text; purged internal telemetry developer rationale from water quality sheet; eliminated legacy AppColors token facade in favor of ShodashaTheme; removed vanity Session: Active stat leaving clean Orders and Addresses metrics; normalized card padding (16dp) and typography (18px title, 12px bodySmall); 120/120 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/profile/donor_profile_screen.dart, apps/user_app_donor/test/donor_profile_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-175 | 2026-10-31 | Screen Unslop 10: Donor Addresses & Map Picker — sticky bottom CTA in AddressScreen (AppButton addFirst); removed list-tail button; adjusted itemCount to header + addresses and normalized separator to AppSpacing.md (12dp); migrated empty state button and form stepper controls to canonical AppButton; human-readable pin prompt/feedback in map picker; subtleCardShadow elevation normalization; 118/118 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/addresses/{address_screen,map_picker}.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-174 | 2026-10-31 | Screen Unslop 09: Donor Wallet & Payment History — deduplicated jar count from Deposit details card; preserved card grid rhythm on zero-jar custody with quiet disabled return tile; clarified dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography; 114/114 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/wallet/{donor_wallet_screen,payment_history_screen}.dart, apps/user_app_donor/test/donor_wallet_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-173 | 2026-10-31 | Screen Unslop 08: Donor Subscriptions & Plan Builder — standardized empty state and pause sheet on AppButton; relocated destructive plan cancellation to kebab PopupMenuButton; replaced tealTint skeleton with ShodashaTheme.skeleton tokens; normalized plan builder title to 18px w700 and payment summary to 12px; 112/112 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/subscriptions/{subscription_screen,plan_builder_sheet}.dart, apps/user_app_donor/test/subscription_screen_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -227,6 +228,25 @@
 ---
 
 ## Decision Entries
+
+### ADR-176: Screen Unslop 11 Implemented — Donor Profile & Settings (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 11 (`Feature_docs/ux-unslop-audit/11-donor-profile.md`) covering `DonorProfileScreen` (`apps/user_app_donor/lib/features/profile/donor_profile_screen.dart`) and `EditProfileSheet` (`edit_profile_sheet.dart`). Prior implementation suffered from a jarring solid dark-teal AppBar (`ShodashaTheme.tealDeep`) that clashed with the other 4 primary shell tabs (Home, Orders, Plans, Wallet all use white `ShodashaTheme.surface` AppBars), dual design token imports mixing legacy `AppColors` aliases with `ShodashaTheme`, a vanity "Session: Active" metric in the profile stat strip that provided no customer utility, off-scale typography (`19px` bold name, `12.5px` phone), non-token card padding (`18dp`), and developer-facing API limitations discussed in customer water quality modals.
+- **Decisions**:
+  1. **Surface AppBar Theme Alignment (`D11-01`):** In `donor_profile_screen.dart:134-154`, aligned the AppBar background to `ShodashaTheme.surface` (white) with `ShodashaTheme.ink` title typography and icon buttons (`scrolledUnderElevation: 0`), creating seamless tab switching across all 5 shell destinations.
+  2. **Purged Dev-Speak & Reassured Quality (`D11-02`):** In `_showQuality()`, updated customer copy to focus strictly on certified local purity: `'Every Shodasha 20L can undergoes automated 9-stage purification (RO + UV + Ozonation), batch tested daily at our certified Bhopal facility. Mineral analysis reports are verified and available upon request.'` Zero developer excuses or internal API caveats are surfaced.
+  3. **Retired `AppColors` Token Facade (`D11-03`):** Removed `import '../../core/constants/app_constants.dart'` and migrated all `AppColors.surface`, `AppColors.border`, `AppColors.primary`, `AppColors.textPrimary`, and `AppColors.textSecondary` references to canonical `ShodashaTheme.surface`, `ShodashaTheme.border`, `ShodashaTheme.teal`, `ShodashaTheme.ink`, and `ShodashaTheme.muted`.
+  4. **Dropped Vanity Session Metric (`D11-04`):** Omitted the 3rd "Session: Active" column from the profile card statistics strip, presenting a clean 2-column layout focused exclusively on customer activity: `Orders` and `Addresses`.
+  5. **Normalized Spacing & Typography Tokens (`D11-05`):** Standardized profile card and skeleton internal padding from 18dp to `AppSpacing.lg` (16dp), screen edge padding to `AppSpacing.xl` (24dp), and section title vertical margins to `AppSpacing.sm` (8dp). Normalized customer name typography from 19px w900 to standard 18px w700 (`titleLarge`), and phone from 12.5px to 12px `ShodashaTheme.bodySmall`.
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/donor_profile_screen_test.dart` (2 tests) verifying surface AppBar styling, 2-metric customer stat strip (Orders + Addresses without vanity Session), and water quality modal text. Donor test suite expanded to **120 / 120 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Seamless navigation visual consistency across all five shell tabs.
+  - Zero leakage of engineering constraints or internal architecture in customer modals.
+  - Complete elimination of redundant `AppColors` token facade in the donor profile domain.
+  - Unsaved profile edits discard guard and account logout invariants remain 100% intact.
+
 
 ### ADR-175: Screen Unslop 10 Implemented — Donor Addresses & Map Picker (2026-10-31)
 

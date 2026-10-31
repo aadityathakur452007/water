@@ -940,7 +940,7 @@ ShodashaDonorApp (main.dart)
            │    └─ Track / Bill only (no customer “deliver”, no fake PIN)
            ├─ Subscriptions: 032 real plan list/actions (donor title/cards/pills)
            ├─ Wallet: real GET /ledger/me + receipts/returns (no fake balance/top-up)
-           └─ Profile: real GET/PATCH /auth/me, addresses, support, wallet, logout
+           └─ Profile (ADR-176 unslop): surface AppBar + token-aligned identity card (2 stats: Orders, Addresses; no vanity Session) + real GET/PATCH /auth/me, addresses, support, wallet, logout
 ```
 
 - Auth: `AuthController.startOtp` → `POST /auth/otp/start` (`{phone}` → `{resend_after_s, channel}`); `verifyOtp` → `POST /auth/otp/verify` (`{phone, otp_code, device}`); 6 digits. A `channel=firebase` response is an honest configuration error (no Firebase SDK/config). QA path is the server-gated `/auth/demo` sheet; there is no guest path. `AuthGate` restores the stored session with a timeout and falls back to login.
