@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop 07 Donor Bill Screen & Rating Sheet (2026-10-31, ADR-172): Replaced Icons.share_outlined with Icons.chat_outlined on Help on WhatsApp button; truncated bill header order reference to 8-character uppercase ref; enriched water line item with itemSummary ("2 × 20L Refill"); restricted complaint shortcut in RatingSheet to <= 3 stars; migrated RatingSheet submit to AppButton and tokenized padding.
+
 - Screen Unslop 06 Donor Tracking Screen & Delivery Code (2026-10-31, ADR-171): Standardized card gaps to AppSpacing tokens (10px -> 8dp, 3px -> 4dp) and eliminated fractional 12.5px/11.5px fonts; unsloped tracking banner copy ("Next stop is yours", "Arriving now · Please keep your empty jar ready", "Estimated arrival in ~X–Y mins") and delivery code status badges ("Delivery complete · Code verified", "Code locked after wrong attempts · Request a new code"); standardized window time to 16px w700.
 
 - Screen Unslop 05 Donor Orders List & Order Card (2026-10-31, ADR-170): Demoted "View bill" on closed orders to AppButtonKind.secondary (eliminating illegal solid green button); truncated 32-char UUID to 8-character uppercase ref; added whole-card onTap to AppCard (Track on active, Bill on closed); omitted Active section when empty to reveal past orders above fold; standardized price to 18px and meta text to 12px; sanitized stale banner copy ("Connection issue · Showing saved orders").

@@ -12,6 +12,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import 'orders_controller.dart';
 
 /// Shows the rating sheet for [order] (auto or manual entry point).
@@ -95,7 +96,12 @@ class _RatingSheetState extends State<RatingSheet> {
     final alreadyRated = widget.order.rated;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          AppSpacing.lg,
+          AppSpacing.xl,
+          AppSpacing.xl,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -109,7 +115,7 @@ class _RatingSheetState extends State<RatingSheet> {
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -129,37 +135,17 @@ class _RatingSheetState extends State<RatingSheet> {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: ShodashaTheme.minTarget,
-              child: ElevatedButton(
-                onPressed: (alreadyRated || _stars < 1 || _busy)
-                    ? null
-                    : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ShodashaTheme.ink,
-                  foregroundColor: ShodashaTheme.surface,
-                  disabledBackgroundColor: ShodashaTheme.ink.withValues(
-                    alpha: 0.3,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                  ),
-                ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: ShodashaTheme.surface,
-                        ),
-                      )
-                    : Text(ordersStringsHi['rateSubmit']!),
-              ),
+            const SizedBox(height: AppSpacing.sm),
+            AppButton(
+              label: ordersStringsHi['rateSubmit']!,
+              kind: AppButtonKind.primary,
+              busy: _busy,
+              onPressed: (alreadyRated || _stars < 1 || _busy) ? null : _submit,
             ),
-            if (widget.onSupport != null) ...[
-              const SizedBox(height: 8),
+            if (widget.onSupport != null &&
+                ((alreadyRated && (widget.order.stars ?? 0) <= 3) ||
+                    (!alreadyRated && _stars > 0 && _stars <= 3))) ...[
+              const SizedBox(height: AppSpacing.sm),
               Center(
                 child: TextButton(
                   onPressed: _complaint,

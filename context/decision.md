@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-172 | 2026-10-31 | Screen Unslop 07: Donor Bill Screen & Rating Sheet — resolved WhatsApp button icon identity crisis (Icons.share_outlined -> Icons.chat_outlined); truncated raw UUID in AppBar to 8-character uppercase ref; enriched bill line item with SKU name/quantity; enforced <=3 star conditional threshold for rating complaint shortcut; migrated rating sheet to AppButton and tokenized padding; 110/110 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{bill_screen,rating_sheet}.dart, apps/user_app_donor/test/bill_rating_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-171 | 2026-10-31 | Screen Unslop 06: Donor Tracking Screen & Delivery Code — standardized non-token spacing (10px -> 8dp, 3px -> 4dp) and eliminated fractional fonts (12.5px, 11.5px); calm copy unslop on arrival banners ("Next stop is yours", "Arriving now · Please keep your empty jar ready") and delivery code statuses ("Delivery complete · Code verified", "Code locked after wrong attempts"); 108/108 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/tracking_screen.dart, apps/user_app_donor/test/tracking_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-170 | 2026-10-31 | Screen Unslop 05: Donor Orders List & Order Card — demoted "View bill" to AppButtonKind.secondary eliminating illegal green CTA on closed orders; truncated 32-character UUID to 8-character uppercase ref; made entire card surface tappable (Track on active, Bill on closed); omitted bulky empty-active card when past orders exist; standardized price to 18px and meta text to 12px; 104/104 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{my_orders_screen,order_card}.dart, apps/user_app_donor/test/{donor_order_card_test,my_orders_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-169 | 2026-10-31 | Screen Unslop 04: Donor Booking Flow, Steppers & Confirmation — deleted dead ShodashaColors class; restricted recurring schedule to Daily/Alternate/Weekly eliminating custom date modal overflows; standardized payment recovery panel on AppButton hierarchy; normalized confirm and detail sheet padding to AppSpacing tokens; 96/96 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/booking/{booking_sheet,product_detail_sheet,quote_confirm,stepper}.dart, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -223,6 +224,24 @@
 ---
 
 ## Decision Entries
+
+### ADR-172: Screen Unslop 07 Implemented — Donor Bill Screen & Rating Sheet (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 07 (`Feature_docs/ux-unslop-audit/07-donor-bill-rating.md`) covering `BillScreen` (`apps/user_app_donor/lib/features/orders/bill_screen.dart`) and `RatingSheet` (`rating_sheet.dart`). Prior implementation suffered from an identity crisis on the WhatsApp button (labeled "Help on WhatsApp" but displaying `Icons.share_outlined`), an unformatted raw 32-character UUID in the bill header (`Bill · #b489021150c8425abd9a23f1af39839e`), a generic "Water" line item lacking SKU or quantity specification, a rating sheet that unconditionally displayed a complaint shortcut even when a happy user awarded 5 stars (violating contract §4.4), and a raw `ElevatedButton` bypass of `AppButton` with hardcoded 24px/16px padding.
+- **Decisions**:
+  1. **Resolved WhatsApp Button Identity Crisis (`D7-01`):** In `bill_screen.dart:205`, replaced `Icons.share_outlined` with `Icons.chat_outlined`, ensuring the icon correctly matches the "Help on WhatsApp" support intent.
+  2. **Truncated Order References in Bill Header (`D7-02`):** In `bill_screen.dart:56`, standardized AppBar title to `Bill · #$_orderRef` (8 characters uppercase, e.g. `Bill · #B4890211`).
+  3. **Enriched Itemized Water Line Item (`D7-03`):** In `bill_screen.dart:109`, enriched the primary water charge label using `order.itemSummary.trim().isNotEmpty ? order.itemSummary.trim() : '20L Water Refill'` (e.g. `"2 × 20L Refill"`), providing clear quantity and SKU context. Standardized footer text size from 11px to 12px `ShodashaTheme.bodySmall`.
+  4. **Enforced Conditional Complaint Shortcut Threshold (`D7-04`):** In `rating_sheet.dart`, conditionally revealed the "Something wrong? File a complaint" shortcut only when `widget.onSupport != null` and `((alreadyRated && (widget.order.stars ?? 0) <= 3) || (!alreadyRated && _stars > 0 && _stars <= 3))`. Satisfies contract §4.4 while keeping 4–5 star happy flows focused and positive.
+  5. **Migrated Rating Sheet to `AppButton` & Tokenized Spacing (`D7-05`):** Replaced raw `ElevatedButton` with `AppButton(label: ordersStringsHi['rateSubmit']!, kind: AppButtonKind.primary, busy: _busy, onPressed: ...)`. Standardized padding from `EdgeInsets.fromLTRB(24, 16, 24, 24)` to `AppSpacing.xl` (24dp) / `AppSpacing.lg` (16dp) tokens, and standardized vertical spacers to `AppSpacing.md` (12dp) and `AppSpacing.sm` (8dp).
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/bill_rating_test.dart` (2 tests) verifying truncated bill order references, enriched SKU summary line, chat icon, and 5-star vs 2-star complaint shortcut conditional visibility. Donor test suite expanded to **110 / 110 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Unambiguous visual icons and clear commercial receipt hierarchy.
+  - Disciplined post-delivery customer feedback routing with zero unwanted complaint prompts for satisfied users.
+  - Zero modifications to server-authoritative money models or rating endpoints.
+
 
 ### ADR-171: Screen Unslop 06 Implemented — Donor Tracking Screen & Delivery Code (2026-10-31)
 
