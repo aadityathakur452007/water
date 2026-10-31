@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-171 | 2026-10-31 | Screen Unslop 06: Donor Tracking Screen & Delivery Code — standardized non-token spacing (10px -> 8dp, 3px -> 4dp) and eliminated fractional fonts (12.5px, 11.5px); calm copy unslop on arrival banners ("Next stop is yours", "Arriving now · Please keep your empty jar ready") and delivery code statuses ("Delivery complete · Code verified", "Code locked after wrong attempts"); 108/108 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/tracking_screen.dart, apps/user_app_donor/test/tracking_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-170 | 2026-10-31 | Screen Unslop 05: Donor Orders List & Order Card — demoted "View bill" to AppButtonKind.secondary eliminating illegal green CTA on closed orders; truncated 32-character UUID to 8-character uppercase ref; made entire card surface tappable (Track on active, Bill on closed); omitted bulky empty-active card when past orders exist; standardized price to 18px and meta text to 12px; 104/104 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{my_orders_screen,order_card}.dart, apps/user_app_donor/test/{donor_order_card_test,my_orders_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-169 | 2026-10-31 | Screen Unslop 04: Donor Booking Flow, Steppers & Confirmation — deleted dead ShodashaColors class; restricted recurring schedule to Daily/Alternate/Weekly eliminating custom date modal overflows; standardized payment recovery panel on AppButton hierarchy; normalized confirm and detail sheet padding to AppSpacing tokens; 96/96 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/booking/{booking_sheet,product_detail_sheet,quote_confirm,stepper}.dart, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-168 | 2026-10-31 | Screen Unslop 03: Donor Home, Quick Reorder & Product Cards — unified surface ModeSelectionCards eliminating dark-teal vs yellow visual clash; added StatusPillTone.brand to StatusPill primitive for RO+UV; eliminated fractional 12.5px/11.5px font sizes; clarified doorstep exchange and deposit copy; 93/93 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{features/home/customer_home_screen.dart,features/home/widgets/{featured_products,live_purity_card,mode_selection_cards,top_bar}.dart,shared/ui/status_pill.dart}, apps/user_app_donor/test/home_tab_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -222,6 +223,24 @@
 ---
 
 ## Decision Entries
+
+### ADR-171: Screen Unslop 06 Implemented — Donor Tracking Screen & Delivery Code (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 06 (`Feature_docs/ux-unslop-audit/06-donor-tracking.md`) covering `TrackingScreen` (`apps/user_app_donor/lib/features/orders/tracking_screen.dart`), `_WindowCard`, `_LiveStopsAheadBanner`, `_RiderCard`, and `_DeliveryCodeCard`. Prior implementation contained off-scale spacing (`10px` horizontal gaps across 3 card widgets, `3px` vertical gaps), fractional font sizes (`12.5px` and `11.5px`), an overly aggressive 900-weight time window, trailing punctuation and choppy copy on delivery code states (`"Delivery complete — code used."`, `"For your safety this code is locked. Get a new one."`), and an exclamation mark with wordy text in the live stops ahead banner (`"Your stop is next!"`).
+- **Decisions**:
+  1. **Spacing & Layout Token Hygiene (`D6-01 & D6-05`):** Standardized horizontal gaps from hardcoded `10px` to `AppSpacing.sm` (8dp) across `_WindowCard:950`, `_RiderCard:1093`, and `_DeliveryCodeCard:1219`. Standardized micro vertical gaps from `3px` to `AppSpacing.xs` (4dp) in `_LiveStopsAheadBanner:1045` and `_DeliveryCodeCard:1234`. Normalized card outer and inner padding to `AppSpacing.lg` (16dp).
+  2. **Typography Scale Alignment (`D6-05`):** Standardized arrival window time text from `FontWeight.w900` to `FontWeight.w700` (`titleMedium` scale). Eliminated fractional `12.5px` and `11.5px` font sizes in `_DeliveryCodeCard`, `_FooterRetry`, and refund note summaries in favor of standard 12px `ShodashaTheme.bodySmall` and 11px `labelSmall`.
+  3. **Calm, High-Trust Copy Unslop (`D6-02`):**
+     - In `_LiveStopsAheadBanner`: Replaced `'Your stop is next!'` with `'Next stop is yours'`, replaced `'The driver is arriving at your address. Please keep your empty jar ready.'` with `'Arriving now · Please keep your empty jar ready'`, and refined the algorithmic estimate copy to `'Estimated arrival in ~${stopsAhead * 10}–${stopsAhead * 15} mins · Keep empty jar ready'`.
+     - In `_DeliveryCodeCard`: Replaced `'Delivery complete — code used.'` with `'Delivery complete · Code verified'`, and replaced `'For your safety this code is locked. Get a new one.'` with `'Code locked after wrong attempts · Request a new code'`.
+  4. **Preserved Invariants & Verification:** Maintained the intentional `_pushingBill` double-tap navigation debounce guard and centralized date formatting on `date_utils.dart`. Created `test/tracking_screen_test.dart` (4 tests) verifying next stop banner copy, multi-stop estimates, code verified terminal status, and locked code recovery notices. Donor test suite expanded to **108 / 108 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Consistent typography and spacing adhering strictly to the `ShodashaTheme` design token system.
+  - Authoritative, professional delivery tracking copy without exclamation marks or awkward phrasing.
+  - Zero modifications to backend OTP APIs or lifecycle polling mechanisms.
+
 
 ### ADR-170: Screen Unslop 05 Implemented — Donor Orders List & Order Card (2026-10-31)
 
