@@ -1889,6 +1889,11 @@ graph TD
   end
 ```
 
+### Slice 3 Implementation — Quick Reorder & Search Retirement (2026-10-31, ADR-159)
+- `DonorHomeTab` (`customer_home_screen.dart`) now renders `_QuickReorderCard` above `ModeSelectionCards` whenever `OrdersController.reorderCandidate` is non-null.
+- 1-tap reorder flow: Tapping 'Reorder' invokes `onOrderProduct(refill: o.refillQty, container: o.containerQty)`, which opens the existing `BookingSheet` pre-configured with the customer's prior SKU mix.
+- Retired `_SearchSheet` modal cul-de-sac and search bar UI from `DonorTopBar` (`top_bar.dart`) (DEF-13); 2 catalog SKUs remain immediately accessible via `FeaturedProductsShowcase` on the home scroll.
+
 ### Slice 1 Implementation (2026-10-31, ADR-157)
 - `StopDetailScreen` now routes the delivery completion flow exclusively through `HandoverSheet` (`apps/vendor_app/lib/features/stops/handover_sheet.dart`).
 - `HandoverSheet` executes a sequential 2-step modal:

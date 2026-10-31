@@ -859,6 +859,15 @@ class OrdersController extends ChangeNotifier {
     return null;
   }
 
+  /// Most recent order whose SKU mix is known -- used for 1-tap reorder.
+  /// Returns null when list is empty or all rows are legacy (canReorder==false).
+  Order? get reorderCandidate {
+    for (final o in _all) {
+      if (o.canReorder) return o;
+    }
+    return null;
+  }
+
   void setQuery(String q) {
     _query = q;
     _notify();

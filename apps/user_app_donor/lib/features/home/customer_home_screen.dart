@@ -11,6 +11,7 @@ import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_card.dart';
 import '../addresses/address_screen.dart';
 import '../booking/booking_controller.dart';
+import '../orders/orders_controller.dart';
 import 'widgets/featured_products.dart';
 import 'widgets/live_purity_card.dart';
 import 'widgets/mode_selection_cards.dart';
@@ -29,7 +30,7 @@ class DonorHomeTab extends StatefulWidget {
     required this.onOpenProfile,
     required this.onOpenSupport,
     required this.onOpenCart,
-    required this.onSearch,
+    this.orders,
     required this.onOrderProduct,
   });
 
@@ -43,7 +44,7 @@ class DonorHomeTab extends StatefulWidget {
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenSupport;
   final VoidCallback onOpenCart;
-  final VoidCallback onSearch;
+  final OrdersController? orders;
   final void Function({required int refill, required int container})
   onOrderProduct;
 
@@ -99,7 +100,6 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
               onNotifications: widget.onOpenNotifications,
               onProfile: widget.onOpenProfile,
               onCart: widget.onOpenCart,
-              onSearch: widget.onSearch,
             ),
             if (ratesOffline)
               Padding(
@@ -190,6 +190,27 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                         ],
                       ),
                     ),
+                    if (widget.orders != null)
+                      ListenableBuilder(
+                        listenable: widget.orders!,
+                        builder: (context, _) {
+                          final candidate =
+                              widget.orders!.reorderCandidate;
+                          if (candidate == null) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.md,
+                            ),
+                            child: _QuickReorderCard(
+                              order: candidate,
+                              onReorder: () => widget.onOrderProduct(
+                                refill: candidate.refillQty,
+                                container: candidate.containerQty,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.lg,
@@ -310,6 +331,69 @@ class _SupportCard extends StatelessWidget {
             expand: false,
             height: ShodashaTheme.minTarget,
             onPressed: onTap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickReorderCard extends StatelessWidget {
+  const _QuickReorderCard({required this.order, required this.onReorder});
+
+  final Order order;
+  final VoidCallback onReorder;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = order.itemSummary.isEmpty ? 'last order' : order.itemSummary;
+    return AppCard(
+      color: ShodashaTheme.tealTint,
+      borderColor: ShodashaTheme.teal.withValues(alpha: 0.22),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.replay_rounded,
+            color: ShodashaTheme.tealDeep,
+            size: 22,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Reorder last delivery',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  summary,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          AppButton(
+            label: 'Reorder',
+            kind: AppButtonKind.money,
+            expand: false,
+            height: ShodashaTheme.minTarget,
+            onPressed: onReorder,
           ),
         ],
       ),

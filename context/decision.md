@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-159 | 2026-10-31 | Slice 3 implemented: Donor Core Home & Checkout Machine - retired search modal cul-de-sac (_SearchSheet, DEF-13); added 1-tap QuickReorderCard on home scroll using OrdersController.reorderCandidate (DEF-03); 80/80 donor + 70/70 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{home,orders,shell}, apps/user_app_donor/test/quick_reorder_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-158 | 2026-10-31 | Slice 2 implemented: Donor Token Foundation & Theme Reset - reset elevatedButtonTheme backgroundColor from greenDark to tealDeep (DEF-04); exported AppSpacing+AppMotion to vendor theme; created vendor AppButton with ink/blue identity; migrated 3 handover_sheet buttons to AppButton (DEF-14); 70/70 vendor + 75/75 donor tests green | Accepted (implemented 2026-10-31) | pps/user_app_donor/lib/core/theme.dart, pps/vendor_app/lib/{core/theme,shared/ui/app_button,features/stops/handover_sheet}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-157 | 2026-10-31 | Slice 1 implemented: Vendor trust, money & doorstep handover — deleted `stopsDone * 2000` client fallback in `earnings_screen.dart:117` (DEF-02); created unified 2-step `HandoverSheet` (DEF-01) replacing fragmented `TripleSheet` + `PodSheet` in `stop_detail_screen.dart`; 70/70 vendor tests green (2 new unit tests) | Accepted (implemented 2026-10-31) | `apps/vendor_app/lib/features/{earnings,stops}`, `test/handover_sheet_test.dart`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-156 | 2026-10-31 | UI/UX Unslop Audit complete across all 20 screen and cross-cutting clusters; 20 defects prioritized across 5 slices in `22-backlog.md`; owner approved Option A across all 7 strategic decisions in `23-owner-decisions.md`; zero app code changed, baseline tests 75 donor / 68 vendor 100% clean | Accepted (owner approved Option A on 2026-10-31) | `Feature_docs/ux-unslop-audit/*`, `context/{progress-tracker,flow,decision}.md` |
@@ -210,6 +211,26 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-159: Slice 3 Implemented — Donor Home Reorder & Search Retirement (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 3 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decision 5 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Keep search bar as dummy visual or search sheet for 2 SKUs.** Rejected (DEF-13): Catalog consists of only two SKUs (20L refill and 20L container jar). Search is an artificial step adding zero value and raising unnecessary keyboards.
+  2. **Require navigating to Orders tab for repeat ordering.** Rejected: 1-tap reorder on the home scroll drastically reduces friction for repeat water replenishment.
+  3. **Add `reorderCandidate` getter to `OrdersController` + `QuickReorderCard` on Home + complete retirement of `_SearchSheet`.** Chosen (Option A).
+- **Decision**:
+  1. (DEF-13): Retired `_SearchSheet`, `_SearchSheetState`, `_ProductPick`, and `_openSearch()` from `donor_shell.dart`. Removed `onSearch` callback prop from `DonorTopBar` and `DonorHomeTab`, and removed the decorative search bar row from `top_bar.dart`. Both SKUs remain immediately accessible on the home scroll via `FeaturedProductsShowcase`.
+  2. (DEF-03): Added `reorderCandidate` getter to `OrdersController` (returns first order in `_all` where `canReorder == true`, or null).
+  3. Added `_QuickReorderCard` to `customer_home_screen.dart` between greeting and `ModeSelectionCards`, rendered only when `orders.reorderCandidate != null`. Tapping fires `onOrderProduct(refill, container)` directly routing to `BookingSheet`.
+  4. Created unit test suite `apps/user_app_donor/test/quick_reorder_test.dart` (5 tests).
+  5. Gates: Flutter analyze clean (0 issues) in donor and vendor apps; tests: donor **80/80 passed** (75 baseline + 5 new), vendor **70/70 passed**, backend pytest **487 passed / 1 skipped**.
+- **Why**: Eliminates redundant UI friction and dead search modals while streamlining the primary user action (repeat water reordering) to a single tap.
+- **Consequences**: Zero loss in catalog discoverability; repeat customers can reorder in 1 tap directly from the home tab.
+- **Affects**: `apps/user_app_donor/lib/features/home/customer_home_screen.dart`, `apps/user_app_donor/lib/features/home/widgets/top_bar.dart`, `apps/user_app_donor/lib/features/orders/orders_controller.dart`, `apps/user_app_donor/lib/features/shell/donor_shell.dart`, `apps/user_app_donor/test/quick_reorder_test.dart`, `context/*`.
 
 
 ### ADR-158: Slice 2 Implemented - Donor Token Foundation & Theme Reset (2026-10-31)
