@@ -1,3 +1,4 @@
+import 'package:flutter/scheduler.dart';
 // Today route sheet: loading header + sequenced stop cards + SKIP list.
 
 import 'package:flutter/material.dart';
@@ -55,7 +56,15 @@ class _RouteScreenState extends State<RouteScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (WidgetsBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      setState(() {});
+    }
   }
 
   @override

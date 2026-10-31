@@ -1,3 +1,4 @@
+import 'package:flutter/scheduler.dart';
 // Earnings screen: shift summary + flagged-hold note.
 
 import 'package:flutter/material.dart';
@@ -24,7 +25,15 @@ class _EarningsScreenState extends State<EarningsScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (WidgetsBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      setState(() {});
+    }
   }
 
   @override
@@ -101,12 +110,14 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Aapki Kamai (Commission)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: ShodashaTheme.ink,
+                    const Expanded(
+                      child: Text(
+                        'Aapki Kamai (Commission)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: ShodashaTheme.ink,
+                        ),
                       ),
                     ),
                     const Icon(Icons.account_balance_wallet_outlined, color: ShodashaTheme.blue),
@@ -148,12 +159,14 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Agency Cash (In-Hand)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: ShodashaTheme.ink,
+                    const Expanded(
+                      child: Text(
+                        'Agency Cash (In-Hand)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: ShodashaTheme.ink,
+                        ),
                       ),
                     ),
                     Container(
@@ -193,7 +206,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Cash Collections:', style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+                    const Expanded(
+                      child: Text('Cash Collections:', style: TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+                    ),
                     Text(rupees(c.cashTotal), style: const TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
@@ -201,7 +216,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('UPI Collections (Direct Bank):', style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+                    const Expanded(
+                      child: Text('UPI Collections (Direct Bank):', style: TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+                    ),
                     Text(rupees(c.upiTotal), style: const TextStyle(fontWeight: FontWeight.w600, color: ShodashaTheme.blue)),
                   ],
                 ),

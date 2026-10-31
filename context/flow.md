@@ -1889,6 +1889,12 @@ graph TD
   end
 ```
 
+### Slice 4 Implementation — Vendor Shell & Duty Architecture (2026-10-31, ADR-160)
+- `VendorShell` (`apps/vendor_app/lib/features/shell/vendor_shell.dart`) retired the Android side drawer (DEF-05); bottom tab 4 ('More') switches the shell's body directly to `MoreHubScreen` (`more_hub_screen.dart`).
+- `MoreHubScreen` consolidates operational tools (Customers, Stock, Sync Log with pending queue badge, Duty Settings) and account tools (Profile, WhatsApp SOS, Logout with confirm dialog).
+- Duty gate overhaul (DEF-07): Replaced blocking full-screen duty lockout with a persistent soft sticky banner `_OffDutyBanner` at the top of the app with an instant 'Go On Duty' CTA.
+- When off-duty, Route tab displays `_OffDutyRouteLock` with route stops disabled, while Earnings, Support, and More tabs remain 100% interactive.
+
 ### Slice 3 Implementation — Quick Reorder & Search Retirement (2026-10-31, ADR-159)
 - `DonorHomeTab` (`customer_home_screen.dart`) now renders `_QuickReorderCard` above `ModeSelectionCards` whenever `OrdersController.reorderCandidate` is non-null.
 - 1-tap reorder flow: Tapping 'Reorder' invokes `onOrderProduct(refill: o.refillQty, container: o.containerQty)`, which opens the existing `BookingSheet` pre-configured with the customer's prior SKU mix.

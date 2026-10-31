@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-160 | 2026-10-31 | Slice 4 implemented: Vendor Shell, Duty Gate & Navigation Hub — replaced drawer with dedicated MoreHubScreen (DEF-05); replaced blocking off-duty lockout with soft sticky banner & locked route state allowing off-duty access to Earnings and More (DEF-07); 71/71 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/theme.dart,features/shell/*,features/route/route_screen.dart,features/earnings/earnings_screen.dart,shared/ui/app_button.dart}, apps/vendor_app/test/vendor_shell_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-159 | 2026-10-31 | Slice 3 implemented: Donor Core Home & Checkout Machine - retired search modal cul-de-sac (_SearchSheet, DEF-13); added 1-tap QuickReorderCard on home scroll using OrdersController.reorderCandidate (DEF-03); 80/80 donor + 70/70 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{home,orders,shell}, apps/user_app_donor/test/quick_reorder_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-158 | 2026-10-31 | Slice 2 implemented: Donor Token Foundation & Theme Reset - reset elevatedButtonTheme backgroundColor from greenDark to tealDeep (DEF-04); exported AppSpacing+AppMotion to vendor theme; created vendor AppButton with ink/blue identity; migrated 3 handover_sheet buttons to AppButton (DEF-14); 70/70 vendor + 75/75 donor tests green | Accepted (implemented 2026-10-31) | pps/user_app_donor/lib/core/theme.dart, pps/vendor_app/lib/{core/theme,shared/ui/app_button,features/stops/handover_sheet}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-157 | 2026-10-31 | Slice 1 implemented: Vendor trust, money & doorstep handover — deleted `stopsDone * 2000` client fallback in `earnings_screen.dart:117` (DEF-02); created unified 2-step `HandoverSheet` (DEF-01) replacing fragmented `TripleSheet` + `PodSheet` in `stop_detail_screen.dart`; 70/70 vendor tests green (2 new unit tests) | Accepted (implemented 2026-10-31) | `apps/vendor_app/lib/features/{earnings,stops}`, `test/handover_sheet_test.dart`, `context/{progress-tracker,flow,decision}.md` |
@@ -211,6 +212,27 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-160: Slice 4 Implemented — Vendor Shell, Duty Gate & Navigation Hub (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 4 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decisions 2 & 3 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Retain side drawer triggered on bottom tab 4 tap.** Rejected (DEF-05): breaks mobile navigation ergonomics, creates gesture conflicts, and feels unpolished.
+  2. **Retain full-screen duty lockout.** Rejected (DEF-07): forces drivers to toggle duty on prematurely just to check earnings or profile from home, polluting backend availability metrics.
+  3. **Dedicated MoreHubScreen for Tab 4 + soft sticky duty banner with route lock.** Chosen (Option A).
+- **Decision**:
+  1. (DEF-05): Retired the side `Drawer` and `openDrawer()` call from `vendor_shell.dart`. Created `apps/vendor_app/lib/features/shell/more_hub_screen.dart` containing Customers, Stock Log, Sync Log (with pending queue badge), Duty Settings, Profile, WhatsApp SOS, and Logout. Tapping Tab 4 ("More") in `NavigationBar` switches the shell's body to `MoreHubScreen` via lazy-mounted `IndexedStack`.
+  2. (DEF-07): Removed full-screen off-duty lockout from `VendorShell.build()`. Introduced `_OffDutyBanner` at the top of the shell with `"Go On Duty"` CTA, and `_OffDutyRouteLock` on the Route tab (stops locked while off duty). Earnings (Tab 1), Support (Tab 2), and More (Tab 3) remain 100% interactive while off duty.
+  3. Added `surface`, `amberTint`, and `warning` tokens to `apps/vendor_app/lib/core/theme.dart` (completing DEF-14 token alignment).
+  4. Fixed text truncation in `AppButton` via `Flexible` on label and fixed row overflow in `earnings_screen.dart`.
+  5. Created unit test `apps/vendor_app/test/vendor_shell_test.dart`.
+  6. Gates: Flutter analyze clean (0 issues) in both apps; tests: vendor **71/71 passed**, donor **80/80 passed**, backend pytest **487 passed / 1 skipped**.
+- **Why**: Drastically improves driver ergonomics, eliminates navigation drawer traps, and allows drivers to check earnings without activating duty.
+- **Consequences**: Standard mobile bottom-tab navigation; no drawers in the vendor app.
+- **Affects**: `apps/vendor_app/lib/features/shell/vendor_shell.dart`, `apps/vendor_app/lib/features/shell/more_hub_screen.dart`, `apps/vendor_app/lib/core/theme.dart`, `apps/vendor_app/lib/features/route/route_screen.dart`, `apps/vendor_app/lib/features/earnings/earnings_screen.dart`, `apps/vendor_app/lib/shared/ui/app_button.dart`, `apps/vendor_app/test/vendor_shell_test.dart`, `context/*`.
 
 
 ### ADR-159: Slice 3 Implemented — Donor Home Reorder & Search Retirement (2026-10-31)

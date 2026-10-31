@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 
 abstract final class ShodashaTheme {
   static const Color bg = Color(0xFFFFFFFF);
+  static const Color surface = Color(0xFFFFFFFF);
   static const Color ink = Color(0xFF111111);
   static const Color muted = Color(0xFF595959);
   static const Color blue = Color(0xFF0284C7);
   static const Color blueTint = Color(0xFFE6F3FA);
+  static const Color amberTint = Color(0xFFFEF3C7);
+  static const Color warning = Color(0xFFD97706);
   static const Color border = Color(0xFFE5E5E5);
   static const Color danger = Color(0xFFB91C1C);
   static const Color success = Color(0xFF15803D);
