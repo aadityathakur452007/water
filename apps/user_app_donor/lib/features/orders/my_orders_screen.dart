@@ -55,13 +55,31 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
     }
   }
 
-  void _track(Order order) => _push(
-    TrackingScreen(
-      controller: widget.controller,
-      orderId: order.id,
-      onSupport: widget.onSupport,
-    ),
-  );
+  Future<void> _track(Order order) async {
+    if (_pushing) return;
+    _pushing = true;
+    try {
+      final cancelled = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          builder: (_) => TrackingScreen(
+            controller: widget.controller,
+            orderId: order.id,
+            onSupport: widget.onSupport,
+          ),
+        ),
+      );
+      if (cancelled == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ordersStrings['cancelledBanner']!),
+          ),
+        );
+        widget.controller.load();
+      }
+    } finally {
+      _pushing = false;
+    }
+  }
 
   void _bill(Order order) => _push(BillScreen(order: order));
 

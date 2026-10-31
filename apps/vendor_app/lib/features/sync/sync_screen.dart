@@ -70,19 +70,19 @@ class _SyncScreenState extends State<SyncScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    c.result!.contains('Network')
-                        ? Icons.cloud_off_outlined
-                        : (c.result!.contains('fail') ||
-                                c.rejected.isNotEmpty
-                            ? Icons.error_outline
-                            : Icons.check_circle_outline),
+                    switch (c.tone) {
+                      SyncResultTone.networkError => Icons.cloud_off_outlined,
+                      SyncResultTone.serverError => Icons.error_outline,
+                      SyncResultTone.success || SyncResultTone.none =>
+                        Icons.check_circle_outline,
+                    },
                     size: 20,
-                    color: c.result!.contains('Network')
-                        ? ShodashaTheme.muted
-                        : (c.result!.contains('fail') ||
-                                c.rejected.isNotEmpty
-                            ? ShodashaTheme.danger
-                            : ShodashaTheme.blue),
+                    color: switch (c.tone) {
+                      SyncResultTone.networkError => ShodashaTheme.muted,
+                      SyncResultTone.serverError => ShodashaTheme.danger,
+                      SyncResultTone.success || SyncResultTone.none =>
+                        ShodashaTheme.blue,
+                    },
                   ),
                   const SizedBox(width: 8),
                   Expanded(

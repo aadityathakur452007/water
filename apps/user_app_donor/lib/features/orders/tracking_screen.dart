@@ -246,13 +246,14 @@ class _TrackingScreenState extends State<TrackingScreen>
     if (ok != true || !mounted) return;
     final done = await widget.controller.cancel(order.id, _cancelReason.code);
     if (!mounted) return;
+    if (done) {
+      widget.controller.stopTracking();
+      Navigator.of(context).pop(true);
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          done
-              ? ordersStringsHi['cancelledBanner']!
-              : ordersStringsHi['cancelFailed']!,
-        ),
+        content: Text(ordersStrings['cancelFailed']!),
       ),
     );
   }

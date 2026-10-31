@@ -65,6 +65,8 @@ class QueuedTriple {
       };
 }
 
+enum SyncResultTone { none, success, networkError, serverError }
+
 class SyncController extends ChangeNotifier {
   SyncController({required ApiClient api}) : _api = api;
 
@@ -77,6 +79,7 @@ class SyncController extends ChangeNotifier {
   bool _loaded = false;
   String? _result;
   List<Map<String, dynamic>> _rejected = const [];
+  SyncResultTone _tone = SyncResultTone.none;
 
   List<QueuedTriple> get queue => _queue;
   bool get syncing => _syncing;
@@ -85,6 +88,7 @@ class SyncController extends ChangeNotifier {
   bool get loaded => _loaded;
   String? get result => _result;
   List<Map<String, dynamic>> get rejected => _rejected;
+  SyncResultTone get tone => _tone;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -171,6 +175,7 @@ class SyncController extends ChangeNotifier {
     if (_syncing || _queue.isEmpty) return;
     _syncing = true;
     _result = null;
+    _tone = SyncResultTone.none;
     notifyListeners();
     try {
       final raw = await _api
@@ -190,7 +195,13 @@ class SyncController extends ChangeNotifier {
       await _persist();
       _result =
           '${done.length} synced • ${_rejected.length} rejected • ${_queue.length} baaki';
+      _tone = _rejected.isNotEmpty
+          ? SyncResultTone.serverError
+          : SyncResultTone.success;
     } on ApiException catch (e) {
+      _tone = e.isNetwork
+          ? SyncResultTone.networkError
+          : SyncResultTone.serverError;
       _result = e.isNetwork
           ? 'Network nahi — baad me retry karein'
           : 'Sync fail: ${e.message}';
@@ -202,6 +213,7 @@ class SyncController extends ChangeNotifier {
 
   void clearResult() {
     _result = null;
+    _tone = SyncResultTone.none;
     notifyListeners();
   }
 

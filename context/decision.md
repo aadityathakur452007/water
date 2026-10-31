@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-163 | 2026-10-31 | Slice 7 implemented: Cross-App Error Resilience & Tracking Navigation — Tracking route pop & stopTracking() on cancel (DEF-06); typed ratesOffline getter on BookingController & typed SyncResultTone on SyncController replacing fragile substring inspection (DEF-18); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{booking/booking_controller,home/customer_home_screen,orders/{my_orders_screen,tracking_screen}}.dart, apps/vendor_app/lib/features/sync/{sync_controller,sync_screen}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-162 | 2026-10-31 | Slice 6 implemented: Donor App Polish, Touch Targets & Telephone Sync — StatusPill 8dp radius standardization (DEF-19); AppConstants.kSupportPhone single-source unification (DEF-20); 48dp minimum touch targets on plan builder steppers & chips; HapticFeedback on steppers and primary buttons; 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-161 | 2026-10-31 | Slice 5 implemented: Cross-Cutting Reliability, Addresses & Hygiene — Bhopal map default (DEF-08); plan builder zero-schedule guard (DEF-10); wallet zero-flash guard (DEF-09); engineering leak scrubbing in copy and notifications (DEF-12); centralized date_utils (DEF-15); authStrings/ordersStrings dictionary rename (DEF-16); a11y semantics for avatar, purity, and tracking (DEF-17); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/utils/date_utils.dart,features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}}, context/{progress-tracker,flow,decision}.md |
 | ADR-160 | 2026-10-31 | Slice 4 implemented: Vendor Shell, Duty Gate & Navigation Hub — replaced drawer with dedicated MoreHubScreen (DEF-05); replaced blocking off-duty lockout with soft sticky banner & locked route state allowing off-duty access to Earnings and More (DEF-07); 71/71 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/theme.dart,features/shell/*,features/route/route_screen.dart,features/earnings/earnings_screen.dart,shared/ui/app_button.dart}, apps/vendor_app/test/vendor_shell_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -214,6 +215,20 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-163: Slice 7 Implemented — Cross-App Error Resilience & Tracking Navigation (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of DEF-06 and DEF-18 from `Feature_docs/ux-unslop-audit/22-backlog.md` covering tracking navigation stack pollution and fragile error string scraping across donor and vendor apps.
+- **Decisions**:
+  1. **DEF-06 (Tracking Navigation & Stack Pollution)**: In `TrackingScreen._confirmCancel()`, successful cancellation calls `widget.controller.stopTracking()` to halt background timer loops and pops the route with `true`. `MyOrdersScreen._track()` awaits this result, displays the cancellation snackbar, and calls `controller.load()` to refresh the orders list. This eliminates dead-end polling on cancelled orders and back-stack pollution.
+  2. **DEF-18 (Typed Error Resilience)**:
+     - In `BookingController` (`apps/user_app_donor`), exposed typed `bool ratesOffline` populated directly from `e.isOffline` during `refreshRates()`. In `customer_home_screen.dart`, replaced `ratesError.toLowerCase().contains('internet')` with typed `ratesOffline`.
+     - In `SyncController` (`apps/vendor_app`), introduced `enum SyncResultTone { none, success, networkError, serverError }` and exposed getter `tone`. In `sync_screen.dart`, replaced string scraping (`.contains('Network')` and `.contains('fail')`) with clean switch on `c.tone`.
+- **Consequences**: Zero string scraping for operational/network state; cleanly managed tracking navigation lifecycle; no background polling on terminal states; 80/80 donor + 71/71 vendor tests green; backend 487 passed / 1 skipped.
+- **Affects**: `apps/user_app_donor/lib/features/{booking/booking_controller,home/customer_home_screen,orders/{my_orders_screen,tracking_screen}}.dart`, `apps/vendor_app/lib/features/sync/{sync_controller,sync_screen}.dart`, `context/{progress-tracker,flow,decision}.md`.
 
 
 ### ADR-162: Slice 6 Implemented — Donor App Polish, Touch Targets & Telephone Sync (2026-10-31)

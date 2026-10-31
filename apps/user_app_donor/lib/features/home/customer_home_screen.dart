@@ -78,9 +78,7 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
       builder: (context, _) {
         final selected = widget.addresses.resolve();
         final addressStatus = widget.addresses.status;
-        final ratesError = widget.booking.ratesError;
-        final ratesOffline =
-            ratesError != null && ratesError.toLowerCase().contains('internet');
+        final ratesOffline = widget.booking.ratesOffline;
 
         return Column(
           children: [

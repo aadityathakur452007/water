@@ -272,6 +272,7 @@ class BookingController extends ChangeNotifier {
   CatalogRates? rates;
   bool ratesLoading = false;
   String? ratesError;
+  bool ratesOffline = false;
 
   bool get hasCatalog => _catalog != null;
   bool get hasRates => rates != null;
@@ -558,19 +559,24 @@ class BookingController extends ChangeNotifier {
     if (ratesLoading) return;
     ratesLoading = true;
     ratesError = null;
+    ratesOffline = false;
     notifyListeners();
     try {
       rates = await api.fetchRates();
       ratesError = null;
+      ratesOffline = false;
     } on ApiException catch (e) {
+      ratesOffline = e.isOffline;
       ratesError = e.isOffline
           ? 'No internet — check your connection and retry.'
           : e.isServerError
           ? 'Server problem — retry in a moment.'
           : e.message;
     } on CatalogUnavailable catch (e) {
+      ratesOffline = false;
       ratesError = e.message;
     } catch (_) {
+      ratesOffline = false;
       ratesError = 'Could not load prices. Please retry.';
     } finally {
       ratesLoading = false;
