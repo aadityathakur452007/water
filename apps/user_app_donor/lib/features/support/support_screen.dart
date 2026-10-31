@@ -21,26 +21,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_banner.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_icon_button.dart';
 import 'support_controller.dart';
 
 String _supportDate(DateTime value) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
+  const months = kShortMonths;
   final d = value.toLocal();
   return '${d.day} ${months[d.month - 1]}';
 }

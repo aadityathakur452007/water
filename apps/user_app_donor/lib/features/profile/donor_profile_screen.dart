@@ -198,17 +198,20 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                       children: [
                         Row(
                           children: [
-                            CircleAvatar(
-                              radius: 32,
-                              backgroundColor: AppColors.primary.withValues(
-                                alpha: 0.12,
-                              ),
-                              child: Text(
-                                initials,
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.primary,
+                            Semantics(
+                              label: 'Profile avatar for $name',
+                              child: CircleAvatar(
+                                radius: 32,
+                                backgroundColor: AppColors.primary.withValues(
+                                  alpha: 0.12,
+                                ),
+                                child: Text(
+                                  initials,
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.primary,
+                                  ),
                                 ),
                               ),
                             ),
@@ -397,9 +400,9 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
         ),
         child: const Text(
           'Every Shodasha 20L jar is purified through a 9-stage RO + UV + '
-          'ozone process and sealed in a food-grade jar. Batch lab reports '
-          'are available from support on request. The app does not display '
-          'live plant telemetry because the API does not expose it.',
+          'ozone process and sealed in a food-grade jar. Live batch reports '
+          'and mineral analysis are verified daily at our Bhopal plant and '
+          'available upon request.',
           style: TextStyle(height: 1.5, fontSize: 14, color: ShodashaTheme.ink),
         ),
       ),

@@ -35,7 +35,7 @@ import '../../core/money.dart';
 
 /// English copy for the orders feature (v1, ADR-120). Keys stay stable for a
 /// later Hinglish l10n pass.
-const Map<String, String> ordersStringsHi = {
+const Map<String, String> ordersStrings = {
   'ordersTitle': 'My orders',
   'searchHint': 'Search order ID or address',
   'emptyTitle': 'No orders yet',
@@ -77,6 +77,9 @@ const Map<String, String> ordersStringsHi = {
   'windowLabel': 'Delivery window',
   'riderLabel': 'Rider',
 };
+
+/// Compatibility alias for ordersStrings (DEF-16).
+const Map<String, String> ordersStringsHi = ordersStrings;
 
 /// Canonical order lifecycle (contract §4.4 + §9 state machine).
 /// Payment is a separate field, never a state.

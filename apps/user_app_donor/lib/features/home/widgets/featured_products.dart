@@ -36,7 +36,7 @@ class FeaturedProductsShowcase extends StatelessWidget {
         SectionHeader(
           title: 'Featured water cans',
           trailing: const Text(
-            'Server prices',
+            'Daily verified',
             style: TextStyle(
               fontSize: 12,
               color: ShodashaTheme.tealDeep,

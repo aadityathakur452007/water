@@ -296,7 +296,9 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         !_submitting &&
         _estimate != null &&
         !_estimateLoading &&
-        _estimateError == null;
+        _estimateError == null &&
+        _qty > 0 &&
+        _schedule.isNotEmpty;
     return PopScope(
       canPop: !_submitting,
       child: Padding(

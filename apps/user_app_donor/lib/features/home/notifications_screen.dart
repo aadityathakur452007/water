@@ -123,7 +123,7 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
                 for (final o in widget.orders.allOrders.take(20))
                   _Note(
                     icon: _orderIcon(o.state),
-                    title: 'Order #${o.id} · ${orderStateLabel(o.state)}',
+                    title: 'Order #${o.id.length > 8 ? o.id.substring(o.id.length - 6) : o.id} · ${orderStateLabel(o.state)}',
                     body: o.itemSummary.isEmpty
                         ? 'Tap to see delivery details.'
                         : o.itemSummary,

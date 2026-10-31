@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_card.dart';
 import '../../shared/ui/status_pill.dart';
@@ -61,23 +62,8 @@ class DonorOrderCard extends StatelessWidget {
     final start = order.windowStart;
     final end = order.windowEnd;
     String two(int n) => n.toString().padLeft(2, '0');
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
     final day =
-        '${days[start.weekday - 1]}, ${start.day} ${months[start.month - 1]}';
+        '${kShortWeekdays[start.weekday - 1]}, ${start.day} ${kShortMonths[start.month - 1]}';
     final from = '${two(start.hour)}:${two(start.minute)}';
     if (end == null) return '$day · from $from';
     return '$day · $from–${two(end.hour)}:${two(end.minute)}';

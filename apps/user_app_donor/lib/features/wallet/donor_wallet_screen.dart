@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_banner.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_card.dart';
@@ -631,20 +632,7 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
   static String? _shortDate(String? iso) {
     final d = iso == null ? null : DateTime.tryParse(iso);
     if (d == null) return null;
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
+    const months = kShortMonths;
     final local = d.toLocal();
     return '${local.day} ${months[local.month - 1]} ${local.year}';
   }

@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_icon_button.dart';
 import '../addresses/address_screen.dart';
@@ -1553,20 +1554,7 @@ String _slotDateLabel(String isoDate) {
   final d = DateTime.tryParse(isoDate);
   if (d == null) return isoDate;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
+  const months = kShortMonths;
   return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
 }
 

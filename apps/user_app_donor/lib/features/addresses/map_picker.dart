@@ -16,7 +16,7 @@ import '../../shared/ui/app_button.dart';
 
 /// Neutral camera fallback when there is no pin and no GPS yet. This is only
 /// the viewport centre — it is never treated as a selected delivery pin.
-const LatLng kDefaultCenter = LatLng(21.1458, 79.0882);
+const LatLng kDefaultCenter = LatLng(23.2599, 77.4126);
 
 /// Pushes the picker; pops the chosen pin (null when dismissed).
 Future<LatLng?> pickMapPin(BuildContext context, {LatLng? initial}) {

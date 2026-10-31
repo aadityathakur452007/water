@@ -120,45 +120,48 @@ class _Fact extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: ShodashaTheme.tealDeep,
-            fontWeight: FontWeight.w800,
-            fontSize: 14,
-            letterSpacing: -0.1,
+    return Semantics(
+      label: '$title: $value, $detail',
+      child: Column(
+        children: [
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: ShodashaTheme.tealDeep,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+              letterSpacing: -0.1,
+            ),
           ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: ShodashaTheme.ink,
-            fontWeight: FontWeight.w700,
-            fontSize: 11.5,
+          const SizedBox(height: 3),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: ShodashaTheme.ink,
+              fontWeight: FontWeight.w700,
+              fontSize: 11.5,
+            ),
           ),
-        ),
-        const SizedBox(height: 1),
-        Text(
-          detail,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: ShodashaTheme.muted,
-            fontSize: 11,
-            height: 1.3,
+          const SizedBox(height: 1),
+          Text(
+            detail,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: ShodashaTheme.muted,
+              fontSize: 11,
+              height: 1.3,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_banner.dart';
 import '../../shared/ui/app_state_view.dart';
 
@@ -138,20 +139,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     if (iso == null || iso.isEmpty) return '';
     try {
       final dt = DateTime.parse(iso).toLocal();
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
+      const months = kShortMonths;
       final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
       final ampm = dt.hour >= 12 ? 'PM' : 'AM';
       final min = dt.minute.toString().padLeft(2, '0');

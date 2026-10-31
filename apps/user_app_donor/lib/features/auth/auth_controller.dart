@@ -21,7 +21,7 @@ import '../../core/api_client.dart';
 
 // English copy for v1 (ADR-120). Keys stay stable so a future Hinglish l10n
 // pass can supply the same map without touching the screens.
-const Map<String, String> authStringsHi = {
+const Map<String, String> authStrings = {
   'appName': 'Shodasha',
   'appTagline': 'Shodasha Mineral Water • RO+UV, lab-tested',
   'signInTitle': 'Welcome back',
@@ -67,6 +67,9 @@ const Map<String, String> authStringsHi = {
   'newDevice': 'New device detected — your old session stays safe',
   'notUser': 'This account is not for the customer app',
 };
+
+/// Compatibility alias for authStrings (DEF-16).
+const Map<String, String> authStringsHi = authStrings;
 
 /// Strips spaces/dashes/+91/0 variants → 10-digit subscriber number.
 ///

@@ -29,32 +29,17 @@ import '../../shared/ui/app_card.dart';
 import '../../shared/ui/app_sheet.dart';
 import '../../shared/ui/app_state_view.dart';
 import '../../shared/ui/status_pill.dart';
+import '../../core/utils/date_utils.dart';
 import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'rating_sheet.dart';
 
 String _dayLabel(DateTime d) {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+  return '${kShortWeekdays[d.weekday - 1]}, ${d.day} ${kShortMonths[d.month - 1]}';
 }
 
 String _shortDayLabel(DateTime d) {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return '${days[d.weekday - 1]} ${d.day}';
+  return '${kShortWeekdays[d.weekday - 1]} ${d.day}';
 }
 
 bool _sameDay(DateTime a, DateTime b) =>
@@ -828,6 +813,14 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      label: filled ? 'Completed step' : 'Upcoming step',
+      child: () {
+
+    return Semantics(
+      label: filled ? 'Completed step' : 'Upcoming step',
+      child: () {
+
     // Phase 9 §9.1: the fill change pops (scale) + the check fades in —
     // 200ms, transform + opacity only. Static when reduced motion is on
     // (the color still flips instantly, so state never depends on motion).
@@ -875,6 +868,10 @@ class _Dot extends StatelessWidget {
           ),
         ),
       ),
+    );
+      }(),
+    );
+      }(),
     );
   }
 }

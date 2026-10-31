@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-161 | 2026-10-31 | Slice 5 implemented: Cross-Cutting Reliability, Addresses & Hygiene — Bhopal map default (DEF-08); plan builder zero-schedule guard (DEF-10); wallet zero-flash guard (DEF-09); engineering leak scrubbing in copy and notifications (DEF-12); centralized date_utils (DEF-15); authStrings/ordersStrings dictionary rename (DEF-16); a11y semantics for avatar, purity, and tracking (DEF-17); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/utils/date_utils.dart,features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}}, context/{progress-tracker,flow,decision}.md |
 | ADR-160 | 2026-10-31 | Slice 4 implemented: Vendor Shell, Duty Gate & Navigation Hub — replaced drawer with dedicated MoreHubScreen (DEF-05); replaced blocking off-duty lockout with soft sticky banner & locked route state allowing off-duty access to Earnings and More (DEF-07); 71/71 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/theme.dart,features/shell/*,features/route/route_screen.dart,features/earnings/earnings_screen.dart,shared/ui/app_button.dart}, apps/vendor_app/test/vendor_shell_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-159 | 2026-10-31 | Slice 3 implemented: Donor Core Home & Checkout Machine - retired search modal cul-de-sac (_SearchSheet, DEF-13); added 1-tap QuickReorderCard on home scroll using OrdersController.reorderCandidate (DEF-03); 80/80 donor + 70/70 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{home,orders,shell}, apps/user_app_donor/test/quick_reorder_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-158 | 2026-10-31 | Slice 2 implemented: Donor Token Foundation & Theme Reset - reset elevatedButtonTheme backgroundColor from greenDark to tealDeep (DEF-04); exported AppSpacing+AppMotion to vendor theme; created vendor AppButton with ink/blue identity; migrated 3 handover_sheet buttons to AppButton (DEF-14); 70/70 vendor + 75/75 donor tests green | Accepted (implemented 2026-10-31) | pps/user_app_donor/lib/core/theme.dart, pps/vendor_app/lib/{core/theme,shared/ui/app_button,features/stops/handover_sheet}.dart, context/{progress-tracker,flow,decision}.md |
@@ -213,6 +214,25 @@
 
 ## Decision Entries
 
+
+### ADR-161: Slice 5 Implemented — Cross-Cutting Reliability, Addresses & Hygiene (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Final slice of the UI/UX unslop audit covering cross-cutting reliability, address defaults, copy hygiene, deduplication, and accessibility across `apps/user_app_donor`.
+- **Decisions**:
+  1. **DEF-08 (Central Bhopal Fallback)**: Replaced default coordinates in `map_picker.dart` with `LatLng(23.2599, 77.4126)` representing Bhopal, MP.
+  2. **DEF-10 (Zero-Schedule Guard)**: Added `_qty > 0 && _schedule.isNotEmpty` guard to `canSubmit` in `plan_builder_sheet.dart` to prevent invalid plan submissions.
+  3. **DEF-09 (Wallet Zero-Flash Guard)**: Guarded initial and loading states in `donor_wallet_screen.dart` with skeleton loader and honest error view if ledger is null, eliminating fake ₹0 flash.
+  4. **DEF-12 (Copy Hygiene & Leak Scrubbing)**:
+     - Scrubbed `'Server prices'` chip from `featured_products.dart` and replaced with `'Daily verified'`.
+     - Scrubbed technical leak `'The app does not display live plant telemetry because the API does not expose it.'` in `donor_profile_screen.dart` and replaced with customer-facing verification copy `'Live batch reports and mineral analysis are verified daily at our Bhopal plant and available upon request.'`.
+     - Shortened order UUIDs in `notifications_screen.dart` to `#...${id.substring(id.length - 6)}`.
+  5. **DEF-15 (Centralized Month Array)**: Extracted duplicate month and day arrays into `apps/user_app_donor/lib/core/utils/date_utils.dart` (`kShortMonths`, `kShortWeekdays`), removing 90+ lines of duplicated arrays across 6 files (`order_card`, `tracking_screen`, `support_screen`, `donor_wallet_screen`, `payment_history_screen`, `booking_sheet`).
+  6. **DEF-16 (Dictionary Canonicalization)**: Renamed `authStringsHi` and `ordersStringsHi` to canonical `authStrings` and `ordersStrings` while retaining backward-compatible aliases.
+  7. **DEF-17 (Accessibility Semantics)**: Added `Semantics` wrappers with descriptive labels to profile avatar initials, purity card fact metrics, and tracking stepper dots.
+- **Consequences**: Zero regressions; clean codebase adhering strictly to ponytail principles (net negative lines of code); 80/80 donor and 71/71 vendor tests pass; backend 487 passed / 1 skipped.
+- **Affects**: `apps/user_app_donor/lib/core/utils/date_utils.dart`, `apps/user_app_donor/lib/features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}`, `context/{progress-tracker,flow,decision}.md`.
 
 ### ADR-160: Slice 4 Implemented — Vendor Shell, Duty Gate & Navigation Hub (2026-10-31)
 
