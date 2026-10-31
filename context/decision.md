@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-155 | 2026-10-31 | UI/UX improvement runs as a **docs-only parallel audit** first: branch `037-uiux-unslop-audit`, ~20 read-only subagents (12 donor, 4 vendor, 4 cross-cutting), one markdown per screen cluster in `Feature_docs/ux-unslop-audit/`, 18-section contract, then synthesis + ranked backlog + owner decisions and a hard approval gate before any app code | Accepted (prompt written 2026-10-31) | `Feature_docs/ux-unslop-audit/handoff-prompt.md`, `context/{progress-tracker,decision}.md`; no app code yet |
 | ADR-154 | 2026-10-31 | Demo cleanup + one admin code — donor/vendor demo-login UI, sheets, controller/API methods, strings and tests removed; production `demo-user-1`/`demo-vendor-1` rows deleted (74 rows, FK-safe); one live admin code **`452007`** issued for `+917828442476` (180 days, expires 2027-04-29), old `c1743f07…` revoked and kept for audit; **both D1 databases kept** (`shodasha` prod, `shodasha-staging` perf/test); donor/vendor analyze clean, tests 75/68, release APKs 38,437,749 B / 53,899,221 B, demo strings absent from both binaries; no backend deploy, nothing pushed | Accepted (local only, 2026-10-31) | `apps/{user_app_donor,vendor_app}`, `workers/api/scripts/cleanup_demo_20261031.sql`, `Feature_docs/demo-cleanup-admin-code/spec.md`, production D1 `shodasha`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-153 | 2026-10-31 | Installed the **unslop** skill (heydamir/unslop, CC BY 4.0) for OpenCode — global `~/.config/opencode/skills/unslop/` and project `.agents/skills/unslop/`; copied verbatim (13 files incl. `references/` + `scripts/snapshot.mjs`, `story.mjs`); not added to `Skills.py`, so `python Skills.py` will not reinstall it | Accepted (installed 2026-10-31) | `~/.config/opencode/skills/unslop/`, `.agents/skills/unslop/`, `SKILLS.md`, `.agents/AGENTS.md`, `context/{progress-tracker,decision}.md`; no app code, no deploy |
 | ADR-152 | 2026-10-27 | Production backend deployed from `main` (`d586bd5`; backend tree = `9ba3a75`) as **`c93ec134`** (tag `donor-backend-20261027`) after a 97,960-byte D1 backup; **no migration** (029 already live); live checks after warm-up: `/health` 200, `/v1/catalog` 200 + 300 s cache/ETag, `/v1/windows` far date 400, `GET .../switch-to-cod` 405; donor UPI→COD route live; earlier out-of-band `4fd380e2` (2026-10-26T12:19:48Z) corrected the stale `511879dc` assumption; transient Free-tier 503/500 on cold start | Accepted (deployed and verified 2026-10-27) | production Worker `water`, `context/{progress-tracker,flow,decision}.md` |
@@ -206,6 +207,21 @@
 ---
 
 ## Decision Entries
+
+### ADR-155: UI/UX improvement starts with a parallel, docs-only unslop audit (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — prompt written; audit not started.**
+- **Context**: The owner wants the donor (primary) and vendor apps audited screen by screen — interactions, flows, spacing, components, redundant/copied code, for-show functions — before anything is redesigned. Prior UI work (`035-premium-ui-states-release`, the donor import) was accepted screen by screen without a shared evidence base, so "is this better?" had no answer beyond opinion.
+- **Options considered**:
+  1. **One agent audits everything, then implements.** Rejected: the two apps are ~28k lines; a single pass either skims or blows the context window.
+  2. **Implement directly, review later.** Rejected by the repo's design-first law and by the owner's explicit instruction not to treat the current build as the benchmark.
+  3. **Parallel read-only audit producing one markdown per screen cluster, then synthesis, then an approval gate.** Chosen.
+  4. **Rewrite from scratch.** Rejected: money/auth/API invariants and passing tests are worth keeping; the audit decides what survives.
+- **Decision**: Branch `037-uiux-unslop-audit`; ~20 read-only subagents (12 donor screen clusters, 4 vendor, 4 cross-cutting: tokens/shared UI, duplication/dead code, flows/state machines, copy/a11y/motion). Each writes one file with an 18-section contract (interaction inventory, flow map, slop audit, spacing/type/color tables with `file:line`, component and dead-code audits, states matrix, unslop direction, prioritized fixes). Lead agent then writes `21-synthesis.md`, `22-backlog.md`, `23-owner-decisions.md` and stops at the approval gate. The only permitted writes are markdown under `Feature_docs/ux-unslop-audit/`; a throwaway screenshot harness is allowed but not committed.
+- **Why**: Parallel screen ownership keeps each agent's context small and its findings verifiable; a fixed 18-section contract makes consolidation mechanical and prevents "looks AI-generated" hand-waving; the docs-only branch guarantees the audit cannot silently change behaviour.
+- **Consequences**: Implementation is blocked until the owner approves the backlog. Audit docs are the new evidence base for every later UI decision. Vendor work is explicitly second priority. No dependency, API, money, auth, or CI change is permitted during the audit.
+- **Affects**: `Feature_docs/ux-unslop-audit/handoff-prompt.md`, `context/{progress-tracker,decision}.md`; no application code.
 
 ### ADR-154: Demo login removed everywhere; one live admin access code (2026-10-31)
 
