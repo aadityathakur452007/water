@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-173 | 2026-10-31 | Screen Unslop 08: Donor Subscriptions & Plan Builder — standardized empty state and pause sheet on AppButton; relocated destructive plan cancellation to kebab PopupMenuButton; replaced tealTint skeleton with ShodashaTheme.skeleton tokens; normalized plan builder title to 18px w700 and payment summary to 12px; 112/112 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/subscriptions/{subscription_screen,plan_builder_sheet}.dart, apps/user_app_donor/test/subscription_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-172 | 2026-10-31 | Screen Unslop 07: Donor Bill Screen & Rating Sheet — resolved WhatsApp button icon identity crisis (Icons.share_outlined -> Icons.chat_outlined); truncated raw UUID in AppBar to 8-character uppercase ref; enriched bill line item with SKU name/quantity; enforced <=3 star conditional threshold for rating complaint shortcut; migrated rating sheet to AppButton and tokenized padding; 110/110 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{bill_screen,rating_sheet}.dart, apps/user_app_donor/test/bill_rating_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-171 | 2026-10-31 | Screen Unslop 06: Donor Tracking Screen & Delivery Code — standardized non-token spacing (10px -> 8dp, 3px -> 4dp) and eliminated fractional fonts (12.5px, 11.5px); calm copy unslop on arrival banners ("Next stop is yours", "Arriving now · Please keep your empty jar ready") and delivery code statuses ("Delivery complete · Code verified", "Code locked after wrong attempts"); 108/108 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/tracking_screen.dart, apps/user_app_donor/test/tracking_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-170 | 2026-10-31 | Screen Unslop 05: Donor Orders List & Order Card — demoted "View bill" to AppButtonKind.secondary eliminating illegal green CTA on closed orders; truncated 32-character UUID to 8-character uppercase ref; made entire card surface tappable (Track on active, Bill on closed); omitted bulky empty-active card when past orders exist; standardized price to 18px and meta text to 12px; 104/104 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{my_orders_screen,order_card}.dart, apps/user_app_donor/test/{donor_order_card_test,my_orders_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
@@ -224,6 +225,23 @@
 ---
 
 ## Decision Entries
+
+### ADR-173: Screen Unslop 08 Implemented — Donor Subscriptions & Plan Builder (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 08 (`Feature_docs/ux-unslop-audit/08-donor-subscriptions.md`) covering `SubscriptionScreen` (`apps/user_app_donor/lib/features/subscriptions/subscription_screen.dart`) and `PlanBuilderSheet` (`plan_builder_sheet.dart`). Prior implementation suffered from raw `ElevatedButton` bypasses of `AppButton` in the empty state and pause sheet, non-tokenized hardcoded list separator (10px), jarring teal-tint skeleton blocks, an aggressive danger-red "Cancel" text button sitting right alongside frequent daily plan actions (skip/pause), an oversized 20px w900 title in the plan builder sheet, and fractional 11.5px footer payment summary text.
+- **Decisions**:
+  1. **Standardized Empty State & Pause Actions on `AppButton` (`D8-01`):** Replaced raw `ElevatedButton.icon` in `_EmptyState` and `_PauseSheet` with `AppButton(label: subStrings['buildPlan']!, kind: AppButtonKind.primary, icon: Icons.add, onPressed: onBuild)` and `AppButton(label: subStrings['pauseConfirm']!, kind: AppButtonKind.primary, onPressed: _confirm)`.
+  2. **Relocated Destructive Cancel Action to Kebab Menu (`D8-02`):** In `_PlanCard`, replaced the flat `TextButton(child: Text('Cancel'), foregroundColor: ShodashaTheme.danger)` with a safe, secondary `PopupMenuButton<String>` with tooltip `'More options'`, displaying `'Cancel plan'` with `Icons.cancel_outlined` and danger styling. This prevents accidental cancellations on 360dp mobile screens while preserving immediate accessibility.
+  3. **Standardized Skeleton State to Theme Surface & Skeleton Tokens (`D8-03`):** In `_SubsSkeleton`, replaced the solid `ShodashaTheme.tealTint` container with a calm card container using `ShodashaTheme.surface`, `ShodashaTheme.border`, and internal placeholder bars styled with `ShodashaTheme.skeleton` and `AppSpacing.sm` spacing.
+  4. **Tokenized Plan Builder Sheet Typography & Spacing (`D8-04`):** In `plan_builder_sheet.dart`, scaled plan title down from 20px w900 to 18px w700 (`-0.2` letterSpacing), normalized header vertical gap to `AppSpacing.lg` (16dp), and eliminated fractional font size by updating payment summary from 11.5px to 12px `ShodashaTheme.bodySmall`.
+  5. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/subscription_screen_test.dart` (2 tests) verifying empty state `AppButton` rendering and plan card kebab menu with cancel action. Donor test suite expanded to **112 / 112 passed**, vendor tests **74 / 74 passed**, zero analyzer warnings.
+- **Consequences**:
+  - Consistent primary button styling across empty, pause, and creation flows.
+  - Safeguarded plan management preventing accidental plan cancellations.
+  - Zero modifications to server-authoritative subscription creation or billing calculations.
+
 
 ### ADR-172: Screen Unslop 07 Implemented — Donor Bill Screen & Rating Sheet (2026-10-31)
 

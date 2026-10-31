@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop 08 Donor Subscriptions & Plan Builder (2026-10-31, ADR-173): Standardized empty state and pause sheet on canonical AppButton (primary teal with add icon); relocated destructive plan cancellation from a flat red TextButton to a kebab PopupMenuButton ('More options'); replaced solid tealTint skeleton with ShodashaTheme.surface and ShodashaTheme.skeleton placeholder bars; normalized plan builder title to 18px w700 and payment summary text to 12px.
+
 - Screen Unslop 07 Donor Bill Screen & Rating Sheet (2026-10-31, ADR-172): Replaced Icons.share_outlined with Icons.chat_outlined on Help on WhatsApp button; truncated bill header order reference to 8-character uppercase ref; enriched water line item with itemSummary ("2 × 20L Refill"); restricted complaint shortcut in RatingSheet to <= 3 stars; migrated RatingSheet submit to AppButton and tokenized padding.
 
 - Screen Unslop 06 Donor Tracking Screen & Delivery Code (2026-10-31, ADR-171): Standardized card gaps to AppSpacing tokens (10px -> 8dp, 3px -> 4dp) and eliminated fractional 12.5px/11.5px fonts; unsloped tracking banner copy ("Next stop is yours", "Arriving now · Please keep your empty jar ready", "Estimated arrival in ~X–Y mins") and delivery code status badges ("Delivery complete · Code verified", "Code locked after wrong attempts · Request a new code"); standardized window time to 16px w700.

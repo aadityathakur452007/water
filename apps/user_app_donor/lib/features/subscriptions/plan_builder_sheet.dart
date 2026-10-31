@@ -354,13 +354,13 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                 Text(
                   subStrings['planTitle']!,
                   style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 if (_signedOut)
                   _SignedOutNote(
                     onSignIn: widget.onSignIn == null ? null : _signIn,
@@ -407,7 +407,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                     _paymentSummary,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 12,
                       height: 1.35,
                       color: ShodashaTheme.muted,
                     ),
