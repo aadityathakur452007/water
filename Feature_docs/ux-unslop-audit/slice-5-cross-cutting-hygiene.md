@@ -43,3 +43,4 @@
 - [ ] `flutter test` donor 80/80 + vendor 71/71
 - [ ] Backend `uv run pytest -q` 487 passed / 1 skipped
 - [ ] Context files updated and committed with Slice 5 commit
+

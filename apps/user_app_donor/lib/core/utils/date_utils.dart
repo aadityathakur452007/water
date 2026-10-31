@@ -24,3 +24,4 @@ const List<String> kShortWeekdays = <String>[
   'Sat',
   'Sun',
 ];
+

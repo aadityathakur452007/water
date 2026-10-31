@@ -77,3 +77,4 @@ without going on duty.
 - [ ] Tapping Tab 4 switches body to `MoreHubScreen`
 - [ ] Off-duty state does not lock out Earnings or Profile/More tabs
 - [ ] New unit tests verifying `VendorShell` tab switching and off-duty banner
+
