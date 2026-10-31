@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop 05 Donor Orders List & Order Card (2026-10-31, ADR-170): Demoted "View bill" on closed orders to AppButtonKind.secondary (eliminating illegal solid green button); truncated 32-char UUID to 8-character uppercase ref; added whole-card onTap to AppCard (Track on active, Bill on closed); omitted Active section when empty to reveal past orders above fold; standardized price to 18px and meta text to 12px; sanitized stale banner copy ("Connection issue · Showing saved orders").
+
 - Screen Unslop 04 Donor Booking Flow & Confirmation (2026-10-31, ADR-169): Standardized QtyStepper directly on ShodashaTheme (pruned dead ShodashaColors); restricted recurring schedules to supported Daily/Alternate/Weekly; migrated payment recovery actions to AppButton hierarchy (COD primary, retry/check secondary); normalized quote_confirm and product_detail padding to AppSpacing.lg/md and cleaned attention status to 'Order placed · Awaiting payment'.
 
 - Screen Unslop 03 Donor Home & Mode Cards (2026-10-31, ADR-168): Unified ModeSelectionCards on neutral ShodashaTheme.surface with border and circular tinted icon badges; standardized RO+UV trust badge to StatusPill with StatusPillTone.brand; standardized copy on 20L refill exchange, refundable jar deposit, support contact, and lab reports.

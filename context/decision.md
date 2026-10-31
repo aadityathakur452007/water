@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-170 | 2026-10-31 | Screen Unslop 05: Donor Orders List & Order Card — demoted "View bill" to AppButtonKind.secondary eliminating illegal green CTA on closed orders; truncated 32-character UUID to 8-character uppercase ref; made entire card surface tappable (Track on active, Bill on closed); omitted bulky empty-active card when past orders exist; standardized price to 18px and meta text to 12px; 104/104 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{my_orders_screen,order_card}.dart, apps/user_app_donor/test/{donor_order_card_test,my_orders_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-169 | 2026-10-31 | Screen Unslop 04: Donor Booking Flow, Steppers & Confirmation — deleted dead ShodashaColors class; restricted recurring schedule to Daily/Alternate/Weekly eliminating custom date modal overflows; standardized payment recovery panel on AppButton hierarchy; normalized confirm and detail sheet padding to AppSpacing tokens; 96/96 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/booking/{booking_sheet,product_detail_sheet,quote_confirm,stepper}.dart, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-168 | 2026-10-31 | Screen Unslop 03: Donor Home, Quick Reorder & Product Cards — unified surface ModeSelectionCards eliminating dark-teal vs yellow visual clash; added StatusPillTone.brand to StatusPill primitive for RO+UV; eliminated fractional 12.5px/11.5px font sizes; clarified doorstep exchange and deposit copy; 93/93 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{features/home/customer_home_screen.dart,features/home/widgets/{featured_products,live_purity_card,mode_selection_cards,top_bar}.dart,shared/ui/status_pill.dart}, apps/user_app_donor/test/home_tab_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-167 | 2026-10-31 | Screen Unslop 02: Donor Shell, Navigation & Notifications — double-tap back protection on Home tab with 2s threshold; neutral surface AppBar in notifications screen; truncated 8-character uppercase order ID and capitalized Plan status badges; offline strip tokenized to 8dp padding and calm copy ("You're offline · Showing saved data"); 92/92 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{shell/donor_shell,home/notifications_screen}.dart, apps/user_app_donor/test/{donor_shell_test,notifications_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
@@ -221,6 +222,25 @@
 ---
 
 ## Decision Entries
+
+### ADR-170: Screen Unslop 05 Implemented — Donor Orders List & Order Card (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 05 (`Feature_docs/ux-unslop-audit/05-donor-orders.md`) covering `DonorOrdersScreen` (`apps/user_app_donor/lib/features/orders/my_orders_screen.dart`), `DonorOrderCard` (`order_card.dart`), and cursor-paged list states. Prior implementation suffered from an illegal solid green CTA on "View bill" for closed orders (`order_card.dart:211`, violating the invariant that green is strictly reserved for conversion/payment actions), illegible 32-character raw UUID hashes (`#2236358550c8425abd9a23f1af39839e`), inert card containers with dead touch space, a bulky `AppStateView.empty("No active deliveries")` card injected when past orders exist (pushing history below the fold), fractional 12.5px font sizes, off-scale 17px prices, and technical error leak copy (`"Server problem — showing the orders already loaded."`).
+- **Decisions**:
+  1. **Demoted "View bill" to Secondary Hierarchy (`D5-01`):** In `order_card.dart:211`, updated `AppButton(label: 'View bill', kind: AppButtonKind.secondary, onPressed: onBill)` on closed orders. Upholds our strict design invariant: *Green is never used for navigation, tracking, or viewing invoices; green is strictly reserved for money/conversion CTAs ("Book water", "Pay", "Confirm order").*
+  2. **Truncated Order References (`D5-02`):** Truncated order IDs to 8 characters uppercase (`#$_orderRef`, e.g. `#22363585`) matching the convention established in notifications (ADR-167).
+  3. **Tappable Material Card Surface (`D5-03`):** Added `onTap: _isClosed ? onBill : onTrack` to `AppCard` in `order_card.dart`. Tapping anywhere on an active delivery card seamlessly routes to live tracking; tapping a past order opens the bill. Explicit action buttons remain for clarity, but the dead-space touch trap is eliminated.
+  4. **Eliminated "No active deliveries" Clutter (`D5-04`):** In `my_orders_screen.dart`, when a customer has order history (`all.isNotEmpty`), the "Active" header and its bulky empty truck card are omitted if `active.isEmpty`. Past orders are visible immediately above the fold without scrolling.
+  5. **Design System Token Hygiene (`D5-05`):** In `order_card.dart`, eliminated fractional `12.5px` font size on `_MetaRow` in favor of standard 12px `ShodashaTheme.bodySmall` (`height: 1.4`), normalized icon-to-text spacer from 6px to `AppSpacing.sm` (8dp), and standardized total price typography from off-scale 17px to `18px, FontWeight.w800` (`titleLarge` scale).
+  6. **Polite, Customer-Centric Copy (`D5-06`):** Replaced internal engineering leak `'Server problem — showing the orders already loaded.'` with `'Connection issue · Showing saved orders'` in `my_orders_screen.dart`, and sanitized generic `'Water order'` fallback title in `order_card.dart` to `'20L Jar Delivery'`.
+  7. **Verification & Automated Tests:** Expanded `test/donor_order_card_test.dart` to 6 tests covering 8-char truncation, card `onTap`, secondary button kind on closed bills, and fallback titles. Added `test/my_orders_screen_test.dart` (4 tests) verifying Active section omission when empty, multi-section rendering, stale banners, and zero-order empty states. Donor test suite expanded to **104 / 104 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Consistent visual button hierarchy with zero false green buttons.
+  - Smooth mobile-native tap affordances across all order cards.
+  - Zero changes to backend cursor pagination contracts or financial calculations.
+
 
 
 ### ADR-169: Screen Unslop 04 Implemented — Donor Booking Flow, Steppers & Confirmation (2026-10-31)

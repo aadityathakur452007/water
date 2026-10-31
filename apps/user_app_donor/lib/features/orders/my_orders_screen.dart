@@ -153,8 +153,8 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
                 else if (c.errorMessage != null)
                   AppBanner.stale(
                     message: c.isServerError
-                        ? 'Server problem — showing the orders already loaded.'
-                        : 'Could not refresh — showing the orders already loaded.',
+                        ? 'Connection issue · Showing saved orders'
+                        : 'Could not refresh · Showing saved orders',
                     onRetry: c.load,
                   ),
                 if (all.isEmpty) ...[
@@ -171,22 +171,16 @@ class _DonorOrdersScreenState extends State<DonorOrdersScreen> {
                     onAction: widget.onStartOrder,
                   ),
                 ] else ...[
-                  SectionHeader(
-                    title: 'Active',
-                    padding: const EdgeInsets.only(
-                      top: AppSpacing.xs,
-                      bottom: AppSpacing.sm,
+                  if (active.isNotEmpty) ...[
+                    SectionHeader(
+                      title: 'Active',
+                      padding: const EdgeInsets.only(
+                        top: AppSpacing.xs,
+                        bottom: AppSpacing.sm,
+                      ),
                     ),
-                  ),
-                  if (active.isEmpty)
-                    AppStateView.empty(
-                      icon: Icons.local_shipping_outlined,
-                      title: 'No active deliveries',
-                      message:
-                          'Your next order will appear here with live status.',
-                    )
-                  else
                     ...active.map(_card),
+                  ],
                   if (closed.isNotEmpty) ...[
                     SectionHeader(title: 'Past orders'),
                     ...closed.map(_card),

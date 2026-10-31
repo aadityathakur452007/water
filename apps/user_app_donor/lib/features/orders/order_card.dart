@@ -48,7 +48,12 @@ class DonorOrderCard extends StatelessWidget {
     }
     if (bits.isNotEmpty) return bits.join(' + ');
     final summary = order.itemSummary.trim();
-    return summary.isEmpty ? 'Water order' : summary;
+    return summary.isEmpty ? '20L Jar Delivery' : summary;
+  }
+
+  String get _orderRef {
+    final id = order.id.trim();
+    return id.length > 8 ? id.substring(0, 8).toUpperCase() : id;
   }
 
   int get _qty {
@@ -90,6 +95,7 @@ class DonorOrderCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: AppCard(
+        onTap: _isClosed ? onBill : onTrack,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -97,7 +103,7 @@ class DonorOrderCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    '#${order.id}',
+                    '#$_orderRef',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -151,7 +157,7 @@ class DonorOrderCard extends StatelessWidget {
                   formatInr(order.totalPaise),
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
-                    fontSize: 17,
+                    fontSize: 18,
                     color: ShodashaTheme.ink,
                     letterSpacing: -0.3,
                   ),
@@ -208,7 +214,11 @@ class DonorOrderCard extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: AppButton(label: 'View bill', onPressed: onBill),
+                    child: AppButton(
+                      label: 'View bill',
+                      kind: AppButtonKind.secondary,
+                      onPressed: onBill,
+                    ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
@@ -249,14 +259,15 @@ class _MetaRow extends StatelessWidget {
     return Row(
       children: [
         Icon(icon, size: 16, color: color),
-        const SizedBox(width: 6),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 12.5,
+              fontSize: 12,
+              height: 1.4,
               color: color,
               fontWeight: FontWeight.w500,
             ),
