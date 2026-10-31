@@ -6,18 +6,6 @@ import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 
-/// Shodasha token aliases used by the booking widgets (no raw colours).
-abstract final class ShodashaColors {
-  static const Color bg = ShodashaTheme.bg;
-  static const Color ink = ShodashaTheme.ink;
-  static const Color muted = ShodashaTheme.muted;
-  static const Color accent = ShodashaTheme.teal;
-  static const Color accentSoft = ShodashaTheme.tealTint;
-  static const Color border = ShodashaTheme.border;
-}
-
-const double kShodashaRadius = ShodashaTheme.radiusSm;
-
 /// Press wrapper: scale 0.97 on pointer-down (transform only, 150ms).
 class PressScale extends StatefulWidget {
   const PressScale({super.key, required this.child, required this.onTap});
@@ -106,7 +94,7 @@ class QtyStepper extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: ShodashaColors.ink,
+                color: ShodashaTheme.ink,
               ),
             ),
           ),
@@ -141,13 +129,13 @@ class _StepButton extends StatelessWidget {
       width: ShodashaTheme.minTarget,
       height: ShodashaTheme.minTarget,
       decoration: BoxDecoration(
-        color: enabled ? ShodashaColors.accentSoft : ShodashaColors.bg,
-        border: Border.all(color: ShodashaColors.border),
-        borderRadius: BorderRadius.circular(kShodashaRadius),
+        color: enabled ? ShodashaTheme.tealTint : ShodashaTheme.bg,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
       ),
       child: Icon(
         icon,
-        color: enabled ? ShodashaColors.accent : ShodashaColors.muted,
+        color: enabled ? ShodashaTheme.teal : ShodashaTheme.muted,
       ),
     );
     return Semantics(

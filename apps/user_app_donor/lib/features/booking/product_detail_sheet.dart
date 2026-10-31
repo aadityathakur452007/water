@@ -88,10 +88,10 @@ class _DetailSheetState extends State<_DetailSheet> {
     return SafeArea(
       child: SingleChildScrollView(
         padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 12,
-          bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+          left: AppSpacing.lg,
+          right: AppSpacing.lg,
+          top: AppSpacing.md,
+          bottom: AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -107,7 +107,7 @@ class _DetailSheetState extends State<_DetailSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Stack(
               children: [
                 _SheetPhoto(asset: sku.asset),
@@ -122,7 +122,7 @@ class _DetailSheetState extends State<_DetailSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -213,7 +213,7 @@ class _DetailSheetState extends State<_DetailSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -229,7 +229,7 @@ class _DetailSheetState extends State<_DetailSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             PressScale(
               onTap: () => showProductDetail(
                 context,

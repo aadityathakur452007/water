@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-169 | 2026-10-31 | Screen Unslop 04: Donor Booking Flow, Steppers & Confirmation — deleted dead ShodashaColors class; restricted recurring schedule to Daily/Alternate/Weekly eliminating custom date modal overflows; standardized payment recovery panel on AppButton hierarchy; normalized confirm and detail sheet padding to AppSpacing tokens; 96/96 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/booking/{booking_sheet,product_detail_sheet,quote_confirm,stepper}.dart, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-168 | 2026-10-31 | Screen Unslop 03: Donor Home, Quick Reorder & Product Cards — unified surface ModeSelectionCards eliminating dark-teal vs yellow visual clash; added StatusPillTone.brand to StatusPill primitive for RO+UV; eliminated fractional 12.5px/11.5px font sizes; clarified doorstep exchange and deposit copy; 93/93 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{features/home/customer_home_screen.dart,features/home/widgets/{featured_products,live_purity_card,mode_selection_cards,top_bar}.dart,shared/ui/status_pill.dart}, apps/user_app_donor/test/home_tab_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-167 | 2026-10-31 | Screen Unslop 02: Donor Shell, Navigation & Notifications — double-tap back protection on Home tab with 2s threshold; neutral surface AppBar in notifications screen; truncated 8-character uppercase order ID and capitalized Plan status badges; offline strip tokenized to 8dp padding and calm copy ("You're offline · Showing saved data"); 92/92 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{shell/donor_shell,home/notifications_screen}.dart, apps/user_app_donor/test/{donor_shell_test,notifications_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-166 | 2026-10-31 | Screen Unslop 01: Donor Auth, Shell Entry & Onboarding — tactile 20L canister emblem & quiet trust pill on neutral surface; standardized inputs on AppTextField and AppSpacing tokens; 409 account pivot auto-focuses password; AuthGate eliminates false cold-boot error notice; first-run address prompt guarded against accidental scrim tap; dead fields pruned; 87/87 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/auth_impls.dart,features/{addresses/first_run_sheet,auth/{auth_controller,auth_gate,login_screen}}.dart}, apps/user_app_donor/test/{auth_gate_test,first_run_sheet_test,login_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
@@ -221,6 +222,23 @@
 
 ## Decision Entries
 
+
+### ADR-169: Screen Unslop 04 Implemented — Donor Booking Flow, Steppers & Confirmation (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 04 (`Feature_docs/ux-unslop-audit/04-donor-booking.md`) covering `_CheckoutSheet` (`apps/user_app_donor/lib/features/booking/booking_sheet.dart`), `QtyStepper` (`stepper.dart`), `quote_confirm.dart`, and `product_detail_sheet.dart`. Prior implementation suffered from dead duplicate token classes (`ShodashaColors`), raw Flutter buttons in the error recovery panel leading to inadvertent green buttons on auxiliary COD fallback actions, unsupported custom date recurrence options causing calendar height overflows, compound em-dash status headlines (`Order placed — payment pending`), and internal server error text leaks.
+- **Decisions**:
+  1. **Pruned Duplicate Token Aliases (`D4-04`):** Deleted `abstract final class ShodashaColors` and unused `kShodashaRadius` in `stepper.dart`, repointing all stepper colors and dimensions directly to canonical `ShodashaTheme` tokens.
+  2. **Supported Recurrence Schedules Only (`D4-05`):** Removed `DeliveryType.custom` from `_deliveryLabels` and filtered frequency chips to supported schedules (`Daily`, `Alternate days`, `Weekly`). Eliminates `TableCalendar` modal height overflows on small screens and aligns with backend schedule capabilities.
+  3. **Standardized Recovery Button Hierarchy (`D4-03`):** Replaced raw `OutlinedButton` and `ElevatedButton` in the checkout error panel with `AppButton` (`AppButtonKind.primary` for `"Use Cash on Delivery"`, `AppButtonKind.secondary` for `"Retry"`, `"Check Orders"`, and `"Close"`). Prevents secondary fallback actions from inheriting primary money-green button styles.
+  4. **Design System Token Hygiene (`D4-06`):** Cleaned off-scale 20px padding in `quote_confirm.dart` and `product_detail_sheet.dart` to canonical `AppSpacing.lg` (16dp). Standardized header typography to 18px w700 (`titleLarge`) and inner vertical spacing to `AppSpacing.md` (12dp) / `AppSpacing.xs` (4dp).
+  5. **Polite, Customer-Centric Copy:** Replaced internal server error strings with user-friendly notices (`"Could not load subscription estimate. Please retry."`, `"Delivery slots unavailable. Tap to retry."`), refined status headline in `quote_confirm.dart` to `"Order placed · Awaiting payment"`, and refined advance charge copy to `"No advance charge today · Pay upon delivery"` (12px).
+  6. **Verification & Automated Tests:** Created `apps/user_app_donor/test/quote_confirm_test.dart` (3 tests) verifying order confirmed status, sanitized payment pending copy, and `QtyStepper` boundary enforcement. Donor test suite expanded to **96 / 96 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Payment recovery modal presents an unmistakable, non-confusing action hierarchy.
+  - Recurring scheduling is robustly constrained to backend-supported intervals.
+  - Zero changes to backend APIs or money calculation invariants.
 
 ### ADR-168: Screen Unslop 03 Implemented — Donor Home, Quick Reorder & Product Cards (2026-10-31)
 
