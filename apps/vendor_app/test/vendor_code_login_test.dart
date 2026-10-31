@@ -1,4 +1,4 @@
-// Vendor access-code + demo login: session saved + vendor gate enforced +
+// Vendor access-code login: session saved + vendor gate enforced +
 // generic-401 mapping. No verifier/channel cases (OTP deleted, 028 §4).
 
 import 'package:flutter_test/flutter_test.dart';
@@ -33,14 +33,6 @@ class _FakeAuthApi implements AuthApi {
     }
     return _session();
   }
-
-  @override
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
-    required String deviceId,
-  }) async =>
-      _session();
 
   @override
   Future<void> logout(String accessToken) async {}
@@ -105,21 +97,6 @@ void main() {
     expect(await c.codeLogin('9302190067', 'abc'), isFalse);
     expect(api.vendorCalls, 0);
     expect(c.errorMessage, vendorStringsHi['codeError']);
-    c.dispose();
-  });
-
-  test('demo login with vendor role authenticates', () async {
-    final c = _controller('vendor');
-    expect(await c.demoLogin('+919000000002', '222222'), isTrue);
-    expect(c.isAuthenticated, isTrue);
-    expect(c.session?.role, 'vendor');
-    c.dispose();
-  });
-
-  test('demo login with non-vendor role is rejected', () async {
-    final c = _controller('user');
-    expect(await c.demoLogin('+919000000001', '111111'), isFalse);
-    expect(c.isAuthenticated, isFalse);
     c.dispose();
   });
 }

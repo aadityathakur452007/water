@@ -1,5 +1,5 @@
-// User auth seams over the Workers API (034). Password register/login plus the
-// server-gated demo door. Legacy phone-code sign-in was retired server-side (410) and has no
+// User auth seams over the Workers API (034). Password register/login.
+// Legacy phone-code sign-in was retired server-side (410) and has no
 // client method here by design.
 
 import '../features/auth/auth_controller.dart';
@@ -114,24 +114,5 @@ class ApiBackedAuthApi implements AuthApi {
       expiresAt: expiresAt,
       role: (map['role'] ?? 'user').toString(),
     );
-  }
-
-  @override
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
-    required String deviceId,
-  }) async {
-    final raw = await _api.send(
-      'POST',
-      '/auth/demo',
-      body: {
-        'phone': phone,
-        'demo_code': code,
-        'device': {'id': deviceId},
-      },
-      authed: false,
-    );
-    return _toSession(_requireMap(raw, 'demo'));
   }
 }

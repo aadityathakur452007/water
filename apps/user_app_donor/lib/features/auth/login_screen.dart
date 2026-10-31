@@ -16,7 +16,6 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme.dart';
 import '../../shared/ui/app_button.dart';
 import 'auth_controller.dart';
-import 'demo_sheet.dart';
 
 enum _AuthMode { signIn, create }
 
@@ -129,20 +128,6 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
 
     setState(() => _submitting = false);
     if (_auth.rateLimitSecondsRemaining > 0) _startRateTimer();
-  }
-
-  void _openDemo() {
-    showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: ShodashaTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(ShodashaTheme.radiusSheet),
-        ),
-      ),
-      builder: (_) => UserDemoSheet(controller: _auth),
-    );
   }
 
   Future<void> _openSupport() async {
@@ -459,20 +444,6 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           ),
         ),
         if (!create) ...[
-          Center(
-            child: TextButton(
-              onPressed: _submitting ? null : _openDemo,
-              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-              child: Text(
-                authStringsHi['demoLogin']!,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: ShodashaTheme.muted,
-                ),
-              ),
-            ),
-          ),
           const Center(
             child: Text(
               'Shodasha customer app · Password protected',

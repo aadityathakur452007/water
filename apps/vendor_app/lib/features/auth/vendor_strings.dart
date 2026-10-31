@@ -21,11 +21,6 @@ const Map<String, String> vendorStringsHi = {
   'networkError': 'Network me dikkat — dobara try karein',
   'newDevice': 'Naya device detect hua — purana session surakshit hai',
   'notVendor': 'Ye number vendor account se juda nahi — admin se sampark karein',
-  'demoLogin': 'Demo try karein (bina code)',
-  'demoTitle': 'Demo login',
-  'demoHint': 'Seeded demo account — QA ke liye, bina access code',
-  'demoVendor': 'Demo vendor bharein',
-  'demoGo': 'Demo se login karein',
   'sessionExpired': 'Session khatam ho gaya — dobara login karein',
   'capExpiring': 'Login kal khatam hoga — kaam ke baad dobara login karein',
 };

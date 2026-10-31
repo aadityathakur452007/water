@@ -1,5 +1,5 @@
 // Vendor access-code screen: +91 number + admin-issued code → codeLogin.
-// Demo sheet stays as the server-gated QA fallback. All CTAs ≥48dp.
+// All CTAs ≥48dp.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +7,6 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../core/theme.dart';
 import 'auth_controller.dart';
-import 'demo_sheet.dart';
 import 'vendor_strings.dart';
 
 class VendorCodeScreen extends StatefulWidget {
@@ -239,21 +238,6 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                     mode: LaunchMode.externalApplication,
                   );
                 },
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                ),
-                onPressed: busy
-                    ? null
-                    : () => showModalBottomSheet<void>(
-                          context: context,
-                          isScrollControlled: true,
-                          builder: (_) =>
-                              DemoSheet(controller: widget.controller),
-                        ),
-                child: Text(vendorStringsHi['demoLogin']!),
               ),
             ],
           ),

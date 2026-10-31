@@ -3,7 +3,6 @@
 // Contract:
 //   POST /v1/auth/user/register {name, email?, phone, password, device}
 //   POST /v1/auth/user/login    {phone, password, device}
-//   POST /v1/auth/demo          {phone, demo_code, device} (server-gated QA)
 //
 // There is no customer phone-code sign-in. The retired routes answer 410 and no client
 // method or screen may call them. Identity is a normalized Indian mobile plus
@@ -67,11 +66,6 @@ const Map<String, String> authStringsHi = {
   'sessionExpired': 'Your session expired. Sign in again.',
   'newDevice': 'New device detected — your old session stays safe',
   'notUser': 'This account is not for the customer app',
-  'demoLogin': 'Try the demo (no registration)',
-  'demoTitle': 'Demo login',
-  'demoHint': 'Seeded demo account — for QA only',
-  'demoCustomer': 'Fill demo customer',
-  'demoGo': 'Log in with demo',
 };
 
 /// Strips spaces/dashes/+91/0 variants → 10-digit subscriber number.
@@ -136,7 +130,7 @@ String maskPhone(String digits10) {
   return '+91 ••••• $tail';
 }
 
-/// Session minted by register/login/demo.
+/// Session minted by register/login.
 @immutable
 class AuthSession {
   const AuthSession({
@@ -234,14 +228,6 @@ abstract class AuthApi {
   Future<AuthSession> login({
     required String phone,
     required String password,
-    required String deviceId,
-  });
-
-  /// POST /auth/demo `{phone, demo_code, device}` → session (QA demo door;
-  /// server enforces the config flag + demo_codes row, closed in prod).
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
     required String deviceId,
   });
 
@@ -432,53 +418,6 @@ class AuthController extends ChangeNotifier {
       return true;
     } on ApiException catch (e) {
       _handleApiError(e, isRegister: isRegister);
-      return false;
-    } catch (_) {
-      _fail(authStringsHi['serverError']!, AuthStatus.error);
-      return false;
-    }
-  }
-
-  /// Demo login: server-gated QA door. Same persistence and role guard.
-  Future<bool> demoLogin(String phone, String code) async {
-    _beginAttempt();
-    _status = AuthStatus.verifying;
-    _notify();
-    try {
-      final session = await _api.demoLogin(
-        phone: phone.trim(),
-        code: code.trim(),
-        deviceId: deviceId,
-      );
-      if (session.role != 'user') {
-        await _store.clear();
-        _fail(authStringsHi['notUser']!, AuthStatus.error);
-        return false;
-      }
-      await _store.saveSession(
-        accessToken: session.accessToken,
-        refreshToken: session.refreshToken,
-        expiresAtIso: session.expiresAt.toIso8601String(),
-        role: session.role,
-      );
-      _session = session;
-      _newDeviceAlert = session.newDeviceAlert;
-      _status = AuthStatus.authenticated;
-      _notify();
-      return true;
-    } on ApiException catch (e) {
-      if (e.isOffline) {
-        _fail(authStringsHi['networkError']!, AuthStatus.error);
-      } else if (e.isServerError) {
-        _fail(authStringsHi['serverError']!, AuthStatus.error);
-      } else {
-        _fail(
-          e.message.isNotEmpty
-              ? e.message
-              : authStringsHi['invalidCredentials']!,
-          AuthStatus.error,
-        );
-      }
       return false;
     } catch (_) {
       _fail(authStringsHi['serverError']!, AuthStatus.error);

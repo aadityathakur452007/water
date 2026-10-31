@@ -474,13 +474,6 @@ class _FakeAuthApi implements AuthApi {
   }
 
   @override
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
-    required String deviceId,
-  }) async => _session();
-
-  @override
   Future<void> logout(String accessToken) async {
     logoutCalls += 1;
     final gate = logoutGate;

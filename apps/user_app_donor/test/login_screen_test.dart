@@ -23,7 +23,6 @@ void main() {
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Mobile number'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
-    expect(find.text('Try the demo (no registration)'), findsOneWidget);
     expect(find.textContaining('Verification'), findsNothing);
     expect(find.textContaining('Partner'), findsNothing);
     expect(find.textContaining('Rider'), findsNothing);
@@ -151,13 +150,6 @@ class _StubAuthApi implements AuthApi {
     required String email,
     required String phone,
     required String password,
-    required String deviceId,
-  }) async => throw UnimplementedError();
-
-  @override
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
     required String deviceId,
   }) async => throw UnimplementedError();
 

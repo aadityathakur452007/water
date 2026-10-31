@@ -1,6 +1,5 @@
 // Auth seams — access-code-only (028, spec §4). No phone-OTP SDK anywhere:
 // vendor login is phone + admin-issued code → POST /v1/auth/vendor/login.
-// Demo door (server-gated) stays as the QA fallback.
 
 import '../features/auth/auth_controller.dart';
 import 'api_client.dart';
@@ -74,32 +73,6 @@ class ApiBackedAuthApi implements AuthApi {
       throw ApiException(
         code: 'UNKNOWN',
         message: 'Malformed refresh response',
-        statusCode: 0,
-      );
-    }
-    return _toSession(raw);
-  }
-
-  @override
-  Future<AuthSession> demoLogin({
-    required String phone,
-    required String code,
-    required String deviceId,
-  }) async {
-    final raw = await _api.send(
-      'POST',
-      '/auth/demo',
-      body: {
-        'phone': phone,
-        'demo_code': code,
-        'device': {'id': deviceId},
-      },
-      authed: false,
-    );
-    if (raw is! Map<String, dynamic>) {
-      throw ApiException(
-        code: 'UNKNOWN',
-        message: 'Malformed demo response',
         statusCode: 0,
       );
     }
