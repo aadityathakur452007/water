@@ -1854,6 +1854,24 @@ graph TD
   end
 ```
 
+
+### Slice 2 — Vendor AppButton Token Flow
+```
+handover_sheet.dart
+  -> AppButton (kind: primary | secondary)
+       -> apps/vendor_app/lib/shared/ui/app_button.dart
+            -> ShodashaTheme.ink       (primary fill)
+            -> ShodashaTheme.success   (money fill)
+            -> ShodashaTheme.danger    (danger fill)
+            -> AppSpacing.sm           (icon gap)
+            -> AppMotion (not yet wired — available for future sheets)
+
+Donor: ElevatedButton unstyled -> theme.dart elevatedButtonTheme
+  backgroundColor: ShodashaTheme.tealDeep  # brand primary (was: greenDark = WRONG)
+
+AppButton.money() -> ShodashaTheme.greenDark  # money CTAs ONLY (unchanged)
+```
+
 ### 2. Donor Booking & Reorder Flow
 ```mermaid
 graph TD

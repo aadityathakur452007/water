@@ -308,7 +308,7 @@ ThemeData buildShodashaTheme() {
     elevatedButtonTheme: ElevatedButtonThemeData(
       style:
           ElevatedButton.styleFrom(
-            backgroundColor: ShodashaTheme.greenDark, // money CTA (locked)
+            backgroundColor: ShodashaTheme.tealDeep, // brand primary action (money CTAs use AppButton.money or explicit greenDark)
             foregroundColor: ShodashaTheme.surface,
             disabledBackgroundColor: ShodashaTheme.border,
             disabledForegroundColor: ShodashaTheme.muted,

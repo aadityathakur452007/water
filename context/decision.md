@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-158 | 2026-10-31 | Slice 2 implemented: Donor Token Foundation & Theme Reset - reset elevatedButtonTheme backgroundColor from greenDark to tealDeep (DEF-04); exported AppSpacing+AppMotion to vendor theme; created vendor AppButton with ink/blue identity; migrated 3 handover_sheet buttons to AppButton (DEF-14); 70/70 vendor + 75/75 donor tests green | Accepted (implemented 2026-10-31) | pps/user_app_donor/lib/core/theme.dart, pps/vendor_app/lib/{core/theme,shared/ui/app_button,features/stops/handover_sheet}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-157 | 2026-10-31 | Slice 1 implemented: Vendor trust, money & doorstep handover — deleted `stopsDone * 2000` client fallback in `earnings_screen.dart:117` (DEF-02); created unified 2-step `HandoverSheet` (DEF-01) replacing fragmented `TripleSheet` + `PodSheet` in `stop_detail_screen.dart`; 70/70 vendor tests green (2 new unit tests) | Accepted (implemented 2026-10-31) | `apps/vendor_app/lib/features/{earnings,stops}`, `test/handover_sheet_test.dart`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-156 | 2026-10-31 | UI/UX Unslop Audit complete across all 20 screen and cross-cutting clusters; 20 defects prioritized across 5 slices in `22-backlog.md`; owner approved Option A across all 7 strategic decisions in `23-owner-decisions.md`; zero app code changed, baseline tests 75 donor / 68 vendor 100% clean | Accepted (owner approved Option A on 2026-10-31) | `Feature_docs/ux-unslop-audit/*`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-155 | 2026-10-31 | UI/UX improvement runs as a **docs-only parallel audit** first: branch `037-uiux-unslop-audit`, ~20 read-only subagents (12 donor, 4 vendor, 4 cross-cutting), one markdown per screen cluster in `Feature_docs/ux-unslop-audit/`, 18-section contract, then synthesis + ranked backlog + owner decisions and a hard approval gate before any app code | Accepted (prompt written 2026-10-31) | `Feature_docs/ux-unslop-audit/handoff-prompt.md`, `context/{progress-tracker,decision}.md`; no app code yet |
@@ -209,6 +210,24 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-158: Slice 2 Implemented - Donor Token Foundation & Theme Reset (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted - implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 2 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decisions 4 & 7 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Change elevatedButtonTheme to tealDeep and create vendor AppButton.** Chosen - fixes the color semantics trap at the root without touching any screen that uses AppButton.money() explicitly.
+  2. **Override every non-money ElevatedButton individually per screen.** Rejected: 18 call sites across 6 screens; high fragility and maintenance burden.
+  3. **Keep money green as the default, add a warning comment only.** Rejected: violates the core design invariant enforced by ADR-157 (server authoritative for money, UI authoritative for signalling what IS money).
+- **Decision**:
+  1. (DEF-04): In `apps/user_app_donor/lib/core/theme.dart:311`, changed `elevatedButtonTheme` `backgroundColor` from `ShodashaTheme.greenDark` to `ShodashaTheme.tealDeep`. All raw `ElevatedButton` usages that previously defaulted to money-green now render in brand-primary teal. `AppButton.money()` and all explicit `backgroundColor: ShodashaTheme.greenDark` overrides in checkout/wallet/booking contexts remain unchanged.
+  2. (DEF-14): Added `AppSpacing`, `AppMotion`, `kMaxContentWidth` to `apps/vendor_app/lib/core/theme.dart`. Created `apps/vendor_app/lib/shared/ui/app_button.dart` with identical API to donor's AppButton but using vendor ink/blue identity (primary=ink, money=success, danger=danger). Migrated 3 buttons in `handover_sheet.dart` to `AppButton`.
+- **Why**: Smallest surface-area change that enforces the green=money invariant system-wide in the donor app and establishes the shared token foundation in the vendor app without any backend, API, or behavioral change.
+- **Consequences**: Any new `ElevatedButton` added to donor app without explicit color override now renders in teal (correct). Vendor features can now use `AppSpacing.md` instead of `EdgeInsets.all(12)` magic numbers; `AppButton` provides semantic kind system.
+- **Affects**: `apps/user_app_donor/lib/core/theme.dart`, `apps/vendor_app/lib/core/theme.dart`, `apps/vendor_app/lib/shared/ui/app_button.dart`, `apps/vendor_app/lib/features/stops/handover_sheet.dart`, `Feature_docs/ux-unslop-audit/slice-2-token-foundation.md`, `context/{progress-tracker,flow,decision}.md`
+
 
 ### ADR-157: Slice 1 Implemented — Vendor Trust, Money & Doorstep Handover (2026-10-31)
 

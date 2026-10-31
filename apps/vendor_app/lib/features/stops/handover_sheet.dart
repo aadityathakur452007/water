@@ -11,6 +11,7 @@ import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../sync/sync_controller.dart';
 import 'stops_controller.dart';
+import '../../shared/ui/app_button.dart';
 
 class HandoverSheet extends StatefulWidget {
   const HandoverSheet({
@@ -354,10 +355,10 @@ class _HandoverSheetState extends State<HandoverSheet> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                ElevatedButton.icon(
+                AppButton(
+                  label: 'Aage: Customer OTP',
+                  icon: Icons.arrow_forward,
                   onPressed: () => setState(() => _step = 1),
-                  icon: const Icon(Icons.arrow_forward),
-                  label: const Text('Aage: Customer OTP'),
                 ),
               ],
 
@@ -425,19 +426,21 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     if (!widget.tripleAlreadyDone)
                       Expanded(
                         flex: 1,
-                        child: OutlinedButton(
+                        child: AppButton(
+                          label: 'Peechhe',
+                          kind: AppButtonKind.secondary,
                           onPressed: c.submitting ? null : () => setState(() => _step = 0),
-                          child: const Text('Peechhe'),
                         ),
                       ),
                     if (!widget.tripleAlreadyDone) const SizedBox(width: 12),
                     Expanded(
                       flex: 2,
-                      child: ElevatedButton(
+                      child: AppButton(
+                        label: c.submitting ? 'Complete ho raha…' : 'Delivery Complete',
+                        busy: c.submitting,
                         onPressed: (_otp.text.trim().length >= 4 && !c.submitting)
                             ? _submitHandover
                             : null,
-                        child: Text(c.submitting ? 'Complete ho raha…' : 'Delivery Complete'),
                       ),
                     ),
                   ],

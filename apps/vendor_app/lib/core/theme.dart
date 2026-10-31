@@ -22,6 +22,34 @@ abstract final class ShodashaTheme {
       );
 }
 
+/// 4/8/12/16/24/32 spacing scale — one rhythm across every vendor screen.
+abstract final class AppSpacing {
+  static const double xs = 4;
+  static const double sm = 8;
+  static const double md = 12;
+  static const double lg = 16;
+  static const double xl = 24;
+  static const double xxl = 32;
+}
+
+/// Phone-first content cap; wider layouts center instead of stretching.
+const double kMaxContentWidth = 560;
+
+/// Motion durations with reduced-motion gate.
+abstract final class AppMotion {
+  /// Micro interactions (icon swaps, ripples).
+  static const Duration fast = Duration(milliseconds: 120);
+  /// Most transitions and reveals.
+  static const Duration normal = Duration(milliseconds: 220);
+  /// Sheets, page transitions.
+  static const Duration slow = Duration(milliseconds: 350);
+  /// Returns 0ms when the platform requests reduced motion.
+  static Duration responsive(BuildContext ctx, Duration d) {
+    final mq = MediaQuery.of(ctx);
+    return mq.disableAnimations ? Duration.zero : d;
+  }
+}
+
 ThemeData buildShodashaTheme() {
   final base = ThemeData(
     useMaterial3: true,
