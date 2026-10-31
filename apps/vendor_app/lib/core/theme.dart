@@ -18,6 +18,7 @@ abstract final class ShodashaTheme {
   static const Color success = Color(0xFF15803D);
 
   static const double radius = 8;
+  static const double radiusSheet = 24;
   static const double minTarget = 48;
 
   static RoundedRectangleBorder get shape => RoundedRectangleBorder(

@@ -47,7 +47,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(ShodashaTheme.radiusSheet)),
       ),
       builder: (_) => DraggableScrollableSheet(
         expand: false,

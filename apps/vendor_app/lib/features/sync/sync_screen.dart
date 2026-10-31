@@ -6,6 +6,22 @@ import '../../core/theme.dart';
 import '../../core/vendor_locale.dart';
 import 'sync_controller.dart';
 
+
+String _formatQueuedTime(String iso) {
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return iso;
+  final diff = DateTime.now().toUtc().difference(dt.toUtc());
+  if (diff.isNegative || diff.inSeconds < 60) {
+    return vtr('अभी-अभी', 'Just now');
+  } else if (diff.inMinutes < 60) {
+    return vtr('${diff.inMinutes} मिनट पहले', '${diff.inMinutes}m ago');
+  } else if (diff.inHours < 24) {
+    return vtr('${diff.inHours} घंटे पहले', '${diff.inHours}h ago');
+  } else {
+    return vtr('${diff.inDays} दिन पहले', '${diff.inDays}d ago');
+  }
+}
+
 class SyncScreen extends StatefulWidget {
   const SyncScreen({super.key, required this.controller});
 
@@ -119,7 +135,7 @@ class _SyncScreenState extends State<SyncScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  '${q.triple['fulls_given'] ?? 0} diye • ${q.triple['empties_back'] ?? 0} wapas • queued ${q.queuedAtIso}',
+                  '${q.triple['fulls_given'] ?? 0} diye • ${q.triple['empties_back'] ?? 0} wapas • ${_formatQueuedTime(q.queuedAtIso)}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis),
             ),
