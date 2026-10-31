@@ -251,18 +251,14 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                       onTap: _openReturnSheet,
                     )
                   else
-                    const Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xs,
-                        vertical: AppSpacing.sm,
-                      ),
-                      child: Text(
-                        'No empty jars to return yet.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: ShodashaTheme.muted,
-                        ),
-                      ),
+                    _actionTile(
+                      icon: Icons.recycling_outlined,
+                      color: ShodashaTheme.muted,
+                      title: 'Return empty jars',
+                      subtitle:
+                          '0 jars in custody · Pickup unlocks when you have empty jars',
+                      onTap: () {},
+                      disabled: true,
                     ),
                   SectionHeader(
                     title: 'Recent receipts',
@@ -392,7 +388,6 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              _row('Jars with you', '${ledger.heldJars}'),
               _row('Deposit paid', formatInr(ledger.depositPaidPaise)),
               if (ledger.depositRefundedPaise > 0)
                 _row(
@@ -441,16 +436,17 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
           const SizedBox(height: AppSpacing.xs),
           const Text(
             'Clear dues to keep cash on delivery available and avoid holds on '
-            'future jars.',
+            'future jars. Dues from monthly plans and deliveries are reviewed '
+            'and cleared in the Plans tab.',
             style: TextStyle(
-              fontSize: 12.5,
+              fontSize: 12,
               height: 1.4,
               color: ShodashaTheme.onSolar,
             ),
           ),
           const SizedBox(height: AppSpacing.md),
           AppButton(
-            label: 'Review dues',
+            label: 'Review dues in Plans',
             kind: AppButtonKind.money,
             height: 48,
             onPressed: widget.onOpenSubscriptions,
@@ -490,9 +486,10 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool disabled = false,
   }) {
     return AppCard(
-      onTap: onTap,
+      onTap: disabled ? null : onTap,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.lg,
         vertical: AppSpacing.md,
@@ -504,7 +501,7 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
             height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
+              color: color.withValues(alpha: disabled ? 0.05 : 0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: color, size: 21),
@@ -516,10 +513,10 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
-                    color: ShodashaTheme.ink,
+                    color: disabled ? ShodashaTheme.muted : ShodashaTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -534,12 +531,14 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
               ],
             ),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: ShodashaTheme.muted,
-            size: 20,
-          ),
+          if (!disabled) ...[
+            const SizedBox(width: AppSpacing.sm),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: ShodashaTheme.muted,
+              size: 20,
+            ),
+          ],
         ],
       ),
     );

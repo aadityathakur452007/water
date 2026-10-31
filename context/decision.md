@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-174 | 2026-10-31 | Screen Unslop 09: Donor Wallet & Payment History — deduplicated jar count from Deposit details card; preserved card grid rhythm on zero-jar custody with quiet disabled return tile; clarified dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography; 114/114 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/wallet/{donor_wallet_screen,payment_history_screen}.dart, apps/user_app_donor/test/donor_wallet_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-173 | 2026-10-31 | Screen Unslop 08: Donor Subscriptions & Plan Builder — standardized empty state and pause sheet on AppButton; relocated destructive plan cancellation to kebab PopupMenuButton; replaced tealTint skeleton with ShodashaTheme.skeleton tokens; normalized plan builder title to 18px w700 and payment summary to 12px; 112/112 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/subscriptions/{subscription_screen,plan_builder_sheet}.dart, apps/user_app_donor/test/subscription_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-172 | 2026-10-31 | Screen Unslop 07: Donor Bill Screen & Rating Sheet — resolved WhatsApp button icon identity crisis (Icons.share_outlined -> Icons.chat_outlined); truncated raw UUID in AppBar to 8-character uppercase ref; enriched bill line item with SKU name/quantity; enforced <=3 star conditional threshold for rating complaint shortcut; migrated rating sheet to AppButton and tokenized padding; 110/110 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{bill_screen,rating_sheet}.dart, apps/user_app_donor/test/bill_rating_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-171 | 2026-10-31 | Screen Unslop 06: Donor Tracking Screen & Delivery Code — standardized non-token spacing (10px -> 8dp, 3px -> 4dp) and eliminated fractional fonts (12.5px, 11.5px); calm copy unslop on arrival banners ("Next stop is yours", "Arriving now · Please keep your empty jar ready") and delivery code statuses ("Delivery complete · Code verified", "Code locked after wrong attempts"); 108/108 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/tracking_screen.dart, apps/user_app_donor/test/tracking_screen_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -225,6 +226,24 @@
 ---
 
 ## Decision Entries
+
+### ADR-174: Screen Unslop 09 Implemented — Donor Wallet & Payment History (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 09 (`Feature_docs/ux-unslop-audit/09-donor-wallet.md`) covering `DonorWalletScreen` (`apps/user_app_donor/lib/features/wallet/donor_wallet_screen.dart`) and `PaymentHistoryScreen` (`payment_history_screen.dart`). Prior implementation suffered from redundant jar metrics between the hero card badge and the first row of the "Deposit details" card (`Jars with you: X`), layout collapse on zero-jar custody where the return action collapsed into an unstyled raw text snippet breaking the action card grid, an unexplained cross-tab switch on dues action ("Review dues" silently routing to Subscriptions), fractional 12.5px font size in the dues warning card, and raw `ElevatedButton`/`OutlinedButton` with 15px font in `PaymentHistoryScreen._ErrorState`.
+- **Decisions**:
+  1. **Deduplicated Jar Custody Metrics (`D9-01`):** In `donor_wallet_screen.dart:388`, pruned redundant `_row('Jars with you', '${ledger.heldJars}')` from the "Deposit details" card. The hero container badge (`'${ledger.heldJars} jars with you'`) remains the single prominent custody indicator, leaving the details card cleanly dedicated to currency accounting (`Deposit paid`, `Deposit refunded`, `Outstanding dues`).
+  2. **Preserved Card Grid Rhythm on Zero-Jar Custody (`D9-02`):** In `donor_wallet_screen.dart`, added `bool disabled = false` to `_actionTile` and replaced the raw text snippet with a permanent, quiet disabled tile when `ledger.heldJars == 0` (`title: 'Return empty jars'`, `subtitle: '0 jars in custody · Pickup unlocks when you have empty jars'`, disabled background opacity, chevron hidden, inert tap). This maintains the clean 2-card action hub structure.
+  3. **Clarified Dues Navigation & Contextual Copy (`D9-03`):** In `_duesCard`, updated action label from `'Review dues'` to `'Review dues in Plans'` and expanded card body to explain: `'Clear dues to keep cash on delivery available and avoid holds on future jars. Dues from monthly plans and deliveries are reviewed and cleared in the Plans tab.'` This eliminates cross-tab disorientation when navigating to `onOpenSubscriptions`. Standardized font size from 12.5px to 12px `ShodashaTheme.bodySmall`.
+  4. **Standardized Payment History Error View Primitives (`D9-04`):** In `payment_history_screen.dart:461`, migrated `_ErrorState` from raw `ElevatedButton` and `OutlinedButton` to `AppButton` (`kind: AppButtonKind.primary` for sign in, `kind: AppButtonKind.secondary` for try again) and normalized message text size from 15px to standard 14px `ShodashaTheme.bodyMedium`.
+  5. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/donor_wallet_screen_test.dart` (2 tests) verifying zero-jar quiet action tile and active custody jar deduplication + dues Plans context button. Pruned unused import in `subscription_screen_test.dart`. Donor test suite expanded to **114 / 114 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Consistent commercial ledger presentation without duplicated metrics.
+  - Predictable action card rhythm regardless of bottle custody balance.
+  - Transparent cross-tab navigation expectations for dues clearing.
+  - Zero modifications to server-authoritative ledger snapshots or payment APIs.
+
 
 ### ADR-173: Screen Unslop 08 Implemented — Donor Subscriptions & Plan Builder (2026-10-31)
 
