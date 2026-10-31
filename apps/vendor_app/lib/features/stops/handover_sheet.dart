@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../sync/sync_controller.dart';
 import 'stops_controller.dart';
 import '../../shared/ui/app_button.dart';
@@ -300,7 +301,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     })),
                 if (_empties > 0) ...[
                   _stepper(
-                    'Tuta / Kharab jar ($_damaged)',
+                    vtr('टूटा या खराब जार ($_damaged)', 'Damaged jar ($_damaged)'),
                     _damaged,
                     (v) => setState(() => _damaged = v),
                     color: Colors.deepOrange,
@@ -310,15 +311,15 @@ class _HandoverSheetState extends State<HandoverSheet> {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: DropdownButtonFormField<String>(
                         initialValue: _damageReason,
-                        decoration: const InputDecoration(
-                          labelText: 'Damage Reason / खराबी की वजह',
+                        decoration: InputDecoration(
+                          labelText: vtr('खराबी की वजह', 'Damage Reason'),
                           isDense: true,
                         ),
-                        items: const [
-                          DropdownMenuItem(value: 'cracked', child: Text('Cracked / फूटा हुआ')),
-                          DropdownMenuItem(value: 'leaking', child: Text('Leaking / छेद है')),
-                          DropdownMenuItem(value: 'dirty_oil', child: Text('Contaminated / तेल/गंदा')),
-                          DropdownMenuItem(value: 'broken_neck', child: Text('Neck broken / गर्दन टूटी')),
+                        items: [
+                          DropdownMenuItem(value: 'cracked', child: Text(vtr('फूटा हुआ', 'Cracked'))),
+                          DropdownMenuItem(value: 'leaking', child: Text(vtr('छेद/लीक', 'Leaking'))),
+                          DropdownMenuItem(value: 'dirty_oil', child: Text(vtr('गंदा या तेल लगा', 'Contaminated / Dirty'))),
+                          DropdownMenuItem(value: 'broken_neck', child: Text(vtr('गर्दन टूटी हुई', 'Broken neck'))),
                         ],
                         onChanged: (v) => setState(() => _damageReason = v ?? 'cracked'),
                       ),
@@ -415,7 +416,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                 const SizedBox(height: 8),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Seal intact / सील ठीक है'),
+                  title: Text(vtr('सील ठीक है', 'Seal intact')),
                   value: _sealOk,
                   activeColor: ShodashaTheme.blue,
                   onChanged: (v) => setState(() => _sealOk = v ?? true),

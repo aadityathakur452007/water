@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../auth/auth_controller.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -251,7 +252,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile / प्रोफाइल')),
+      appBar: AppBar(title: Text(vtr('प्रोफ़ाइल', 'Profile'))),
       body: _body(),
     );
   }
@@ -295,8 +296,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         fontSize: 18, fontWeight: FontWeight.w700)),
                 Text(phone),
                 const SizedBox(height: 4),
-                const Text('Role: vendor • Bhasha: Hindi',
-                    style: TextStyle(color: ShodashaTheme.muted)),
+                Text(
+                  vtr('भूमिका: वेंडर पार्टनर • भाषा: हिंदी', 'Role: Vendor Partner • Language: English'),
+                  style: const TextStyle(color: ShodashaTheme.muted),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          shape: ShodashaTheme.shape,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  vtr('भाषा चुनें (Language)', 'Select Language (भाषा)'),
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  vtr('ऐप की भाषा चुनें — सभी स्क्रीन तुरंत बदल जाएंगी',
+                      'Choose preferred app language — updates all screens instantly'),
+                  style: const TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                ),
+                const SizedBox(height: 14),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment<String>(
+                      value: 'hi',
+                      label: Text('हिंदी (Hindi)'),
+                      icon: Icon(Icons.language),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'en',
+                      label: Text('English'),
+                      icon: Icon(Icons.translate),
+                    ),
+                  ],
+                  selected: {VendorLocaleController.instance.lang},
+                  onSelectionChanged: (selection) {
+                    final selected = selection.first;
+                    VendorLocaleController.instance.setLanguage(selected);
+                    setState(() {});
+                  },
+                ),
               ],
             ),
           ),
@@ -365,8 +411,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Chutti / Planned Leave',
+                      Text(
+                        vtr('छुट्टी का आवेदन', 'Planned Leave'),
                         style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                       ),
                       IconButton(

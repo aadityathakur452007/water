@@ -9,6 +9,7 @@ import 'core/api_client.dart';
 import 'core/auth_impls.dart';
 import 'core/session_store.dart';
 import 'core/theme.dart';
+import 'core/vendor_locale.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_gate.dart';
 import 'features/customers/customers_controller.dart';
@@ -50,10 +51,16 @@ class _VendorAppState extends State<VendorApp> {
   @override
   void initState() {
     super.initState();
+    VendorLocaleController.instance.addListener(_onLocaleChange);
     _boot();
   }
 
+  void _onLocaleChange() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _boot() async {
+    await VendorLocaleController.instance.init();
     _deviceId = await loadOrCreateDeviceId();
     _api = ApiClient(deviceId: _deviceId);
     _auth = AuthController(
@@ -90,6 +97,7 @@ class _VendorAppState extends State<VendorApp> {
 
   @override
   void dispose() {
+    VendorLocaleController.instance.removeListener(_onLocaleChange);
     _auth.dispose();
     _duty.dispose();
     _route.dispose();

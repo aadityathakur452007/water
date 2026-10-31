@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../sync/sync_controller.dart';
 import 'stops_controller.dart';
 
@@ -88,7 +89,7 @@ class _PodSheetState extends State<PodSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('PoD / डिलीवरी पूरी करें',
+            Text(vtr('डिलीवरी पूरी करें', 'Proof of Delivery'),
                 style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const Text('Customer ke phone par OTP batayein',
@@ -142,7 +143,7 @@ class _PodSheetState extends State<PodSheet> {
             ),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Seal sahi / सील ठीक है'),
+              title: Text(vtr('सील ठीक है', 'Seal intact')),
               value: _sealOk,
               activeColor: ShodashaTheme.blue,
               onChanged: (v) => setState(() => _sealOk = v ?? true),

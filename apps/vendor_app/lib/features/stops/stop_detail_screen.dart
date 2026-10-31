@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../sync/sync_controller.dart';
 import 'handover_sheet.dart';
 import 'stops_controller.dart';
@@ -90,7 +91,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('Delivery Issue / RTO'),
+          title: Text(vtr('डिलीवरी समस्या (RTO)', 'Delivery Issue (RTO)')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -103,12 +104,12 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
               DropdownButtonFormField<String>(
               initialValue: selectedReason,
               decoration: const InputDecoration(labelText: 'Wajah (Reason)'),
-                items: const [
-                  DropdownMenuItem(value: 'DOOR_LOCKED', child: Text('Door Locked / Ghar band hai')),
-                  DropdownMenuItem(value: 'CUSTOMER_UNREACHABLE', child: Text('Unreachable / Phone nahi uthaya')),
-                  DropdownMenuItem(value: 'CUSTOMER_REFUSED', child: Text('Refused / Customer ne mana kiya')),
-                  DropdownMenuItem(value: 'INCORRECT_ADDRESS', child: Text('Wrong Address / Pata nahi mila')),
-                  DropdownMenuItem(value: 'RESCHEDULE_REQUESTED', child: Text('Reschedule / Baad me chahiye')),
+                items: [
+                  DropdownMenuItem(value: 'DOOR_LOCKED', child: Text(vtr('घर बंद है', 'Door Locked'))),
+                  DropdownMenuItem(value: 'CUSTOMER_UNREACHABLE', child: Text(vtr('फोन नहीं उठाया', 'Customer Unreachable'))),
+                  DropdownMenuItem(value: 'CUSTOMER_REFUSED', child: Text(vtr('ग्राहक ने मना किया', 'Customer Refused'))),
+                  DropdownMenuItem(value: 'INCORRECT_ADDRESS', child: Text(vtr('पता नहीं मिला', 'Incorrect Address'))),
+                  DropdownMenuItem(value: 'RESCHEDULE_REQUESTED', child: Text(vtr('बाद में डिलीवरी चाहिए', 'Reschedule Requested'))),
                 ],
                 onChanged: (v) => setDlgState(() => selectedReason = v ?? 'DOOR_LOCKED'),
               ),
@@ -141,7 +142,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                   await c.load(widget.stopId);
                 }
               },
-              child: const Text('Submit / Mark RTO', style: TextStyle(color: Colors.white)),
+              child: Text(vtr('RTO दर्ज करें', 'Mark RTO'), style: const TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -398,7 +399,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
         // gated by state with "pehle X karein" hints instead of
         // all-rendered. A finished stop shows the done note only.
         if (stopDone)
-          const Text('Delivery complete / ho gayi',
+          Text(vtr('डिलीवरी पूरी हुई', 'Delivery completed'),
               style: TextStyle(fontWeight: FontWeight.w600)),
         if (stopFailed)
           Container(
@@ -411,8 +412,8 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Delivery Failed / RTO (Ghar Band / Mana Kiya)',
+                Text(
+                  vtr('डिलीवरी असफल (घर बंद / मना किया)', 'Delivery Failed (Door Locked / Refused)'),
                   style: TextStyle(fontWeight: FontWeight.w700, color: ShodashaTheme.danger),
                 ),
                 const SizedBox(height: 4),
@@ -493,7 +494,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             ),
             onPressed: c.submitting ? null : () => _showFailDialog(context, c),
             icon: const Icon(Icons.report_problem_outlined),
-            label: const Text('Delivery Issue / RTO (Ghar band, phone nahi laga)'),
+            label: Text(vtr('समस्या दर्ज करें (RTO)', 'Report Issue (RTO)')),
           ),
         ],
       ],

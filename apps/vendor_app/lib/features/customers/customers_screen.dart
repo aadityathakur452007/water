@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/cascade.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import 'customers_controller.dart';
 
 class CustomersScreen extends StatefulWidget {
@@ -62,7 +63,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Customers / ग्राहक')),
+      appBar: AppBar(title: Text(vtr('ग्राहक', 'Customers'))),
       body: Column(
         children: [
           Padding(
@@ -70,8 +71,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
             child: TextField(
               controller: _search,
               onChanged: c.setQuery,
-              decoration: const InputDecoration(
-                labelText: 'Naam / phone se khojein',
+              decoration: InputDecoration(
+                labelText: vtr('नाम या फ़ोन से खोजें', 'Search name or phone'),
                 prefixIcon: Icon(Icons.search),
               ),
             ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import 'earnings_controller.dart';
 
 class EarningsScreen extends StatefulWidget {
@@ -46,7 +47,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Earnings / कमाई')),
+      appBar: AppBar(title: Text(vtr('कमाई', 'Earnings'))),
       body: _body(c),
     );
   }
@@ -196,8 +197,8 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Orders aur deposit se liya gaya cash — Agency / Admin ko jama karein.',
+                Text(
+                  vtr('ऑर्डर और डिपॉज़िट का कैश एजेंसी या एडमिन को जमा करें।', 'Cash collected from orders & deposit must be submitted to Agency/Admin.'),
                   style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
                 ),
                 const SizedBox(height: 10),

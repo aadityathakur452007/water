@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-164 | 2026-10-31 | Slice 8 implemented: Vendor App Single-Locale Toggle & String Unslop — eliminated slash-separated strings across vendor screens; created VendorLocaleController with SharedPreferences persistence and reactive language toggle in ProfileScreen (DEF-11, Option A); 74/74 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/vendor_locale.dart,main.dart,features/{customers,duty,earnings,inventory,profile,shell,stops,support,sync}/*}, apps/vendor_app/test/{vendor_locale_test,vendor_shell_test,wave1_ux_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-163 | 2026-10-31 | Slice 7 implemented: Cross-App Error Resilience & Tracking Navigation — Tracking route pop & stopTracking() on cancel (DEF-06); typed ratesOffline getter on BookingController & typed SyncResultTone on SyncController replacing fragile substring inspection (DEF-18); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{booking/booking_controller,home/customer_home_screen,orders/{my_orders_screen,tracking_screen}}.dart, apps/vendor_app/lib/features/sync/{sync_controller,sync_screen}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-162 | 2026-10-31 | Slice 6 implemented: Donor App Polish, Touch Targets & Telephone Sync — StatusPill 8dp radius standardization (DEF-19); AppConstants.kSupportPhone single-source unification (DEF-20); 48dp minimum touch targets on plan builder steppers & chips; HapticFeedback on steppers and primary buttons; 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-161 | 2026-10-31 | Slice 5 implemented: Cross-Cutting Reliability, Addresses & Hygiene — Bhopal map default (DEF-08); plan builder zero-schedule guard (DEF-10); wallet zero-flash guard (DEF-09); engineering leak scrubbing in copy and notifications (DEF-12); centralized date_utils (DEF-15); authStrings/ordersStrings dictionary rename (DEF-16); a11y semantics for avatar, purity, and tracking (DEF-17); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/utils/date_utils.dart,features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}}, context/{progress-tracker,flow,decision}.md |
@@ -215,6 +216,20 @@
 ---
 
 ## Decision Entries
+
+
+### ADR-164: Slice 8 Implemented — Vendor App Single-Locale Toggle & String Unslop (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of DEF-11 from `Feature_docs/ux-unslop-audit/22-backlog.md` guided by Decision 1 (Option A Approved) in `23-owner-decisions.md`. The vendor app previously concatenated bilingual text with slashes on AppBars, buttons, and dropdown options (`"Duty / ड्यूटी"`, `"Earnings / कमाई"`, `"Customers / ग्राहक"`, `"Stock / स्टॉक"`, `"Damage Reason / खराबी की वजह"`, `"PoD / डिलीवरी पूरी करें"`, `"Triple / तीन काम एक साथ"`), causing severe text wrapping, button overflow, and cognitive friction on 360dp driver phones.
+- **Decisions**:
+  1. **Locale Architecture (`VendorLocaleController`)**: Created `apps/vendor_app/lib/core/vendor_locale.dart` providing a reactive `ChangeNotifier` singleton `VendorLocaleController.instance`. Defaults to Hindi (`'hi'`), persists user selection in `SharedPreferences` (key `'vendor_language'`), and exposes convenience helper `vtr(hi, en)`.
+  2. **Reactive Language Selection UI**: Added a dedicated `Card` in `apps/vendor_app/lib/features/profile/profile_screen.dart` featuring an interactive `SegmentedButton<String>` with `हिंदी (Hindi)` and `English` segments, updating language instantly across the entire app via `MaterialApp` rebuilds.
+  3. **String De-Slopping**: Replaced slash strings across all vendor screens (`customers_screen.dart`, `duty_screen.dart`, `earnings_screen.dart`, `inventory_screen.dart`, `profile_screen.dart`, `more_hub_screen.dart`, `handover_sheet.dart`, `pod_sheet.dart`, `triple_sheet.dart`, `stop_detail_screen.dart`, `stops_controller.dart`, `support_screen.dart`, `sync_screen.dart`) with clean unslashed strings rendered via `vtr(hi, en)`.
+  4. **Test Verification**: Created `apps/vendor_app/test/vendor_locale_test.dart` verifying defaults, reactive notification, and `SharedPreferences` persistence. Updated `vendor_shell_test.dart` and `wave1_ux_test.dart` to expect unslashed strings.
+- **Consequences**: Zero line-wrapping on narrow screens; drivers read clean, dedicated Hindi (or English) text; full live language toggle in Profile; vendor test suite expanded to 74/74 passing; donor 80/80 passing; backend 487 passed / 1 skipped.
+- **Affects**: `apps/vendor_app/lib/{core/vendor_locale.dart,main.dart,features/{customers,duty,earnings,inventory,profile,shell,stops,support,sync}/*}`, `apps/vendor_app/test/{vendor_locale_test,vendor_shell_test,wave1_ux_test}.dart`, `context/{progress-tracker,flow,decision}.md`.
 
 
 ### ADR-163: Slice 7 Implemented — Cross-App Error Resilience & Tracking Navigation (2026-10-31)

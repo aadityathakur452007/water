@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/cascade.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import 'support_controller.dart';
 
 class SupportScreen extends StatefulWidget {
@@ -102,7 +103,7 @@ class _SupportScreenState extends State<SupportScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Support / सहायता')),
+      appBar: AppBar(title: Text(vtr('सहायता', 'Support'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -244,7 +245,7 @@ class _SupportScreenState extends State<SupportScreen> {
                           onPressed: c.submitting || _id.text.trim().isEmpty
                               ? null
                               : () => _submit(true),
-                          child: const Text('Sahmat / Agree'),
+                          child: Text(vtr('सहमत हैं', 'Agree')),
                         ),
                       ),
                       const SizedBox(width: 12),

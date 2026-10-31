@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../route/route_controller.dart';
 
 class InventoryScreen extends StatelessWidget {
@@ -15,7 +16,7 @@ class InventoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stock / स्टॉक')),
+      appBar: AppBar(title: Text(vtr('स्टॉक', 'Stock'))),
       body: ListenableBuilder(
         listenable: route,
         builder: (context, _) {

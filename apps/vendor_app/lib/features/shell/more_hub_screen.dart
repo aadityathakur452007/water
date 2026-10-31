@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart' show kSupportPhone;
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 
 class MoreHubScreen extends StatelessWidget {
   const MoreHubScreen({
@@ -31,7 +32,7 @@ class MoreHubScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('More / अधिक सेवाएं'),
+        title: Text(vtr('अधिक सेवाएं', 'More Tools')),
         automaticallyImplyLeading: false,
       ),
       body: ListView(
@@ -87,7 +88,7 @@ class MoreHubScreen extends StatelessWidget {
               children: [
                 ListTile(
                   leading: const Icon(Icons.people_outline, color: ShodashaTheme.ink),
-                  title: const Text('Customers (ग्राहक)'),
+                  title: Text(vtr('ग्राहक', 'Customers')),
                   subtitle: const Text('Aaj ke grahak, khoj ke saath'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenCustomers,
@@ -95,8 +96,8 @@ class MoreHubScreen extends StatelessWidget {
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.inventory_2_outlined, color: ShodashaTheme.ink),
-                  title: const Text('Stock (स्टॉक)'),
-                  subtitle: const Text('Loading sheet: fulls / khaali cans'),
+                  title: Text(vtr('स्टॉक', 'Stock')),
+                  subtitle: Text(vtr('लोडिंग शीट: भरे व खाली जार', 'Loading sheet: fulls & empty cans')),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenStock,
                 ),
@@ -107,7 +108,7 @@ class MoreHubScreen extends StatelessWidget {
                     label: Text('$pendingSyncCount'),
                     child: const Icon(Icons.sync_outlined, color: ShodashaTheme.ink),
                   ),
-                  title: const Text('Sync Log (सिंक स्थिति)'),
+                  title: Text(vtr('सिंक स्थिति', 'Sync Log')),
                   subtitle: Text(
                     pendingSyncCount > 0
                         ? '$pendingSyncCount pending sync'
@@ -142,7 +143,7 @@ class MoreHubScreen extends StatelessWidget {
               children: [
                 ListTile(
                   leading: const Icon(Icons.person_outline, color: ShodashaTheme.ink),
-                  title: const Text('Profile (प्रोफ़ाइल)'),
+                  title: Text(vtr('प्रोफ़ाइल', 'Profile')),
                   subtitle: const Text('Dukaan profile, language & settings'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenProfile,

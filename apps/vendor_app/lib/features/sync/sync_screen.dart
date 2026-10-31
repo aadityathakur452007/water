@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import 'sync_controller.dart';
 
 class SyncScreen extends StatefulWidget {
@@ -36,7 +37,7 @@ class _SyncScreenState extends State<SyncScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync / सिंक')),
+      appBar: AppBar(title: Text(vtr('सिंक स्थिति', 'Sync Log'))),
       body: _body(c),
     );
   }

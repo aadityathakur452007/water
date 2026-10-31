@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../sync/sync_controller.dart';
 import 'stops_controller.dart';
 
@@ -101,7 +102,7 @@ class _TripleSheetState extends State<TripleSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Triple / तीन काम एक साथ',
+            Text(vtr('हैंडओवर (कैन व कैश)', 'Bottle & Cash Handover'),
                 style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             Text('Expected: ${widget.fullsExp} diye • ${widget.emptiesExp} wapas',
@@ -126,7 +127,7 @@ class _TripleSheetState extends State<TripleSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Tuta / Kharab jar ($_damaged)',
+                      vtr('टूटा या खराब जार ($_damaged)', 'Damaged jars ($_damaged)'),
                       style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.deepOrange),
                     ),
                   ),
@@ -148,15 +149,15 @@ class _TripleSheetState extends State<TripleSheet> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: DropdownButtonFormField<String>(
                     initialValue: _damageReason,
-                    decoration: const InputDecoration(
-                      labelText: 'Damage Reason / खराबी की वजह',
+                    decoration: InputDecoration(
+                      labelText: vtr('खराबी की वजह', 'Damage Reason'),
                       isDense: true,
                     ),
-                    items: const [
-                      DropdownMenuItem(value: 'cracked', child: Text('Cracked / फूटा हुआ')),
-                      DropdownMenuItem(value: 'leaking', child: Text('Leaking / छेद है')),
-                      DropdownMenuItem(value: 'dirty_oil', child: Text('Contaminated / तेल/गंदा')),
-                      DropdownMenuItem(value: 'broken_neck', child: Text('Neck broken / गर्दन टूटी')),
+                    items: [
+                      DropdownMenuItem(value: 'cracked', child: Text(vtr('फूटा हुआ', 'Cracked'))),
+                      DropdownMenuItem(value: 'leaking', child: Text(vtr('छेद/लीक', 'Leaking'))),
+                      DropdownMenuItem(value: 'dirty_oil', child: Text(vtr('गंदा या तेल लगा', 'Contaminated / Dirty'))),
+                      DropdownMenuItem(value: 'broken_neck', child: Text(vtr('गर्दन टूटी हुई', 'Broken neck'))),
                     ],
                     onChanged: (v) => setState(() => _damageReason = v ?? 'cracked'),
                   ),
@@ -236,7 +237,7 @@ class _TripleSheetState extends State<TripleSheet> {
                     },
               child: Text(c.submitting
                   ? 'Save ho raha…'
-                  : 'Confirm triple / पक्का करें'),
+                  : vtr('हैंडओवर पक्का करें', 'Confirm Handover')),
             ),
           ],
         ),

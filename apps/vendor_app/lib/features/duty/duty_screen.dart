@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import 'duty_controller.dart';
 
 class DutyScreen extends StatefulWidget {
@@ -37,7 +38,7 @@ class _DutyScreenState extends State<DutyScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Duty / ड्यूटी')),
+      appBar: AppBar(title: Text(vtr('ड्यूटी', 'Duty'))),
       body: _body(c),
     );
   }
@@ -82,7 +83,7 @@ class _DutyScreenState extends State<DutyScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        c.onDuty ? 'On duty / ड्यूटी पर' : 'Off duty / छुट्टी',
+                        c.onDuty ? vtr('ड्यूटी पर', 'On Duty') : vtr('छुट्टी', 'Off Duty'),
                         style: const TextStyle(
                             fontSize: 18, fontWeight: FontWeight.w700),
                       ),
@@ -148,7 +149,7 @@ class _DutyScreenState extends State<DutyScreen> {
                   color: ShodashaTheme.blue,
                 ),
                 const SizedBox(height: 16),
-                Text('Haath me: ${rupees(c.cashInHand)} / in hand'),
+                Text(vtr('हाथ में: ${rupees(c.cashInHand)}', 'In hand: ${rupees(c.cashInHand)}')),
               ],
             ),
           ),

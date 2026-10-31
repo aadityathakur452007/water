@@ -90,16 +90,16 @@ void main() {
     // Switch to Earnings tab (Tab 1) while off duty
     await tester.tap(find.byIcon(Icons.payments_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('Earnings / कमाई'), findsOneWidget);
+    expect(find.text('कमाई'), findsOneWidget);
 
     // Switch to More tab (Tab 3) - DEF-05: verify MoreHubScreen renders without opening drawer
     await tester.tap(find.byIcon(Icons.grid_view_outlined));
     await tester.pumpAndSettle();
     expect(find.byType(MoreHubScreen), findsOneWidget);
-    expect(find.text('Customers (ग्राहक)'), findsOneWidget);
-    expect(find.text('Stock (स्टॉक)'), findsOneWidget);
-    expect(find.text('Sync Log (सिंक स्थिति)'), findsOneWidget);
-    expect(find.text('Profile (प्रोफ़ाइल)'), findsOneWidget);
+    expect(find.text('ग्राहक'), findsOneWidget);
+    expect(find.text('स्टॉक'), findsOneWidget);
+    expect(find.text('सिंक स्थिति'), findsOneWidget);
+    expect(find.text('प्रोफ़ाइल'), findsOneWidget);
 
     // Switch back to Route tab (Tab 0)
     await tester.tap(find.byIcon(Icons.route_outlined));
