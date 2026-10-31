@@ -79,6 +79,114 @@ void main() {
     expect(find.text('Pure water, delivered.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets(
+    'donor shell back button switches to home from non-home tabs and guards exit on home',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final api = _FakeApi();
+      final auth = AuthController(
+        api: _FakeAuthApi(),
+        store: InMemorySessionStore(),
+        deviceId: 'test-device',
+      );
+      addTearDown(auth.dispose);
+      await auth.login(rawPhone: '9876543210', password: 'test-pass1');
+
+      final booking = BookingController(
+        initialRates: const CatalogRates(
+          refillPaise: 2800,
+          containerPaise: 3000,
+          depositPaise: 15000,
+          capPaise: 300,
+        ),
+      );
+      final addresses = AddressController(api: api);
+      final orders = OrdersController(repo: ApiBackedOrdersRepository(api));
+      final profile = ProfileController(api: api);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DonorShell(
+            api: api,
+            auth: auth,
+            booking: booking,
+            addresses: addresses,
+            orders: orders,
+            profile: profile,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 1. Switch to Orders tab
+      await tester.tap(_tabIcon(Icons.receipt_long_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('My orders'), findsOneWidget);
+
+      // 2. Press back on Orders tab -> switches to Home tab
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Pure water, delivered.'), findsOneWidget);
+
+      // 3. Press back on Home tab -> shows double-back guard snackbar
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.text('Press back again to exit'), findsOneWidget);
+    },
+  );
+
+  testWidgets('donor shell shows calm offline strip with tokenized copy', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final api = _FakeApi();
+    final auth = AuthController(
+      api: _FakeAuthApi(),
+      store: InMemorySessionStore(),
+      deviceId: 'test-device',
+    );
+    addTearDown(auth.dispose);
+    await auth.login(rawPhone: '9876543210', password: 'test-pass1');
+
+    final booking = BookingController(
+      initialRates: const CatalogRates(
+        refillPaise: 2800,
+        containerPaise: 3000,
+        depositPaise: 15000,
+        capPaise: 300,
+      ),
+    );
+    final addresses = AddressController(api: api);
+    final orders = OrdersController(repo: ApiBackedOrdersRepository(api));
+    final profile = ProfileController(api: api);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DonorShell(
+          api: api,
+          auth: auth,
+          booking: booking,
+          addresses: addresses,
+          orders: orders,
+          profile: profile,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Toggle offline
+    api.offline.value = true;
+    await tester.pump();
+    expect(find.text("You're offline · Showing saved data"), findsOneWidget);
+  });
 }
 
 Finder _tabIcon(IconData icon) => find.descendant(

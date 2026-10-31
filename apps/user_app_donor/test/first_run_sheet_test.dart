@@ -121,3 +121,4 @@ void main() {
     expect(prefs.getBool(kFirstRunFlag), isTrue);
   });
 }
+

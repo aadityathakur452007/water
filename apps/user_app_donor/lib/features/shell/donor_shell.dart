@@ -8,9 +8,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants/app_constants.dart';
 import '../../core/theme.dart';
 import '../addresses/address_screen.dart';
 import '../auth/auth_controller.dart';
@@ -67,6 +67,7 @@ class _DonorShellState extends State<DonorShell> {
   bool _retrying = false;
   bool _routeBusy = false;
   Timer? _restoredTimer;
+  DateTime? _lastBackPressTime;
 
   @override
   void initState() {
@@ -284,7 +285,12 @@ class _DonorShellState extends State<DonorShell> {
           shrinkWrap: true,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.sm,
+              ),
               child: Text(
                 'Pickup address',
                 style: TextStyle(fontWeight: FontWeight.w800),
@@ -294,7 +300,7 @@ class _DonorShellState extends State<DonorShell> {
               ListTile(
                 leading: const Icon(
                   Icons.location_on_outlined,
-                  color: AppColors.primary,
+                  color: ShodashaTheme.teal,
                 ),
                 title: Text(a.label),
                 subtitle: Text(a.addressLine),
@@ -314,13 +320,35 @@ class _DonorShellState extends State<DonorShell> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _tab == DonorTab.home,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop || _tab == DonorTab.home) return;
-        _selectTab(DonorTab.home);
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (_tab != DonorTab.home) {
+          _selectTab(DonorTab.home);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              const SnackBar(
+                content: Text('Press back again to exit'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          return;
+        }
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          await SystemNavigator.pop();
+        }
       },
       child: Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: ShodashaTheme.bg,
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -443,7 +471,6 @@ class _DonorShellState extends State<DonorShell> {
   };
 }
 
-
 class _OfflineStrip extends StatelessWidget {
   const _OfflineStrip({required this.retrying, required this.onRetry});
 
@@ -458,7 +485,10 @@ class _OfflineStrip extends StatelessWidget {
         color: ShodashaTheme.solarTint,
         border: Border(bottom: BorderSide(color: ShodashaTheme.solar)),
       ),
-      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 2, AppSpacing.sm, 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.sm,
+      ),
       child: Row(
         children: [
           const Icon(
@@ -469,9 +499,9 @@ class _OfflineStrip extends StatelessWidget {
           const SizedBox(width: AppSpacing.sm),
           const Expanded(
             child: Text(
-              'No internet — showing what was already loaded.',
+              "You're offline · Showing saved data",
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 height: 1.35,
                 color: ShodashaTheme.warning,
               ),
@@ -518,9 +548,9 @@ class _RestoredStrip extends StatelessWidget {
           ),
           SizedBox(width: AppSpacing.sm),
           Text(
-            'Back online.',
+            'Back online',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: ShodashaTheme.successDark,
             ),

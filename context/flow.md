@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop 02 Donor Shell, Navigation & Notifications (2026-10-31, ADR-167): Double-tap back protection on Home tab via PopScope (2s threshold with snackbar prompt); non-home back navigates to Home. Neutral surface AppBar on NotificationsScreen. Truncated 8-character uppercase order IDs in notifications; capitalized Plan status badges (Active, Paused, Cancelled). Calm offline strip ("You're offline · Showing saved data") with 8dp vertical padding and 12px token; restored banner trailing period removed.
+
 - Screen Unslop 01 Donor Auth, Shell Entry & Onboarding (2026-10-31, ADR-166): Replaced stock model and bulbous header in `DonorLoginScreen` with a tactile 20L canister badge, quiet trust pill, and canonical tagline. Standardized form inputs on `AppTextField` and `AppSpacing` tokens; auto-focuses password on 409 account pivot. `AuthGate` eliminates false cold-boot restore failures; `first_run_sheet.dart` protects against accidental scrim dismissal by only persisting flag on explicit user choices.
 
 - Slice 9 subtle elevation shadows & telemetry shimmer (2026-10-31, ADR-165): Unified 2dp drop shadow token `ShodashaTheme.subtleCardShadow` (`BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2))`) normalized across donor `AppCard` and vendor route stop cards. Converted `LivePurityCard` to `StatefulWidget` with a gentle, finite telemetry entrance pulse on the lab-tested verification badge respecting OS reduced-motion settings.

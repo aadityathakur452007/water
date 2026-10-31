@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-167 | 2026-10-31 | Screen Unslop 02: Donor Shell, Navigation & Notifications — double-tap back protection on Home tab with 2s threshold; neutral surface AppBar in notifications screen; truncated 8-character uppercase order ID and capitalized Plan status badges; offline strip tokenized to 8dp padding and calm copy ("You're offline · Showing saved data"); 92/92 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{shell/donor_shell,home/notifications_screen}.dart, apps/user_app_donor/test/{donor_shell_test,notifications_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-166 | 2026-10-31 | Screen Unslop 01: Donor Auth, Shell Entry & Onboarding — tactile 20L canister emblem & quiet trust pill on neutral surface; standardized inputs on AppTextField and AppSpacing tokens; 409 account pivot auto-focuses password; AuthGate eliminates false cold-boot error notice; first-run address prompt guarded against accidental scrim tap; dead fields pruned; 87/87 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/auth_impls.dart,features/{addresses/first_run_sheet,auth/{auth_controller,auth_gate,login_screen}}.dart}, apps/user_app_donor/test/{auth_gate_test,first_run_sheet_test,login_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-165 | 2026-10-31 | Slice 9 implemented: P3 Subtle Elevation Shadows & Telemetry Shimmer — defined unified subtleCardShadow token (2dp soft shadow) across donor and vendor themes; upgraded AppCard and vendor route stop cards with normalized elevation; added gentle telemetry entrance pulse on LivePurityCard with reduced-motion support; 80/80 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/theme.dart,shared/ui/app_card.dart,features/home/widgets/live_purity_card.dart}, apps/vendor_app/lib/{core/theme.dart,features/route/route_screen.dart}, context/{progress-tracker,flow,decision}.md |
 | ADR-164 | 2026-10-31 | Slice 8 implemented: Vendor App Single-Locale Toggle & String Unslop — eliminated slash-separated strings across vendor screens; created VendorLocaleController with SharedPreferences persistence and reactive language toggle in ProfileScreen (DEF-11, Option A); 74/74 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/vendor_locale.dart,main.dart,features/{customers,duty,earnings,inventory,profile,shell,stops,support,sync}/*}, apps/vendor_app/test/{vendor_locale_test,vendor_shell_test,wave1_ux_test}.dart, context/{progress-tracker,flow,decision}.md |
@@ -219,6 +220,22 @@
 
 ## Decision Entries
 
+
+### ADR-167: Screen Unslop 02 Implemented — Donor Shell, Navigation & Notifications (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 02 (`Feature_docs/ux-unslop-audit/02-donor-shell-nav.md`) covering `DonorShell` (`apps/user_app_donor/lib/features/shell/donor_shell.dart`) and `DonorNotificationsScreen` (`apps/user_app_donor/lib/features/home/notifications_screen.dart`). Prior implementation suffered from raw 32-character database UUID headers blowing out notification titles, a dark teal AppBar jarringly breaking the donor app's clean neutral visual system, 12.5px fractional font sizes, off-scale microscopic 2px padding on offline strips, unhandled trailing periods in status banners, and absence of double-tap back protection on the root Home tab.
+- **Decisions**:
+  1. **Double-Tap Back Protection on Home (`D2-05`):** Standardized Android back navigation using `PopScope` and a 2-second timestamp threshold. Pressing back on non-Home tabs switches to Home (`DonorTab.home`). Pressing back on Home tab displays a transient `"Press back again to exit"` SnackBar; pressing back again within 2 seconds cleanly exits the app (`Navigator.pop` or `SystemNavigator.pop()`).
+  2. **Notification Screen Theme Alignment (`D2-03`):** Replaced the forced dark teal AppBar with standard `ShodashaTheme.surface` (neutral white), `ShodashaTheme.ink` title typography, and 0 elevation, creating a calm, cohesive header hierarchy.
+  3. **Order ID & Subscription Title Formatting (`D2-02`, `D2-06`):** Truncated order references in notification tiles to 8 characters uppercase (`Order #ORD_9876 · Placed`) preventing title blowouts; capitalized subscription status badges (`Plan · Active`, `Plan · Paused`, `Plan · Cancelled`) and added robust parsing for `status`, `cancelled_at`, and `paused`.
+  4. **Design System Token Hygiene (`D2-04`):** Replaced 12.5px font size with standard 12px `ShodashaTheme.bodySmall`; replaced 3px and 4px manual spacers with `AppSpacing.xs` (4dp); replaced microscopic 2px vertical padding on `_OfflineStrip` with `EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm)`; cleaned offline banner copy to `"You're offline · Showing saved data"`; cleaned restored strip copy to `"Back online"` (removed trailing period); standardized return address header padding and icon tint to `ShodashaTheme.teal`.
+  5. **Verification & Automated Tests:** Added 2 new tests in `apps/user_app_donor/test/donor_shell_test.dart` verifying double-tap back flow and calm offline strip tokens; created `apps/user_app_donor/test/notifications_screen_test.dart` (3 tests) verifying surface AppBar styling, truncated order ID formatting, and capitalized subscription title. Donor test suite expanded to **92 / 92 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Eliminates accidental application exit on Android devices.
+  - Notification items present crisp, human-readable identifiers matching quick-commerce industry standards.
+  - Zero changes to backend APIs or money calculation invariants.
 
 ### ADR-166: Screen Unslop 01 Implemented — Donor Auth, Shell Entry & Onboarding (2026-10-31)
 
