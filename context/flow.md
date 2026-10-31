@@ -1834,6 +1834,43 @@ GET /v1/catalog                 200
 Nothing was pushed; no GitHub release was created; both APKs are debug-signed
 and live only under each app's `build/app/outputs/flutter-apk/`.
 
+## Audited Flows (2026-10-31, ADR-156)
+
+The UI/UX Unslop Audit identified key friction points in core operational flows. The following flow comparisons map the current state versus the proposed consolidated flows:
+
+### 1. Vendor Doorstep Handover Flow
+```mermaid
+graph TD
+  subgraph Current_Dual_Sheet_Friction
+    A[StopDetailScreen] -->|Tap Triple| B[TripleSheet: Empties + Cash]
+    B -->|Submit/Close| A
+    A -->|Tap PoD| C[PoDSheet: OTP Entry]
+    C -->|Submit| D[Delivery Marked Complete]
+  end
+  subgraph Proposed_Unified_Handover
+    S[StopDetailScreen] -->|1-Tap Handover| U[UnifiedHandoverSheet]
+    U -->|Step 1: Empties & Cash| U2[Step 2: OTP Verification]
+    U2 -->|Single Submit| OK[Atomically Completed & Synced]
+  end
+```
+
+### 2. Donor Booking & Reorder Flow
+```mermaid
+graph TD
+  subgraph Current_3_Sheet_Labyrinth
+    H[HomeScreen] -->|Tap Product| P[ProductDetailSheet]
+    P -->|Tap Buy| B[BookingSheet: Stepper & Slot]
+    B -->|Tap Continue| Q[QuoteConfirmSheet: Mode & Pay]
+    Q -->|Confirm| T[TrackingScreen]
+  end
+  subgraph Proposed_Optimized_Booking
+    H2[HomeScreen] -->|1-Tap Reorder Card| QC[Quick Confirm Sheet]
+    QC -->|Confirm| T2[TrackingScreen]
+    H2 -->|Tap Product| SB[Consolidated Checkout Sheet: Qty + Slot + Pay]
+    SB -->|Confirm| T2
+  end
+```
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:
