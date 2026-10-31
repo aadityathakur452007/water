@@ -114,7 +114,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  c.earnedPayout > 0 ? rupees(c.earnedPayout) : rupees(c.stopsDone * 2000), // default Rs 20/stop
+                  c.earnedPayout > 0
+                      ? rupees(c.earnedPayout)
+                      : (c.stopsDone > 0 ? 'Settlement Pending' : rupees(0)),
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
@@ -123,7 +125,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${c.stopsDone} stops complete hue',
+                  c.stopsDone > 0 && c.earnedPayout == 0
+                      ? '${c.stopsDone} stops complete • Hisaab din ke ant me hoga'
+                      : '${c.stopsDone} stops complete hue',
                   style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
                 ),
               ],

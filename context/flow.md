@@ -1871,6 +1871,14 @@ graph TD
   end
 ```
 
+### Slice 1 Implementation (2026-10-31, ADR-157)
+- `StopDetailScreen` now routes the delivery completion flow exclusively through `HandoverSheet` (`apps/vendor_app/lib/features/stops/handover_sheet.dart`).
+- `HandoverSheet` executes a sequential 2-step modal:
+  1. Step 1 collects jar counts, damaged bottle condition, missing caps, and cash/UPI tendered amounts.
+  2. Step 2 validates delivery OTP, verifies seal integrity, captures GPS coordinates, and sequentially commits the triple mutation and completes PoD.
+  3. If offline, mutations queue into `SyncController` (`QueuedTriple` outbox) for replay.
+- `EarningsScreen` displays server-authoritative payouts only, eliminating client-side estimation.
+
 ## Update Protocol (MANDATORY)
 
 Update this file when any of the following change:

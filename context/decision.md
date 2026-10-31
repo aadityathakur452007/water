@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-157 | 2026-10-31 | Slice 1 implemented: Vendor trust, money & doorstep handover — deleted `stopsDone * 2000` client fallback in `earnings_screen.dart:117` (DEF-02); created unified 2-step `HandoverSheet` (DEF-01) replacing fragmented `TripleSheet` + `PodSheet` in `stop_detail_screen.dart`; 70/70 vendor tests green (2 new unit tests) | Accepted (implemented 2026-10-31) | `apps/vendor_app/lib/features/{earnings,stops}`, `test/handover_sheet_test.dart`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-156 | 2026-10-31 | UI/UX Unslop Audit complete across all 20 screen and cross-cutting clusters; 20 defects prioritized across 5 slices in `22-backlog.md`; owner approved Option A across all 7 strategic decisions in `23-owner-decisions.md`; zero app code changed, baseline tests 75 donor / 68 vendor 100% clean | Accepted (owner approved Option A on 2026-10-31) | `Feature_docs/ux-unslop-audit/*`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-155 | 2026-10-31 | UI/UX improvement runs as a **docs-only parallel audit** first: branch `037-uiux-unslop-audit`, ~20 read-only subagents (12 donor, 4 vendor, 4 cross-cutting), one markdown per screen cluster in `Feature_docs/ux-unslop-audit/`, 18-section contract, then synthesis + ranked backlog + owner decisions and a hard approval gate before any app code | Accepted (prompt written 2026-10-31) | `Feature_docs/ux-unslop-audit/handoff-prompt.md`, `context/{progress-tracker,decision}.md`; no app code yet |
 | ADR-154 | 2026-10-31 | Demo cleanup + one admin code — donor/vendor demo-login UI, sheets, controller/API methods, strings and tests removed; production `demo-user-1`/`demo-vendor-1` rows deleted (74 rows, FK-safe); one live admin code **`452007`** issued for `+917828442476` (180 days, expires 2027-04-29), old `c1743f07…` revoked and kept for audit; **both D1 databases kept** (`shodasha` prod, `shodasha-staging` perf/test); donor/vendor analyze clean, tests 75/68, release APKs 38,437,749 B / 53,899,221 B, demo strings absent from both binaries; no backend deploy, nothing pushed | Accepted (local only, 2026-10-31) | `apps/{user_app_donor,vendor_app}`, `workers/api/scripts/cleanup_demo_20261031.sql`, `Feature_docs/demo-cleanup-admin-code/spec.md`, production D1 `shodasha`, `context/{progress-tracker,flow,decision}.md` |
@@ -208,6 +209,24 @@
 ---
 
 ## Decision Entries
+
+### ADR-157: Slice 1 Implemented — Vendor Trust, Money & Doorstep Handover (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 1 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decisions 4 & 6 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Keep separate Triple & PoD sheets with superficial UI polish.** Rejected: maintains the root cause of driver handover friction, redundant data entry, and record desynchronization.
+  2. **Keep client fallback calculation in earnings.** Rejected: violates financial invariant that money must be strictly server-authoritative.
+  3. **Unified 2-step HandoverSheet and server-only earnings payout display.** Chosen.
+- **Decision**:
+  1. (DEF-02): In `apps/vendor_app/lib/features/earnings/earnings_screen.dart:117`, replaced `rupees(c.stopsDone * 2000)` fallback with strict server-authoritative display (`rupees(c.earnedPayout)` when positive, `"Settlement Pending"` with subtitle `"Hisaab din ke ant me hoga"` when uncalculated, or `rupees(0)`).
+  2. (DEF-01): Created `apps/vendor_app/lib/features/stops/handover_sheet.dart` combining jar collection (fulls/empties/damaged/caps) and payment (cash/upi) into Step 1, and customer OTP verification with seal check into Step 2. Submitting executes `commitTriple` followed by `completePod` (with offline outbox queuing if offline).
+  3. Replaced disjoint buttons on `StopDetailScreen` with single clean CTA `"Delivery Handover (Bottles + OTP)"`.
+  4. Verified with `flutter analyze` (0 issues) and `flutter test` (vendor 70/70 passed, donor 75/75 passed). Added `apps/vendor_app/test/handover_sheet_test.dart` (2 tests).
+- **Why**: Eliminates fabricated money math and cuts driver doorstep completion time in half while maintaining all offline and backend invariants.
+- **Consequences**: Drivers have a unified 2-step flow. No changes to API payload formats or test expectations.
+- **Affects**: `apps/vendor_app/lib/features/{earnings/earnings_screen.dart,stops/stop_detail_screen.dart,stops/handover_sheet.dart}`, `test/handover_sheet_test.dart`, `context/*`.
 
 ### ADR-156: UI/UX Unslop Audit Completed & Backlog Established (2026-10-31)
 

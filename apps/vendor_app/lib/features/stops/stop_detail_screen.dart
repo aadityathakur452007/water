@@ -7,9 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../sync/sync_controller.dart';
-import 'pod_sheet.dart';
+import 'handover_sheet.dart';
 import 'stops_controller.dart';
-import 'triple_sheet.dart';
 
 class StopDetailScreen extends StatefulWidget {
   const StopDetailScreen({
@@ -432,14 +431,14 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             returnId: returnId,
             emptiesExp: emptiesExp,
           ),
-        if (!stopDone && !stopFailed && returnId.isEmpty && !tripleDone)
+        if (!stopDone && !stopFailed && returnId.isEmpty) ...[
           ElevatedButton.icon(
             onPressed: c.submitting || holdBlocked
                 ? null
                 : () => showModalBottomSheet<void>(
                       context: context,
                       isScrollControlled: true,
-                      builder: (_) => TripleSheet(
+                      builder: (_) => HandoverSheet(
                         controller: c,
                         stopId: widget.stopId,
                         fullsExp: fullsExp,
@@ -447,36 +446,23 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                         outbox: widget.outbox,
                         collectPaise: remainingPaise,
                         paymentMode: paymentMode,
+                        tripleAlreadyDone: tripleDone,
                       ),
                     ),
-            icon: const Icon(Icons.inventory_2_outlined),
-            label: const Text('Triple likhein: diye / wapas / paise'),
+            icon: const Icon(Icons.verified_outlined),
+            label: Text(tripleDone
+                ? 'OTP darj karein (PoD)'
+                : 'Delivery Handover (Bottles + OTP)'),
           ),
-        if (!stopDone && !stopFailed && returnId.isEmpty && tripleDone)
-          const Text('Triple ho gayi — PoD karein',
-              style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        if (!stopDone && !stopFailed && returnId.isEmpty && tripleDone)
-          OutlinedButton.icon(
-            onPressed: c.submitting
-                ? null
-                : () => showModalBottomSheet<void>(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (_) => PodSheet(
-                        controller: c,
-                        stopId: widget.stopId,
-                        outbox: widget.outbox,
-                        collectPaise: remainingPaise,
-                        paymentMode: paymentMode,
-                      ),
-                    ),
-            icon: const Icon(Icons.check_circle_outline),
-            label: const Text('PoD: OTP se complete karein'),
-          ),
-        if (!stopDone && !stopFailed && returnId.isEmpty && !tripleDone)
-          const Text('PoD ke liye pehle triple likhein',
-              style: TextStyle(color: ShodashaTheme.muted)),
+          if (tripleDone)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Bottles record ho chuki hain — Delivery complete karne ke liye OTP darj karein',
+                style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+              ),
+            ),
+        ],
         // F2: one-tap cash post (COD delivery stops only, remainder due).
         // Paid/link-sent hide this; partial posts the remainder (the
         // server OVERPAY guard still enforces races).
