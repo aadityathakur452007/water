@@ -236,13 +236,7 @@ class _MapPickerState extends State<_MapPicker> {
               decoration: BoxDecoration(
                 color: ShodashaTheme.bg.withValues(alpha: 0.94),
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: ShodashaTheme.ink.withValues(alpha: 0.08),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                boxShadow: ShodashaTheme.subtleCardShadow,
                 border: Border.all(color: ShodashaTheme.border),
               ),
               child: Row(
@@ -258,8 +252,7 @@ class _MapPickerState extends State<_MapPicker> {
                   Text(
                     _pin == null
                         ? 'Tap the map to place your delivery pin'
-                        : 'Lat ${_pin!.latitude.toStringAsFixed(5)}, '
-                              'Lng ${_pin!.longitude.toStringAsFixed(5)}',
+                        : 'Pin placed · Tap map to adjust location',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -319,13 +312,7 @@ class _MapPickerState extends State<_MapPicker> {
                   color: ShodashaTheme.surface,
                   border: Border.all(color: ShodashaTheme.border),
                   borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-                  boxShadow: [
-                    BoxShadow(
-                      color: ShodashaTheme.ink.withValues(alpha: 0.06),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  boxShadow: ShodashaTheme.subtleCardShadow,
                 ),
                 child: Row(
                   children: [
@@ -371,13 +358,7 @@ class _MapPickerState extends State<_MapPicker> {
                   color: ShodashaTheme.surface,
                   border: Border.all(color: ShodashaTheme.border),
                   borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-                  boxShadow: [
-                    BoxShadow(
-                      color: ShodashaTheme.ink.withValues(alpha: 0.06),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  boxShadow: ShodashaTheme.subtleCardShadow,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

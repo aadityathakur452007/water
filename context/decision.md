@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-175 | 2026-10-31 | Screen Unslop 10: Donor Addresses & Map Picker — sticky bottom CTA in AddressScreen (AppButton addFirst); removed list-tail button; adjusted itemCount to header + addresses and normalized separator to AppSpacing.md (12dp); migrated empty state button and form stepper controls to canonical AppButton; human-readable pin prompt/feedback in map picker; subtleCardShadow elevation normalization; 118/118 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/addresses/{address_screen,map_picker}.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-174 | 2026-10-31 | Screen Unslop 09: Donor Wallet & Payment History — deduplicated jar count from Deposit details card; preserved card grid rhythm on zero-jar custody with quiet disabled return tile; clarified dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography; 114/114 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/wallet/{donor_wallet_screen,payment_history_screen}.dart, apps/user_app_donor/test/donor_wallet_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-173 | 2026-10-31 | Screen Unslop 08: Donor Subscriptions & Plan Builder — standardized empty state and pause sheet on AppButton; relocated destructive plan cancellation to kebab PopupMenuButton; replaced tealTint skeleton with ShodashaTheme.skeleton tokens; normalized plan builder title to 18px w700 and payment summary to 12px; 112/112 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/subscriptions/{subscription_screen,plan_builder_sheet}.dart, apps/user_app_donor/test/subscription_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-172 | 2026-10-31 | Screen Unslop 07: Donor Bill Screen & Rating Sheet — resolved WhatsApp button icon identity crisis (Icons.share_outlined -> Icons.chat_outlined); truncated raw UUID in AppBar to 8-character uppercase ref; enriched bill line item with SKU name/quantity; enforced <=3 star conditional threshold for rating complaint shortcut; migrated rating sheet to AppButton and tokenized padding; 110/110 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{bill_screen,rating_sheet}.dart, apps/user_app_donor/test/bill_rating_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -226,6 +227,25 @@
 ---
 
 ## Decision Entries
+
+### ADR-175: Screen Unslop 10 Implemented — Donor Addresses & Map Picker (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 10 (`Feature_docs/ux-unslop-audit/10-donor-addresses.md`) covering `AddressScreen` (`apps/user_app_donor/lib/features/addresses/address_screen.dart`) and `MapPicker` (`map_picker.dart`). Prior implementation suffered from the primary "Add address" action button being placed at the tail end of the scrollable address `ListView` (`i == c.items.length + 1`) forcing users with multiple addresses to scroll past all cards to add a location, raw floating-point decimal coordinates (`Lat 23.25123, Lng 77.41234`) displayed in the map picker top floating banner providing no actionable semantic feedback, direct `ElevatedButton.styleFrom` bypasses in the empty state and form sheet stepper controls, off-scale 10dp list item separation, and ad-hoc inline `BoxShadow` definitions in `map_picker.dart`.
+- **Decisions**:
+  1. **Sticky Bottom CTA in `AddressScreen` (`D10-01`):** In `address_screen.dart`, pinned `AppButton(label: addressStrings['addFirst']!, kind: AppButtonKind.primary, icon: Icons.add, onPressed: () => _openForm())` into the Scaffold's `bottomNavigationBar` wrapped in `SafeArea` and `AppSpacing` padding (`AppSpacing.lg`, `AppSpacing.sm`, `AppSpacing.lg`, `AppSpacing.md`) whenever saved addresses exist (`c.items.isNotEmpty`).
+  2. **Clean `ListView.separated` Structure (`D10-02`):** Removed the scrolling tail button from `ListView.separated`. Set `itemCount` to `c.items.length + 1` (header + addresses) and normalized item separator from 10dp to `AppSpacing.md` (12dp).
+  3. **Standardized Empty State & Form Stepper Controls (`D10-03`):** Replaced raw `ElevatedButton` in empty state with `AppButton(label: addressStrings['addFirst']!, kind: AppButtonKind.primary, icon: Icons.add, onPressed: () => _openForm())`. Migrated `_AddressFormSheet` stepper controls from `TextButton` and `ElevatedButton` to canonical `AppButton` (`kind: AppButtonKind.secondary` for 'Back' with 48dp minimum target, and `kind: AppButtonKind.primary` with busy indicator for 'Next' / 'Save address').
+  4. **Human-Readable Map Pin Placement Feedback (`D10-04`):** In `map_picker.dart:258-268`, replaced raw decimal coordinates with friendly, actionable user guidance: `_pin == null ? 'Tap the map to place your delivery pin' : 'Pin placed · Tap map to adjust location'`.
+  5. **Normalized Elevation Tokens (`D10-05`):** Replaced inline ad-hoc `BoxShadow` definitions in `map_picker.dart` (top banner, tile failure banner, location note banner) with canonical `ShodashaTheme.subtleCardShadow`.
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/address_screen_test.dart` (4 tests) verifying empty state `AppButton`, sticky bottom `AppButton` on populated lists without tail buttons, and map picker human-readable pin prompt and confirmation feedback. Donor test suite expanded to **118 / 118 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings across both apps.
+- **Consequences**:
+  - Immediate, persistent accessibility for address creation regardless of list length.
+  - Clear human-readable feedback on spatial pin selection without floating-point clutter.
+  - Universal compliance with `AppButton` token hierarchy and 48dp bounding targets.
+  - 100% preservation of address CRUD contracts and 409 active order/subscription conflict gates.
+
 
 ### ADR-174: Screen Unslop 09 Implemented — Donor Wallet & Payment History (2026-10-31)
 
