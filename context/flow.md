@@ -12,6 +12,9 @@
 
 ## Overview
 
+- UI/UX Unslop Complete & Merged into main (2026-11-01, ADR-183): Branch `037-uiux-unslop-audit` merged into `main` and pushed. All 16 screen audit documents verified with code parity reports; donor app tokenized on `ShodashaTheme` & `AppSpacing` with zero fractional fonts; vendor app modernized with `AppButton`, coordinate-first navigation, `vtr()` single-locale toggle, and duty gate unslop.
+
+
 - Screen Unslop V4 Vendor Customers, Inventory, Earnings & Support (2026-11-01, ADR-181): Migrated error state retries in `CustomersScreen`, `InventoryScreen`, `EarningsScreen`, and `SupportScreen` to canonical `AppButton`; migrated Support verification Agree/Disagree actions to `AppButton` (primary, secondary); tokenized Custody badge in `EarningsScreen` (`ShodashaTheme.amberTint`, `ShodashaTheme.warning`); standardized `_CustomerDetailSheet` corner radius to `ShodashaTheme.radiusSheet` (24dp) and list separation to `AppSpacing.md` (12dp); aligned list/card paddings and spacers across all 4 screens to `AppSpacing` tokens; standardized meta typography to 12px `ShodashaTheme.bodySmall`.
 
 - Screen Unslop V3 Vendor Duty & Sync Log (2026-11-01, ADR-180): Migrated `DutyScreen` error retry (`'Dobara try karein'`, primary) and off-duty confirmation CTA (`'Haan, off karein'`, danger) to canonical `AppButton`; migrated `SyncScreen` manual sync CTA to `AppButton` (`kind: AppButtonKind.primary`, with `Icons.sync`, dynamic queue count, and busy spinner); standardized list/card paddings and spacers across duty and sync to `AppSpacing` tokens.

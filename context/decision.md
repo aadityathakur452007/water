@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-183 | 2026-11-01 | Merge 037-uiux-unslop-audit to main — Complete UI/UX Unslop Implementation, 100% Audit Verification across Files 01–16, Release Packaging & Git Push | Accepted (merged & pushed to main) | Entire repository |
 | ADR-182 | 2026-11-01 | UI/UX Unslop Audit Closeout & Release Packaging Gate — verified 100% completion across all 12 Donor screens (01–12), 4 Vendor screens (V1–V4), and 20 Master Backlog defects (DEF-01 to DEF-20); verified release APKs: Donor APK 38,470,197 bytes (<= 40,000,000 budget), Vendor APK 53,900,285 bytes; 90/90 vendor + 122/122 donor + 487 backend tests green, 0 analyze issues | Accepted (verified 2026-11-01) | apps/user_app_donor, apps/vendor_app, context/{progress-tracker,flow,decision}.md |
 | ADR-181 | 2026-11-01 | Screen Unslop V4: Vendor Customers, Inventory, Earnings & Support — migrated error retries in CustomersScreen, InventoryScreen, EarningsScreen, and SupportScreen to canonical AppButton; migrated Support verification form Agree/Disagree actions to AppButton (primary, secondary); tokenized Custody badge to ShodashaTheme.amberTint & warning; normalized list/card paddings, separators, and spacers to AppSpacing tokens; standardized typography to 12px bodySmall; 90/90 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{customers/customers_screen.dart,inventory/inventory_screen.dart,earnings/earnings_screen.dart,support/support_screen.dart}, apps/vendor_app/test/vendor_ops_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-180 | 2026-11-01 | Screen Unslop V3: Vendor Duty & Sync Log — migrated retry and off-duty confirmation CTA to canonical AppButton (primary, danger); migrated SyncScreen manual sync CTA to AppButton.primary with sync icon, dynamic queue count, and busy state; standardized duty and sync list/card paddings and spacers to AppSpacing tokens (xl, lg, md, sm); 82/82 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{duty/duty_screen.dart,sync/sync_screen.dart}, apps/vendor_app/test/vendor_duty_sync_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -234,6 +235,26 @@
 ---
 
 ## Decision Entries
+
+### ADR-183: Merge 037-uiux-unslop-audit to main — Complete UI/UX Unslop Implementation, 100% Audit Verification across Files 01–16, Release Packaging & Git Push (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — merged & pushed to `main`.**
+- **Context**: The user directed the final merge of branch `037-uiux-unslop-audit` into `main`, resolution of any merge conflicts, re-verification of all release and test gates, and git push to remote origin.
+- **Decisions**:
+  1. **Conflict-Free Merge:** Merged `037-uiux-unslop-audit` into `main` using `--no-ff` strategy with zero merge conflicts (resolved automatically via `ort` strategy).
+  2. **Audit Verification Parity:** All 16 UI/UX screen audit documents (`01-donor-auth.md` through `16-vendor-customers-inventory-earnings-support.md`) verified at 100% code parity with line-by-line evidence reports under `Feature_docs/ux-unslop-audit/verification/`.
+  3. **Verification Test Gates Confirmed on main:**
+     - `flutter analyze apps/vendor_app apps/user_app_donor`: **0 issues found**.
+     - `apps/vendor_app` tests: **90 / 90 passed**.
+     - `apps/user_app_donor` tests: **122 / 122 passed**.
+     - `workers/api` backend tests: **487 passed / 1 skipped**.
+     - Donor release APK size gate: **38,470,197 bytes** (headroom: 1,529,803 bytes under the <= 40,000,000 bytes budget).
+  4. **Push to Remote:** Pushed `main` to `origin/main`.
+- **Consequences**:
+  - The `main` branch now contains the complete, unsloped, token-standardized UI/UX codebase across both donor and vendor applications.
+  - Zero regression in backend API or mobile client test suites.
+
 
 ### ADR-182: UI/UX Unslop Audit Closeout & Release Packaging Gate (2026-11-01)
 

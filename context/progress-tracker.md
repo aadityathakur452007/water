@@ -4,6 +4,19 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**UI/UX UNSLOP AUDIT MERGED INTO `main` & PUSHED (2026-11-01, ADR-183):** Full merge of branch `037-uiux-unslop-audit` into `main` and pushed to `origin/main`.
+- All 16 screen audit documents (`01-donor-auth.md` through `16-vendor-customers-inventory-earnings-support.md`) verified at 100% parity with permanent reports under `Feature_docs/ux-unslop-audit/verification/`.
+- All 20 Master Backlog defects (DEF-01 through DEF-20) and 4 Vendor unslop clusters (V1–V4) fully implemented.
+- Merge was conflict-free (`--no-ff`).
+- Full verification gates confirmed 100% green on `main`:
+  - `flutter analyze apps/vendor_app apps/user_app_donor`: **0 issues**.
+  - `apps/vendor_app` tests: **90 / 90 passed**.
+  - `apps/user_app_donor` tests: **122 / 122 passed**.
+  - `workers/api` backend pytest: **487 passed / 1 skipped**.
+  - Donor release APK size: **38,470,197 bytes** (headroom: 1,529,803 bytes under <= 40,000,000 budget).
+  - Vendor release APK size: **53,900,285 bytes**.
+
+
 **UI/UX UNSLOP AUDIT VERIFICATION IN PROGRESS (2026-11-01):** File-by-file audit verification across all 16 UI/UX screen audit documents (`Feature_docs/ux-unslop-audit/01-*.md` through `16-*.md`) on branch `037-uiux-unslop-audit`.
 - **01-donor-auth.md VERIFIED (2026-11-01):** Verified 100% code parity and compliance for `01-donor-auth.md`. Report created: `Feature_docs/ux-unslop-audit/verification/01-donor-auth-verification.md`. All items verified: D1-01 (tactile 20L emblem badge & quiet trust pill on neutral surface; stock photo eliminated), D1-02 (form inputs tokenized with `AppSpacing`, 12.5px eliminated), D1-03 (auto-focus `_passwordFocus` on 409 `ACCOUNT_EXISTS`), D1-04 (eliminated false session restore failure banner on cold boot), D1-05 (guarded `markFirstRunDone()` against scrim tap dismiss), D1-06 (pruned dead fields `newDeviceAlert`, `verified`, and unused constants), D1-07 (tokenized notice banners with `solarTint`/`solarBorder` and `etaTint`/`link`), D1-08 (canonical tagline `"Pure 20L water delivered to your doorstep"` harmonized). All gates 100% green: analyze clean (0 issues), vendor tests 90/90, donor tests 122/122, backend pytest 487/487.
 - **02-donor-shell-nav.md VERIFIED (2026-11-01):** Verified 100% code parity and compliance for `02-donor-shell-nav.md`. Report created: `Feature_docs/ux-unslop-audit/verification/02-donor-shell-nav-verification.md`. All items verified: D2-01 (decorative `_SearchSheet` modal cul-de-sac retired with 0 leftover references; direct 1-tap booking on Home), D2-02 (truncated 8-char uppercase order ID in notifications), D2-03 (neutral `ShodashaTheme.surface` AppBar on `NotificationsScreen`), D2-04 (tokenized padding and colors on offline/restored strips and pickup address header), D2-05 (double-tap back protection on Home tab with 2s threshold and SnackBar exit notice), D2-06 (eliminated fractional 12.5px font sizes, standardized subscription status badges to capitalized sentence case). All gates 100% green.
