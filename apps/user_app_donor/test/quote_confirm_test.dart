@@ -35,8 +35,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Order confirmed'), findsOneWidget);
-    expect(find.text('Order: ord-test-1234'), findsOneWidget);
-    expect(find.text('Window: Tomorrow 8:00 AM – 8:30 AM'), findsOneWidget);
+    expect(find.text('Order ref #TEST-123'), findsOneWidget);
+    expect(find.text('Tomorrow 8:00 AM – 8:30 AM'), findsOneWidget);
   });
 
   testWidgets(

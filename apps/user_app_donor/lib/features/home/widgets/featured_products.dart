@@ -1,6 +1,7 @@
 // Donor featured-products list, fed by the server catalog. Prices and deposit
 // come from GET /catalog; ordering opens the real quote -> order checkout.
-// Cards use Material press feedback, 48dp actions and readable labels.
+// Real 20L can imagery (assets/20l.jpg), 48dp minimum touch targets,
+// and quiet, unsloped mobile cards without generic placeholder icons.
 
 import 'package:flutter/material.dart';
 
@@ -59,6 +60,7 @@ class FeaturedProductsShowcase extends StatelessWidget {
             price: formatInr(rates!.refillPaise),
             tag: 'Bestseller',
             icon: Icons.water_drop_outlined,
+            imageAsset: 'assets/20l.jpg',
             actionLabel: 'Order',
             onTap: () => onOrder(refill: 1, container: 0),
           ),
@@ -70,6 +72,7 @@ class FeaturedProductsShowcase extends StatelessWidget {
             price: formatInr(rates!.containerPaise),
             tag: 'First order',
             icon: Icons.local_drink_outlined,
+            imageAsset: 'assets/20l.jpg',
             actionLabel: 'Order',
             onTap: () => onOrder(refill: 0, container: 1),
           ),
@@ -86,6 +89,7 @@ class _ProductCard extends StatelessWidget {
     required this.price,
     required this.tag,
     required this.icon,
+    this.imageAsset,
     required this.actionLabel,
     required this.onTap,
   });
@@ -95,6 +99,7 @@ class _ProductCard extends StatelessWidget {
   final String price;
   final String tag;
   final IconData icon;
+  final String? imageAsset;
   final String actionLabel;
   final VoidCallback onTap;
 
@@ -107,14 +112,28 @@ class _ProductCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                height: 48,
-                width: 48,
-                decoration: BoxDecoration(
+              ClipRRect(
+                borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                child: Container(
+                  height: 54,
+                  width: 54,
                   color: ShodashaTheme.tealTint,
-                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                  child: imageAsset != null
+                      ? Image.asset(
+                          imageAsset!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Icon(
+                            icon,
+                            color: ShodashaTheme.tealDeep,
+                            size: 26,
+                          ),
+                        )
+                      : Icon(
+                          icon,
+                          color: ShodashaTheme.tealDeep,
+                          size: 26,
+                        ),
                 ),
-                child: Icon(icon, color: ShodashaTheme.tealDeep, size: 26),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(

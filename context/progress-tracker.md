@@ -4,6 +4,13 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**DONOR APP UI/UX REDESIGN & DECLUTTER IMPLEMENTED (2026-11-01, ADR-184):** On branch `038-donor-redesign-declutter`, implemented the user-approved mobile-first redesign:
+- **Top Bar Declutter (`top_bar.dart`):** Removed useless cart icon and redundant profile button (profile is already in bottom navigation). Integrated real brand logo `assets/logo.png` with graceful fallback to `Icons.water_drop_rounded`. Kept clean single-notification bell (`Icons.notifications_outlined`).
+- **Real Brand Asset Showcase (`featured_products.dart`):** Replaced generic abstract vector placeholders with real 20L water can imagery (`assets/20l.jpg`) wrapped in `ShodashaTheme.radiusSm` with error fallback.
+- **Order Confirmation Unslop (`quote_confirm.dart`):** Eliminated raw 36-character UUID dump. Restructured receipt to prioritize human essentials: Delivery Window, Delivery Address, Amount, Payment Method, and canonical `AppButton` ("Track order" / "Done") with a subtle, quiet 8-character reference (`Order ref #...`) at the bottom.
+- **Home Screen Declutter (`customer_home_screen.dart`):** Streamlined top bar invocation and quieted the support card into a clean surface tile with 1dp border.
+- **Verification:** Both apps analyze clean (0 issues). `apps/user_app_donor` tests: **122 / 122 passed**. `apps/vendor_app` tests: **90 / 90 passed**.
+
 **UI/UX UNSLOP AUDIT MERGED INTO `main` & PUSHED (2026-11-01, ADR-183):** Full merge of branch `037-uiux-unslop-audit` into `main` and pushed to `origin/main`.
 - All 16 screen audit documents (`01-donor-auth.md` through `16-vendor-customers-inventory-earnings-support.md`) verified at 100% parity with permanent reports under `Feature_docs/ux-unslop-audit/verification/`.
 - All 20 Master Backlog defects (DEF-01 through DEF-20) and 4 Vendor unslop clusters (V1–V4) fully implemented.

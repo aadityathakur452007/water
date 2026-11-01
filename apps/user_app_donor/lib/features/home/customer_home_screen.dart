@@ -1,6 +1,7 @@
 // Donor customer home tab. Visual grammar follows the donor home (teal top
-// bar, two mode cards, featured jars, purity card); data is the real catalog /
-// address / subscription state owned by the 032 controllers.
+// bar, mode cards, featured jars with real images, purity card); data is the
+// real catalog / address / subscription state owned by the 032 controllers.
+// Clean, decluttered mobile layout without duplicate profile or cart chrome.
 
 import 'package:flutter/material.dart';
 
@@ -28,9 +29,9 @@ class DonorHomeTab extends StatefulWidget {
     required this.onSubscribe,
     required this.onOpenAddresses,
     required this.onOpenNotifications,
-    required this.onOpenProfile,
+    this.onOpenProfile,
     required this.onOpenSupport,
-    required this.onOpenCart,
+    this.onOpenCart,
     this.orders,
     required this.onOrderProduct,
   });
@@ -42,9 +43,9 @@ class DonorHomeTab extends StatefulWidget {
   final VoidCallback onSubscribe;
   final VoidCallback onOpenAddresses;
   final VoidCallback onOpenNotifications;
-  final VoidCallback onOpenProfile;
+  final VoidCallback? onOpenProfile;
   final VoidCallback onOpenSupport;
-  final VoidCallback onOpenCart;
+  final VoidCallback? onOpenCart;
   final OrdersController? orders;
   final void Function({required int refill, required int container})
   onOrderProduct;
@@ -94,11 +95,8 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                   addressStatus == AddrStatus.loaded &&
                   widget.addresses.items.isEmpty,
               onRetryAddress: widget.addresses.load,
-              cartCount: widget.booking.totalJars,
               onAddressTap: widget.onOpenAddresses,
               onNotifications: widget.onOpenNotifications,
-              onProfile: widget.onOpenProfile,
-              onCart: widget.onOpenCart,
             ),
             if (ratesOffline)
               Padding(
@@ -251,8 +249,8 @@ class _SupportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      color: ShodashaTheme.tealTint,
-      borderColor: ShodashaTheme.teal.withValues(alpha: 0.22),
+      color: ShodashaTheme.surface,
+      borderColor: ShodashaTheme.border,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
         AppSpacing.md,
@@ -265,10 +263,10 @@ class _SupportCard extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: ShodashaTheme.surface,
+              color: ShodashaTheme.tealTint,
               shape: BoxShape.circle,
               border: Border.all(
-                color: ShodashaTheme.teal.withValues(alpha: 0.22),
+                color: ShodashaTheme.border,
               ),
             ),
             child: const Icon(
@@ -355,7 +353,7 @@ class _QuickReorderCard extends StatelessWidget {
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 2),
+                SizedBox(height: 2),
                 Text(
                   summary,
                   style: const TextStyle(
