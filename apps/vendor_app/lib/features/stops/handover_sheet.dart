@@ -304,7 +304,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     vtr('टूटा या खराब जार ($_damaged)', 'Damaged jar ($_damaged)'),
                     _damaged,
                     (v) => setState(() => _damaged = v),
-                    color: Colors.deepOrange,
+                    color: ShodashaTheme.warning,
                   ),
                   if (_damaged > 0)
                     Padding(
