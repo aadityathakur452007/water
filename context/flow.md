@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop V1 Vendor Auth & Profile (2026-11-01, ADR-178): Standardized VendorCodeScreen login and WhatsApp buttons on canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen error retry, profile save, leave application, WhatsApp support, and logout actions to AppButton with AppSpacing tokens.
+
 - Screen Unslop 09 Donor Wallet & Payment History (2026-10-31, ADR-174): Deduplicated jar custody count from Deposit details card; preserved card grid rhythm on zero-jar custody balances with a quiet disabled return tile; clarified cross-tab dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography.
 
 - Screen Unslop 08 Donor Subscriptions & Plan Builder (2026-10-31, ADR-173): Standardized empty state and pause sheet on canonical AppButton (primary teal with add icon); relocated destructive plan cancellation from a flat red TextButton to a kebab PopupMenuButton ('More options'); replaced solid tealTint skeleton with ShodashaTheme.surface and ShodashaTheme.skeleton placeholder bars; normalized plan builder title to 18px w700 and payment summary text to 12px.

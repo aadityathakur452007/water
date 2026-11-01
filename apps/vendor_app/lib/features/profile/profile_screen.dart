@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import '../../core/vendor_locale.dart';
 import '../auth/auth_controller.dart';
 
@@ -218,7 +219,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _whatsapp() async {
-    final uri = Uri.parse('https://wa.me/919302190067');
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final uri = Uri.parse('https://wa.me/$digits');
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -269,10 +271,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
+              const SizedBox(height: AppSpacing.lg),
+              AppButton(
+                label: 'Dobara try karein',
+                kind: AppButtonKind.primary,
+                expand: false,
                 onPressed: _load,
-                child: const Text('Dobara try karein'),
               ),
             ],
           ),
@@ -282,12 +286,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = (_me?['user'] as Map<String, dynamic>?) ?? {};
     final phone = (user['phone'] ?? '') as String;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
         Card(
           shape: ShodashaTheme.shape,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -304,11 +308,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
         Card(
           shape: ShodashaTheme.shape,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -376,17 +380,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       controller: _hours,
                       decoration: const InputDecoration(
                           labelText: 'Hours (jaise 8-8)')),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
+                  const SizedBox(height: AppSpacing.md),
+                  AppButton(
+                    label: 'Save karein',
+                    kind: AppButtonKind.primary,
+                    busy: _saving,
                     onPressed: _saving ? null : _saveProfile,
-                    child: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save karein'),
                   ),
                   if (_profileNotice != null)
                     Padding(
@@ -426,11 +425,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     'Chutti par jaane se pehle request karein taaki route cover assign ho sake.',
                     style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
                   ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
+                  const SizedBox(height: AppSpacing.md),
+                  AppButton(
+                    label: 'Nayi Chutti Request Karein',
+                    kind: AppButtonKind.secondary,
+                    icon: Icons.add_circle_outline,
                     onPressed: _requestLeaveDialog,
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text('Nayi Chutti Request Karein'),
                   ),
                   const SizedBox(height: 12),
                   if (_leavesLoading)
@@ -497,18 +497,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 12),
         ],
-        OutlinedButton.icon(
+        AppButton(
+          label: 'WhatsApp help ($kSupportPhone)',
+          kind: AppButtonKind.secondary,
+          icon: Icons.support_agent_outlined,
           onPressed: _whatsapp,
-          icon: const Icon(Icons.support_agent_outlined),
-          label: Text('WhatsApp help ($kSupportPhone)'),
         ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
+        const SizedBox(height: AppSpacing.sm),
+        AppButton(
+          label: 'Logout',
+          kind: AppButtonKind.danger,
+          icon: Icons.logout,
           onPressed: () async {
             await widget.auth.logout();
           },
-          icon: const Icon(Icons.logout),
-          label: const Text('Logout'),
         ),
       ],
     );

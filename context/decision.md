@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-178 | 2026-11-01 | Screen Unslop V1: Vendor Auth & Profile — migrated VendorCodeScreen login and WhatsApp help actions to canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen retry, save profile, leave request, WhatsApp support, and logout actions to AppButton with AppSpacing tokens; 76/76 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{auth/vendor_code_screen,profile/profile_screen}.dart, apps/vendor_app/test/vendor_auth_profile_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-177 | 2026-11-01 | Screen Unslop 12: Donor Support & Jar Returns — elevated complaints entry and active tickets above common questions in SupportScreen; standardized helpline padding (16dp); normalized ReturnSheet padding to AppSpacing tokens, title/success headers to 18px w700, and eliminated fractional 12.5px font sizes; 122/122 donor + 74/74 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{support/support_screen,returns/return_sheet}.dart, apps/user_app_donor/test/support_returns_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-176 | 2026-10-31 | Screen Unslop 11: Donor Profile & Settings — standardized AppBar to surface white with ink text; purged internal telemetry developer rationale from water quality sheet; eliminated legacy AppColors token facade in favor of ShodashaTheme; removed vanity Session: Active stat leaving clean Orders and Addresses metrics; normalized card padding (16dp) and typography (18px title, 12px bodySmall); 120/120 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/profile/donor_profile_screen.dart, apps/user_app_donor/test/donor_profile_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-175 | 2026-10-31 | Screen Unslop 10: Donor Addresses & Map Picker — sticky bottom CTA in AddressScreen (AppButton addFirst); removed list-tail button; adjusted itemCount to header + addresses and normalized separator to AppSpacing.md (12dp); migrated empty state button and form stepper controls to canonical AppButton; human-readable pin prompt/feedback in map picker; subtleCardShadow elevation normalization; 118/118 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/addresses/{address_screen,map_picker}.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -229,6 +230,21 @@
 ---
 
 ## Decision Entries
+
+### ADR-178: Screen Unslop V1 Implemented — Vendor Auth & Profile (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 1 (`Feature_docs/ux-unslop-audit/13-vendor-auth-shell-profile.md`) covering `VendorCodeScreen` (`apps/vendor_app/lib/features/auth/vendor_code_screen.dart`) and `ProfileScreen` (`apps/vendor_app/lib/features/profile/profile_screen.dart`). Prior implementation suffered from raw `ElevatedButton` and `OutlinedButton` implementations on login, profile saving, leave applications, support links, and logout, bypassing `AppButton` ergonomics; a hardcoded `https://wa.me/919302190067` WhatsApp URI in `profile_screen.dart:128` bypassing the canonical `kSupportPhone` constant; and magic pixel spacers/paddings (`12`, `16`, `24`, `32`) bypassing `AppSpacing` tokens.
+- **Decisions**:
+  1. **Canonical Action Button Migration (`V1-01`):** In `vendor_code_screen.dart`, migrated the primary login CTA (`AppButtonKind.primary`, with `busy` spinner support) and admin WhatsApp support link (`AppButtonKind.secondary`, with `Icons.chat_bubble_outline`) to canonical `AppButton`. In `profile_screen.dart`, migrated profile save (`AppButtonKind.primary`), error retry (`AppButtonKind.primary`), leave request trigger (`AppButtonKind.secondary`), WhatsApp support (`AppButtonKind.secondary`), and logout (`AppButtonKind.danger`) to `AppButton`.
+  2. **Harmonized WhatsApp Phone Derivation (`V1-02`):** In `profile_screen.dart:128`, eliminated the hardcoded `919302190067` phone string. WhatsApp URI now dynamically extracts digits directly from `kSupportPhone` (`final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');`), mirroring `vendor_shell.dart`.
+  3. **Spacing Token Alignment (`V1-03`):** In both `vendor_code_screen.dart` and `profile_screen.dart`, replaced magic numbers with standard `AppSpacing` tokens (`AppSpacing.xl` 24dp, `AppSpacing.xxl` 32dp, `AppSpacing.lg` 16dp, `AppSpacing.md` 12dp, `AppSpacing.sm` 8dp, `AppSpacing.xs` 4dp).
+  4. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_auth_profile_test.dart` (2 tests) verifying canonical `AppButton` presence and labels on `VendorCodeScreen` and `ProfileScreen`. Vendor test suite expanded to **76 / 76 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings across both apps.
+- **Consequences**:
+  - Full adherence to 48dp bounding touch targets on mobile viewports for all vendor auth and profile actions.
+  - Zero hardcoded WhatsApp support numbers remaining in vendor profile code.
+  - Consistent visual identity and button states (primary, secondary, danger) across driver profile and auth workflows.
 
 ### ADR-177: Screen Unslop 12 Implemented — Donor Support & Jar Returns (2026-11-01)
 
