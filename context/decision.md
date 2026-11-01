@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-182 | 2026-11-01 | UI/UX Unslop Audit Closeout & Release Packaging Gate — verified 100% completion across all 12 Donor screens (01–12), 4 Vendor screens (V1–V4), and 20 Master Backlog defects (DEF-01 to DEF-20); verified release APKs: Donor APK 38,470,197 bytes (<= 40,000,000 budget), Vendor APK 53,900,285 bytes; 90/90 vendor + 122/122 donor + 487 backend tests green, 0 analyze issues | Accepted (verified 2026-11-01) | apps/user_app_donor, apps/vendor_app, context/{progress-tracker,flow,decision}.md |
 | ADR-181 | 2026-11-01 | Screen Unslop V4: Vendor Customers, Inventory, Earnings & Support — migrated error retries in CustomersScreen, InventoryScreen, EarningsScreen, and SupportScreen to canonical AppButton; migrated Support verification form Agree/Disagree actions to AppButton (primary, secondary); tokenized Custody badge to ShodashaTheme.amberTint & warning; normalized list/card paddings, separators, and spacers to AppSpacing tokens; standardized typography to 12px bodySmall; 90/90 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{customers/customers_screen.dart,inventory/inventory_screen.dart,earnings/earnings_screen.dart,support/support_screen.dart}, apps/vendor_app/test/vendor_ops_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-180 | 2026-11-01 | Screen Unslop V3: Vendor Duty & Sync Log — migrated retry and off-duty confirmation CTA to canonical AppButton (primary, danger); migrated SyncScreen manual sync CTA to AppButton.primary with sync icon, dynamic queue count, and busy state; standardized duty and sync list/card paddings and spacers to AppSpacing tokens (xl, lg, md, sm); 82/82 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{duty/duty_screen.dart,sync/sync_screen.dart}, apps/vendor_app/test/vendor_duty_sync_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-179 | 2026-11-01 | Screen Unslop V2: Vendor Route & Stops Execution — coordinate-first Google Maps navigation in RouteScreen and StopDetailScreen; added lat/lng to RouteStop; migrated stockout dialog, delivery handover, cash collection, pickup complete, and RTO actions to canonical AppButton; replaced raw colors with ShodashaTheme tokens; deleted dead triple_sheet.dart and pod_sheet.dart; 79/79 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{route/route_{controller,screen}.dart,stops/{stop_detail_screen,handover_sheet}.dart}, apps/vendor_app/test/vendor_route_stops_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -233,6 +234,24 @@
 ---
 
 ## Decision Entries
+
+### ADR-182: UI/UX Unslop Audit Closeout & Release Packaging Gate (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — verified on `037-uiux-unslop-audit`.**
+- **Context**: Completion of the comprehensive UI/UX Unslop Audit across all 16 screen audit documents (Donor 01–12 and Vendor 13–16), all 20 Master Backlog defects (DEF-01 through DEF-20), and 4 cross-cutting audits. The user directed Option A: run release APK packaging gates to measure binaries against size budgets, verify end-to-end test suites, and prepare branch for merge into `main`.
+- **Decisions**:
+  1. **Donor App Release Packaging Gate:** Built `apps/user_app_donor` locally using production defines (`SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1`, `RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF`) and 2-ABI configuration (`--target-platform android-arm,android-arm64`). Measured release APK size: **38,470,197 bytes**, safely below the strict **40,000,000 bytes** contract ceiling with **1,529,803 bytes** of headroom.
+  2. **Vendor App Release Packaging Gate:** Built `apps/vendor_app` locally using production define (`SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1`). Measured release APK size: **53,900,285 bytes** (51.4 MB).
+  3. **Baseline Test Gates:** Re-verified all test suites and static analysis:
+     - `flutter analyze apps/vendor_app apps/user_app_donor`: **0 issues found**.
+     - `apps/vendor_app` tests: **90 / 90 passed** (expanded from 68 baseline).
+     - `apps/user_app_donor` tests: **122 / 122 passed** (expanded from 75 baseline).
+     - `workers/api` backend tests: **487 passed / 1 skipped**.
+  4. **Merge Readiness:** All audit items are 100% complete and verified; working tree clean; branch `037-uiux-unslop-audit` ready for `--no-ff` merge into `main`.
+- **Consequences**:
+  - Confirmed production readiness of both mobile Flutter applications without binary size bloat.
+  - Complete traceability and context synchronization across all unslop work.
 
 ### ADR-181: Screen Unslop V4 Implemented — Vendor Customers, Inventory, Earnings & Support (2026-11-01)
 
