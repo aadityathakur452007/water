@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop V4 Vendor Customers, Inventory, Earnings & Support (2026-11-01, ADR-181): Migrated error state retries in `CustomersScreen`, `InventoryScreen`, `EarningsScreen`, and `SupportScreen` to canonical `AppButton`; migrated Support verification Agree/Disagree actions to `AppButton` (primary, secondary); tokenized Custody badge in `EarningsScreen` (`ShodashaTheme.amberTint`, `ShodashaTheme.warning`); standardized `_CustomerDetailSheet` corner radius to `ShodashaTheme.radiusSheet` (24dp) and list separation to `AppSpacing.md` (12dp); aligned list/card paddings and spacers across all 4 screens to `AppSpacing` tokens; standardized meta typography to 12px `ShodashaTheme.bodySmall`.
+
 - Screen Unslop V3 Vendor Duty & Sync Log (2026-11-01, ADR-180): Migrated `DutyScreen` error retry (`'Dobara try karein'`, primary) and off-duty confirmation CTA (`'Haan, off karein'`, danger) to canonical `AppButton`; migrated `SyncScreen` manual sync CTA to `AppButton` (`kind: AppButtonKind.primary`, with `Icons.sync`, dynamic queue count, and busy spinner); standardized list/card paddings and spacers across duty and sync to `AppSpacing` tokens.
 
 - Screen Unslop V2 Vendor Route & Stops Execution (2026-11-01, ADR-179): Added coordinate-first Google Maps navigation in `RouteScreen` and `StopDetailScreen` with fallback to text search; added `lat` and `lng` to `RouteStop`; migrated stockout prompt, handover CTA, cash collection, pickup complete, and RTO actions to canonical `AppButton`; standardized colors to `ShodashaTheme`; deleted obsolete `triple_sheet.dart` and `pod_sheet.dart`.

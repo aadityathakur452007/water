@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import 'earnings_controller.dart';
 
 class EarningsScreen extends StatefulWidget {
@@ -60,16 +61,18 @@ class _EarningsScreenState extends State<EarningsScreen> {
         c.state == EarningsState.offline) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(c.error ?? 'Load nahi hua',
                   textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
+              const SizedBox(height: AppSpacing.lg),
+              AppButton(
+                label: 'Dobara try karein',
+                kind: AppButtonKind.primary,
+                expand: false,
                 onPressed: () => c.load(),
-                child: const Text('Dobara try karein'),
               ),
             ],
           ),
@@ -79,7 +82,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
     return RefreshIndicator(
       onRefresh: () => c.load(),
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           // Section-header row: label left, live stop count right.
           Row(
@@ -92,14 +95,14 @@ class _EarningsScreenState extends State<EarningsScreen> {
               Text(
                 '${c.stopsDone} stops',
                 style: const TextStyle(
-                    color: ShodashaTheme.muted, fontSize: 13),
+                    color: ShodashaTheme.muted, fontSize: 12),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           // Card 1: Vendor Earned Commission
           Container(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             decoration: BoxDecoration(
               color: ShodashaTheme.blueTint,
               border: Border.all(color: ShodashaTheme.blue),
@@ -124,7 +127,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                     const Icon(Icons.account_balance_wallet_outlined, color: ShodashaTheme.blue),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
                   c.earnedPayout > 0
                       ? rupees(c.earnedPayout)
@@ -135,7 +138,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                     color: ShodashaTheme.blue,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   c.stopsDone > 0 && c.earnedPayout == 0
                       ? '${c.stopsDone} stops complete • Hisaab din ke ant me hoga'
@@ -145,10 +148,10 @@ class _EarningsScreenState extends State<EarningsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           // Card 2: Agency Cash Custody (In-Hand Cash)
           Container(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             decoration: BoxDecoration(
               color: ShodashaTheme.bg,
               border: Border.all(color: ShodashaTheme.border),
@@ -171,23 +174,23 @@ class _EarningsScreenState extends State<EarningsScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.amber.shade50,
+                        color: ShodashaTheme.amberTint,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Text(
+                      child: const Text(
                         'Custody',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: Colors.amber.shade900,
+                          color: ShodashaTheme.warning,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
                   rupees(c.inHand),
                   style: const TextStyle(
@@ -196,29 +199,29 @@ class _EarningsScreenState extends State<EarningsScreen> {
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   vtr('ऑर्डर और डिपॉज़िट का कैश एजेंसी या एडमिन को जमा करें।', 'Cash collected from orders & deposit must be submitted to Agency/Admin.'),
-                  style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+                  style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppSpacing.sm),
                 const Divider(height: 1, color: ShodashaTheme.border),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppSpacing.sm),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Expanded(
-                      child: Text('Cash Collections:', style: TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+                      child: Text('Cash Collections:', style: TextStyle(fontSize: 12, color: ShodashaTheme.muted)),
                     ),
                     Text(rupees(c.cashTotal), style: const TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Expanded(
-                      child: Text('UPI Collections (Direct Bank):', style: TextStyle(fontSize: 13, color: ShodashaTheme.muted)),
+                      child: Text('UPI Collections (Direct Bank):', style: TextStyle(fontSize: 12, color: ShodashaTheme.muted)),
                     ),
                     Text(rupees(c.upiTotal), style: const TextStyle(fontWeight: FontWeight.w600, color: ShodashaTheme.blue)),
                   ],
@@ -227,9 +230,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
             ),
           ),
           if (c.flaggedStops > 0) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               decoration: BoxDecoration(
                 border: Border.all(color: ShodashaTheme.border),
                 borderRadius:
@@ -246,7 +249,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: ShodashaTheme.danger),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpacing.xs),
                   const Text(
                     'Sirf jankari — payout admin clear ke baad, yahan se action nahi.',
                     maxLines: 2,
@@ -258,7 +261,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
             ),
           ],
           if (c.note != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Text(c.note!,
                 style: const TextStyle(color: ShodashaTheme.muted)),
           ],

@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-181 | 2026-11-01 | Screen Unslop V4: Vendor Customers, Inventory, Earnings & Support — migrated error retries in CustomersScreen, InventoryScreen, EarningsScreen, and SupportScreen to canonical AppButton; migrated Support verification form Agree/Disagree actions to AppButton (primary, secondary); tokenized Custody badge to ShodashaTheme.amberTint & warning; normalized list/card paddings, separators, and spacers to AppSpacing tokens; standardized typography to 12px bodySmall; 90/90 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{customers/customers_screen.dart,inventory/inventory_screen.dart,earnings/earnings_screen.dart,support/support_screen.dart}, apps/vendor_app/test/vendor_ops_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-180 | 2026-11-01 | Screen Unslop V3: Vendor Duty & Sync Log — migrated retry and off-duty confirmation CTA to canonical AppButton (primary, danger); migrated SyncScreen manual sync CTA to AppButton.primary with sync icon, dynamic queue count, and busy state; standardized duty and sync list/card paddings and spacers to AppSpacing tokens (xl, lg, md, sm); 82/82 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{duty/duty_screen.dart,sync/sync_screen.dart}, apps/vendor_app/test/vendor_duty_sync_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-179 | 2026-11-01 | Screen Unslop V2: Vendor Route & Stops Execution — coordinate-first Google Maps navigation in RouteScreen and StopDetailScreen; added lat/lng to RouteStop; migrated stockout dialog, delivery handover, cash collection, pickup complete, and RTO actions to canonical AppButton; replaced raw colors with ShodashaTheme tokens; deleted dead triple_sheet.dart and pod_sheet.dart; 79/79 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{route/route_{controller,screen}.dart,stops/{stop_detail_screen,handover_sheet}.dart}, apps/vendor_app/test/vendor_route_stops_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-178 | 2026-11-01 | Screen Unslop V1: Vendor Auth & Profile — migrated VendorCodeScreen login and WhatsApp help actions to canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen retry, save profile, leave request, WhatsApp support, and logout actions to AppButton with AppSpacing tokens; 76/76 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{auth/vendor_code_screen,profile/profile_screen}.dart, apps/vendor_app/test/vendor_auth_profile_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -232,6 +233,21 @@
 ---
 
 ## Decision Entries
+
+### ADR-181: Screen Unslop V4 Implemented — Vendor Customers, Inventory, Earnings & Support (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 4 (`Feature_docs/ux-unslop-audit/16-vendor-customers-inventory-earnings-support.md`) covering `CustomersScreen` (`apps/vendor_app/lib/features/customers/customers_screen.dart`), `InventoryScreen` (`apps/vendor_app/lib/features/inventory/inventory_screen.dart`), `EarningsScreen` (`apps/vendor_app/lib/features/earnings/earnings_screen.dart`), and `SupportScreen` (`apps/vendor_app/lib/features/support/support_screen.dart`). Prior implementation suffered from raw `ElevatedButton`, `OutlinedButton`, and `TextButton` bypasses on error retries and verification forms, ad-hoc palette colors (`Colors.amber.shade50/900`) on the Custody badge, non-token spacers (`10`, `12`, `14`, `16`, `18`, `20`, `24`), and off-scale 13px font sizes.
+- **Decisions**:
+  1. **Canonical Action Button Migration in Ops Tier (`V4-01`):** Migrated error retry CTAs across `CustomersScreen`, `InventoryScreen`, `EarningsScreen`, and `SupportScreen` to canonical `AppButton`. In `SupportScreen`, migrated incident verification form actions (`Agree` and `Disagree`) to `AppButton` (`kind: AppButtonKind.primary` with `busy` indicator for Agree; `kind: AppButtonKind.secondary` for Disagree).
+  2. **Tokenized Custody Indicator (`V4-02`):** Replaced ad-hoc `Colors.amber.shade50` background and `Colors.amber.shade900` text in `earnings_screen.dart` with design tokens `ShodashaTheme.amberTint` and `ShodashaTheme.warning`.
+  3. **Spacing Token Alignment & Corner Radii (`V4-03`):** In `customers_screen.dart`, standardized `_CustomerDetailSheet` corner radius to `ShodashaTheme.radiusSheet` (24dp) and list separation to `AppSpacing.md` (12dp). Across all four screens, aligned list paddings, card insets, and spacers to `AppSpacing` tokens (`xl`, `lg`, `md`, `sm`, `xs`).
+  4. **Typography Scale Harmonization (`V4-04`):** Normalized secondary/meta labels from 13px to 12px `ShodashaTheme.bodySmall` across all four operational screens.
+  5. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_ops_test.dart` (8 tests) verifying error retry `AppButton` across all screens, detail sheet opening, stock metrics, custody tokenization, and support form button enablement/states. Vendor test suite expanded to **90 / 90 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Full adherence to 48dp bounding touch targets on mobile viewports for all vendor operational secondary screens.
+  - Consistent visual identity and button states (primary, secondary) across customer lookup, stock verification, earnings review, and incident resolution.
 
 ### ADR-180: Screen Unslop V3 Implemented — Vendor Duty & Sync Log (2026-11-01)
 
