@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-184 | 2026-11-01 | Donor App UI/UX Redesign, Top Bar Declutter & Real Asset Integration — removed useless cart and redundant profile buttons from DonorTopBar; integrated brand assets (assets/logo.png, assets/20l.jpg) in top bar and featured products; unsloped quote_confirm.dart to hide raw 36-char UUID and highlight delivery window, address, amount and canonical AppButton CTA with quiet truncated 8-char ref; decluttered customer home screen; 122/122 donor and 90/90 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{home/widgets/{top_bar,featured_products}.dart,home/customer_home_screen.dart,booking/quote_confirm.dart}, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-183 | 2026-11-01 | Merge 037-uiux-unslop-audit to main — Complete UI/UX Unslop Implementation, 100% Audit Verification across Files 01–16, Release Packaging & Git Push | Accepted (merged & pushed to main) | Entire repository |
 | ADR-182 | 2026-11-01 | UI/UX Unslop Audit Closeout & Release Packaging Gate — verified 100% completion across all 12 Donor screens (01–12), 4 Vendor screens (V1–V4), and 20 Master Backlog defects (DEF-01 to DEF-20); verified release APKs: Donor APK 38,470,197 bytes (<= 40,000,000 budget), Vendor APK 53,900,285 bytes; 90/90 vendor + 122/122 donor + 487 backend tests green, 0 analyze issues | Accepted (verified 2026-11-01) | apps/user_app_donor, apps/vendor_app, context/{progress-tracker,flow,decision}.md |
 | ADR-181 | 2026-11-01 | Screen Unslop V4: Vendor Customers, Inventory, Earnings & Support — migrated error retries in CustomersScreen, InventoryScreen, EarningsScreen, and SupportScreen to canonical AppButton; migrated Support verification form Agree/Disagree actions to AppButton (primary, secondary); tokenized Custody badge to ShodashaTheme.amberTint & warning; normalized list/card paddings, separators, and spacers to AppSpacing tokens; standardized typography to 12px bodySmall; 90/90 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{customers/customers_screen.dart,inventory/inventory_screen.dart,earnings/earnings_screen.dart,support/support_screen.dart}, apps/vendor_app/test/vendor_ops_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -235,6 +236,22 @@
 ---
 
 ## Decision Entries
+
+### ADR-184: Donor App UI/UX Redesign, Top Bar Declutter & Real Asset Integration (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on branch `038-donor-redesign-declutter`.**
+- **Context**: The user identified key clutter and anti-patterns in the user donor app: top bar had 3 buttons (Notifications, duplicate Profile which is already in bottom navigation, and useless Cart since water ordering is direct 1-tap/item checkout); the home screen felt visually noisy with generic vector icons instead of real provided assets (`assets/logo.png`, `assets/20l.jpg`); and the order confirmation modal (`quote_confirm.dart`) dumped raw 36-character developer UUIDs (`Order: 550e8400...`) instead of presenting a clean customer-facing delivery receipt. The user mandated applying the `redesign` anti-fixation skill, `unslop` design craft, and standard mobile sizing.
+- **Decisions**:
+  1. **Top Bar Declutter (`top_bar.dart`):** Removed Cart button and duplicate Profile button. Replaced abstract water drop with real brand logo (`assets/logo.png`, 26dp with fallback). Preserved clean notification bell (`Icons.notifications_outlined`) and location selector with min 48dp touch targets.
+  2. **Real Brand Asset Showcase (`featured_products.dart`):** Integrated real water bottle asset (`assets/20l.jpg`) into `_ProductCard` with clean 54dp image container, `radiusSm` (8dp), and graceful fallback to icons if missing.
+  3. **Order Confirmation Unslop (`quote_confirm.dart`):** Eliminated raw 36-character UUID dump. Highlighted what customers actually need: Delivery Window, Address, and Amount with canonical `AppButton` (`kind: primary` for "Track order" and `kind: secondary` for "Done"), moving the reference to a quiet 8-character uppercase chip at the bottom (`Order ref #...`).
+  4. **Home Screen Hygiene (`customer_home_screen.dart`):** Streamlined top bar props, softened support card into a clean surface tile with 1dp border, and maintained full test parity.
+- **Consequences**:
+  - `flutter analyze apps/vendor_app apps/user_app_donor`: 0 issues.
+  - `apps/user_app_donor` tests: 122 / 122 passed.
+  - `apps/vendor_app` tests: 90 / 90 passed.
+  - Clean mobile layout on 4px grid with 48dp minimum targets.
 
 ### ADR-183: Merge 037-uiux-unslop-audit to main — Complete UI/UX Unslop Implementation, 100% Audit Verification across Files 01–16, Release Packaging & Git Push (2026-11-01)
 

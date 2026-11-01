@@ -1,14 +1,22 @@
-// Order confirmation (server truth, clear next steps).
+// Order confirmation (server truth, clean mobile receipt).
 //
-// Shows the SERVER-minted order id (never a client-key preview), window,
-// amount, rider note. Primary = Track order; subscription checkouts get a
-// subscriptions shortcut. Money values come from [CheckoutResult] only.
+// Shows delivery window, amount, address, and payment instruction.
+// Technical raw 36-char UUIDs are hidden from the primary receipt,
+// rendered only as a quiet 8-char reference at the bottom.
+// Primary action uses canonical AppButton.
 
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import 'booking_controller.dart';
 import 'checkout_service.dart';
+
+String _shortRef(String id) {
+  final clean = id.replaceAll('ord-', '').replaceAll('sub-', '');
+  if (clean.length <= 8) return clean.toUpperCase();
+  return clean.substring(0, 8).toUpperCase();
+}
 
 /// Shows the confirmation sheet for a placed [CheckoutResult].
 void showOrderConfirm(
@@ -56,6 +64,8 @@ class _ConfirmSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = result;
+    final id = r.isSubscription ? r.subscriptionId : r.orderId;
+
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -70,7 +80,7 @@ class _ConfirmSheet extends StatelessWidget {
                   color: r.attention ? ShodashaTheme.blue : ShodashaTheme.teal,
                   size: 28,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
                     r.isSubscription
@@ -82,6 +92,7 @@ class _ConfirmSheet extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       fontSize: 18,
                       letterSpacing: -0.3,
+                      color: ShodashaTheme.ink,
                     ),
                   ),
                 ),
@@ -111,54 +122,92 @@ class _ConfirmSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (r.isSubscription
-                      ? r.subscriptionId.isNotEmpty
-                      : r.orderId.isNotEmpty)
-                    Text(
-                      r.isSubscription
-                          ? 'Subscription: ${r.subscriptionId}'
-                          : 'Order: ${r.orderId}',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  const SizedBox(height: 2),
-                  Text('Window: ${r.windowLabel}'),
-                  if (r.waterPaise > 0 || r.depositPaise > 0)
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.schedule_rounded,
+                        size: 16,
+                        color: ShodashaTheme.tealDeep,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          r.windowLabel,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: ShodashaTheme.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  if (r.waterPaise > 0 || r.depositPaise > 0) ...[
                     Text(
                       'Water ${rupeesLabel(r.waterPaise)}'
                       '${r.depositPaise > 0 ? ' + Deposit ${rupeesLabel(r.depositPaise)}' : ''}'
                       '${r.capsPaise > 0 ? ' + Cap ${rupeesLabel(r.capsPaise)} (at handover)' : ''}',
-                      style: const TextStyle(fontSize: 12, height: 1.4),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: ShodashaTheme.muted,
+                      ),
                     ),
+                    const SizedBox(height: AppSpacing.xs),
+                  ],
                   if (r.totalPaise > 0)
                     Text(
                       'Amount: ${rupeesLabel(r.totalPaise)}',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: ShodashaTheme.ink,
+                      ),
                     ),
-                  if (r.addressLabel.isNotEmpty)
-                    Text(
-                      'Address: ${r.addressLabel}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, height: 1.4),
+                  if (r.addressLabel.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 16,
+                          color: ShodashaTheme.muted,
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
+                          child: Text(
+                            r.addressLabel,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: ShodashaTheme.muted,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                  ],
+                  const SizedBox(height: AppSpacing.xs),
                   if (r.isSubscription)
                     const Text(
-                      'No payment was collected. Your first delivery is '
-                      'billed as usual.',
+                      'No advance payment today · First delivery billed as usual',
                       style: TextStyle(
                         color: ShodashaTheme.muted,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     )
                   else if (!r.attention)
                     Text(
                       r.payOnDelivery
-                          ? 'Pay ${rupeesLabel(r.totalPaise)} in cash when the '
-                                'rider arrives.'
-                          : 'The rider name and call button appear once assigned.',
+                          ? 'Pay ${rupeesLabel(r.totalPaise)} in cash when rider arrives'
+                          : 'Rider details will appear once assigned',
                       style: const TextStyle(
                         color: ShodashaTheme.muted,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
                 ],
@@ -173,24 +222,25 @@ class _ConfirmSheet extends StatelessWidget {
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                 ),
                 child: const Text(
-                  'UPI payment sent — it can take up to 10 minutes to show '
-                  'as paid in Orders. If it does not, contact support.',
-                  style: TextStyle(fontSize: 13),
+                  'UPI payment processing — status updates automatically in Orders.',
+                  style: TextStyle(fontSize: 12, height: 1.4),
                 ),
               ),
             ],
             if (r.isSubscription) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  onOpenSubscriptions?.call();
-                },
-                child: const Text('Pause or skip any time'),
+              const SizedBox(height: AppSpacing.sm),
+              Center(
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    onOpenSubscriptions?.call();
+                  },
+                  child: const Text('Manage plan in Plans tab'),
+                ),
               ),
             ],
             if (!r.attention) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               Container(
                 padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
@@ -202,44 +252,46 @@ class _ConfirmSheet extends StatelessWidget {
                     Icon(
                       Icons.shield_outlined,
                       size: 18,
-                      color: ShodashaTheme.teal,
+                      color: ShodashaTheme.tealDeep,
                     ),
-                    SizedBox(width: 8),
+                    SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Text(
-                        'Your safety deposit is tracked in the app — see '
-                        'the Wallet tab.',
-                        style: TextStyle(fontSize: 13),
+                        'Refundable safety deposit tracked securely in your Wallet',
+                        style: TextStyle(fontSize: 12, height: 1.35),
                       ),
                     ),
                   ],
                 ),
               ),
             ],
-            const SizedBox(height: AppSpacing.md),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ShodashaTheme.teal,
-                  foregroundColor: ShodashaTheme.surface,
-                ),
-                onPressed: () => _primary(context),
+            const SizedBox(height: AppSpacing.lg),
+            AppButton(
+              label: r.isSubscription ? 'View plans' : 'Track order',
+              kind: AppButtonKind.primary,
+              onPressed: () => _primary(context),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            AppButton(
+              label: 'Done',
+              kind: AppButtonKind.secondary,
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            if (id.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Center(
                 child: Text(
-                  r.isSubscription ? 'View subscriptions' : 'Track order',
+                  r.isSubscription
+                      ? 'Plan ref #${_shortRef(id)}'
+                      : 'Order ref #${_shortRef(id)}',
+                  style: const TextStyle(
+                    color: ShodashaTheme.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text(
-                  'Done',
-                  style: TextStyle(color: ShodashaTheme.muted),
-                ),
-              ),
-            ),
+            ],
           ],
         ),
       ),

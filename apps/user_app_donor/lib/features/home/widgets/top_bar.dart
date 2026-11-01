@@ -1,7 +1,7 @@
-// Donor top bar, wired to real state. The address comes from GET /addresses,
-// search filters the server catalog, and the badge is the current checkout jar
-// count (zero hides it). Loading, error and empty address states are explicit
-// so the bar never claims "add address" while a read is still in flight.
+// Donor top bar, wired to real state. The address comes from GET /addresses.
+// Clean, mobile-first design: displays the brand logo, location selector,
+// and quiet notification bell. Redundant Profile (present in bottom nav)
+// and unused Cart buttons have been unsloped and removed.
 
 import 'package:flutter/material.dart';
 
@@ -13,11 +13,11 @@ class DonorTopBar extends StatelessWidget {
     super.key,
     required this.addressLabel,
     required this.addressDetail,
-    required this.cartCount,
+    this.cartCount = 0,
     required this.onAddressTap,
     required this.onNotifications,
-    required this.onProfile,
-    required this.onCart,
+    this.onProfile,
+    this.onCart,
     this.addressLoading = false,
     this.addressError = false,
     this.addressEmpty = false,
@@ -29,8 +29,8 @@ class DonorTopBar extends StatelessWidget {
   final int cartCount;
   final VoidCallback onAddressTap;
   final VoidCallback onNotifications;
-  final VoidCallback onProfile;
-  final VoidCallback onCart;
+  final VoidCallback? onProfile;
+  final VoidCallback? onCart;
   final bool addressLoading;
   final bool addressError;
   final bool addressEmpty;
@@ -70,10 +70,19 @@ class DonorTopBar extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(
-                  Icons.water_drop_rounded,
-                  color: ShodashaTheme.surface,
-                  size: 24,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    'assets/logo.png',
+                    width: 26,
+                    height: 26,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Icon(
+                      Icons.water_drop_rounded,
+                      color: ShodashaTheme.surface,
+                      size: 24,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 const Expanded(
@@ -93,29 +102,6 @@ class DonorTopBar extends StatelessWidget {
                   icon: Icons.notifications_outlined,
                   tooltip: 'Notifications',
                   onPressed: onNotifications,
-                  color: ShodashaTheme.surface,
-                  backgroundColor: ShodashaTheme.surface.withValues(
-                    alpha: 0.14,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                AppIconButton(
-                  icon: Icons.person_outline_rounded,
-                  tooltip: 'Profile',
-                  onPressed: onProfile,
-                  color: ShodashaTheme.surface,
-                  backgroundColor: ShodashaTheme.surface.withValues(
-                    alpha: 0.14,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                AppIconButton(
-                  icon: Icons.shopping_bag_outlined,
-                  tooltip: cartCount > 0
-                      ? 'Checkout, $cartCount jars'
-                      : 'Checkout',
-                  onPressed: onCart,
-                  badge: cartCount > 0 ? cartCount : null,
                   color: ShodashaTheme.surface,
                   backgroundColor: ShodashaTheme.surface.withValues(
                     alpha: 0.14,
