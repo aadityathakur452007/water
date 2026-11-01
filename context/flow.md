@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Atomic Vendor Onboarding & Staff Auth Collision Hardening (2026-11-01, ADR-185): Unified vendor creation, verification, shift capacity, and 90-day access code generation into a single atomic backend transaction on `POST /admin/vendors` (`auto_verify: true`). Added role-aware fallback in `AuthService.code_login` so vendor logins query `role = 'vendor'` rather than catching customer users with identical raw numbers. In `add-vendor-dialog.tsx`, streamlined form submission into 1 server call and immediately renders the plaintext access code card and WhatsApp credential link (`/vendor/login`).
+
 - Donor App UI/UX Redesign & Declutter (2026-11-01, ADR-184): Removed useless cart and redundant profile button from `DonorTopBar`, showcasing `assets/logo.png` and keeping quiet notification bell. Integrated real `assets/20l.jpg` into `FeaturedProductsShowcase`. Unsloped `quote_confirm.dart` into a clean receipt card prioritizing delivery window, address, and amount with canonical `AppButton` while hiding raw 36-char UUID in favor of quiet 8-char ref.
 
 - UI/UX Unslop Complete & Merged into main (2026-11-01, ADR-183): Branch `037-uiux-unslop-audit` merged into `main` and pushed. All 16 screen audit documents verified with code parity reports; donor app tokenized on `ShodashaTheme` & `AppSpacing` with zero fractional fonts; vendor app modernized with `AppButton`, coordinate-first navigation, `vtr()` single-locale toggle, and duty gate unslop.

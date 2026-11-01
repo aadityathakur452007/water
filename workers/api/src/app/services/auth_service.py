@@ -424,6 +424,14 @@ class AuthService:
         await self._limit_check(f"vendor-login:device:{device_id}", *self.VENDOR_LOGIN_DEVICE_LIMIT)
         phone_n = normalize_phone(phone or "")
         user = await self._users.find_by_phone(phone_n)
+        if user is None or user.get("role") != "vendor":
+            raw_phone = (phone or "").strip()
+            row = (await self._conn.execute(
+                "SELECT * FROM users WHERE (phone = ? OR phone = ?) AND role = 'vendor' LIMIT 1",
+                (phone_n, raw_phone),
+            )).fetchone()
+            if row is not None:
+                user = dict(row)
         want = hash_token((code or "").strip())
         matched_id: str | None = None
         if user is not None and user.get("role") == "vendor":
@@ -492,6 +500,14 @@ class AuthService:
         await self._limit_check(f"access-code-login:device:{device_id}", *ACCESS_CODE_DEVICE_LIMIT)
         phone_n = normalize_phone(phone or "")
         user = await self._users.find_by_phone(phone_n)
+        if user is None or user.get("role") != expected_role:
+            raw_phone = (phone or "").strip()
+            row = (await self._conn.execute(
+                "SELECT * FROM users WHERE (phone = ? OR phone = ?) AND role = ? LIMIT 1",
+                (phone_n, raw_phone, expected_role),
+            )).fetchone()
+            if row is not None:
+                user = dict(row)
         want = hash_token((code or "").strip())
         matched_id: str | None = None
         if user is not None and user.get("role") == expected_role:
