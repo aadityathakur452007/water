@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-185 | 2026-11-01 | Atomic Vendor Onboarding & Staff Auth Hardening — unified vendor registration, KYC verification, shift capacity, and 90-day access code issuance into one atomic transaction on POST /admin/vendors (auto_verify: true); added role-aware fallback in AuthService.code_login to eliminate customer/vendor phone collisions; updated add-vendor-dialog.tsx in apps/admin_app to a single atomic server call, displaying the access code immediately without 405 error; fixed WhatsApp credentials share link to /vendor/login; live D1 updated and vendor login verified | Accepted (implemented 2026-11-01) | workers/api/src/app/api/v1/admin.py, workers/api/src/app/services/auth_service.py, apps/admin_app/src/routes/(main)/dashboard/vendors/-components/add-vendor-dialog.tsx, context/{progress-tracker,flow,decision}.md |
 | ADR-184 | 2026-11-01 | Donor App UI/UX Redesign, Top Bar Declutter & Real Asset Integration — removed useless cart and redundant profile buttons from DonorTopBar; integrated brand assets (assets/logo.png, assets/20l.jpg) in top bar and featured products; unsloped quote_confirm.dart to hide raw 36-char UUID and highlight delivery window, address, amount and canonical AppButton CTA with quiet truncated 8-char ref; decluttered customer home screen; 122/122 donor and 90/90 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{home/widgets/{top_bar,featured_products}.dart,home/customer_home_screen.dart,booking/quote_confirm.dart}, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-183 | 2026-11-01 | Merge 037-uiux-unslop-audit to main — Complete UI/UX Unslop Implementation, 100% Audit Verification across Files 01–16, Release Packaging & Git Push | Accepted (merged & pushed to main) | Entire repository |
 | ADR-182 | 2026-11-01 | UI/UX Unslop Audit Closeout & Release Packaging Gate — verified 100% completion across all 12 Donor screens (01–12), 4 Vendor screens (V1–V4), and 20 Master Backlog defects (DEF-01 to DEF-20); verified release APKs: Donor APK 38,470,197 bytes (<= 40,000,000 budget), Vendor APK 53,900,285 bytes; 90/90 vendor + 122/122 donor + 487 backend tests green, 0 analyze issues | Accepted (verified 2026-11-01) | apps/user_app_donor, apps/vendor_app, context/{progress-tracker,flow,decision}.md |
@@ -236,6 +237,26 @@
 ---
 
 ## Decision Entries
+
+### ADR-185: Atomic Vendor Onboarding & Staff Auth Hardening
+
+- **Status**: Accepted (implemented 2026-11-01)
+- **Date**: 2026-11-01
+- **Affects**: `workers/api/src/app/api/v1/admin.py`, `workers/api/src/app/services/auth_service.py`, `apps/admin_app/src/routes/(main)/dashboard/vendors/-components/add-vendor-dialog.tsx`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. The user reported being unable to log in as a vendor in `apps/vendor_app` with phone `9999999999` and access code `JJ6Z3gAFtYo6Rswi` (HTTP 401). Inspection of D1 `shodasha` revealed that `9999999999` had two rows: vendor "asd" stored without `+91` prefix, and customer "Aaditya Thakur" stored as `+919999999999`. Because `AuthService.code_login` queried by normalized phone without filtering by role, it selected the customer account (`role = 'user'`), returning a 401 role mismatch error.
+  2. In the Super Admin Dashboard (`add-vendor-dialog.tsx`), vendor onboarding executed 4 separate sequential HTTP calls (`create` -> `verify` -> `capacity` -> `access-codes`). The 3rd call (`/capacity`) used `adminPostServer` on an endpoint defined only as `PATCH` in FastAPI, causing a 405 Method Not Allowed error. The UI threw an error toast and aborted before step 4 could generate the access code, forcing the admin to refresh and manually generate the code in vendor details.
+  3. The WhatsApp credential share text in `add-vendor-dialog.tsx` incorrectly linked to the Super Admin login (`/auth/v1/login`) instead of the Vendor Web Portal (`/vendor/login`).
+- **Decision**:
+  1. Updated Cloudflare D1 `shodasha`: updated customer test account to non-conflicting phone and normalized vendor "asd" to `+919999999999`. Verified live vendor login with `9999999999` and `JJ6Z3gAFtYo6Rswi` returns HTTP 200 with active bearer token.
+  2. Updated `AuthService.code_login` and `AuthService.vendor_login` with a role-aware fallback lookup (`(phone = ? OR phone = ?) AND role = expected_role`), preventing staff auth from ever latching onto customer accounts.
+  3. Updated `POST /admin/vendors` in `admin.py`: added `normalize_phone`, `max_stops`, `auto_verify: bool = False`, and atomic issuance of the 90-day access code into `vendor_access_codes` and `access_codes`.
+  4. Updated `/admin/vendors/{vendor_id}/capacity` to accept both `POST` and `PATCH` methods.
+  5. Updated `add-vendor-dialog.tsx` in `apps/admin_app`: collapsed onboarding into a single atomic server call with `auto_verify: true`, immediately displaying the access code card and fixing the WhatsApp link to `https://shodasha-admin.adityathakur452007.workers.dev/vendor/login`.
+- **Consequences**:
+  - Positive: 1-click vendor registration is atomic and instant; no 405 error, no page refresh, immediate access code display.
+  - Positive: Staff logins are resilient against raw/normalized phone differences and customer collisions.
+  - Verification: `apps/admin_app` build passes (0 errors); all backend pytest suites pass (58/58); vendor app tests pass (90/90).
 
 ### ADR-184: Donor App UI/UX Redesign, Top Bar Declutter & Real Asset Integration (2026-11-01)
 

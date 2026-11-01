@@ -41,7 +41,7 @@ from app.services.dispatch_service import (
     set_delivery_window,
     write_audit,
 )
-from app.services.auth_service import AuthService
+from app.services.auth_service import AuthService, normalize_phone
 from app.services.vendor_service import VendorService
 
 router = APIRouter(tags=["admin"])
@@ -87,6 +87,8 @@ class VendorCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     zone_id: str = Field(min_length=1)
     kyc_note: str = Field(default="", max_length=500)
+    max_stops: int | None = Field(default=None, ge=1, le=500)
+    auto_verify: bool = False
 
 
 class CapacityPatchIn(BaseModel):
@@ -290,29 +292,74 @@ async def admin_repool(vendor_id: str, conn=Depends(get_db_conn), user=Admin):
 @router.post("/admin/vendors", status_code=201)
 async def vendor_create(payload: VendorCreateIn, conn=Depends(get_db_conn), user=Admin):
     with WRITE_LOCK:
-        if (await conn.execute("SELECT id FROM users WHERE phone = ?", (payload.phone,))).fetchone():
+        phone_n = normalize_phone(payload.phone)
+        if (await conn.execute("SELECT id FROM users WHERE phone = ? OR phone = ?", (phone_n, payload.phone.strip()))).fetchone():
             raise ConflictError(message="Phone already registered.", details={"phone": payload.phone})
         if (await conn.execute("SELECT id FROM zones WHERE id = ?", (payload.zone_id,))).fetchone() is None:
             raise NotFoundError(message="Zone not found.", details={"id": payload.zone_id})
         vid = uuid.uuid4().hex
+        now_iso = _now()
+        role = "vendor" if payload.auto_verify else "user"
+        kyc = "verified" if payload.auto_verify else "pending"
         await conn.execute(
             "INSERT INTO users(id, phone, name, role, language, kyc_status, suspended, created_at)"
-            " VALUES (?, ?, ?, 'user', 'hi', 'pending', 0, ?)",
-            (vid, payload.phone.strip(), payload.name.strip(), _now()),
+            " VALUES (?, ?, ?, ?, 'hi', ?, 0, ?)",
+            (vid, phone_n, payload.name.strip(), role, kyc, now_iso),
         )
+        max_stops = payload.max_stops if payload.max_stops is not None else 50
         await conn.execute(
-            "INSERT INTO vendor_profile(user_id, kyc_note, updated_at) VALUES (?, ?, ?)",
-            (vid, payload.kyc_note, _now()),
+            "INSERT INTO vendor_profile(user_id, kyc_note, max_stops_per_shift, updated_at) VALUES (?, ?, ?, ?)",
+            (vid, payload.kyc_note or "Verified by Admin", max_stops, now_iso),
         )
         await conn.execute("INSERT OR IGNORE INTO vendor_zones(vendor_id, zone_id) VALUES (?, ?)",
                      (vid, payload.zone_id))
-        await _audit(conn, user, "vendor.create", "users", vid, "", {"phone": payload.phone})
+
+        code = None
+        expires = None
+        if payload.auto_verify:
+            code = secrets.token_urlsafe(12)
+            code_id = uuid.uuid4().hex
+            expires = _code_expiry(None)
+            hint = f"••{code[-2:]}"
+            code_hash = hashlib.sha256(code.encode()).hexdigest()
+            admin_uid = _uid(user)
+            try:
+                await VendorAccessRepo(conn).issue(
+                    code_id=code_id, vendor_id=vid,
+                    code_hash=code_hash,
+                    masked_hint=hint, expires_at=expires, created_by=admin_uid
+                )
+            except Exception:
+                pass
+            try:
+                await AccessCodeRepo(conn).issue(
+                    code_id=code_id, user_id=vid,
+                    code_hash=code_hash, masked_hint=hint,
+                    expected_role="vendor", expires_at=expires, created_by=admin_uid
+                )
+            except Exception:
+                pass
+            await _audit(conn, user, "vendor.access.issue", "vendor_access_codes", code_id,
+                         "", {"vendor_id": vid, "expires_at": expires})
+
+        await _audit(conn, user, "vendor.create", "users", vid, "", {"phone": phone_n, "role": role})
         conn.commit()
-    return {"id": vid, "phone": payload.phone, "name": payload.name,
-            "kyc_status": "pending", "zone_id": payload.zone_id}
+
+    res = {
+        "id": vid,
+        "phone": phone_n,
+        "name": payload.name,
+        "role": role,
+        "kyc_status": kyc,
+        "zone_id": payload.zone_id,
+    }
+    if code:
+        res["code"] = code
+        res["expires_at"] = expires
+    return res
 
 
-@router.patch("/admin/vendors/{vendor_id}/capacity")
+@router.api_route("/admin/vendors/{vendor_id}/capacity", methods=["POST", "PATCH"])
 async def vendor_capacity(vendor_id: str, payload: CapacityPatchIn, conn=Depends(get_db_conn), user=Admin):
     with WRITE_LOCK:
         before = await ensure_profile(conn, vendor_id)

@@ -4,6 +4,21 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**ATOMIC VENDOR ONBOARDING & AUTH COLLISION HARDENING (2026-11-01, ADR-185):** On branch `039-vendor-onboarding-atomic-fix`:
+- **Vendor Auth Collision & D1 Resolution:** Resolved vendor 401 login issue where phone `9999999999` matched customer user `+919999999999` due to non-normalized phone storage in `/admin/vendors`. Updated D1 `shodasha` database: reassigned customer test phone and normalized vendor `7581779c...` to `+919999999999` with synchronized access codes in both `vendor_access_codes` and `access_codes`. Verified live vendor login with `9999999999` and `JJ6Z3gAFtYo6Rswi` returns 200 with active bearer session.
+- **Backend Auth & Onboarding Hardening (`admin.py`, `auth_service.py`):**
+  - Updated `AuthService.code_login` and `AuthService.vendor_login` with role-aware fallback lookup (`(phone = ? OR phone = ?) AND role = expected_role`) to guarantee that staff/vendor logins never latch onto customer accounts even if phones share digits.
+  - Enhanced `POST /admin/vendors` to support `auto_verify: bool = False`, `max_stops`, phone normalization via `normalize_phone`, and atomic issuance of a 90-day access code in a single database transaction.
+  - Configured `@router.api_route("/admin/vendors/{vendor_id}/capacity", methods=["POST", "PATCH"])` to eliminate 405 Method Not Allowed errors from legacy callers.
+- **Admin Dashboard Unslop (`add-vendor-dialog.tsx`):**
+  - Replaced the 4-step fragile sequential client request cascade (`create` → `verify` → `capacity` → `access-codes`) with **1 atomic server call** to `POST /v1/admin/vendors`.
+  - On submit, immediately captures and renders the 90-day plaintext access code card with 1-click clipboard copy.
+  - Fixed WhatsApp share credentials link to direct vendor partners to `/vendor/login` instead of `/auth/v1/login`.
+- **Verification:**
+  - `apps/admin_app`: `npm run build` completed cleanly (0 errors).
+  - `workers/api`: All test suites passed (`test_dispatch_admin.py`, `test_vendor_rbac.py`, `test_access_code_auth.py`, `test_admin_panel.py` — 58/58 passed).
+  - `apps/vendor_app`: `flutter test` passed (90/90 passed).
+
 **DONOR APP UI/UX REDESIGN & DECLUTTER IMPLEMENTED (2026-11-01, ADR-184):** On branch `038-donor-redesign-declutter`, implemented the user-approved mobile-first redesign:
 - **Top Bar Declutter (`top_bar.dart`):** Removed useless cart icon and redundant profile button (profile is already in bottom navigation). Integrated real brand logo `assets/logo.png` with graceful fallback to `Icons.water_drop_rounded`. Kept clean single-notification bell (`Icons.notifications_outlined`).
 - **Real Brand Asset Showcase (`featured_products.dart`):** Replaced generic abstract vector placeholders with real 20L water can imagery (`assets/20l.jpg`) wrapped in `ShodashaTheme.radiusSm` with error fallback.

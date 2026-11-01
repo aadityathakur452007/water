@@ -99,7 +99,8 @@ export function AddVendorDialog() {
 
     setSubmitting(true);
     try {
-      // 1. Create vendor user & profile
+      const stopsNum = Number.parseInt(maxStops, 10);
+      // Create vendor, set capacity, verify KYC, and generate access code atomically
       const createRes = (await adminPostServer({
         data: {
           path: "/v1/admin/vendors",
@@ -108,44 +109,35 @@ export function AddVendorDialog() {
             phone: cleanPhone,
             zone_id: zoneId,
             kyc_note: kycNote.trim() || "Verified by Admin",
+            max_stops: !Number.isNaN(stopsNum) && stopsNum > 0 ? stopsNum : 50,
+            auto_verify: true,
           },
         },
-      })) as { id?: string };
+      })) as { id?: string; code?: string; expires_at?: string };
 
       const vendorId = createRes?.id;
       if (!vendorId) {
         throw new Error("Vendor registration did not return an identifier.");
       }
 
-      // 2. Verify vendor role & KYC
-      await adminPostServer({
-        data: {
-          path: `/v1/admin/vendors/${vendorId}/verify`,
-          body: {},
-        },
-      });
+      let code = createRes?.code ?? "";
+      let expiresAt = createRes?.expires_at ?? "";
 
-      // 3. Set shift capacity
-      const stopsNum = Number.parseInt(maxStops, 10);
-      if (!Number.isNaN(stopsNum) && stopsNum > 0) {
-        await adminPostServer({
-          data: {
-            path: `/v1/admin/vendors/${vendorId}/capacity`,
-            body: { max_stops: stopsNum },
-          },
-        });
+      // Fallback in case of an older backend that doesn't return code on vendor_create
+      if (!code) {
+        try {
+          await adminPostServer({
+            data: { path: `/v1/admin/vendors/${vendorId}/verify`, body: {} },
+          });
+        } catch {
+          // ignore if already verified
+        }
+        const accessRes = (await adminPostServer({
+          data: { path: `/v1/admin/vendors/${vendorId}/access-codes`, body: {} },
+        })) as { code?: string; expires_at?: string };
+        code = accessRes?.code ?? "";
+        expiresAt = accessRes?.expires_at ?? "";
       }
-
-      // 4. Generate initial 90-day access code
-      const accessRes = (await adminPostServer({
-        data: {
-          path: `/v1/admin/vendors/${vendorId}/access-codes`,
-          body: {},
-        },
-      })) as { code?: string; expires_at?: string };
-
-      const code = accessRes?.code ?? "";
-      const expiresAt = accessRes?.expires_at ?? "";
 
       setCreatedResult({
         vendorId,
@@ -178,7 +170,7 @@ export function AddVendorDialog() {
       `Hello ${createdResult.name},`,
       "Your Shodasha Water Vendor Partner account is now active.",
       `Access Code: ${createdResult.code}`,
-      "Vendor Portal: https://shodasha-admin.adityathakur452007.workers.dev/auth/v1/login",
+      "Vendor Portal: https://shodasha-admin.adityathakur452007.workers.dev/vendor/login",
       "Please enter your registered phone number and the access code to sign in.",
     ].join("\n");
     return `https://wa.me/91${createdResult.phone}?text=${encodeURIComponent(text)}`;
