@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-180 | 2026-11-01 | Screen Unslop V3: Vendor Duty & Sync Log — migrated retry and off-duty confirmation CTA to canonical AppButton (primary, danger); migrated SyncScreen manual sync CTA to AppButton.primary with sync icon, dynamic queue count, and busy state; standardized duty and sync list/card paddings and spacers to AppSpacing tokens (xl, lg, md, sm); 82/82 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{duty/duty_screen.dart,sync/sync_screen.dart}, apps/vendor_app/test/vendor_duty_sync_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-179 | 2026-11-01 | Screen Unslop V2: Vendor Route & Stops Execution — coordinate-first Google Maps navigation in RouteScreen and StopDetailScreen; added lat/lng to RouteStop; migrated stockout dialog, delivery handover, cash collection, pickup complete, and RTO actions to canonical AppButton; replaced raw colors with ShodashaTheme tokens; deleted dead triple_sheet.dart and pod_sheet.dart; 79/79 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{route/route_{controller,screen}.dart,stops/{stop_detail_screen,handover_sheet}.dart}, apps/vendor_app/test/vendor_route_stops_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-178 | 2026-11-01 | Screen Unslop V1: Vendor Auth & Profile — migrated VendorCodeScreen login and WhatsApp help actions to canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen retry, save profile, leave request, WhatsApp support, and logout actions to AppButton with AppSpacing tokens; 76/76 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{auth/vendor_code_screen,profile/profile_screen}.dart, apps/vendor_app/test/vendor_auth_profile_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-177 | 2026-11-01 | Screen Unslop 12: Donor Support & Jar Returns — elevated complaints entry and active tickets above common questions in SupportScreen; standardized helpline padding (16dp); normalized ReturnSheet padding to AppSpacing tokens, title/success headers to 18px w700, and eliminated fractional 12.5px font sizes; 122/122 donor + 74/74 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{support/support_screen,returns/return_sheet}.dart, apps/user_app_donor/test/support_returns_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -231,6 +232,20 @@
 ---
 
 ## Decision Entries
+
+### ADR-180: Screen Unslop V3 Implemented — Vendor Duty & Sync Log (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 3 (`Feature_docs/ux-unslop-audit/15-vendor-duty-sync.md`) covering `DutyScreen` (`apps/vendor_app/lib/features/duty/duty_screen.dart`) and `SyncScreen` (`apps/vendor_app/lib/features/sync/sync_screen.dart`). Prior implementation suffered from raw `ElevatedButton` bypasses on error retry and off-duty destructive confirmation dialogs in `DutyScreen`, raw `ElevatedButton.icon` on manual sync action in `SyncScreen`, and non-token magic number paddings/spacers (`12`, `16`, `20`, `24`).
+- **Decisions**:
+  1. **Canonical Action Button Migration in DutyScreen (`V3-01`):** Migrated error state retry CTA to `AppButton(label: 'Dobara try karein', kind: AppButtonKind.primary, expand: false, onPressed: () => c.load())`. In destructive off-duty confirmation dialog, migrated confirm action to `AppButton(label: 'Haan, off karein', kind: AppButtonKind.danger, expand: false, onPressed: () => Navigator.of(ctx).pop(true))`.
+  2. **Canonical Action Button Migration in SyncScreen (`V3-02`):** Migrated manual sync trigger to `AppButton` (`kind: AppButtonKind.primary`, `icon: Icons.sync`, `busy: c.syncing`, `label: c.syncing ? 'Sync ho raha…' : 'Abhi sync karein (${c.queue.length})'`), properly disabled when syncing or queue is empty.
+  3. **Spacing Token Alignment (`V3-03`):** Standardized list padding, empty states, and card inner padding to `AppSpacing` tokens (`AppSpacing.xl` 24dp, `AppSpacing.lg` 16dp, `AppSpacing.md` 12dp, `AppSpacing.sm` 8dp) across both `duty_screen.dart` and `sync_screen.dart`.
+  4. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_duty_sync_test.dart` (3 tests) verifying `AppButton` rendering for error retry, off-duty confirmation danger button, and manual sync action. Vendor test suite expanded to **82 / 82 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Full adherence to 48dp bounding touch targets on mobile viewports for all vendor duty and sync operations.
+  - Consistent visual identity and button states (primary, danger) across driver shift management and offline queue reconciliation.
 
 ### ADR-179: Screen Unslop V2 Implemented — Vendor Route & Stops Execution (2026-11-01)
 

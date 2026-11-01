@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import 'sync_controller.dart';
 
 
@@ -66,7 +67,7 @@ class _SyncScreenState extends State<SyncScreen> {
     if (c.queue.isEmpty && c.rejected.isEmpty) {
       return const Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: EdgeInsets.all(AppSpacing.xl),
           child: Text(
             'Sab synced — koi pending entry nahi',
             textAlign: TextAlign.center,
@@ -75,14 +76,14 @@ class _SyncScreenState extends State<SyncScreen> {
       );
     }
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        if (c.result != null)
+        if (c.result != null) ...[
           Card(
             shape: ShodashaTheme.shape,
             color: ShodashaTheme.blueTint,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -101,7 +102,7 @@ class _SyncScreenState extends State<SyncScreen> {
                         ShodashaTheme.blue,
                     },
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(c.result!,
                         maxLines: 3,
@@ -113,16 +114,18 @@ class _SyncScreenState extends State<SyncScreen> {
               ),
             ),
           ),
-        ElevatedButton.icon(
-          onPressed: c.syncing || c.queue.isEmpty
-              ? null
-              : () => c.syncNow(),
-          icon: const Icon(Icons.sync),
-          label: Text(c.syncing
+          const SizedBox(height: AppSpacing.md),
+        ],
+        AppButton(
+          label: c.syncing
               ? 'Sync ho raha…'
-              : 'Abhi sync karein (${c.queue.length})'),
+              : 'Abhi sync karein (${c.queue.length})',
+          kind: AppButtonKind.primary,
+          icon: Icons.sync,
+          busy: c.syncing,
+          onPressed: (c.syncing || c.queue.isEmpty) ? null : () => c.syncNow(),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
         for (final q in c.queue)
           Card(
             shape: ShodashaTheme.shape,

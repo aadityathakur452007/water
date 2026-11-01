@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Screen Unslop V3 Vendor Duty & Sync Log (2026-11-01, ADR-180): Migrated `DutyScreen` error retry (`'Dobara try karein'`, primary) and off-duty confirmation CTA (`'Haan, off karein'`, danger) to canonical `AppButton`; migrated `SyncScreen` manual sync CTA to `AppButton` (`kind: AppButtonKind.primary`, with `Icons.sync`, dynamic queue count, and busy spinner); standardized list/card paddings and spacers across duty and sync to `AppSpacing` tokens.
+
 - Screen Unslop V2 Vendor Route & Stops Execution (2026-11-01, ADR-179): Added coordinate-first Google Maps navigation in `RouteScreen` and `StopDetailScreen` with fallback to text search; added `lat` and `lng` to `RouteStop`; migrated stockout prompt, handover CTA, cash collection, pickup complete, and RTO actions to canonical `AppButton`; standardized colors to `ShodashaTheme`; deleted obsolete `triple_sheet.dart` and `pod_sheet.dart`.
 
 - Screen Unslop V1 Vendor Auth & Profile (2026-11-01, ADR-178): Standardized VendorCodeScreen login and WhatsApp buttons on canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen error retry, profile save, leave application, WhatsApp support, and logout actions to AppButton with AppSpacing tokens.
