@@ -100,3 +100,4 @@
 ## Conclusion
 
 File `02-donor-shell-nav.md` is **100% verified** against the current codebase in `apps/user_app_donor`. All P0–P3 unslop items (D2-01 through D2-06), fake search removal, truncated order IDs, surface AppBar, tokenized offline/restored strips, double-tap back protection, and typography scalings are confirmed in code with green test coverage.
+

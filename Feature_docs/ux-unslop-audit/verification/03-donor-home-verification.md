@@ -100,3 +100,4 @@
 ## Conclusion
 
 File `03-donor-home.md` is **100% verified** against the current codebase in `apps/user_app_donor`. All P0–P3 unslop items (D3-01 through D3-06), repeat order machine card, removal of fake search, pricing label polish, unified mode selection surfaces, typed offline error handling, and typography tokens are confirmed in code with green test coverage.
+
