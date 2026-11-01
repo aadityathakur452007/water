@@ -233,9 +233,6 @@ class _SupportScreenState extends State<SupportScreen> {
               onWhatsApp: _openWhatsApp,
               onCall: _openCall,
             ),
-            const _SectionLabel('Common questions'),
-            for (final faq in _faqs)
-              _Faq(question: faq.question, answer: faq.answer),
             const _SectionLabel('Complaints'),
             _ComplaintEntryCard(onNewComplaint: _openComplaintForm),
             const SizedBox(height: AppSpacing.xl),
@@ -253,6 +250,9 @@ class _SupportScreenState extends State<SupportScreen> {
               builder: (context, _) =>
                   _ComplaintsSection(controller: _controller),
             ),
+            const _SectionLabel('Common questions'),
+            for (final faq in _faqs)
+              _Faq(question: faq.question, answer: faq.answer),
           ],
         ),
       ),
@@ -276,7 +276,7 @@ class _HelplineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: ShodashaTheme.teal,
         borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),

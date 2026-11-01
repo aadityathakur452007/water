@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-177 | 2026-11-01 | Screen Unslop 12: Donor Support & Jar Returns — elevated complaints entry and active tickets above common questions in SupportScreen; standardized helpline padding (16dp); normalized ReturnSheet padding to AppSpacing tokens, title/success headers to 18px w700, and eliminated fractional 12.5px font sizes; 122/122 donor + 74/74 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{support/support_screen,returns/return_sheet}.dart, apps/user_app_donor/test/support_returns_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-176 | 2026-10-31 | Screen Unslop 11: Donor Profile & Settings — standardized AppBar to surface white with ink text; purged internal telemetry developer rationale from water quality sheet; eliminated legacy AppColors token facade in favor of ShodashaTheme; removed vanity Session: Active stat leaving clean Orders and Addresses metrics; normalized card padding (16dp) and typography (18px title, 12px bodySmall); 120/120 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/profile/donor_profile_screen.dart, apps/user_app_donor/test/donor_profile_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-175 | 2026-10-31 | Screen Unslop 10: Donor Addresses & Map Picker — sticky bottom CTA in AddressScreen (AppButton addFirst); removed list-tail button; adjusted itemCount to header + addresses and normalized separator to AppSpacing.md (12dp); migrated empty state button and form stepper controls to canonical AppButton; human-readable pin prompt/feedback in map picker; subtleCardShadow elevation normalization; 118/118 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/addresses/{address_screen,map_picker}.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-174 | 2026-10-31 | Screen Unslop 09: Donor Wallet & Payment History — deduplicated jar count from Deposit details card; preserved card grid rhythm on zero-jar custody with quiet disabled return tile; clarified dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography; 114/114 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/wallet/{donor_wallet_screen,payment_history_screen}.dart, apps/user_app_donor/test/donor_wallet_screen_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -228,6 +229,25 @@
 ---
 
 ## Decision Entries
+
+### ADR-177: Screen Unslop 12 Implemented — Donor Support & Jar Returns (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 12 (`Feature_docs/ux-unslop-audit/12-donor-support-returns.md`) covering `SupportScreen` (`apps/user_app_donor/lib/features/support/support_screen.dart`) and `ReturnSheet` (`return_sheet.dart`). Prior implementation suffered from inverted visual hierarchy in `SupportScreen` where four static FAQ blocks were placed above complaint filing and active ticket tracking, forcing users with urgent delivery issues to scroll past informational copy, hardcoded `EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom)` padding in `ReturnSheet`, off-scale 20px w900 typography on modal headers, fractional 12.5px font sizes on jar quantity and refund summaries, and 18dp non-token helpline padding.
+- **Decisions**:
+  1. **Elevated Complaint Resolution Hierarchy (`D12-01`):** In `support_screen.dart:230-256`, elevated the Complaints section (`_ComplaintEntryCard` and `_ComplaintsSection`) directly beneath the Helpline card, giving immediate visibility to active tickets and new complaint filing. Positioned "Common questions" beneath complaints as secondary reference.
+  2. **Helpline Padding Token Hygiene (`D12-02`):** In `support_screen.dart:279`, normalized `_HelplineCard` internal padding from 18dp to `AppSpacing.lg` (16dp).
+  3. **Return Sheet Padding Normalization (`D12-03`):** In `return_sheet.dart:100-105`, replaced hardcoded 20dp padding with standard `EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom)`.
+  4. **Typography Token Alignment (`D12-04`):** In `return_sheet.dart`, normalized sheet title and success header from 20px w900 to standard 18px w700 (`titleLarge`, `letterSpacing: -0.2`), and replaced fractional 12.5px font sizes on quantity and refund summary rows with standard 12px `ShodashaTheme.bodySmall`.
+  5. **Normalized Spacing Scale (`D12-05`):** Standardized vertical spacers in `return_sheet.dart` to `AppSpacing.lg` (16dp).
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/support_returns_test.dart` (2 tests) verifying SupportScreen layout hierarchy (complaints section Top dy < common questions Top dy) and ReturnSheet 18px w700 title styling. Donor test suite expanded to **122 / 122 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Urgent customer remediation paths are immediately reachable above the fold.
+  - Complete elimination of non-token padding and fractional typography in ReturnSheet.
+  - Full adherence to 10 working days return SLA and server-enforced complaint window contracts.
+  - All 12 Donor screens from the UI/UX Unslop Audit (Files 01–12) are now 100% complete.
+
 
 ### ADR-176: Screen Unslop 11 Implemented — Donor Profile & Settings (2026-10-31)
 
