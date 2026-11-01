@@ -89,6 +89,7 @@ Then implement. Load each skill's `SKILL.md` as you begin its phase.
 | `design-basics` | Colors, typography, layout, spacing, a11y fundamentals | `.agents/design-basics/` |
 | `premium-design` | Polish the UI until it looks premium/professional | `.agents/premium-design/` |
 | `ui-checklist` | Verify pages/components/flows are complete | `.agents/ui-checklist/` |
+| `unslop` | **De-slop a screen** — audit AI-looking UI, propose a direction, then fix spacing → color → icons → copy → type → layout → details → visuals → motion | `.agents/skills/unslop/` |
 | `DESIGN-PSYCHOLOGY.md` | Understand user psychology before ANY feature design | root |
 | `DESIGN.md` | Pick component libraries (never default to one) | root |
 

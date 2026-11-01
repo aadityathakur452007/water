@@ -59,7 +59,7 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
             if (row is Map<String, dynamic>)
               _Note(
                 icon: Icons.autorenew,
-                title: 'Subscription ${_status(row)}',
+                title: 'Plan · ${_status(row)}',
                 body:
                     '${(row['qty'] ?? 1)} × 20L · next delivery ${_date(row['next_run'])}',
                 at: _parse(row['next_run']),
@@ -96,15 +96,15 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
       appBar: AppBar(
-        backgroundColor: ShodashaTheme.tealDeep,
-        foregroundColor: ShodashaTheme.surface,
+        backgroundColor: ShodashaTheme.surface,
+        foregroundColor: ShodashaTheme.ink,
         elevation: 0,
         title: const Text(
           'Notifications',
           style: TextStyle(
             fontWeight: FontWeight.w700,
             fontSize: 18,
-            color: ShodashaTheme.surface,
+            color: ShodashaTheme.ink,
           ),
         ),
         actions: [
@@ -123,7 +123,8 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
                 for (final o in widget.orders.allOrders.take(20))
                   _Note(
                     icon: _orderIcon(o.state),
-                    title: 'Order #${o.id} · ${orderStateLabel(o.state)}',
+                    title:
+                        'Order #${o.id.length > 8 ? o.id.substring(0, 8).toUpperCase() : o.id.toUpperCase()} · ${orderStateLabel(o.state)}',
                     body: o.itemSummary.isEmpty
                         ? 'Tap to see delivery details.'
                         : o.itemSummary,
@@ -175,7 +176,7 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 ...banners,
-                if (banners.isNotEmpty) const SizedBox(height: 4),
+                if (banners.isNotEmpty) const SizedBox(height: AppSpacing.xs),
                 if (notes.isEmpty && banners.isEmpty)
                   AppStateView.empty(
                     title: 'No updates yet',
@@ -206,10 +207,15 @@ class _DonorNotificationsScreenState extends State<DonorNotificationsScreen> {
   }
 
   static String _status(Map<String, dynamic> row) {
-    if (row['status'] != null) return '${row['status']}';
-    if (row['paused'] == true) return 'paused';
-    if (row['canceled'] == true) return 'cancelled';
-    return 'active';
+    final status = row['status']?.toString().toLowerCase();
+    if (status != null && status.isNotEmpty) {
+      return status[0].toUpperCase() + status.substring(1);
+    }
+    if (row['cancelled_at'] != null || row['canceled'] == true) {
+      return 'Cancelled';
+    }
+    if (row['paused'] == true) return 'Paused';
+    return 'Active';
   }
 
   static DateTime? _parse(Object? value) {
@@ -280,17 +286,17 @@ class _NoteTile extends StatelessWidget {
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   note.body,
                   style: const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     height: 1.4,
                     color: ShodashaTheme.muted,
                   ),
                 ),
                 if (date.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     date,
                     style: const TextStyle(
@@ -304,7 +310,7 @@ class _NoteTile extends StatelessWidget {
           ),
           if (note.onTap != null)
             const Padding(
-              padding: EdgeInsets.only(left: 6, top: 8),
+              padding: EdgeInsets.only(left: AppSpacing.sm, top: AppSpacing.sm),
               child: Icon(
                 Icons.chevron_right_rounded,
                 size: 22,

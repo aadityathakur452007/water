@@ -6,10 +6,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../sync/sync_controller.dart';
-import 'pod_sheet.dart';
+import '../../shared/ui/app_button.dart';
+import 'handover_sheet.dart';
 import 'stops_controller.dart';
-import 'triple_sheet.dart';
 
 class StopDetailScreen extends StatefulWidget {
   const StopDetailScreen({
@@ -54,6 +55,17 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     await launchUrl(uri);
   }
 
+  Future<void> _navigate({required String address, double? lat, double? lng}) async {
+    final Uri uri;
+    if (lat != null && lng != null) {
+      uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    } else {
+      uri = Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}');
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   /// Phase 5 S5.5: call button only for real 10-digit numbers — short or
   /// placeholder strings never render a dead link.
   bool _hasCallablePhone(String phone) {
@@ -91,7 +103,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('Delivery Issue / RTO'),
+          title: Text(vtr('डिलीवरी समस्या (RTO)', 'Delivery Issue (RTO)')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -104,12 +116,12 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
               DropdownButtonFormField<String>(
               initialValue: selectedReason,
               decoration: const InputDecoration(labelText: 'Wajah (Reason)'),
-                items: const [
-                  DropdownMenuItem(value: 'DOOR_LOCKED', child: Text('Door Locked / Ghar band hai')),
-                  DropdownMenuItem(value: 'CUSTOMER_UNREACHABLE', child: Text('Unreachable / Phone nahi uthaya')),
-                  DropdownMenuItem(value: 'CUSTOMER_REFUSED', child: Text('Refused / Customer ne mana kiya')),
-                  DropdownMenuItem(value: 'INCORRECT_ADDRESS', child: Text('Wrong Address / Pata nahi mila')),
-                  DropdownMenuItem(value: 'RESCHEDULE_REQUESTED', child: Text('Reschedule / Baad me chahiye')),
+                items: [
+                  DropdownMenuItem(value: 'DOOR_LOCKED', child: Text(vtr('घर बंद है', 'Door Locked'))),
+                  DropdownMenuItem(value: 'CUSTOMER_UNREACHABLE', child: Text(vtr('फोन नहीं उठाया', 'Customer Unreachable'))),
+                  DropdownMenuItem(value: 'CUSTOMER_REFUSED', child: Text(vtr('ग्राहक ने मना किया', 'Customer Refused'))),
+                  DropdownMenuItem(value: 'INCORRECT_ADDRESS', child: Text(vtr('पता नहीं मिला', 'Incorrect Address'))),
+                  DropdownMenuItem(value: 'RESCHEDULE_REQUESTED', child: Text(vtr('बाद में डिलीवरी चाहिए', 'Reschedule Requested'))),
                 ],
                 onChanged: (v) => setDlgState(() => selectedReason = v ?? 'DOOR_LOCKED'),
               ),
@@ -129,8 +141,10 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+            AppButton(
+              label: vtr('RTO दर्ज करें', 'Mark RTO'),
+              kind: AppButtonKind.danger,
+              expand: false,
               onPressed: () async {
                 Navigator.of(ctx).pop();
                 final ok = await c.failStop(
@@ -142,7 +156,6 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                   await c.load(widget.stopId);
                 }
               },
-              child: const Text('Submit / Mark RTO', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -198,9 +211,11 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
               Text(c.error ?? 'Stop load nahi hua',
                   textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              ElevatedButton(
+              AppButton(
+                label: 'Dobara try karein',
+                kind: AppButtonKind.primary,
+                expand: false,
                 onPressed: () => c.load(widget.stopId),
-                child: const Text('Dobara try karein'),
               ),
             ],
           ),
@@ -319,12 +334,26 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: ShodashaTheme.muted)),
                 const SizedBox(height: 8),
-                if (_hasCallablePhone(phone))
-                  TextButton.icon(
-                    onPressed: () => _call(phone),
-                    icon: const Icon(Icons.call),
-                    label: const Text('Call customer'),
-                  ),
+                Row(
+                  children: [
+                    if (_hasCallablePhone(phone))
+                      TextButton.icon(
+                        onPressed: () => _call(phone),
+                        icon: const Icon(Icons.call),
+                        label: const Text('Call customer'),
+                      ),
+                    if (address.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: () => _navigate(
+                          address: address,
+                          lat: (s['lat'] as num?)?.toDouble(),
+                          lng: (s['lng'] as num?)?.toDouble(),
+                        ),
+                        icon: const Icon(Icons.navigation_outlined),
+                        label: const Text('Navigate'),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -399,24 +428,24 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
         // gated by state with "pehle X karein" hints instead of
         // all-rendered. A finished stop shows the done note only.
         if (stopDone)
-          const Text('Delivery complete / ho gayi',
+          Text(vtr('डिलीवरी पूरी हुई', 'Delivery completed'),
               style: TextStyle(fontWeight: FontWeight.w600)),
         if (stopFailed)
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              border: Border.all(color: Colors.red.shade200),
+              color: ShodashaTheme.danger.withValues(alpha: 0.08),
+              border: Border.all(color: ShodashaTheme.danger.withValues(alpha: 0.3)),
               borderRadius: BorderRadius.circular(ShodashaTheme.radius),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Delivery Failed / RTO (Ghar Band / Mana Kiya)',
-                  style: TextStyle(fontWeight: FontWeight.w700, color: ShodashaTheme.danger),
+                Text(
+                  vtr('डिलीवरी असफल (घर बंद / मना किया)', 'Delivery Failed (Door Locked / Refused)'),
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: ShodashaTheme.danger),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   'Wajah: ${s['failure_reason'] ?? 'Not delivered'}',
                   style: const TextStyle(fontSize: 13, color: ShodashaTheme.danger),
@@ -432,14 +461,19 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             returnId: returnId,
             emptiesExp: emptiesExp,
           ),
-        if (!stopDone && !stopFailed && returnId.isEmpty && !tripleDone)
-          ElevatedButton.icon(
+        if (!stopDone && !stopFailed && returnId.isEmpty) ...[
+          AppButton(
+            label: tripleDone
+                ? 'OTP darj karein (PoD)'
+                : 'Delivery Handover (Bottles + OTP)',
+            kind: AppButtonKind.primary,
+            icon: Icons.verified_outlined,
             onPressed: c.submitting || holdBlocked
                 ? null
                 : () => showModalBottomSheet<void>(
                       context: context,
                       isScrollControlled: true,
-                      builder: (_) => TripleSheet(
+                      builder: (_) => HandoverSheet(
                         controller: c,
                         stopId: widget.stopId,
                         fullsExp: fullsExp,
@@ -447,36 +481,19 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                         outbox: widget.outbox,
                         collectPaise: remainingPaise,
                         paymentMode: paymentMode,
+                        tripleAlreadyDone: tripleDone,
                       ),
                     ),
-            icon: const Icon(Icons.inventory_2_outlined),
-            label: const Text('Triple likhein: diye / wapas / paise'),
           ),
-        if (!stopDone && !stopFailed && returnId.isEmpty && tripleDone)
-          const Text('Triple ho gayi — PoD karein',
-              style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        if (!stopDone && !stopFailed && returnId.isEmpty && tripleDone)
-          OutlinedButton.icon(
-            onPressed: c.submitting
-                ? null
-                : () => showModalBottomSheet<void>(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (_) => PodSheet(
-                        controller: c,
-                        stopId: widget.stopId,
-                        outbox: widget.outbox,
-                        collectPaise: remainingPaise,
-                        paymentMode: paymentMode,
-                      ),
-                    ),
-            icon: const Icon(Icons.check_circle_outline),
-            label: const Text('PoD: OTP se complete karein'),
-          ),
-        if (!stopDone && !stopFailed && returnId.isEmpty && !tripleDone)
-          const Text('PoD ke liye pehle triple likhein',
-              style: TextStyle(color: ShodashaTheme.muted)),
+          if (tripleDone)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Bottles record ho chuki hain — Delivery complete karne ke liye OTP darj karein',
+                style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+              ),
+            ),
+        ],
         // F2: one-tap cash post (COD delivery stops only, remainder due).
         // Paid/link-sent hide this; partial posts the remainder (the
         // server OVERPAY guard still enforces races).
@@ -486,28 +503,26 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             paymentMode != 'upi' &&
             !isLinkSent &&
             remainingPaise > 0) ...[
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
+          const SizedBox(height: AppSpacing.sm),
+          AppButton(
+            label: 'Cash jama karein (${rupees(remainingPaise)})',
+            kind: AppButtonKind.money,
+            icon: Icons.payments_outlined,
             onPressed: c.submitting
                 ? null
                 : () => _postCash(c, remainingPaise),
-            icon: const Icon(Icons.payments_outlined),
-            label: Text('Cash jama karein (${rupees(remainingPaise)})'),
           ),
         ],
         if (!stopDone && !stopFailed && isLinkSent)
           const Text('UPI link bheja — cash na lein, payment verify karein',
               style: TextStyle(color: ShodashaTheme.muted)),
         if (!stopDone && !stopFailed) ...[
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.deepOrange,
-              side: const BorderSide(color: Colors.deepOrange),
-            ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            label: vtr('समस्या दर्ज करें (RTO)', 'Report Issue (RTO)'),
+            kind: AppButtonKind.danger,
+            icon: Icons.report_problem_outlined,
             onPressed: c.submitting ? null : () => _showFailDialog(context, c),
-            icon: const Icon(Icons.report_problem_outlined),
-            label: const Text('Delivery Issue / RTO (Ghar band, phone nahi laga)'),
           ),
         ],
       ],
@@ -609,7 +624,10 @@ class _PickupCardState extends State<_PickupCard> {
             ],
           ),
           const SizedBox(height: 8),
-          ElevatedButton.icon(
+          AppButton(
+            label: 'Pickup complete karein',
+            kind: AppButtonKind.primary,
+            icon: Icons.recycling_outlined,
             onPressed: c.submitting
                 ? null
                 : () => c.completePickup(
@@ -618,8 +636,6 @@ class _PickupCardState extends State<_PickupCard> {
                       emptiesCollected: _empties,
                       capsMissing: _caps,
                     ),
-            icon: const Icon(Icons.recycling_outlined),
-            label: const Text('Pickup complete karein'),
           ),
         ],
       ),

@@ -22,8 +22,6 @@ class ApiBackedAuthApi implements AuthApi {
       refreshToken: (raw['refresh_token'] ?? '').toString(),
       expiresAt: expiresAt,
       role: (raw['role'] ?? 'user').toString(),
-      newDeviceAlert: raw['new_device_alert'] == true,
-      verified: raw['verified'] == true,
     );
   }
 

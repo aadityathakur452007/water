@@ -24,7 +24,7 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   bool _ready = false;
-  bool _restoreFailed = false;
+
   String? _gateNotice;
 
   @override
@@ -41,9 +41,8 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _boot() async {
-    var restored = false;
     try {
-      restored = await widget.controller.restoreSession();
+      await widget.controller.restoreSession();
     } catch (_) {
       // restoreSession owns its timeout/error path; belt and braces so no
       // unexpected throw can leave the splash mounted.
@@ -51,10 +50,7 @@ class _AuthGateState extends State<AuthGate> {
     if (!mounted) return;
     final expiryNotice = widget.controller.sessionNotice;
     setState(() {
-      _restoreFailed = !restored;
-      _gateNotice =
-          expiryNotice ??
-          (!restored ? "Couldn't restore your session. Sign in again." : null);
+      _gateNotice = expiryNotice;
       _ready = true;
     });
     if (expiryNotice != null) _consumeExpiryNotice();
@@ -88,11 +84,7 @@ class _AuthGateState extends State<AuthGate> {
         if (widget.controller.isAuthenticated) return widget.home;
         return DonorLoginScreen(
           controller: widget.controller,
-          notice:
-              _gateNotice ??
-              (_restoreFailed
-                  ? "Couldn't restore your session. Sign in again."
-                  : null),
+          notice: _gateNotice,
         );
       },
     );
@@ -135,7 +127,7 @@ class _AuthSplash extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               const Text(
-                'RO+UV · Lab-tested water',
+                'Pure 20L water delivered to your doorstep',
                 style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
               ),
               const SizedBox(height: 16),

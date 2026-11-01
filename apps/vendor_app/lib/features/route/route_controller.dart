@@ -38,6 +38,8 @@ class RouteStop {
     this.windowStart = '',
     this.items = const [],
     this.instructions = '',
+    this.lat,
+    this.lng,
   });
 
   final String id;
@@ -79,6 +81,8 @@ class RouteStop {
   final String windowStart;
   final List<Map<String, dynamic>> items;
   final String instructions;
+  final double? lat;
+  final double? lng;
 
   bool get isDone => status == 'done';
   bool get isFailed => status == 'failed';
@@ -131,6 +135,8 @@ class RouteStop {
         windowStart: (j['window_start'] ?? '') as String,
         items: itemsOf(j['items']),
         instructions: (j['instructions'] ?? '') as String,
+        lat: (j['lat'] as num?)?.toDouble(),
+        lng: (j['lng'] as num?)?.toDouble(),
       );
 }
 

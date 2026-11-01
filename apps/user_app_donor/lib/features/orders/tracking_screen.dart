@@ -29,32 +29,17 @@ import '../../shared/ui/app_card.dart';
 import '../../shared/ui/app_sheet.dart';
 import '../../shared/ui/app_state_view.dart';
 import '../../shared/ui/status_pill.dart';
+import '../../core/utils/date_utils.dart';
 import 'bill_screen.dart';
 import 'orders_controller.dart';
 import 'rating_sheet.dart';
 
 String _dayLabel(DateTime d) {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+  return '${kShortWeekdays[d.weekday - 1]}, ${d.day} ${kShortMonths[d.month - 1]}';
 }
 
 String _shortDayLabel(DateTime d) {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return '${days[d.weekday - 1]} ${d.day}';
+  return '${kShortWeekdays[d.weekday - 1]} ${d.day}';
 }
 
 bool _sameDay(DateTime a, DateTime b) =>
@@ -261,13 +246,14 @@ class _TrackingScreenState extends State<TrackingScreen>
     if (ok != true || !mounted) return;
     final done = await widget.controller.cancel(order.id, _cancelReason.code);
     if (!mounted) return;
+    if (done) {
+      widget.controller.stopTracking();
+      Navigator.of(context).pop(true);
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          done
-              ? ordersStringsHi['cancelledBanner']!
-              : ordersStringsHi['cancelFailed']!,
-        ),
+        content: Text(ordersStrings['cancelFailed']!),
       ),
     );
   }
@@ -721,7 +707,7 @@ class _HeaderCard extends StatelessWidget {
                       order.paymentLabel,
                       textAlign: TextAlign.right,
                       style: TextStyle(
-                        fontSize: 12.5,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: order.isPaid
                             ? ShodashaTheme.successDark
@@ -735,7 +721,7 @@ class _HeaderCard extends StatelessWidget {
                         '${formatRupees(order.refundAmountPaise)}',
                         textAlign: TextAlign.right,
                         style: const TextStyle(
-                          fontSize: 11.5,
+                          fontSize: 11,
                           color: ShodashaTheme.blue,
                           fontWeight: FontWeight.w600,
                         ),
@@ -828,6 +814,14 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      label: filled ? 'Completed step' : 'Upcoming step',
+      child: () {
+
+    return Semantics(
+      label: filled ? 'Completed step' : 'Upcoming step',
+      child: () {
+
     // Phase 9 §9.1: the fill change pops (scale) + the check fades in —
     // 200ms, transform + opacity only. Static when reduced motion is on
     // (the color still flips instantly, so state never depends on motion).
@@ -875,6 +869,10 @@ class _Dot extends StatelessWidget {
           ),
         ),
       ),
+    );
+      }(),
+    );
+      }(),
     );
   }
 }
@@ -941,7 +939,7 @@ class _WindowCard extends StatelessWidget {
     return Container(
       // Donor schedule row — brand tint card, teal accent on the cue,
       // 900-weight time as the value line.
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: ShodashaTheme.tealTint,
         borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
@@ -949,7 +947,7 @@ class _WindowCard extends StatelessWidget {
       child: Row(
         children: [
           const Icon(Icons.schedule, size: 20, color: ShodashaTheme.teal),
-          const SizedBox(width: 10),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -977,7 +975,7 @@ class _WindowCard extends StatelessWidget {
                   '${two(e.hour)}:${two(e.minute)}',
                   style: const TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: -0.2,
                     color: ShodashaTheme.ink,
                   ),
@@ -1029,26 +1027,26 @@ class _LiveStopsAheadBanner extends StatelessWidget {
               size: 20,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   isNext
-                      ? 'Your stop is next!'
+                      ? 'Next stop is yours'
                       : 'Driver is $stopsAhead stops away',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   isNext
-                      ? 'The driver is arriving at your address. Please keep your empty jar ready.'
-                      : 'Estimated time: about ${stopsAhead * 10}–${stopsAhead * 15} minutes. Keep your empty jar outside.',
+                      ? 'Arriving now · Please keep your empty jar ready'
+                      : 'Estimated arrival in ~${stopsAhead * 10}–${stopsAhead * 15} mins · Keep empty jar ready',
                   style: const TextStyle(
                     fontSize: 13,
                     color: ShodashaTheme.ink,
@@ -1071,7 +1069,7 @@ class _RiderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: ShodashaTheme.surface,
         border: Border.all(color: ShodashaTheme.border),
@@ -1081,7 +1079,7 @@ class _RiderCard extends StatelessWidget {
         children: [
           // Donor tile grammar: tinted icon chip + label/name stack.
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(AppSpacing.sm),
             decoration: const BoxDecoration(
               color: ShodashaTheme.tealTint,
               shape: BoxShape.circle,
@@ -1092,7 +1090,7 @@ class _RiderCard extends StatelessWidget {
               color: ShodashaTheme.teal,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1181,12 +1179,12 @@ class _DeliveryCodeCard extends StatelessWidget {
       'expired' => 'Code expired',
       'locked' => 'Too many wrong attempts',
       'unavailable' => 'Code unavailable',
-      'used' => 'Delivery complete — code used.',
+      'used' => 'Delivery complete · Code verified',
       _ => _title,
     };
     final support = switch (state) {
       'expired' => 'This code can no longer be used. Get a new one.',
-      'locked' => 'For your safety this code is locked. Get a new one.',
+      'locked' => 'Code locked after wrong attempts · Request a new code',
       'unavailable' =>
         'We could not find a code for this delivery. Get a new one.',
       'used' => 'The rider completed this delivery with your code.',
@@ -1194,7 +1192,7 @@ class _DeliveryCodeCard extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: ShodashaTheme.surface,
         border: Border.all(
@@ -1211,14 +1209,14 @@ class _DeliveryCodeCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(AppSpacing.sm),
                 decoration: BoxDecoration(
                   color: active ? ShodashaTheme.tealTint : ShodashaTheme.bg,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon, size: 18, color: iconColor),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1233,11 +1231,11 @@ class _DeliveryCodeCard extends StatelessWidget {
                       ),
                     ),
                     if (support != null) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: AppSpacing.xs),
                       Text(
                         support,
                         style: const TextStyle(
-                          fontSize: 12.5,
+                          fontSize: 12,
                           height: 1.35,
                           color: ShodashaTheme.muted,
                         ),
@@ -1459,7 +1457,7 @@ class _StaleBanner extends StatelessWidget {
             child: Text(
               message,
               style: const TextStyle(
-                fontSize: 12.5,
+                fontSize: 12,
                 height: 1.3,
                 color: ShodashaTheme.muted,
               ),

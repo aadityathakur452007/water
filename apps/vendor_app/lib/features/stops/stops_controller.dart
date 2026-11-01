@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
+import '../../core/vendor_locale.dart';
 
 enum StopDetailState { loading, loaded, error, offline }
 
@@ -147,7 +148,7 @@ class StopsController extends ChangeNotifier {
         idempotencyKey: idempotencyKey ?? newIdempotencyKey(),
       );
       _stop = raw;
-      _notice = 'Triple saved / likh diya gaya';
+      _notice = vtr('हैंडओवर सुरक्षित हुआ', 'Handover saved');
       return true;
     } on ApiException catch (e) {
       if (e.code == 'STALE_STOP' || e.statusCode == 409) {
@@ -192,7 +193,7 @@ class StopsController extends ChangeNotifier {
         pod: pod,
       );
       _stop = raw;
-      _notice = 'Delivery complete / ho gayi';
+      _notice = vtr('डिलीवरी पूरी हुई', 'Delivery complete');
       return true;
     } on ApiException catch (e) {
       _notice = e.isNetwork

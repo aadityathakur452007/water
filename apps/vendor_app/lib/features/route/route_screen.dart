@@ -1,3 +1,4 @@
+import 'package:flutter/scheduler.dart';
 // Today route sheet: loading header + sequenced stop cards + SKIP list.
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../../core/api_client.dart' show ApiClient;
 import '../../core/cascade.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import '../customers/customers_controller.dart';
 import '../earnings/earnings_controller.dart';
 import 'route_controller.dart';
@@ -55,7 +57,15 @@ class _RouteScreenState extends State<RouteScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (WidgetsBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      setState(() {});
+    }
   }
 
   @override
@@ -66,9 +76,14 @@ class _RouteScreenState extends State<RouteScreen> {
     super.dispose();
   }
 
-  Future<void> _navigate(String address) async {
-    final uri = Uri.parse(
-        'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}');
+  Future<void> _navigate({required String address, double? lat, double? lng}) async {
+    final Uri uri;
+    if (lat != null && lng != null) {
+      uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    } else {
+      uri = Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}');
+    }
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -81,8 +96,8 @@ class _RouteScreenState extends State<RouteScreen> {
       builder: (ctx) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange),
-            SizedBox(width: 8),
+            Icon(Icons.warning_amber_rounded, color: ShodashaTheme.warning),
+            SizedBox(width: AppSpacing.sm),
             Text('Stock Khatam (SOS)?'),
           ],
         ),
@@ -94,7 +109,7 @@ class _RouteScreenState extends State<RouteScreen> {
               'Agar aapki gaadi me paani khatam ho gaya hai, to system baaki stops ko repool kar dega taaki doosra vendor deliver kar sake.',
               style: TextStyle(fontSize: 13),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: reasonController,
               decoration: const InputDecoration(
@@ -109,13 +124,11 @@ class _RouteScreenState extends State<RouteScreen> {
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-            ),
+          AppButton(
+            label: 'Report Stockout',
+            kind: AppButtonKind.danger,
+            expand: false,
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Report Stockout'),
           ),
         ],
       ),
@@ -156,7 +169,7 @@ class _RouteScreenState extends State<RouteScreen> {
             ),
           if (widget.api != null)
             IconButton(
-              icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              icon: const Icon(Icons.warning_amber_rounded, color: ShodashaTheme.warning),
               tooltip: 'Stock Khatam (SOS)',
               onPressed: _stockoutPrompt,
             ),
@@ -505,10 +518,17 @@ class _RouteScreenState extends State<RouteScreen> {
       // lead, name + facts, status/nav trailing. Hairline border, no shadow.
       child: Container(
         decoration: BoxDecoration(
-          border: Border.all(color: ShodashaTheme.border),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          boxShadow: ShodashaTheme.subtleCardShadow,
         ),
-        child: ListTile(
+        child: Material(
+          color: ShodashaTheme.bg,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(color: ShodashaTheme.border),
+            borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          ),
+          child: ListTile(
           minTileHeight: ShodashaTheme.minTarget,
           onTap: greyed ? null : () => widget.onOpenStop(s),
           leading: CircleAvatar(
@@ -590,10 +610,11 @@ class _RouteScreenState extends State<RouteScreen> {
                   tooltip: 'Navigate karein',
                   constraints: const BoxConstraints(
                       minWidth: 48, minHeight: 48),
-                  onPressed: () => _navigate(s.address),
+                  onPressed: () => _navigate(address: s.address, lat: s.lat, lng: s.lng),
                 ),
             ],
           ),
+        ),
         ),
       ),
     );

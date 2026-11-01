@@ -124,6 +124,14 @@ abstract final class ShodashaTheme {
 
   /// Bottom sheet top radius.
   static const double radiusSheet = 28;
+  static const List<BoxShadow> subtleCardShadow = [
+    BoxShadow(
+      color: Color(0x0A000000), // subtle 4% alpha shadow
+      blurRadius: 8,
+      offset: Offset(0, 2),
+    ),
+  ];
+
 
   /// Minimum touch target (48dp, a11y law).
   static const double minTarget = 48;
@@ -308,7 +316,7 @@ ThemeData buildShodashaTheme() {
     elevatedButtonTheme: ElevatedButtonThemeData(
       style:
           ElevatedButton.styleFrom(
-            backgroundColor: ShodashaTheme.greenDark, // money CTA (locked)
+            backgroundColor: ShodashaTheme.tealDeep, // brand primary action (money CTAs use AppButton.money or explicit greenDark)
             foregroundColor: ShodashaTheme.surface,
             disabledBackgroundColor: ShodashaTheme.border,
             disabledForegroundColor: ShodashaTheme.muted,

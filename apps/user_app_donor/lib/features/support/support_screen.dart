@@ -20,27 +20,16 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_banner.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_icon_button.dart';
 import 'support_controller.dart';
 
 String _supportDate(DateTime value) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
+  const months = kShortMonths;
   final d = value.toLocal();
   return '${d.day} ${months[d.month - 1]}';
 }
@@ -134,7 +123,7 @@ class _SupportScreenState extends State<SupportScreen> {
   Future<void> _openWhatsApp() async {
     // Single source: digits derive from kSupportPhone (ADR-118). Launch is
     // primary; clipboard stays a best-effort fallback, never the main path.
-    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final digits = AppConstants.kSupportPhone.replaceAll(RegExp(r'\D'), '');
     final text =
         widget.orderContext ??
         'Hi Shodasha support, I need help with my order.';
@@ -151,7 +140,7 @@ class _SupportScreenState extends State<SupportScreen> {
     if (ok || !mounted) return;
     unawaited(
       Clipboard.setData(
-        ClipboardData(text: kSupportPhone),
+        ClipboardData(text: AppConstants.kSupportPhone),
       ).then<void>((_) {}, onError: (_) {}),
     );
     ScaffoldMessenger.of(context).showSnackBar(
@@ -164,7 +153,7 @@ class _SupportScreenState extends State<SupportScreen> {
     bool ok = false;
     try {
       ok = await open(
-        Uri(scheme: 'tel', path: kSupportPhone),
+        Uri(scheme: 'tel', path: AppConstants.kSupportPhone),
         mode: LaunchMode.externalApplication,
       );
     } catch (_) {
@@ -173,7 +162,7 @@ class _SupportScreenState extends State<SupportScreen> {
     if (ok || !mounted) return;
     unawaited(
       Clipboard.setData(
-        ClipboardData(text: kSupportPhone),
+        ClipboardData(text: AppConstants.kSupportPhone),
       ).then<void>((_) {}, onError: (_) {}),
     );
     ScaffoldMessenger.of(context).showSnackBar(
@@ -240,13 +229,10 @@ class _SupportScreenState extends State<SupportScreen> {
           ),
           children: [
             _HelplineCard(
-              phone: kSupportPhone,
+              phone: AppConstants.kSupportPhone,
               onWhatsApp: _openWhatsApp,
               onCall: _openCall,
             ),
-            const _SectionLabel('Common questions'),
-            for (final faq in _faqs)
-              _Faq(question: faq.question, answer: faq.answer),
             const _SectionLabel('Complaints'),
             _ComplaintEntryCard(onNewComplaint: _openComplaintForm),
             const SizedBox(height: AppSpacing.xl),
@@ -264,6 +250,9 @@ class _SupportScreenState extends State<SupportScreen> {
               builder: (context, _) =>
                   _ComplaintsSection(controller: _controller),
             ),
+            const _SectionLabel('Common questions'),
+            for (final faq in _faqs)
+              _Faq(question: faq.question, answer: faq.answer),
           ],
         ),
       ),
@@ -287,7 +276,7 @@ class _HelplineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
         color: ShodashaTheme.teal,
         borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),

@@ -5,6 +5,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import '../route/route_controller.dart';
 
 class InventoryScreen extends StatelessWidget {
@@ -15,7 +17,7 @@ class InventoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stock / स्टॉक')),
+      appBar: AppBar(title: Text(vtr('स्टॉक', 'Stock'))),
       body: ListenableBuilder(
         listenable: route,
         builder: (context, _) {
@@ -27,19 +29,21 @@ class InventoryScreen extends StatelessWidget {
             case RouteState.error:
               return Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(AppSpacing.xl),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.cloud_off_outlined,
                           size: 48, color: ShodashaTheme.muted),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpacing.md),
                       Text(route.error ?? 'Stock load nahi hua',
                           textAlign: TextAlign.center),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
+                      const SizedBox(height: AppSpacing.lg),
+                      AppButton(
+                        label: 'Dobara try karein',
+                        kind: AppButtonKind.primary,
+                        expand: false,
                         onPressed: () => route.load(),
-                        child: const Text('Dobara try karein'),
                       ),
                     ],
                   ),
@@ -48,7 +52,7 @@ class InventoryScreen extends StatelessWidget {
             case RouteState.empty:
               return const Center(
                 child: Padding(
-                  padding: EdgeInsets.all(24),
+                  padding: EdgeInsets.all(AppSpacing.xl),
                   child: Text(
                     'Aaj koi route nahi — stock sheet khali hai',
                     textAlign: TextAlign.center,
@@ -64,7 +68,7 @@ class InventoryScreen extends StatelessWidget {
           return RefreshIndicator(
             onRefresh: route.load,
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               children: [
                 // Section-header row: label left, live progress right.
                 Row(
@@ -78,19 +82,19 @@ class InventoryScreen extends StatelessWidget {
                     Text(
                       '$done/${stops.length} done',
                       style: const TextStyle(
-                          color: ShodashaTheme.muted, fontSize: 13),
+                          color: ShodashaTheme.muted, fontSize: 12),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 _tile('Lene hain (fulls)', '${route.takeFulls} jar'),
                 _tile('Wapas aane hain (empties)', '${route.expectEmpties} jar'),
                 _tile('Stop done', '$done / ${stops.length}'),
                 _tile('Stop baki', '$pending'),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 const Text(
                   'Loading sheet route se banti hai — triple commit par done badhta hai.',
-                  style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                  style: TextStyle(color: ShodashaTheme.muted, fontSize: 12),
                 ),
               ],
             ),
@@ -102,8 +106,8 @@ class InventoryScreen extends StatelessWidget {
 
   Widget _tile(String label, String value) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         border: Border.all(color: ShodashaTheme.border),
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),

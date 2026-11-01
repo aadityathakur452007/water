@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/cascade.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import 'customers_controller.dart';
 
 class CustomersScreen extends StatefulWidget {
@@ -46,7 +48,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(ShodashaTheme.radiusSheet)),
       ),
       builder: (_) => DraggableScrollableSheet(
         expand: false,
@@ -62,17 +64,17 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Customers / ग्राहक')),
+      appBar: AppBar(title: Text(vtr('ग्राहक', 'Customers'))),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0),
             child: TextField(
               controller: _search,
               onChanged: c.setQuery,
-              decoration: const InputDecoration(
-                labelText: 'Naam / phone se khojein',
-                prefixIcon: Icon(Icons.search),
+              decoration: InputDecoration(
+                labelText: vtr('नाम या फ़ोन से खोजें', 'Search name or phone'),
+                prefixIcon: const Icon(Icons.search),
               ),
             ),
           ),
@@ -89,13 +91,21 @@ class _CustomersScreenState extends State<CustomersScreen> {
       case CustomersState.offline:
       case CustomersState.error:
         return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(c.error ?? ''),
-              const SizedBox(height: 8),
-              TextButton(onPressed: c.load, child: const Text('Dobara try karein')),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(c.error ?? 'Load nahi hua', textAlign: TextAlign.center),
+                const SizedBox(height: AppSpacing.md),
+                AppButton(
+                  label: 'Dobara try karein',
+                  kind: AppButtonKind.primary,
+                  expand: false,
+                  onPressed: c.load,
+                ),
+              ],
+            ),
           ),
         );
       case CustomersState.empty:
@@ -110,9 +120,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
           child: CascadeScope(
             itemCount: items.length,
             child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 96),
               itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
               itemBuilder: (context, i) {
                 final v = items[i];
                 // Queue-tile row (reference cart-item rhythm): 48dp leading
@@ -124,7 +134,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     borderRadius:
                         BorderRadius.circular(ShodashaTheme.radius),
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(AppSpacing.md),
                       decoration: BoxDecoration(
                         border: Border.all(color: ShodashaTheme.border),
                         borderRadius:
@@ -144,7 +154,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               color: ShodashaTheme.blue,
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: AppSpacing.md),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -160,15 +170,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                   Text(v.phone!,
                                       style: const TextStyle(
                                           color: ShodashaTheme.muted,
-                                          fontSize: 13),
+                                          fontSize: 12),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis),
-                                const SizedBox(height: 2),
+                                const SizedBox(height: AppSpacing.xs),
                                 Text(
                                   '${v.total} stop • ${v.done} done • ${v.fullsExpected} fulls / ${v.emptiesExpected} empties',
                                   style: const TextStyle(
                                       color: ShodashaTheme.muted,
-                                      fontSize: 13),
+                                      fontSize: 12),
                                 ),
                               ],
                             ),
@@ -200,7 +210,7 @@ class _CustomerDetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -210,18 +220,18 @@ class _CustomerDetailSheet extends StatelessWidget {
             Text(
               '${customer.fullsExpected} fulls • ${customer.emptiesExpected} empties wapas',
               style:
-                  const TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                  const TextStyle(color: ShodashaTheme.muted, fontSize: 12),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Expanded(
               child: ListView.separated(
                 controller: scroll,
                 itemCount: customer.stops.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
                 itemBuilder: (context, i) {
                   final s = customer.stops[i];
                   return Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(AppSpacing.md),
                     decoration: BoxDecoration(
                       border: Border.all(color: ShodashaTheme.border),
                       borderRadius:
@@ -235,7 +245,7 @@ class _CustomerDetailSheet extends StatelessWidget {
                                     fontWeight: FontWeight.w600))),
                         Text(s.status,
                             style: const TextStyle(
-                                color: ShodashaTheme.muted, fontSize: 13)),
+                                color: ShodashaTheme.muted, fontSize: 12)),
                       ],
                     ),
                   );

@@ -36,6 +36,11 @@ class BillScreen extends StatelessWidget {
     }
   }
 
+  String get _orderRef {
+    final id = order.id.trim();
+    return id.length > 8 ? id.substring(0, 8).toUpperCase() : id;
+  }
+
   @override
   Widget build(BuildContext context) {
     final o = order;
@@ -53,7 +58,7 @@ class BillScreen extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          'Bill · #${o.id}',
+          'Bill · #$_orderRef',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
@@ -107,7 +112,9 @@ class BillScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     _Line(
-                      label: 'Water',
+                      label: o.itemSummary.trim().isNotEmpty
+                          ? o.itemSummary.trim()
+                          : '20L Water Refill',
                       amount: formatRupees(o.waterBillPaise),
                     ),
                     _Line(
@@ -176,7 +183,7 @@ class BillScreen extends StatelessWidget {
                               ? 'Bill frozen at delivery'
                               : 'Final bill is confirmed after delivery',
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 12,
                             color: ShodashaTheme.muted,
                             fontWeight: FontWeight.w500,
                           ),
@@ -202,7 +209,7 @@ class BillScreen extends StatelessWidget {
               AppButton(
                 label: ordersStringsHi['whatsappHelp']!,
                 kind: AppButtonKind.secondary,
-                icon: Icons.share_outlined,
+                icon: Icons.chat_outlined,
                 onPressed: () => _share(context, o),
               ),
             ],

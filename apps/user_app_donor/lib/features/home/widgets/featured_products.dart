@@ -36,7 +36,7 @@ class FeaturedProductsShowcase extends StatelessWidget {
         SectionHeader(
           title: 'Featured water cans',
           trailing: const Text(
-            'Server prices',
+            'Daily verified',
             style: TextStyle(
               fontSize: 12,
               color: ShodashaTheme.tealDeep,
@@ -55,7 +55,7 @@ class FeaturedProductsShowcase extends StatelessWidget {
         else if (rates != null) ...[
           _ProductCard(
             title: '20L refill can',
-            subtitle: 'Bring your own jar · RO + UV purified',
+            subtitle: 'Exchange empty jar at delivery · RO + UV purified',
             price: formatInr(rates!.refillPaise),
             tag: 'Bestseller',
             icon: Icons.water_drop_outlined,
@@ -66,8 +66,7 @@ class FeaturedProductsShowcase extends StatelessWidget {
           _ProductCard(
             title: '20L can + new jar',
             subtitle:
-                'Refundable deposit ${formatInr(rates!.depositPaise)} · '
-                'return the jar to get it back',
+                'Includes ${formatInr(rates!.depositPaise)} refundable jar deposit',
             price: formatInr(rates!.containerPaise),
             tag: 'First order',
             icon: Icons.local_drink_outlined,
@@ -140,8 +139,8 @@ class _ProductCard extends StatelessWidget {
                         const SizedBox(width: AppSpacing.sm),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
+                            horizontal: AppSpacing.sm,
+                            vertical: AppSpacing.xs,
                           ),
                           decoration: BoxDecoration(
                             color: ShodashaTheme.solarTint,
@@ -164,7 +163,7 @@ class _ProductCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 12.5,
+                        fontSize: 12,
                         height: 1.4,
                         color: ShodashaTheme.muted,
                       ),

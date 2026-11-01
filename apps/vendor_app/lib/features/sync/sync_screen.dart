@@ -3,7 +3,25 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import 'sync_controller.dart';
+
+
+String _formatQueuedTime(String iso) {
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return iso;
+  final diff = DateTime.now().toUtc().difference(dt.toUtc());
+  if (diff.isNegative || diff.inSeconds < 60) {
+    return vtr('अभी-अभी', 'Just now');
+  } else if (diff.inMinutes < 60) {
+    return vtr('${diff.inMinutes} मिनट पहले', '${diff.inMinutes}m ago');
+  } else if (diff.inHours < 24) {
+    return vtr('${diff.inHours} घंटे पहले', '${diff.inHours}h ago');
+  } else {
+    return vtr('${diff.inDays} दिन पहले', '${diff.inDays}d ago');
+  }
+}
 
 class SyncScreen extends StatefulWidget {
   const SyncScreen({super.key, required this.controller});
@@ -36,7 +54,7 @@ class _SyncScreenState extends State<SyncScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync / सिंक')),
+      appBar: AppBar(title: Text(vtr('सिंक स्थिति', 'Sync Log'))),
       body: _body(c),
     );
   }
@@ -49,7 +67,7 @@ class _SyncScreenState extends State<SyncScreen> {
     if (c.queue.isEmpty && c.rejected.isEmpty) {
       return const Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: EdgeInsets.all(AppSpacing.xl),
           child: Text(
             'Sab synced — koi pending entry nahi',
             textAlign: TextAlign.center,
@@ -58,33 +76,33 @@ class _SyncScreenState extends State<SyncScreen> {
       );
     }
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        if (c.result != null)
+        if (c.result != null) ...[
           Card(
             shape: ShodashaTheme.shape,
             color: ShodashaTheme.blueTint,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    c.result!.contains('Network')
-                        ? Icons.cloud_off_outlined
-                        : (c.result!.contains('fail') ||
-                                c.rejected.isNotEmpty
-                            ? Icons.error_outline
-                            : Icons.check_circle_outline),
+                    switch (c.tone) {
+                      SyncResultTone.networkError => Icons.cloud_off_outlined,
+                      SyncResultTone.serverError => Icons.error_outline,
+                      SyncResultTone.success || SyncResultTone.none =>
+                        Icons.check_circle_outline,
+                    },
                     size: 20,
-                    color: c.result!.contains('Network')
-                        ? ShodashaTheme.muted
-                        : (c.result!.contains('fail') ||
-                                c.rejected.isNotEmpty
-                            ? ShodashaTheme.danger
-                            : ShodashaTheme.blue),
+                    color: switch (c.tone) {
+                      SyncResultTone.networkError => ShodashaTheme.muted,
+                      SyncResultTone.serverError => ShodashaTheme.danger,
+                      SyncResultTone.success || SyncResultTone.none =>
+                        ShodashaTheme.blue,
+                    },
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(c.result!,
                         maxLines: 3,
@@ -96,16 +114,18 @@ class _SyncScreenState extends State<SyncScreen> {
               ),
             ),
           ),
-        ElevatedButton.icon(
-          onPressed: c.syncing || c.queue.isEmpty
-              ? null
-              : () => c.syncNow(),
-          icon: const Icon(Icons.sync),
-          label: Text(c.syncing
+          const SizedBox(height: AppSpacing.md),
+        ],
+        AppButton(
+          label: c.syncing
               ? 'Sync ho raha…'
-              : 'Abhi sync karein (${c.queue.length})'),
+              : 'Abhi sync karein (${c.queue.length})',
+          kind: AppButtonKind.primary,
+          icon: Icons.sync,
+          busy: c.syncing,
+          onPressed: (c.syncing || c.queue.isEmpty) ? null : () => c.syncNow(),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
         for (final q in c.queue)
           Card(
             shape: ShodashaTheme.shape,
@@ -118,7 +138,7 @@ class _SyncScreenState extends State<SyncScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  '${q.triple['fulls_given'] ?? 0} diye • ${q.triple['empties_back'] ?? 0} wapas • queued ${q.queuedAtIso}',
+                  '${q.triple['fulls_given'] ?? 0} diye • ${q.triple['empties_back'] ?? 0} wapas • ${_formatQueuedTime(q.queuedAtIso)}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis),
             ),

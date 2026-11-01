@@ -98,10 +98,10 @@ class _ReturnSheetState extends State<ReturnSheet> {
       child: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
-            20,
-            12,
-            20,
-            20 + MediaQuery.of(context).viewInsets.bottom,
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom,
           ),
           child: ListenableBuilder(
             listenable: _controller,
@@ -132,8 +132,9 @@ class _ReturnSheetState extends State<ReturnSheet> {
                         child: Text(
                           'Return jars',
                           style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
                             color: ShodashaTheme.ink,
                           ),
                         ),
@@ -307,7 +308,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
             ),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: AppSpacing.lg),
         const Row(
           children: [
             Icon(Icons.check_circle, color: ShodashaTheme.success, size: 30),
@@ -316,8 +317,9 @@ class _ReturnSheetState extends State<ReturnSheet> {
               child: Text(
                 'Return requested',
                 style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2,
                   color: ShodashaTheme.ink,
                 ),
               ),
@@ -369,7 +371,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
                 '${request.qty} jar${request.qty == 1 ? '' : 's'} · '
                 'Pickup by ${request.slaDue.isEmpty ? 'support will confirm' : request.slaDue}',
                 style: const TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 12,
                   color: ShodashaTheme.muted,
                 ),
               ),
@@ -387,7 +389,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
             ],
           ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.lg),
         AppButton(
           label: 'Done',
           onPressed: () => Navigator.of(context).pop(request),

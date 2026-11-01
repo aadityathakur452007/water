@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 
@@ -144,7 +145,12 @@ class AppButton extends StatelessWidget {
       AppButtonKind.money ||
       AppButtonKind.primary ||
       AppButtonKind.danger => FilledButton(
-        onPressed: interactive ? onPressed : null,
+        onPressed: interactive
+            ? () {
+                HapticFeedback.lightImpact();
+                onPressed!();
+              }
+            : null,
         style: style,
         child: content,
       ),

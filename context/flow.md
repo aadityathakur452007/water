@@ -12,6 +12,37 @@
 
 ## Overview
 
+- Screen Unslop V4 Vendor Customers, Inventory, Earnings & Support (2026-11-01, ADR-181): Migrated error state retries in `CustomersScreen`, `InventoryScreen`, `EarningsScreen`, and `SupportScreen` to canonical `AppButton`; migrated Support verification Agree/Disagree actions to `AppButton` (primary, secondary); tokenized Custody badge in `EarningsScreen` (`ShodashaTheme.amberTint`, `ShodashaTheme.warning`); standardized `_CustomerDetailSheet` corner radius to `ShodashaTheme.radiusSheet` (24dp) and list separation to `AppSpacing.md` (12dp); aligned list/card paddings and spacers across all 4 screens to `AppSpacing` tokens; standardized meta typography to 12px `ShodashaTheme.bodySmall`.
+
+- Screen Unslop V3 Vendor Duty & Sync Log (2026-11-01, ADR-180): Migrated `DutyScreen` error retry (`'Dobara try karein'`, primary) and off-duty confirmation CTA (`'Haan, off karein'`, danger) to canonical `AppButton`; migrated `SyncScreen` manual sync CTA to `AppButton` (`kind: AppButtonKind.primary`, with `Icons.sync`, dynamic queue count, and busy spinner); standardized list/card paddings and spacers across duty and sync to `AppSpacing` tokens.
+
+- Screen Unslop V2 Vendor Route & Stops Execution (2026-11-01, ADR-179): Added coordinate-first Google Maps navigation in `RouteScreen` and `StopDetailScreen` with fallback to text search; added `lat` and `lng` to `RouteStop`; migrated stockout prompt, handover CTA, cash collection, pickup complete, and RTO actions to canonical `AppButton`; standardized colors to `ShodashaTheme`; deleted obsolete `triple_sheet.dart` and `pod_sheet.dart`.
+
+- Screen Unslop V1 Vendor Auth & Profile (2026-11-01, ADR-178): Standardized VendorCodeScreen login and WhatsApp buttons on canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen error retry, profile save, leave application, WhatsApp support, and logout actions to AppButton with AppSpacing tokens.
+
+- Screen Unslop 09 Donor Wallet & Payment History (2026-10-31, ADR-174): Deduplicated jar custody count from Deposit details card; preserved card grid rhythm on zero-jar custody balances with a quiet disabled return tile; clarified cross-tab dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography.
+
+- Screen Unslop 08 Donor Subscriptions & Plan Builder (2026-10-31, ADR-173): Standardized empty state and pause sheet on canonical AppButton (primary teal with add icon); relocated destructive plan cancellation from a flat red TextButton to a kebab PopupMenuButton ('More options'); replaced solid tealTint skeleton with ShodashaTheme.surface and ShodashaTheme.skeleton placeholder bars; normalized plan builder title to 18px w700 and payment summary text to 12px.
+
+- Screen Unslop 07 Donor Bill Screen & Rating Sheet (2026-10-31, ADR-172): Replaced Icons.share_outlined with Icons.chat_outlined on Help on WhatsApp button; truncated bill header order reference to 8-character uppercase ref; enriched water line item with itemSummary ("2 × 20L Refill"); restricted complaint shortcut in RatingSheet to <= 3 stars; migrated RatingSheet submit to AppButton and tokenized padding.
+
+- Screen Unslop 06 Donor Tracking Screen & Delivery Code (2026-10-31, ADR-171): Standardized card gaps to AppSpacing tokens (10px -> 8dp, 3px -> 4dp) and eliminated fractional 12.5px/11.5px fonts; unsloped tracking banner copy ("Next stop is yours", "Arriving now · Please keep your empty jar ready", "Estimated arrival in ~X–Y mins") and delivery code status badges ("Delivery complete · Code verified", "Code locked after wrong attempts · Request a new code"); standardized window time to 16px w700.
+
+- Screen Unslop 05 Donor Orders List & Order Card (2026-10-31, ADR-170): Demoted "View bill" on closed orders to AppButtonKind.secondary (eliminating illegal solid green button); truncated 32-char UUID to 8-character uppercase ref; added whole-card onTap to AppCard (Track on active, Bill on closed); omitted Active section when empty to reveal past orders above fold; standardized price to 18px and meta text to 12px; sanitized stale banner copy ("Connection issue · Showing saved orders").
+
+- Screen Unslop 04 Donor Booking Flow & Confirmation (2026-10-31, ADR-169): Standardized QtyStepper directly on ShodashaTheme (pruned dead ShodashaColors); restricted recurring schedules to supported Daily/Alternate/Weekly; migrated payment recovery actions to AppButton hierarchy (COD primary, retry/check secondary); normalized quote_confirm and product_detail padding to AppSpacing.lg/md and cleaned attention status to 'Order placed · Awaiting payment'.
+
+- Screen Unslop 03 Donor Home & Mode Cards (2026-10-31, ADR-168): Unified ModeSelectionCards on neutral ShodashaTheme.surface with border and circular tinted icon badges; standardized RO+UV trust badge to StatusPill with StatusPillTone.brand; standardized copy on 20L refill exchange, refundable jar deposit, support contact, and lab reports.
+
+- Screen Unslop 02 Donor Shell, Navigation & Notifications (2026-10-31, ADR-167): Double-tap back protection on Home tab via PopScope (2s threshold with snackbar prompt); non-home back navigates to Home. Neutral surface AppBar on NotificationsScreen. Truncated 8-character uppercase order IDs in notifications; capitalized Plan status badges (Active, Paused, Cancelled). Calm offline strip ("You're offline · Showing saved data") with 8dp vertical padding and 12px token; restored banner trailing period removed.
+
+- Screen Unslop 01 Donor Auth, Shell Entry & Onboarding (2026-10-31, ADR-166): Replaced stock model and bulbous header in `DonorLoginScreen` with a tactile 20L canister badge, quiet trust pill, and canonical tagline. Standardized form inputs on `AppTextField` and `AppSpacing` tokens; auto-focuses password on 409 account pivot. `AuthGate` eliminates false cold-boot restore failures; `first_run_sheet.dart` protects against accidental scrim dismissal by only persisting flag on explicit user choices.
+
+- Slice 9 subtle elevation shadows & telemetry shimmer (2026-10-31, ADR-165): Unified 2dp drop shadow token `ShodashaTheme.subtleCardShadow` (`BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2))`) normalized across donor `AppCard` and vendor route stop cards. Converted `LivePurityCard` to `StatefulWidget` with a gentle, finite telemetry entrance pulse on the lab-tested verification badge respecting OS reduced-motion settings.
+- Slice 8 vendor single-locale toggle & string unslop (2026-10-31, ADR-164): Implemented `VendorLocaleController` singleton in `apps/vendor_app/lib/core/vendor_locale.dart` (Hindi default, SharedPreferences persistence) and added live `SegmentedButton` language toggle in `ProfileScreen`. Replaced all slash-concatenated bilingual strings (`"Duty / ड्यूटी"`, `"Customers / ग्राहक"`, `"Earnings / कमाई"`, `"Stock / स्टॉक"`, `"More / अधिक सेवाएं"`, `"Delivery Issue / RTO"`, `"Damage Reason / खराबी की वजह"`, etc.) across `vendor_app` with clean, single-language expressions driven by `vtr(hi, en)`.
+- Slice 7 error resilience & tracking navigation (2026-10-31, ADR-163): Clean navigation pop and stopTracking() on order cancellation in `tracking_screen.dart` eliminating background polling and back-stack pollution; `MyOrdersScreen` displays cancellation confirmation banner and refreshes list. Replaced fragile substring matching (`.contains('internet')`, `.contains('Network')`) with typed domain state (`BookingController.ratesOffline`, `SyncController.tone` / `SyncResultTone`).
+- Slice 6 donor craft polish & touch targets (2026-10-31, ADR-162): Standardized StatusPill border radius to 8dp (`ShodashaTheme.radiusSm`) in `status_pill.dart` and normalized typography hierarchy in `order_card.dart`, `tracking_screen.dart`, and `subscription_screen.dart`. Single-sourced support phone constant to `AppConstants.kSupportPhone` across dialer, WhatsApp launcher, and clipboard fallbacks. Constrained plan builder stepper buttons and choice chips to 48dp minimum bounding touch targets. Added subtle `HapticFeedback.lightImpact()` to quantity steppers and primary action buttons.
+- Slice 5 hygiene & cross-cutting foundation (2026-10-31, ADR-161): Centralized month/weekday names into `apps/user_app_donor/lib/core/utils/date_utils.dart` (`kShortMonths`, `kShortWeekdays`), deduplicating across 6 donor files. Fallback map pin centered on central Bhopal (`23.2599, 77.4126`). PlanBuilderSheet submission guarded by `_qty > 0 && _schedule.isNotEmpty`. Wallet screen guards against ₹0 flash on failed/initial fetches. Notification order IDs shortened to `#...${id.substring(id.length - 6)}`. Semantics labels added for avatar, purity metrics, and order tracking dots. Canonical dictionaries `authStrings` / `ordersStrings` aliased to legacy keys for compatibility.
 Shodasha vendor app (007, built 2026-10-02; ADR-055 added Customers + Stock → 7 tabs; ADR-056 consolidated to 4 tabs + More drawer): vendor OTP login → duty (off-guard confirmed) → today route (search→customers, stock header, sync chip) → stop triple (version-fenced) → PoD OTP + GPS soft-flag → offline sync batch (loading branch) → earnings → support queue + verify → drawer (stock log, profile, WhatsApp, logout). See `Feature_docs/vendor-app/spec.md`.
 - 016 dashboard (branch 016-vendor-dashboard, ADR-064): Route tab top composes one screen — TodayStrip (`summarizeToday` pure fold over `RouteStop`s: distinct users, jars, UPI/COD collect paid-excluded) + one CTA per state (Sync backlog → Triple first-pending → all-done text) + inline money (`EarningsController` reuse: jama cash/upi + flagged-hold, display-only) + can-ledger rows (`CustomersController`: held/dues nonzero-only). Backend: `placed_pool(vendor_id)` zone-scoped (zones/vendor_zones instr match; unzoned admin-only) + `today_customers` gains `held`/`dues` via `ledger.get`. No new tabs/endpoints/tables/packages.
 - Production customer auth/deploy (2026-10-24, ADR-132): Cloudflare Worker `water` at `https://water.adityathakur452007.workers.dev` (version `07e98028-2434-4487-aad1-be52938f97cb`); D1 `shodasha` at schema 027 after backfilling 002-023 bookkeeping and applying 024-027. `POST /v1/auth/user/register` validates name/phone/password/device, hashes with PBKDF2-HMAC-SHA256 at the Cloudflare WebCrypto maximum 100,000 iterations, inserts `users`, then `_issue_session`; `POST /v1/auth/user/login` finds the phone, verifies the stored cost/salt, uses `DUMMY_HASH` for unknown/empty-password timing, and issues the same session pair. Existing users with empty `password_hash` fail closed until admin reset. Live checks: catalog 200, empty login 400 VALIDATION, register/login 200, wrong password 401 UNAUTH; the temporary user was removed and 9 production users remain.
@@ -43,9 +74,9 @@ Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via 
 - 017 sync (branch 017-flow-sync, ADR-065): `GET /orders/{id}` gains `delivery_otp` (owner + assigned/dispatched; user tracking code row) → PoD closable; `POST /vendor/stops/{id}/cash` (owned-stop, deterministic stop+amount dedupe, 409=already-jama) → `mark_paid_cash` + `in_hand` bump + sync `cash_amount` ride → user badge flips on poll; one-tap cash button (COD unpaid) + outbox now actually wired to TripleSheet; `hold_blocked` computed on route+stop (ledger>3, lights dead UI); duty persisted on vendor_profile (ensure convergence); quality on table; admin payouts gen/approve, custody confirm, reco close, zones list + UI (capacity PATCH via BFF, zone attach/detach, refunds actions, payouts, day-close, custody); user dues pay-link + reschedule key; returns assign (vendor+date→route)/pickup (owned-stop, held−/caps→dues)/refund (picked-only, settings deposit rate) + vendor pickup card + admin buttons.
 - Resilience: GET single-flight + replay-safe retry (3, backoff+jitter, Retry-After) + 60s sync flush; 401/403 → forceLogout → login; logout clears outbox.
 - Phase 5 (029-remediation): vendor 401 → tryRefresh once → retry (silent renew; 403 never; refresh opts out — no loop) → else expireSession (honest copy, outbox kept). Duty from GET /vendor/profile.on_duty (+repooled on setDuty-off). RouteController 60s discovery Timer on-duty/foreground only; acceptPlaced → POST /vendor/placed/{id}/accept → route reload. Stops carry paid_sum; predicates isPaid/isPartial/isLinkSent + remaining shared per surface (app + web copies).
-- Phase 4 (029-remediation): BOTH apps now share the resilience shape (user ApiClient copied from vendor — no shared abstraction; user ctor also carries the https-or-loopback assert). User `_boot` mirrors vendor (loadOrCreateDeviceId → stable X-Device-Id; onUnauthorized → forceLogout local-only wipe incl. selected-address pref). Catalog: `HttpCatalogApi(ApiClient.catalog)` inside the existing `CachingCatalogApi` (live GET /catalog on home init, hardcoded fallback kept — zero backend change). Help: support Open → launchUrl wa.me primary + unawaited clipboard fallback + snackbar; tanker sheet → tel: Call on the single kSupportPhone constant (placeholders deleted).
+- Phase 4 (029-remediation): BOTH apps now share the resilience shape (user ApiClient copied from vendor — no shared abstraction; user ctor also carries the https-or-loopback assert). User `_boot` mirrors vendor (loadOrCreateDeviceId → stable X-Device-Id; onUnauthorized → forceLogout local-only wipe incl. selected-address pref). Catalog: `HttpCatalogApi(ApiClient.catalog)` inside the existing `CachingCatalogApi` (live GET /catalog on home init, hardcoded fallback kept — zero backend change). Help (ADR-177 unslop): SupportScreen with compact helpline hero, elevated complaints tracking & entry before FAQs; launchUrl wa.me primary + unawaited clipboard fallback + snackbar; tanker sheet → tel: Call on the single kSupportPhone constant.
 - Release: push main → version (shared vX.Y.Z) → matrix(user+vendor APKs) → one Release (shodasha-user/shodasha-vendor + SHA256SUMS + file table); CI matrix verifies both apps per PR.
-- Addresses: form (home/office + OSM pin, no Google key) → toApi maps line→`formatted` → POST/PATCH /addresses; 409 when an undispatched order uses it.
+- Addresses (ADR-175 unslop): list (sticky bottom AppButton CTA, normalized 12dp spacing) + 3-step form (home/office + OSM Bhopal-centered pin with human-readable pin prompt/feedback, no Google key, subtleCardShadow) → toApi maps line→`formatted` → POST/PATCH /addresses; 409 when an undispatched order uses it.
 - Demo: Demo sheet → POST /v1/auth/demo (config flag + code hash → normal session) → demo customer sees Rs-206 dues order; demo vendor sees today route stop → triple → PoD → earnings. D1 prerequisite (ADR-054): config/audit_log come from 010_config_audit.sql (never existed on D1 — init_schema is local-only); pre-010 DB fails closed (401, not 500).
 - Port gaps (ADR-055): address form (house/street/area + Use-current-location via LocationService → POST/PATCH /addresses full format) → SelectedAddressStore id → Home bar + checkout resolve() agree; vendor Customers tab → GET /vendor/customers (stops grouped by customer, search) → detail sheet; Stock tab reads RouteController loading sheet (no new endpoint); Profile tab → GET/PATCH /vendor/profile (synced label); Support tab → GET /vendor/complaints queue (tap fills verify-by-id) → existing verify. D1 prerequisite: 011_port.sql applied once (ALTERs are apply-once; CREATEs idempotent).
 - 014 simplify (ADR-059): Home `_ScheduleCards(Ek Baar 8-12 once / Roz ka Plan daily)` → controller.deliveryType → `_WalletStrip(safe message)` → grid (no search) → buy-box (qty only) → `placeCheckout(api.createQuote → api.createOrder[quote_total/rate_version/expires_at] → upiIntent/cod)` → `showOrderConfirm(wallet-safe message)` → track. Backend `compute_quote(deposit_already_paid)` container-only once-only; `OrderService.create` waives + accepts pre-waiver quote. Fixed `Subah 8-12` label, slots only mint window_start ISO. All-days `nextServiceableDay` (no Sunday skip).
@@ -917,7 +948,7 @@ ShodashaDonorApp (main.dart)
            │    └─ Track / Bill only (no customer “deliver”, no fake PIN)
            ├─ Subscriptions: 032 real plan list/actions (donor title/cards/pills)
            ├─ Wallet: real GET /ledger/me + receipts/returns (no fake balance/top-up)
-           └─ Profile: real GET/PATCH /auth/me, addresses, support, wallet, logout
+           └─ Profile (ADR-176 unslop): surface AppBar + token-aligned identity card (2 stats: Orders, Addresses; no vanity Session) + real GET/PATCH /auth/me, addresses, support, wallet, logout
 ```
 
 - Auth: `AuthController.startOtp` → `POST /auth/otp/start` (`{phone}` → `{resend_after_s, channel}`); `verifyOtp` → `POST /auth/otp/verify` (`{phone, otp_code, device}`); 6 digits. A `channel=firebase` response is an honest configuration error (no Firebase SDK/config). QA path is the server-gated `/auth/demo` sheet; there is no guest path. `AuthGate` restores the stored session with a timeout and falls back to login.
@@ -1179,7 +1210,7 @@ Logout -> wipe local store/prefs/state first -> fire-and-forget revoke (3s cap)
   get specific snackbars; polling pauses when the app is backgrounded and resumes on
   foreground.
 - Rating maps `ALREADY_RATED`/409 to already-rated; failures keep the sheet open.
-- Returns validate the refund VPA and map 401/403 to a sign-in recovery action.
+- Returns (ADR-177 unslop): ReturnSheet with 18px w700 title, AppSpacing tokens, VPA validation, 10 working days SLA, server-authoritative paise refund calculation, and Done CTA dismiss; maps 401/403 to sign-in recovery.
 
 ### Booking / addresses / subscriptions
 
@@ -1833,6 +1864,80 @@ GET /v1/catalog                 200
 
 Nothing was pushed; no GitHub release was created; both APKs are debug-signed
 and live only under each app's `build/app/outputs/flutter-apk/`.
+
+## Audited Flows (2026-10-31, ADR-156)
+
+The UI/UX Unslop Audit identified key friction points in core operational flows. The following flow comparisons map the current state versus the proposed consolidated flows:
+
+### 1. Vendor Doorstep Handover Flow
+```mermaid
+graph TD
+  subgraph Current_Dual_Sheet_Friction
+    A[StopDetailScreen] -->|Tap Triple| B[TripleSheet: Empties + Cash]
+    B -->|Submit/Close| A
+    A -->|Tap PoD| C[PoDSheet: OTP Entry]
+    C -->|Submit| D[Delivery Marked Complete]
+  end
+  subgraph Proposed_Unified_Handover
+    S[StopDetailScreen] -->|1-Tap Handover| U[UnifiedHandoverSheet]
+    U -->|Step 1: Empties & Cash| U2[Step 2: OTP Verification]
+    U2 -->|Single Submit| OK[Atomically Completed & Synced]
+  end
+```
+
+
+### Slice 2 — Vendor AppButton Token Flow
+```
+handover_sheet.dart
+  -> AppButton (kind: primary | secondary)
+       -> apps/vendor_app/lib/shared/ui/app_button.dart
+            -> ShodashaTheme.ink       (primary fill)
+            -> ShodashaTheme.success   (money fill)
+            -> ShodashaTheme.danger    (danger fill)
+            -> AppSpacing.sm           (icon gap)
+            -> AppMotion (not yet wired — available for future sheets)
+
+Donor: ElevatedButton unstyled -> theme.dart elevatedButtonTheme
+  backgroundColor: ShodashaTheme.tealDeep  # brand primary (was: greenDark = WRONG)
+
+AppButton.money() -> ShodashaTheme.greenDark  # money CTAs ONLY (unchanged)
+```
+
+### 2. Donor Booking & Reorder Flow
+```mermaid
+graph TD
+  subgraph Current_3_Sheet_Labyrinth
+    H[HomeScreen] -->|Tap Product| P[ProductDetailSheet]
+    P -->|Tap Buy| B[BookingSheet: Stepper & Slot]
+    B -->|Tap Continue| Q[QuoteConfirmSheet: Mode & Pay]
+    Q -->|Confirm| T[TrackingScreen]
+  end
+  subgraph Proposed_Optimized_Booking
+    H2[HomeScreen] -->|1-Tap Reorder Card| QC[Quick Confirm Sheet]
+    QC -->|Confirm| T2[TrackingScreen]
+    H2 -->|Tap Product| SB[Consolidated Checkout Sheet: Qty + Slot + Pay]
+    SB -->|Confirm| T2
+  end
+```
+
+### Slice 4 Implementation — Vendor Shell & Duty Architecture (2026-10-31, ADR-160)
+- `VendorShell` (`apps/vendor_app/lib/features/shell/vendor_shell.dart`) retired the Android side drawer (DEF-05); bottom tab 4 ('More') switches the shell's body directly to `MoreHubScreen` (`more_hub_screen.dart`).
+- `MoreHubScreen` consolidates operational tools (Customers, Stock, Sync Log with pending queue badge, Duty Settings) and account tools (Profile, WhatsApp SOS, Logout with confirm dialog).
+- Duty gate overhaul (DEF-07): Replaced blocking full-screen duty lockout with a persistent soft sticky banner `_OffDutyBanner` at the top of the app with an instant 'Go On Duty' CTA.
+- When off-duty, Route tab displays `_OffDutyRouteLock` with route stops disabled, while Earnings, Support, and More tabs remain 100% interactive.
+
+### Slice 3 Implementation — Quick Reorder & Search Retirement (2026-10-31, ADR-159)
+- `DonorHomeTab` (`customer_home_screen.dart`) now renders `_QuickReorderCard` above `ModeSelectionCards` whenever `OrdersController.reorderCandidate` is non-null.
+- 1-tap reorder flow: Tapping 'Reorder' invokes `onOrderProduct(refill: o.refillQty, container: o.containerQty)`, which opens the existing `BookingSheet` pre-configured with the customer's prior SKU mix.
+- Retired `_SearchSheet` modal cul-de-sac and search bar UI from `DonorTopBar` (`top_bar.dart`) (DEF-13); 2 catalog SKUs remain immediately accessible via `FeaturedProductsShowcase` on the home scroll.
+
+### Slice 1 Implementation (2026-10-31, ADR-157)
+- `StopDetailScreen` now routes the delivery completion flow exclusively through `HandoverSheet` (`apps/vendor_app/lib/features/stops/handover_sheet.dart`).
+- `HandoverSheet` executes a sequential 2-step modal:
+  1. Step 1 collects jar counts, damaged bottle condition, missing caps, and cash/UPI tendered amounts.
+  2. Step 2 validates delivery OTP, verifies seal integrity, captures GPS coordinates, and sequentially commits the triple mutation and completes PoD.
+  3. If offline, mutations queue into `SyncController` (`QueuedTriple` outbox) for replay.
+- `EarningsScreen` displays server-authoritative payouts only, eliminating client-side estimation.
 
 ## Update Protocol (MANDATORY)
 

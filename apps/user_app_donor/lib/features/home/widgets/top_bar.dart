@@ -18,7 +18,6 @@ class DonorTopBar extends StatelessWidget {
     required this.onNotifications,
     required this.onProfile,
     required this.onCart,
-    required this.onSearch,
     this.addressLoading = false,
     this.addressError = false,
     this.addressEmpty = false,
@@ -32,7 +31,6 @@ class DonorTopBar extends StatelessWidget {
   final VoidCallback onNotifications;
   final VoidCallback onProfile;
   final VoidCallback onCart;
-  final VoidCallback onSearch;
   final bool addressLoading;
   final bool addressError;
   final bool addressEmpty;
@@ -64,7 +62,7 @@ class DonorTopBar extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
           AppSpacing.sm,
-          AppSpacing.sm,
+          AppSpacing.lg,
           AppSpacing.md,
         ),
         child: Column(
@@ -140,7 +138,9 @@ class DonorTopBar extends StatelessWidget {
                     minHeight: ShodashaTheme.minTarget,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                    ),
                     child: Row(
                       children: [
                         Icon(
@@ -150,7 +150,7 @@ class DonorTopBar extends StatelessWidget {
                           color: ShodashaTheme.surface,
                           size: 18,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: AppSpacing.sm),
                         Expanded(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -160,7 +160,9 @@ class DonorTopBar extends StatelessWidget {
                                 children: [
                                   if (addressLoading)
                                     const Padding(
-                                      padding: EdgeInsets.only(right: 6),
+                                      padding: EdgeInsets.only(
+                                        right: AppSpacing.sm,
+                                      ),
                                       child: SizedBox(
                                         width: 12,
                                         height: 12,
@@ -216,52 +218,6 @@ class DonorTopBar extends StatelessWidget {
                             color: ShodashaTheme.surface,
                             size: 20,
                           ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Material(
-              color: ShodashaTheme.surface,
-              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-              child: InkWell(
-                onTap: onSearch,
-                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                child: SizedBox(
-                  height: ShodashaTheme.minTarget,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.search_rounded,
-                          color: ShodashaTheme.muted,
-                          size: 20,
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            'Search water cans',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: ShodashaTheme.muted,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        const Text(
-                          '20L',
-                          style: TextStyle(
-                            color: ShodashaTheme.tealDeep,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
                       ],
                     ),
                   ),

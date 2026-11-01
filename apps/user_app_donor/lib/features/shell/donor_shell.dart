@@ -8,14 +8,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants/app_constants.dart';
-import '../../core/money.dart';
 import '../../core/theme.dart';
-import '../../shared/ui/app_card.dart';
-import '../../shared/ui/app_sheet.dart';
-import '../../shared/ui/app_state_view.dart';
 import '../addresses/address_screen.dart';
 import '../auth/auth_controller.dart';
 import '../booking/booking_controller.dart';
@@ -71,6 +67,7 @@ class _DonorShellState extends State<DonorShell> {
   bool _retrying = false;
   bool _routeBusy = false;
   Timer? _restoredTimer;
+  DateTime? _lastBackPressTime;
 
   @override
   void initState() {
@@ -271,18 +268,6 @@ class _DonorShellState extends State<DonorShell> {
     );
   }
 
-  Future<void> _openSearch() async {
-    final picked = await showAppSheet<_ProductPick>(
-      context: context,
-      builder: (sheetContext) => _SearchSheet(
-        booking: widget.booking,
-        onClose: () => Navigator.of(sheetContext).pop(),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    await _orderProduct(refill: picked.refill, container: picked.container);
-  }
-
   Future<ReturnAddress?> _pickReturnAddress(BuildContext sheetContext) async {
     if (widget.addresses.items.isEmpty) {
       await Navigator.of(sheetContext).push<void>(
@@ -300,7 +285,12 @@ class _DonorShellState extends State<DonorShell> {
           shrinkWrap: true,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.sm,
+              ),
               child: Text(
                 'Pickup address',
                 style: TextStyle(fontWeight: FontWeight.w800),
@@ -310,7 +300,7 @@ class _DonorShellState extends State<DonorShell> {
               ListTile(
                 leading: const Icon(
                   Icons.location_on_outlined,
-                  color: AppColors.primary,
+                  color: ShodashaTheme.teal,
                 ),
                 title: Text(a.label),
                 subtitle: Text(a.addressLine),
@@ -330,13 +320,35 @@ class _DonorShellState extends State<DonorShell> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _tab == DonorTab.home,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop || _tab == DonorTab.home) return;
-        _selectTab(DonorTab.home);
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (_tab != DonorTab.home) {
+          _selectTab(DonorTab.home);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              const SnackBar(
+                content: Text('Press back again to exit'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          return;
+        }
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          await SystemNavigator.pop();
+        }
       },
       child: Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: ShodashaTheme.bg,
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -423,7 +435,7 @@ class _DonorShellState extends State<DonorShell> {
       onOpenProfile: () => _selectTab(DonorTab.profile),
       onOpenSupport: _openSupport,
       onOpenCart: _openCart,
-      onSearch: _openSearch,
+      orders: widget.orders,
       onOrderProduct: _orderProduct,
     ),
     DonorTab.orders => DonorOrdersScreen(
@@ -459,170 +471,6 @@ class _DonorShellState extends State<DonorShell> {
   };
 }
 
-class _ProductPick {
-  const _ProductPick({required this.refill, required this.container});
-
-  final int refill;
-  final int container;
-}
-
-/// Search over the two real catalog SKUs. The donor search bar was decorative;
-/// this one returns a real selection and then opens the normal checkout.
-class _SearchSheet extends StatefulWidget {
-  const _SearchSheet({required this.booking, required this.onClose});
-
-  final BookingController booking;
-  final VoidCallback onClose;
-
-  @override
-  State<_SearchSheet> createState() => _SearchSheetState();
-}
-
-class _SearchSheetState extends State<_SearchSheet> {
-  final _query = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.booking.rates == null && !widget.booking.ratesLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.booking.refreshRates();
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _query.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSheet(
-      title: 'Search water',
-      onClose: widget.onClose,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: _query,
-            autofocus: true,
-            textInputAction: TextInputAction.search,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Try “20L refill”',
-              prefixIcon: Icon(Icons.search_rounded),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          ListenableBuilder(
-            listenable: widget.booking,
-            builder: (context, _) {
-              final rates = widget.booking.rates;
-              if (rates == null) {
-                final error = widget.booking.ratesError;
-                if (error != null) {
-                  return AppStateView.error(
-                    title: 'Search unavailable',
-                    message: error,
-                    onRetry: widget.booking.refreshRates,
-                  );
-                }
-                return AppStateView.loading(
-                  lines: 2,
-                  message: 'Loading products',
-                );
-              }
-              final q = _query.text.trim().toLowerCase();
-              final items =
-                  <({String title, String price, _ProductPick pick})>[
-                        (
-                          title: '20L refill can',
-                          price: formatInr(rates.refillPaise),
-                          pick: const _ProductPick(refill: 1, container: 0),
-                        ),
-                        (
-                          title: '20L can + new jar',
-                          price: formatInr(rates.containerPaise),
-                          pick: const _ProductPick(refill: 0, container: 1),
-                        ),
-                      ]
-                      .where(
-                        (e) => q.isEmpty || e.title.toLowerCase().contains(q),
-                      )
-                      .toList();
-              if (items.isEmpty) {
-                return AppStateView.empty(
-                  title: 'No matching can',
-                  message: 'Try “refill” or “jar”.',
-                  icon: Icons.search_off_rounded,
-                );
-              }
-              return Column(
-                children: [
-                  for (final item in items)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                      child: AppCard(
-                        onTap: () => Navigator.of(context).pop(item.pick),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.sm,
-                        ),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minHeight: ShodashaTheme.minTarget,
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.water_drop_outlined,
-                                color: ShodashaTheme.tealDeep,
-                              ),
-                              const SizedBox(width: AppSpacing.md),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      item.title,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: ShodashaTheme.ink,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 1),
-                                    Text(
-                                      item.price,
-                                      style: const TextStyle(
-                                        fontSize: 12.5,
-                                        color: ShodashaTheme.muted,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: ShodashaTheme.muted,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OfflineStrip extends StatelessWidget {
   const _OfflineStrip({required this.retrying, required this.onRetry});
 
@@ -637,7 +485,10 @@ class _OfflineStrip extends StatelessWidget {
         color: ShodashaTheme.solarTint,
         border: Border(bottom: BorderSide(color: ShodashaTheme.solar)),
       ),
-      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 2, AppSpacing.sm, 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.sm,
+      ),
       child: Row(
         children: [
           const Icon(
@@ -648,9 +499,9 @@ class _OfflineStrip extends StatelessWidget {
           const SizedBox(width: AppSpacing.sm),
           const Expanded(
             child: Text(
-              'No internet — showing what was already loaded.',
+              "You're offline · Showing saved data",
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 height: 1.35,
                 color: ShodashaTheme.warning,
               ),
@@ -697,9 +548,9 @@ class _RestoredStrip extends StatelessWidget {
           ),
           SizedBox(width: AppSpacing.sm),
           Text(
-            'Back online.',
+            'Back online',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: ShodashaTheme.successDark,
             ),

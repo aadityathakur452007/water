@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
+import '../../core/vendor_locale.dart';
 import '../auth/auth_controller.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -217,7 +219,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _whatsapp() async {
-    final uri = Uri.parse('https://wa.me/919302190067');
+    final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
+    final uri = Uri.parse('https://wa.me/$digits');
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -251,7 +254,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile / प्रोफाइल')),
+      appBar: AppBar(title: Text(vtr('प्रोफ़ाइल', 'Profile'))),
       body: _body(),
     );
   }
@@ -268,10 +271,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
+              const SizedBox(height: AppSpacing.lg),
+              AppButton(
+                label: 'Dobara try karein',
+                kind: AppButtonKind.primary,
+                expand: false,
                 onPressed: _load,
-                child: const Text('Dobara try karein'),
               ),
             ],
           ),
@@ -281,12 +286,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = (_me?['user'] as Map<String, dynamic>?) ?? {};
     final phone = (user['phone'] ?? '') as String;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
         Card(
           shape: ShodashaTheme.shape,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -295,8 +300,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         fontSize: 18, fontWeight: FontWeight.w700)),
                 Text(phone),
                 const SizedBox(height: 4),
-                const Text('Role: vendor • Bhasha: Hindi',
-                    style: TextStyle(color: ShodashaTheme.muted)),
+                Text(
+                  vtr('भूमिका: वेंडर पार्टनर • भाषा: हिंदी', 'Role: Vendor Partner • Language: English'),
+                  style: const TextStyle(color: ShodashaTheme.muted),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Card(
+          shape: ShodashaTheme.shape,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  vtr('भाषा चुनें (Language)', 'Select Language (भाषा)'),
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  vtr('ऐप की भाषा चुनें — सभी स्क्रीन तुरंत बदल जाएंगी',
+                      'Choose preferred app language — updates all screens instantly'),
+                  style: const TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                ),
+                const SizedBox(height: 14),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment<String>(
+                      value: 'hi',
+                      label: Text('हिंदी (Hindi)'),
+                      icon: Icon(Icons.language),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'en',
+                      label: Text('English'),
+                      icon: Icon(Icons.translate),
+                    ),
+                  ],
+                  selected: {VendorLocaleController.instance.lang},
+                  onSelectionChanged: (selection) {
+                    final selected = selection.first;
+                    VendorLocaleController.instance.setLanguage(selected);
+                    setState(() {});
+                  },
+                ),
               ],
             ),
           ),
@@ -330,17 +380,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       controller: _hours,
                       decoration: const InputDecoration(
                           labelText: 'Hours (jaise 8-8)')),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
+                  const SizedBox(height: AppSpacing.md),
+                  AppButton(
+                    label: 'Save karein',
+                    kind: AppButtonKind.primary,
+                    busy: _saving,
                     onPressed: _saving ? null : _saveProfile,
-                    child: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Save karein'),
                   ),
                   if (_profileNotice != null)
                     Padding(
@@ -365,8 +410,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Chutti / Planned Leave',
+                      Text(
+                        vtr('छुट्टी का आवेदन', 'Planned Leave'),
                         style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                       ),
                       IconButton(
@@ -380,11 +425,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     'Chutti par jaane se pehle request karein taaki route cover assign ho sake.',
                     style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
                   ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
+                  const SizedBox(height: AppSpacing.md),
+                  AppButton(
+                    label: 'Nayi Chutti Request Karein',
+                    kind: AppButtonKind.secondary,
+                    icon: Icons.add_circle_outline,
                     onPressed: _requestLeaveDialog,
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text('Nayi Chutti Request Karein'),
                   ),
                   const SizedBox(height: 12),
                   if (_leavesLoading)
@@ -451,18 +497,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 12),
         ],
-        OutlinedButton.icon(
+        AppButton(
+          label: 'WhatsApp help ($kSupportPhone)',
+          kind: AppButtonKind.secondary,
+          icon: Icons.support_agent_outlined,
           onPressed: _whatsapp,
-          icon: const Icon(Icons.support_agent_outlined),
-          label: Text('WhatsApp help ($kSupportPhone)'),
         ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
+        const SizedBox(height: AppSpacing.sm),
+        AppButton(
+          label: 'Logout',
+          kind: AppButtonKind.danger,
+          icon: Icons.logout,
           onPressed: () async {
             await widget.auth.logout();
           },
-          icon: const Icon(Icons.logout),
-          label: const Text('Logout'),
         ),
       ],
     );

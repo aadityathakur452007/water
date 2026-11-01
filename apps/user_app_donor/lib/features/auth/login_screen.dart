@@ -1,4 +1,4 @@
-// Customer sign-in / create-account screen (034).
+// Customer sign-in / create-account screen (034, unslop 037).
 //
 // Password auth only. This screen never calls the retired customer auth
 // routes. Sign in is the default; create account is an internal mode.
@@ -12,7 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
-import '../../core/constants/app_constants.dart';
+
 import '../../core/theme.dart';
 import '../../shared/ui/app_button.dart';
 import 'auth_controller.dart';
@@ -121,7 +121,10 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         _mode = _AuthMode.signIn;
         _submitting = false;
         _showPassword = false;
-        _localNotice = authStringsHi['accountExists'];
+        _localNotice = authStrings['accountExists'];
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _passwordFocus.requestFocus();
       });
       return;
     }
@@ -140,7 +143,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text(
           'Forgot password?',
-          style: TextStyle(fontWeight: FontWeight.w900),
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
         content: const Text(
           'For your safety, password resets are handled by Shodasha support. '
@@ -161,7 +164,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             child: const Text('WhatsApp'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            style: FilledButton.styleFrom(
+              backgroundColor: ShodashaTheme.tealDeep,
+            ),
             onPressed: () async {
               Navigator.of(ctx).pop();
               await _launch(call);
@@ -209,7 +214,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                     _banner(widget.notice!, tone: _BannerTone.warning),
                   if (_localNotice != null)
                     _banner(_localNotice!, tone: _BannerTone.info),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: AppSpacing.md),
                   Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.lg,
@@ -235,69 +240,64 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          create
-              ? authStringsHi['createTitle']!
-              : authStringsHi['signInTitle']!,
+          create ? authStrings['createTitle']! : authStrings['signInTitle']!,
           style: const TextStyle(
-            fontSize: 22,
+            fontSize: 20,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.4,
             color: ShodashaTheme.ink,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSpacing.xs),
         Text(
           create
-              ? authStringsHi['createSubtitle']!
-              : authStringsHi['signInSubtitle']!,
+              ? authStrings['createSubtitle']!
+              : authStrings['signInSubtitle']!,
           style: const TextStyle(
             fontSize: 14,
-            height: 1.45,
+            height: 1.4,
             color: ShodashaTheme.muted,
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: AppSpacing.lg),
         if (create) ...[
-          _label(authStringsHi['nameLabel']!),
+          _label(authStrings['nameLabel']!),
           TextFormField(
             controller: _name,
             enabled: !_submitting,
             textCapitalization: TextCapitalization.words,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.name],
-            style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
+            style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
             decoration: _decoration(
-              hint: authStringsHi['nameHint']!,
+              hint: authStrings['nameHint']!,
               icon: Icons.person_outline,
             ),
-            validator: (value) => isValidUserName(value ?? '')
-                ? null
-                : authStringsHi['nameError'],
+            validator: (value) =>
+                isValidUserName(value ?? '') ? null : authStrings['nameError'],
           ),
-          const SizedBox(height: 14),
-          _label(authStringsHi['emailLabel']!),
+          const SizedBox(height: AppSpacing.lg),
+          _label(authStrings['emailLabel']!),
           TextFormField(
             controller: _email,
             enabled: !_submitting,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.email],
-            style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
+            style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
             decoration: _decoration(
-              hint: authStringsHi['emailHint']!,
+              hint: authStrings['emailHint']!,
               icon: Icons.mail_outline,
             ),
             validator: (value) {
               final text = (value ?? '').trim();
               if (text.isEmpty) return null; // optional contact field
-              return isValidUserEmail(text)
-                  ? null
-                  : authStringsHi['emailError'];
+              return isValidUserEmail(text) ? null : authStrings['emailError'];
             },
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSpacing.lg),
         ],
-        _label(authStringsHi['phoneLabel']!),
+        _label(authStrings['phoneLabel']!),
         TextFormField(
           controller: _phone,
           enabled: !_submitting,
@@ -308,27 +308,27 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
             LengthLimitingTextInputFormatter(16),
           ],
-          style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
+          style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
           decoration: _decoration(
-            hint: authStringsHi['phoneHint']!,
+            hint: authStrings['phoneHint']!,
             prefix: _phonePrefix(),
           ),
           onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
           validator: (value) => isValidIndianPhone(value ?? '')
               ? null
-              : authStringsHi['phoneError'],
+              : authStrings['phoneError'],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: AppSpacing.xs),
         Text(
-          authStringsHi['phoneHelper']!,
+          authStrings['phoneHelper']!,
           style: const TextStyle(
-            fontSize: 12.5,
-            height: 1.35,
+            fontSize: 12,
+            height: 1.4,
             color: ShodashaTheme.muted,
           ),
         ),
-        const SizedBox(height: 14),
-        _label(authStringsHi['passwordLabel']!),
+        const SizedBox(height: AppSpacing.lg),
+        _label(authStrings['passwordLabel']!),
         TextFormField(
           controller: _password,
           focusNode: _passwordFocus,
@@ -338,9 +338,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           autofillHints: [
             create ? AutofillHints.newPassword : AutofillHints.password,
           ],
-          style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
+          style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
           decoration: _decoration(
-            hint: authStringsHi['passwordHint']!,
+            hint: authStrings['passwordHint']!,
             icon: Icons.lock_outline,
             suffix: _visibilityToggle(
               visible: _showPassword,
@@ -358,16 +358,16 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             if (create) {
               return isValidPassword(value ?? '')
                   ? null
-                  : authStringsHi['passwordError'];
+                  : authStrings['passwordError'];
             }
             return (value ?? '').isEmpty
-                ? authStringsHi['passwordRequired']
+                ? authStrings['passwordRequired']
                 : null;
           },
         ),
         if (create) ...[
-          const SizedBox(height: 14),
-          _label(authStringsHi['confirmLabel']!),
+          const SizedBox(height: AppSpacing.lg),
+          _label(authStrings['confirmLabel']!),
           TextFormField(
             controller: _confirm,
             focusNode: _confirmFocus,
@@ -375,9 +375,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             obscureText: !_showConfirm,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.newPassword],
-            style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
+            style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
             decoration: _decoration(
-              hint: authStringsHi['confirmLabel']!,
+              hint: authStrings['confirmLabel']!,
               icon: Icons.lock_reset_outlined,
               suffix: _visibilityToggle(
                 visible: _showConfirm,
@@ -386,14 +386,14 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
             ),
             onFieldSubmitted: (_) => _submit(),
             validator: (value) {
-              if ((value ?? '').isEmpty) return authStringsHi['confirmError'];
+              if ((value ?? '').isEmpty) return authStrings['confirmError'];
               return value == _password.text
                   ? null
-                  : authStringsHi['confirmError'];
+                  : authStrings['confirmError'];
             },
           ),
         ],
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.sm),
         if (!create)
           Align(
             alignment: Alignment.centerRight,
@@ -404,25 +404,23 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                 minimumSize: const Size(48, 48),
               ),
               child: Text(
-                authStringsHi['forgotPassword']!,
+                authStrings['forgotPassword']!,
                 style: const TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: ShodashaTheme.tealDeep,
                 ),
               ),
             ),
           ),
-        const SizedBox(height: 6),
+        const SizedBox(height: AppSpacing.sm),
         _errorPanel(),
         AppButton(
-          label: create
-              ? authStringsHi['createGo']!
-              : authStringsHi['signInGo']!,
+          label: create ? authStrings['createGo']! : authStrings['signInGo']!,
           busy: _submitting,
           onPressed: _submit,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.md),
         Center(
           child: TextButton(
             onPressed: _submitting
@@ -431,28 +429,18 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                       _switchMode(create ? _AuthMode.signIn : _AuthMode.create),
             style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
             child: Text(
-              create
-                  ? authStringsHi['alreadyHere']!
-                  : authStringsHi['newHere']!,
+              create ? authStrings['alreadyHere']! : authStrings['newHere']!,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
                 color: ShodashaTheme.tealDeep,
               ),
             ),
           ),
         ),
-        if (!create) ...[
-          const Center(
-            child: Text(
-              'Shodasha customer app · Password protected',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
-            ),
-          ),
-        ] else ...[
-          const SizedBox(height: 2),
+        if (create) ...[
+          const SizedBox(height: AppSpacing.xs),
           const Center(
             child: Text(
               'By creating an account, you agree to Shodasha Terms & '
@@ -471,52 +459,71 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   }
 
   Widget _hero() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      decoration: const BoxDecoration(
-        color: ShodashaTheme.tealTint,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
-        ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.xl,
+        AppSpacing.xl,
+        AppSpacing.sm,
       ),
       child: Column(
         children: [
-          Image.asset(
-            'assets/images/login_hero.jpg',
-            height: 150,
-            fit: BoxFit.contain,
-            errorBuilder: (_, _, _) => const SizedBox(
-              height: 110,
-              child: Icon(
-                Icons.water_drop_rounded,
-                size: 64,
-                color: ShodashaTheme.tealDeep,
+          Container(
+            width: 64,
+            height: 64,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.tealTint,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: ShodashaTheme.tealDark.withValues(alpha: 0.15),
               ),
             ),
+            child: const Icon(
+              Icons.water_drop_rounded,
+              size: 34,
+              color: ShodashaTheme.tealDeep,
+            ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.sm),
           const Text(
             'Shodasha',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 28,
+              fontSize: 24,
               fontWeight: FontWeight.w800,
               color: ShodashaTheme.tealDeep,
               letterSpacing: -0.5,
-              height: 1.1,
+              height: 1.15,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppSpacing.xs),
           const Text(
-            'Pure 20L mineral water delivered to your door',
+            'Pure 20L water delivered to your doorstep',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
-              color: ShodashaTheme.ink,
+              color: ShodashaTheme.muted,
               fontWeight: FontWeight.w500,
               height: 1.4,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.bg,
+              borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+              border: Border.all(color: ShodashaTheme.border),
+            ),
+            child: const Text(
+              'RO+UV · Lab Tested · Bhopal',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: ShodashaTheme.tealDeep,
+                letterSpacing: 0.2,
+              ),
             ),
           ),
         ],
@@ -525,7 +532,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   }
 
   Widget _label(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
     child: Text(
       text,
       style: const TextStyle(
@@ -553,7 +560,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
       suffixIcon: suffix,
       filled: true,
       fillColor: ShodashaTheme.bg,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ShodashaTheme.radius),
         borderSide: const BorderSide(color: ShodashaTheme.border),
@@ -580,14 +587,14 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
 
   Widget _phonePrefix() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             '+91',
             style: TextStyle(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               fontSize: 14,
               color: ShodashaTheme.ink,
             ),
@@ -625,10 +632,10 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     if (message == null) return const SizedBox.shrink();
     final wait = _auth.rateLimitSecondsRemaining;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
           color: ShodashaTheme.danger.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
@@ -644,7 +651,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               size: 18,
               color: ShodashaTheme.danger,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -661,10 +668,10 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        'Try again in ${wait}s.',
+                        'Try again in $wait seconds',
                         style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
                           color: ShodashaTheme.danger,
                         ),
                       ),
@@ -681,17 +688,22 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   Widget _banner(String message, {required _BannerTone tone}) {
     final warning = tone == _BannerTone.warning;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm,
+        AppSpacing.lg,
+        0,
+      ),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
           color: warning ? ShodashaTheme.solarTint : ShodashaTheme.etaTint,
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
           border: Border.all(
             color: warning
-                ? ShodashaTheme.solar.withValues(alpha: 0.5)
-                : ShodashaTheme.link.withValues(alpha: 0.25),
+                ? ShodashaTheme.solarBorder
+                : ShodashaTheme.tealDark.withValues(alpha: 0.2),
           ),
         ),
         child: Row(
@@ -702,7 +714,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               size: 18,
               color: warning ? ShodashaTheme.warning : ShodashaTheme.link,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Text(
                 message,

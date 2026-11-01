@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import 'duty_controller.dart';
 
 class DutyScreen extends StatefulWidget {
@@ -37,7 +39,7 @@ class _DutyScreenState extends State<DutyScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Duty / ड्यूटी')),
+      appBar: AppBar(title: Text(vtr('ड्यूटी', 'Duty'))),
       body: _body(c),
     );
   }
@@ -49,19 +51,21 @@ class _DutyScreenState extends State<DutyScreen> {
     if (c.state == DutyState.error) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.error_outline,
                   size: 48, color: ShodashaTheme.danger),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               Text(c.error ?? 'Kuch galat hua',
                   textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
+              const SizedBox(height: AppSpacing.lg),
+              AppButton(
+                label: 'Dobara try karein',
+                kind: AppButtonKind.primary,
+                expand: false,
                 onPressed: () => c.load(),
-                child: const Text('Dobara try karein'),
               ),
             ],
           ),
@@ -69,12 +73,12 @@ class _DutyScreenState extends State<DutyScreen> {
       );
     }
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
         Card(
           shape: ShodashaTheme.shape,
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -82,7 +86,7 @@ class _DutyScreenState extends State<DutyScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        c.onDuty ? 'On duty / ड्यूटी पर' : 'Off duty / छुट्टी',
+                        c.onDuty ? vtr('ड्यूटी पर', 'On Duty') : vtr('छुट्टी', 'Off Duty'),
                         style: const TextStyle(
                             fontSize: 18, fontWeight: FontWeight.w700),
                       ),
@@ -106,10 +110,12 @@ class _DutyScreenState extends State<DutyScreen> {
                                       Navigator.of(ctx).pop(false),
                                   child: const Text('Rehne dein'),
                                 ),
-                                ElevatedButton(
+                                AppButton(
+                                  label: 'Haan, off karein',
+                                  kind: AppButtonKind.danger,
+                                  expand: false,
                                   onPressed: () =>
                                       Navigator.of(ctx).pop(true),
-                                  child: const Text('Haan, off karein'),
                                 ),
                               ],
                             ),
@@ -128,7 +134,7 @@ class _DutyScreenState extends State<DutyScreen> {
                 // Phase 5 §5.3: repool honesty after duty-off.
                 if (!c.onDuty && c.lastRepooled > 0)
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
                     child: Text(
                       '${c.lastRepooled} stops wapas pool mein — dispatch dobara assign karega',
                       style: const TextStyle(
@@ -136,10 +142,10 @@ class _DutyScreenState extends State<DutyScreen> {
                           fontWeight: FontWeight.w600),
                     ),
                   ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 Text(
                     'Stops: ${c.stopsToday}/${c.maxStops} • Jars: ${c.jarsAllocated}/${c.maxJars}'),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 LinearProgressIndicator(
                   value: c.maxStops == 0
                       ? 0
@@ -147,8 +153,8 @@ class _DutyScreenState extends State<DutyScreen> {
                   backgroundColor: ShodashaTheme.border,
                   color: ShodashaTheme.blue,
                 ),
-                const SizedBox(height: 16),
-                Text('Haath me: ${rupees(c.cashInHand)} / in hand'),
+                const SizedBox(height: AppSpacing.lg),
+                Text(vtr('हाथ में: ${rupees(c.cashInHand)}', 'In hand: ${rupees(c.cashInHand)}')),
               ],
             ),
           ),

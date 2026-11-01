@@ -6,20 +6,60 @@ import 'package:flutter/material.dart';
 
 abstract final class ShodashaTheme {
   static const Color bg = Color(0xFFFFFFFF);
+  static const Color surface = Color(0xFFFFFFFF);
   static const Color ink = Color(0xFF111111);
   static const Color muted = Color(0xFF595959);
   static const Color blue = Color(0xFF0284C7);
   static const Color blueTint = Color(0xFFE6F3FA);
+  static const Color amberTint = Color(0xFFFEF3C7);
+  static const Color warning = Color(0xFFD97706);
   static const Color border = Color(0xFFE5E5E5);
   static const Color danger = Color(0xFFB91C1C);
   static const Color success = Color(0xFF15803D);
 
   static const double radius = 8;
+  static const double radiusSheet = 24;
+  static const List<BoxShadow> subtleCardShadow = [
+    BoxShadow(
+      color: Color(0x0A000000), // subtle 4% alpha shadow
+      blurRadius: 8,
+      offset: Offset(0, 2),
+    ),
+  ];
+
   static const double minTarget = 48;
 
   static RoundedRectangleBorder get shape => RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(radius),
       );
+}
+
+/// 4/8/12/16/24/32 spacing scale — one rhythm across every vendor screen.
+abstract final class AppSpacing {
+  static const double xs = 4;
+  static const double sm = 8;
+  static const double md = 12;
+  static const double lg = 16;
+  static const double xl = 24;
+  static const double xxl = 32;
+}
+
+/// Phone-first content cap; wider layouts center instead of stretching.
+const double kMaxContentWidth = 560;
+
+/// Motion durations with reduced-motion gate.
+abstract final class AppMotion {
+  /// Micro interactions (icon swaps, ripples).
+  static const Duration fast = Duration(milliseconds: 120);
+  /// Most transitions and reveals.
+  static const Duration normal = Duration(milliseconds: 220);
+  /// Sheets, page transitions.
+  static const Duration slow = Duration(milliseconds: 350);
+  /// Returns 0ms when the platform requests reduced motion.
+  static Duration responsive(BuildContext ctx, Duration d) {
+    final mq = MediaQuery.of(ctx);
+    return mq.disableAnimations ? Duration.zero : d;
+  }
 }
 
 ThemeData buildShodashaTheme() {

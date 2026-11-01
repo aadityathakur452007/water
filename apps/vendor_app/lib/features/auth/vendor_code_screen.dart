@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import 'auth_controller.dart';
 import 'vendor_strings.dart';
 
@@ -77,19 +78,19 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 48),
               const Icon(Icons.local_drink, size: 64, color: ShodashaTheme.ink),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.lg),
               Text(
                 vendorStringsHi['appName']!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.xs),
               Text(
                 vendorStringsHi['loginTitle']!,
                 textAlign: TextAlign.center,
@@ -100,7 +101,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: ShodashaTheme.muted, fontSize: 12),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: AppSpacing.xxl),
               TextField(
                 controller: _phone,
                 focusNode: _phoneFocus,
@@ -123,7 +124,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                   setState(() => _phoneError = null);
                 },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _code,
                 keyboardType: TextInputType.visiblePassword,
@@ -148,9 +149,9 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                 },
               ),
               if (c.errorMessage != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.md),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
                     color: ShodashaTheme.danger.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(8),
@@ -205,11 +206,13 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 24),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                ),
+              const SizedBox(height: AppSpacing.xl),
+              AppButton(
+                label: busy
+                    ? vendorStringsHi['loggingIn']!
+                    : vendorStringsHi['loginGo']!,
+                kind: AppButtonKind.primary,
+                busy: busy,
                 onPressed: (!valid || busy)
                     ? null
                     : () {
@@ -221,17 +224,12 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                           c.codeLogin(_phone.text, _code.text);
                         }
                       },
-                child: Text(busy
-                    ? vendorStringsHi['loggingIn']!
-                    : vendorStringsHi['loginGo']!),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                ),
-                icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                label: const Text('Admin WhatsApp Support: 7828442476'),
+              const SizedBox(height: AppSpacing.md),
+              AppButton(
+                label: 'Admin WhatsApp Support: 7828442476',
+                kind: AppButtonKind.secondary,
+                icon: Icons.chat_bubble_outline,
                 onPressed: () {
                   launchUrlString(
                     'https://wa.me/917828442476?text=Namaste%20Admin%2C%20mujhe%20Vendor%20app%20me%20madad%20chahiye',

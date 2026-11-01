@@ -19,6 +19,7 @@ import 'package:latlong2/latlong.dart';
 import '../../core/api_client.dart';
 import '../../core/location_service.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import 'map_picker.dart' show pickMapPin;
 import 'selected_address_store.dart';
 
@@ -555,14 +556,12 @@ class _AddressScreenState extends State<AddressScreen> {
                         fontSize: 14,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: ShodashaTheme.teal,
-                        foregroundColor: ShodashaTheme.surface,
-                      ),
+                    const SizedBox(height: AppSpacing.lg),
+                    AppButton(
+                      label: addressStrings['addFirst']!,
+                      kind: AppButtonKind.primary,
+                      icon: Icons.add,
                       onPressed: () => _openForm(),
-                      child: Text(addressStrings['addFirst']!),
                     ),
                   ],
                 ),
@@ -572,9 +571,14 @@ class _AddressScreenState extends State<AddressScreen> {
           return RefreshIndicator(
             onRefresh: c.load,
             child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-              itemCount: c.items.length + 2,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.lg,
+              ),
+              itemCount: c.items.length + 1,
+              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return Padding(
@@ -601,16 +605,6 @@ class _AddressScreenState extends State<AddressScreen> {
                         ),
                       ],
                     ),
-                  );
-                }
-                if (i == c.items.length + 1) {
-                  return ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: ShodashaTheme.teal,
-                      foregroundColor: ShodashaTheme.surface,
-                    ),
-                    onPressed: () => _openForm(),
-                    child: Text(addressStrings['addFirst']!),
                   );
                 }
                 final a = c.items[i - 1];
@@ -735,6 +729,28 @@ class _AddressScreenState extends State<AddressScreen> {
                   ),
                 );
               },
+            ),
+          );
+        },
+      ),
+      bottomNavigationBar: ListenableBuilder(
+        listenable: c,
+        builder: (context, _) {
+          if (c.items.isEmpty) return const SizedBox.shrink();
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.md,
+              ),
+              child: AppButton(
+                label: addressStrings['addFirst']!,
+                kind: AppButtonKind.primary,
+                icon: Icons.add,
+                onPressed: () => _openForm(),
+              ),
             ),
           );
         },
@@ -1134,40 +1150,33 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                       controlsBuilder: (context, details) {
                         final last = _step == 2;
                         return Padding(
-                          padding: const EdgeInsets.only(top: 12),
+                          padding: const EdgeInsets.only(top: AppSpacing.md),
                           child: Row(
                             children: [
-                              if (_step > 0)
-                                TextButton(
+                              if (_step > 0) ...[
+                                AppButton(
+                                  label: 'Back',
+                                  kind: AppButtonKind.secondary,
+                                  expand: false,
+                                  height: 48,
                                   onPressed: details.onStepCancel,
-                                  child: const Text('Back'),
                                 ),
-                              const SizedBox(width: 8),
+                                const SizedBox(width: AppSpacing.sm),
+                              ],
                               Expanded(
-                                child: ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: ShodashaTheme.teal,
-                                    foregroundColor: ShodashaTheme.surface,
-                                  ),
+                                child: AppButton(
+                                  label: last
+                                      ? addressStrings['save']!
+                                      : 'Next',
+                                  kind: AppButtonKind.primary,
+                                  height: 48,
+                                  busy: c.busy && last,
                                   onPressed:
                                       c.busy ||
                                           _serviceState ==
                                               _ServiceCheck.checking
                                       ? null
                                       : details.onStepContinue,
-                                  child: c.busy && last
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : Text(
-                                          last
-                                              ? addressStrings['save']!
-                                              : 'Next',
-                                        ),
                                 ),
                               ),
                             ],

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/cascade.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
+import '../../shared/ui/app_button.dart';
 import 'support_controller.dart';
 
 class SupportScreen extends StatefulWidget {
@@ -102,9 +104,9 @@ class _SupportScreenState extends State<SupportScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: const Text('Support / सहायता')),
+      appBar: AppBar(title: Text(vtr('सहायता', 'Support'))),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           // Section-header row: label left, live count right.
           Row(
@@ -118,30 +120,33 @@ class _SupportScreenState extends State<SupportScreen> {
                 Text(
                   '${c.queue.length}',
                   style: const TextStyle(
-                      color: ShodashaTheme.muted, fontSize: 13),
+                      color: ShodashaTheme.muted, fontSize: 12),
                 ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           if (c.queueLoading)
             const Padding(
-              padding: EdgeInsets.only(bottom: 12),
+              padding: EdgeInsets.only(bottom: AppSpacing.md),
               child: Center(child: CircularProgressIndicator()),
             )
           else if (c.queueError != null)
             Card(
               shape: ShodashaTheme.shape,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSpacing.lg),
                 child: Row(
                   children: [
                     const Icon(Icons.cloud_off_outlined,
                         color: ShodashaTheme.muted),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: AppSpacing.md),
                     Expanded(child: Text(c.queueError!)),
-                    TextButton(
+                    AppButton(
+                      label: 'Retry',
+                      kind: AppButtonKind.secondary,
+                      expand: false,
+                      height: 40,
                       onPressed: c.loadQueue,
-                      child: const Text('Retry'),
                     ),
                   ],
                 ),
@@ -151,12 +156,12 @@ class _SupportScreenState extends State<SupportScreen> {
             Card(
               shape: ShodashaTheme.shape,
               child: const Padding(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.all(AppSpacing.lg),
                 child: Row(
                   children: [
                     Icon(Icons.support_agent_outlined,
                         color: ShodashaTheme.muted),
-                    SizedBox(width: 12),
+                    SizedBox(width: AppSpacing.md),
                     Expanded(
                         child: Text(
                             'Koi vivaad nahi — ID se verify ab bhi kar sakte hain')),
@@ -172,7 +177,7 @@ class _SupportScreenState extends State<SupportScreen> {
                   for (var qi = 0; qi < c.queue.length; qi++)
                     Padding(
                       padding: EdgeInsets.only(
-                          bottom: qi < c.queue.length - 1 ? 12 : 0),
+                          bottom: qi < c.queue.length - 1 ? AppSpacing.md : 0),
                       child: CascadeItem(
                         index: qi,
                         child: _queueTile(c.queue[qi]),
@@ -184,7 +189,7 @@ class _SupportScreenState extends State<SupportScreen> {
           Card(
             shape: ShodashaTheme.shape,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -199,7 +204,7 @@ class _SupportScreenState extends State<SupportScreen> {
                     onSelectionChanged: (s) =>
                         setState(() => _isQuality = s.first),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   TextField(
                     controller: _id,
                     // #8 fix: re-evaluate buttons as the id is typed
@@ -236,24 +241,27 @@ class _SupportScreenState extends State<SupportScreen> {
                       counterText: '',
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   Row(
                     children: [
                       Expanded(
-                        child: ElevatedButton(
+                        child: AppButton(
+                          label: vtr('सहमत हैं', 'Agree'),
+                          kind: AppButtonKind.primary,
+                          busy: c.submitting,
                           onPressed: c.submitting || _id.text.trim().isEmpty
                               ? null
                               : () => _submit(true),
-                          child: const Text('Sahmat / Agree'),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: AppSpacing.md),
                       Expanded(
-                        child: OutlinedButton(
+                        child: AppButton(
+                          label: vtr('असहमत', 'Disagree'),
+                          kind: AppButtonKind.secondary,
                           onPressed: c.submitting || _id.text.trim().isEmpty
                               ? null
                               : () => _submit(false),
-                          child: const Text('Asahmat'),
                         ),
                       ),
                     ],
@@ -262,7 +270,7 @@ class _SupportScreenState extends State<SupportScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           const Text(
             'Quantity/deposit/cap vivaad system record se suljhte hain. Quality ke liye door check zaroori. 3-day window; water_quality 24h.',
             style: TextStyle(color: ShodashaTheme.muted),

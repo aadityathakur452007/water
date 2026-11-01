@@ -35,6 +35,34 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-182 | 2026-11-01 | UI/UX Unslop Audit Closeout & Release Packaging Gate — verified 100% completion across all 12 Donor screens (01–12), 4 Vendor screens (V1–V4), and 20 Master Backlog defects (DEF-01 to DEF-20); verified release APKs: Donor APK 38,470,197 bytes (<= 40,000,000 budget), Vendor APK 53,900,285 bytes; 90/90 vendor + 122/122 donor + 487 backend tests green, 0 analyze issues | Accepted (verified 2026-11-01) | apps/user_app_donor, apps/vendor_app, context/{progress-tracker,flow,decision}.md |
+| ADR-181 | 2026-11-01 | Screen Unslop V4: Vendor Customers, Inventory, Earnings & Support — migrated error retries in CustomersScreen, InventoryScreen, EarningsScreen, and SupportScreen to canonical AppButton; migrated Support verification form Agree/Disagree actions to AppButton (primary, secondary); tokenized Custody badge to ShodashaTheme.amberTint & warning; normalized list/card paddings, separators, and spacers to AppSpacing tokens; standardized typography to 12px bodySmall; 90/90 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{customers/customers_screen.dart,inventory/inventory_screen.dart,earnings/earnings_screen.dart,support/support_screen.dart}, apps/vendor_app/test/vendor_ops_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-180 | 2026-11-01 | Screen Unslop V3: Vendor Duty & Sync Log — migrated retry and off-duty confirmation CTA to canonical AppButton (primary, danger); migrated SyncScreen manual sync CTA to AppButton.primary with sync icon, dynamic queue count, and busy state; standardized duty and sync list/card paddings and spacers to AppSpacing tokens (xl, lg, md, sm); 82/82 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{duty/duty_screen.dart,sync/sync_screen.dart}, apps/vendor_app/test/vendor_duty_sync_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-179 | 2026-11-01 | Screen Unslop V2: Vendor Route & Stops Execution — coordinate-first Google Maps navigation in RouteScreen and StopDetailScreen; added lat/lng to RouteStop; migrated stockout dialog, delivery handover, cash collection, pickup complete, and RTO actions to canonical AppButton; replaced raw colors with ShodashaTheme tokens; deleted dead triple_sheet.dart and pod_sheet.dart; 79/79 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{route/route_{controller,screen}.dart,stops/{stop_detail_screen,handover_sheet}.dart}, apps/vendor_app/test/vendor_route_stops_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-178 | 2026-11-01 | Screen Unslop V1: Vendor Auth & Profile — migrated VendorCodeScreen login and WhatsApp help actions to canonical AppButton (primary, secondary); replaced hardcoded WhatsApp URI in ProfileScreen with dynamic digits from kSupportPhone; migrated ProfileScreen retry, save profile, leave request, WhatsApp support, and logout actions to AppButton with AppSpacing tokens; 76/76 vendor + 122/122 donor tests green | Accepted (implemented 2026-11-01) | apps/vendor_app/lib/features/{auth/vendor_code_screen,profile/profile_screen}.dart, apps/vendor_app/test/vendor_auth_profile_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-177 | 2026-11-01 | Screen Unslop 12: Donor Support & Jar Returns — elevated complaints entry and active tickets above common questions in SupportScreen; standardized helpline padding (16dp); normalized ReturnSheet padding to AppSpacing tokens, title/success headers to 18px w700, and eliminated fractional 12.5px font sizes; 122/122 donor + 74/74 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{support/support_screen,returns/return_sheet}.dart, apps/user_app_donor/test/support_returns_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-176 | 2026-10-31 | Screen Unslop 11: Donor Profile & Settings — standardized AppBar to surface white with ink text; purged internal telemetry developer rationale from water quality sheet; eliminated legacy AppColors token facade in favor of ShodashaTheme; removed vanity Session: Active stat leaving clean Orders and Addresses metrics; normalized card padding (16dp) and typography (18px title, 12px bodySmall); 120/120 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/profile/donor_profile_screen.dart, apps/user_app_donor/test/donor_profile_screen_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-175 | 2026-10-31 | Screen Unslop 10: Donor Addresses & Map Picker — sticky bottom CTA in AddressScreen (AppButton addFirst); removed list-tail button; adjusted itemCount to header + addresses and normalized separator to AppSpacing.md (12dp); migrated empty state button and form stepper controls to canonical AppButton; human-readable pin prompt/feedback in map picker; subtleCardShadow elevation normalization; 118/118 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/addresses/{address_screen,map_picker}.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-174 | 2026-10-31 | Screen Unslop 09: Donor Wallet & Payment History — deduplicated jar count from Deposit details card; preserved card grid rhythm on zero-jar custody with quiet disabled return tile; clarified dues routing with "Review dues in Plans" and explanatory copy; migrated payment history error view to AppButton and standardized 14px typography; 114/114 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/wallet/{donor_wallet_screen,payment_history_screen}.dart, apps/user_app_donor/test/donor_wallet_screen_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-173 | 2026-10-31 | Screen Unslop 08: Donor Subscriptions & Plan Builder — standardized empty state and pause sheet on AppButton; relocated destructive plan cancellation to kebab PopupMenuButton; replaced tealTint skeleton with ShodashaTheme.skeleton tokens; normalized plan builder title to 18px w700 and payment summary to 12px; 112/112 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/subscriptions/{subscription_screen,plan_builder_sheet}.dart, apps/user_app_donor/test/subscription_screen_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-172 | 2026-10-31 | Screen Unslop 07: Donor Bill Screen & Rating Sheet — resolved WhatsApp button icon identity crisis (Icons.share_outlined -> Icons.chat_outlined); truncated raw UUID in AppBar to 8-character uppercase ref; enriched bill line item with SKU name/quantity; enforced <=3 star conditional threshold for rating complaint shortcut; migrated rating sheet to AppButton and tokenized padding; 110/110 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{bill_screen,rating_sheet}.dart, apps/user_app_donor/test/bill_rating_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-171 | 2026-10-31 | Screen Unslop 06: Donor Tracking Screen & Delivery Code — standardized non-token spacing (10px -> 8dp, 3px -> 4dp) and eliminated fractional fonts (12.5px, 11.5px); calm copy unslop on arrival banners ("Next stop is yours", "Arriving now · Please keep your empty jar ready") and delivery code statuses ("Delivery complete · Code verified", "Code locked after wrong attempts"); 108/108 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/tracking_screen.dart, apps/user_app_donor/test/tracking_screen_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-170 | 2026-10-31 | Screen Unslop 05: Donor Orders List & Order Card — demoted "View bill" to AppButtonKind.secondary eliminating illegal green CTA on closed orders; truncated 32-character UUID to 8-character uppercase ref; made entire card surface tappable (Track on active, Bill on closed); omitted bulky empty-active card when past orders exist; standardized price to 18px and meta text to 12px; 104/104 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/orders/{my_orders_screen,order_card}.dart, apps/user_app_donor/test/{donor_order_card_test,my_orders_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-169 | 2026-10-31 | Screen Unslop 04: Donor Booking Flow, Steppers & Confirmation — deleted dead ShodashaColors class; restricted recurring schedule to Daily/Alternate/Weekly eliminating custom date modal overflows; standardized payment recovery panel on AppButton hierarchy; normalized confirm and detail sheet padding to AppSpacing tokens; 96/96 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/booking/{booking_sheet,product_detail_sheet,quote_confirm,stepper}.dart, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-168 | 2026-10-31 | Screen Unslop 03: Donor Home, Quick Reorder & Product Cards — unified surface ModeSelectionCards eliminating dark-teal vs yellow visual clash; added StatusPillTone.brand to StatusPill primitive for RO+UV; eliminated fractional 12.5px/11.5px font sizes; clarified doorstep exchange and deposit copy; 93/93 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{features/home/customer_home_screen.dart,features/home/widgets/{featured_products,live_purity_card,mode_selection_cards,top_bar}.dart,shared/ui/status_pill.dart}, apps/user_app_donor/test/home_tab_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-167 | 2026-10-31 | Screen Unslop 02: Donor Shell, Navigation & Notifications — double-tap back protection on Home tab with 2s threshold; neutral surface AppBar in notifications screen; truncated 8-character uppercase order ID and capitalized Plan status badges; offline strip tokenized to 8dp padding and calm copy ("You're offline · Showing saved data"); 92/92 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{shell/donor_shell,home/notifications_screen}.dart, apps/user_app_donor/test/{donor_shell_test,notifications_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-166 | 2026-10-31 | Screen Unslop 01: Donor Auth, Shell Entry & Onboarding — tactile 20L canister emblem & quiet trust pill on neutral surface; standardized inputs on AppTextField and AppSpacing tokens; 409 account pivot auto-focuses password; AuthGate eliminates false cold-boot error notice; first-run address prompt guarded against accidental scrim tap; dead fields pruned; 87/87 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/auth_impls.dart,features/{addresses/first_run_sheet,auth/{auth_controller,auth_gate,login_screen}}.dart}, apps/user_app_donor/test/{auth_gate_test,first_run_sheet_test,login_screen_test}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-165 | 2026-10-31 | Slice 9 implemented: P3 Subtle Elevation Shadows & Telemetry Shimmer — defined unified subtleCardShadow token (2dp soft shadow) across donor and vendor themes; upgraded AppCard and vendor route stop cards with normalized elevation; added gentle telemetry entrance pulse on LivePurityCard with reduced-motion support; 80/80 donor + 74/74 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/theme.dart,shared/ui/app_card.dart,features/home/widgets/live_purity_card.dart}, apps/vendor_app/lib/{core/theme.dart,features/route/route_screen.dart}, context/{progress-tracker,flow,decision}.md |
+| ADR-164 | 2026-10-31 | Slice 8 implemented: Vendor App Single-Locale Toggle & String Unslop — eliminated slash-separated strings across vendor screens; created VendorLocaleController with SharedPreferences persistence and reactive language toggle in ProfileScreen (DEF-11, Option A); 74/74 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/vendor_locale.dart,main.dart,features/{customers,duty,earnings,inventory,profile,shell,stops,support,sync}/*}, apps/vendor_app/test/{vendor_locale_test,vendor_shell_test,wave1_ux_test}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-163 | 2026-10-31 | Slice 7 implemented: Cross-App Error Resilience & Tracking Navigation — Tracking route pop & stopTracking() on cancel (DEF-06); typed ratesOffline getter on BookingController & typed SyncResultTone on SyncController replacing fragile substring inspection (DEF-18); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{booking/booking_controller,home/customer_home_screen,orders/{my_orders_screen,tracking_screen}}.dart, apps/vendor_app/lib/features/sync/{sync_controller,sync_screen}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-162 | 2026-10-31 | Slice 6 implemented: Donor App Polish, Touch Targets & Telephone Sync — StatusPill 8dp radius standardization (DEF-19); AppConstants.kSupportPhone single-source unification (DEF-20); 48dp minimum touch targets on plan builder steppers & chips; HapticFeedback on steppers and primary buttons; 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-161 | 2026-10-31 | Slice 5 implemented: Cross-Cutting Reliability, Addresses & Hygiene — Bhopal map default (DEF-08); plan builder zero-schedule guard (DEF-10); wallet zero-flash guard (DEF-09); engineering leak scrubbing in copy and notifications (DEF-12); centralized date_utils (DEF-15); authStrings/ordersStrings dictionary rename (DEF-16); a11y semantics for avatar, purity, and tracking (DEF-17); 80/80 donor + 71/71 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/{core/utils/date_utils.dart,features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}}, context/{progress-tracker,flow,decision}.md |
+| ADR-160 | 2026-10-31 | Slice 4 implemented: Vendor Shell, Duty Gate & Navigation Hub — replaced drawer with dedicated MoreHubScreen (DEF-05); replaced blocking off-duty lockout with soft sticky banner & locked route state allowing off-duty access to Earnings and More (DEF-07); 71/71 vendor + 80/80 donor tests green | Accepted (implemented 2026-10-31) | apps/vendor_app/lib/{core/theme.dart,features/shell/*,features/route/route_screen.dart,features/earnings/earnings_screen.dart,shared/ui/app_button.dart}, apps/vendor_app/test/vendor_shell_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-159 | 2026-10-31 | Slice 3 implemented: Donor Core Home & Checkout Machine - retired search modal cul-de-sac (_SearchSheet, DEF-13); added 1-tap QuickReorderCard on home scroll using OrdersController.reorderCandidate (DEF-03); 80/80 donor + 70/70 vendor tests green | Accepted (implemented 2026-10-31) | apps/user_app_donor/lib/features/{home,orders,shell}, apps/user_app_donor/test/quick_reorder_test.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-158 | 2026-10-31 | Slice 2 implemented: Donor Token Foundation & Theme Reset - reset elevatedButtonTheme backgroundColor from greenDark to tealDeep (DEF-04); exported AppSpacing+AppMotion to vendor theme; created vendor AppButton with ink/blue identity; migrated 3 handover_sheet buttons to AppButton (DEF-14); 70/70 vendor + 75/75 donor tests green | Accepted (implemented 2026-10-31) | pps/user_app_donor/lib/core/theme.dart, pps/vendor_app/lib/{core/theme,shared/ui/app_button,features/stops/handover_sheet}.dart, context/{progress-tracker,flow,decision}.md |
+| ADR-157 | 2026-10-31 | Slice 1 implemented: Vendor trust, money & doorstep handover — deleted `stopsDone * 2000` client fallback in `earnings_screen.dart:117` (DEF-02); created unified 2-step `HandoverSheet` (DEF-01) replacing fragmented `TripleSheet` + `PodSheet` in `stop_detail_screen.dart`; 70/70 vendor tests green (2 new unit tests) | Accepted (implemented 2026-10-31) | `apps/vendor_app/lib/features/{earnings,stops}`, `test/handover_sheet_test.dart`, `context/{progress-tracker,flow,decision}.md` |
+| ADR-156 | 2026-10-31 | UI/UX Unslop Audit complete across all 20 screen and cross-cutting clusters; 20 defects prioritized across 5 slices in `22-backlog.md`; owner approved Option A across all 7 strategic decisions in `23-owner-decisions.md`; zero app code changed, baseline tests 75 donor / 68 vendor 100% clean | Accepted (owner approved Option A on 2026-10-31) | `Feature_docs/ux-unslop-audit/*`, `context/{progress-tracker,flow,decision}.md` |
+| ADR-155 | 2026-10-31 | UI/UX improvement runs as a **docs-only parallel audit** first: branch `037-uiux-unslop-audit`, ~20 read-only subagents (12 donor, 4 vendor, 4 cross-cutting), one markdown per screen cluster in `Feature_docs/ux-unslop-audit/`, 18-section contract, then synthesis + ranked backlog + owner decisions and a hard approval gate before any app code | Accepted (prompt written 2026-10-31) | `Feature_docs/ux-unslop-audit/handoff-prompt.md`, `context/{progress-tracker,decision}.md`; no app code yet |
 | ADR-154 | 2026-10-31 | Demo cleanup + one admin code — donor/vendor demo-login UI, sheets, controller/API methods, strings and tests removed; production `demo-user-1`/`demo-vendor-1` rows deleted (74 rows, FK-safe); one live admin code **`452007`** issued for `+917828442476` (180 days, expires 2027-04-29), old `c1743f07…` revoked and kept for audit; **both D1 databases kept** (`shodasha` prod, `shodasha-staging` perf/test); donor/vendor analyze clean, tests 75/68, release APKs 38,437,749 B / 53,899,221 B, demo strings absent from both binaries; no backend deploy, nothing pushed | Accepted (local only, 2026-10-31) | `apps/{user_app_donor,vendor_app}`, `workers/api/scripts/cleanup_demo_20261031.sql`, `Feature_docs/demo-cleanup-admin-code/spec.md`, production D1 `shodasha`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-153 | 2026-10-31 | Installed the **unslop** skill (heydamir/unslop, CC BY 4.0) for OpenCode — global `~/.config/opencode/skills/unslop/` and project `.agents/skills/unslop/`; copied verbatim (13 files incl. `references/` + `scripts/snapshot.mjs`, `story.mjs`); not added to `Skills.py`, so `python Skills.py` will not reinstall it | Accepted (installed 2026-10-31) | `~/.config/opencode/skills/unslop/`, `.agents/skills/unslop/`, `SKILLS.md`, `.agents/AGENTS.md`, `context/{progress-tracker,decision}.md`; no app code, no deploy |
 | ADR-152 | 2026-10-27 | Production backend deployed from `main` (`d586bd5`; backend tree = `9ba3a75`) as **`c93ec134`** (tag `donor-backend-20261027`) after a 97,960-byte D1 backup; **no migration** (029 already live); live checks after warm-up: `/health` 200, `/v1/catalog` 200 + 300 s cache/ETag, `/v1/windows` far date 400, `GET .../switch-to-cod` 405; donor UPI→COD route live; earlier out-of-band `4fd380e2` (2026-10-26T12:19:48Z) corrected the stale `511879dc` assumption; transient Free-tier 503/500 on cold start | Accepted (deployed and verified 2026-10-27) | production Worker `water`, `context/{progress-tracker,flow,decision}.md` |
@@ -206,6 +234,481 @@
 ---
 
 ## Decision Entries
+
+### ADR-182: UI/UX Unslop Audit Closeout & Release Packaging Gate (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — verified on `037-uiux-unslop-audit`.**
+- **Context**: Completion of the comprehensive UI/UX Unslop Audit across all 16 screen audit documents (Donor 01–12 and Vendor 13–16), all 20 Master Backlog defects (DEF-01 through DEF-20), and 4 cross-cutting audits. The user directed Option A: run release APK packaging gates to measure binaries against size budgets, verify end-to-end test suites, and prepare branch for merge into `main`.
+- **Decisions**:
+  1. **Donor App Release Packaging Gate:** Built `apps/user_app_donor` locally using production defines (`SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1`, `RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF`) and 2-ABI configuration (`--target-platform android-arm,android-arm64`). Measured release APK size: **38,470,197 bytes**, safely below the strict **40,000,000 bytes** contract ceiling with **1,529,803 bytes** of headroom.
+  2. **Vendor App Release Packaging Gate:** Built `apps/vendor_app` locally using production define (`SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1`). Measured release APK size: **53,900,285 bytes** (51.4 MB).
+  3. **Baseline Test Gates:** Re-verified all test suites and static analysis:
+     - `flutter analyze apps/vendor_app apps/user_app_donor`: **0 issues found**.
+     - `apps/vendor_app` tests: **90 / 90 passed** (expanded from 68 baseline).
+     - `apps/user_app_donor` tests: **122 / 122 passed** (expanded from 75 baseline).
+     - `workers/api` backend tests: **487 passed / 1 skipped**.
+  4. **Merge Readiness:** All audit items are 100% complete and verified; working tree clean; branch `037-uiux-unslop-audit` ready for `--no-ff` merge into `main`.
+- **Consequences**:
+  - Confirmed production readiness of both mobile Flutter applications without binary size bloat.
+  - Complete traceability and context synchronization across all unslop work.
+
+### ADR-181: Screen Unslop V4 Implemented — Vendor Customers, Inventory, Earnings & Support (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 4 (`Feature_docs/ux-unslop-audit/16-vendor-customers-inventory-earnings-support.md`) covering `CustomersScreen` (`apps/vendor_app/lib/features/customers/customers_screen.dart`), `InventoryScreen` (`apps/vendor_app/lib/features/inventory/inventory_screen.dart`), `EarningsScreen` (`apps/vendor_app/lib/features/earnings/earnings_screen.dart`), and `SupportScreen` (`apps/vendor_app/lib/features/support/support_screen.dart`). Prior implementation suffered from raw `ElevatedButton`, `OutlinedButton`, and `TextButton` bypasses on error retries and verification forms, ad-hoc palette colors (`Colors.amber.shade50/900`) on the Custody badge, non-token spacers (`10`, `12`, `14`, `16`, `18`, `20`, `24`), and off-scale 13px font sizes.
+- **Decisions**:
+  1. **Canonical Action Button Migration in Ops Tier (`V4-01`):** Migrated error retry CTAs across `CustomersScreen`, `InventoryScreen`, `EarningsScreen`, and `SupportScreen` to canonical `AppButton`. In `SupportScreen`, migrated incident verification form actions (`Agree` and `Disagree`) to `AppButton` (`kind: AppButtonKind.primary` with `busy` indicator for Agree; `kind: AppButtonKind.secondary` for Disagree).
+  2. **Tokenized Custody Indicator (`V4-02`):** Replaced ad-hoc `Colors.amber.shade50` background and `Colors.amber.shade900` text in `earnings_screen.dart` with design tokens `ShodashaTheme.amberTint` and `ShodashaTheme.warning`.
+  3. **Spacing Token Alignment & Corner Radii (`V4-03`):** In `customers_screen.dart`, standardized `_CustomerDetailSheet` corner radius to `ShodashaTheme.radiusSheet` (24dp) and list separation to `AppSpacing.md` (12dp). Across all four screens, aligned list paddings, card insets, and spacers to `AppSpacing` tokens (`xl`, `lg`, `md`, `sm`, `xs`).
+  4. **Typography Scale Harmonization (`V4-04`):** Normalized secondary/meta labels from 13px to 12px `ShodashaTheme.bodySmall` across all four operational screens.
+  5. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_ops_test.dart` (8 tests) verifying error retry `AppButton` across all screens, detail sheet opening, stock metrics, custody tokenization, and support form button enablement/states. Vendor test suite expanded to **90 / 90 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Full adherence to 48dp bounding touch targets on mobile viewports for all vendor operational secondary screens.
+  - Consistent visual identity and button states (primary, secondary) across customer lookup, stock verification, earnings review, and incident resolution.
+
+### ADR-180: Screen Unslop V3 Implemented — Vendor Duty & Sync Log (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 3 (`Feature_docs/ux-unslop-audit/15-vendor-duty-sync.md`) covering `DutyScreen` (`apps/vendor_app/lib/features/duty/duty_screen.dart`) and `SyncScreen` (`apps/vendor_app/lib/features/sync/sync_screen.dart`). Prior implementation suffered from raw `ElevatedButton` bypasses on error retry and off-duty destructive confirmation dialogs in `DutyScreen`, raw `ElevatedButton.icon` on manual sync action in `SyncScreen`, and non-token magic number paddings/spacers (`12`, `16`, `20`, `24`).
+- **Decisions**:
+  1. **Canonical Action Button Migration in DutyScreen (`V3-01`):** Migrated error state retry CTA to `AppButton(label: 'Dobara try karein', kind: AppButtonKind.primary, expand: false, onPressed: () => c.load())`. In destructive off-duty confirmation dialog, migrated confirm action to `AppButton(label: 'Haan, off karein', kind: AppButtonKind.danger, expand: false, onPressed: () => Navigator.of(ctx).pop(true))`.
+  2. **Canonical Action Button Migration in SyncScreen (`V3-02`):** Migrated manual sync trigger to `AppButton` (`kind: AppButtonKind.primary`, `icon: Icons.sync`, `busy: c.syncing`, `label: c.syncing ? 'Sync ho raha…' : 'Abhi sync karein (${c.queue.length})'`), properly disabled when syncing or queue is empty.
+  3. **Spacing Token Alignment (`V3-03`):** Standardized list padding, empty states, and card inner padding to `AppSpacing` tokens (`AppSpacing.xl` 24dp, `AppSpacing.lg` 16dp, `AppSpacing.md` 12dp, `AppSpacing.sm` 8dp) across both `duty_screen.dart` and `sync_screen.dart`.
+  4. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_duty_sync_test.dart` (3 tests) verifying `AppButton` rendering for error retry, off-duty confirmation danger button, and manual sync action. Vendor test suite expanded to **82 / 82 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Full adherence to 48dp bounding touch targets on mobile viewports for all vendor duty and sync operations.
+  - Consistent visual identity and button states (primary, danger) across driver shift management and offline queue reconciliation.
+
+### ADR-179: Screen Unslop V2 Implemented — Vendor Route & Stops Execution (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 2 (`Feature_docs/ux-unslop-audit/14-vendor-route-stops.md`) covering `RouteScreen` (`apps/vendor_app/lib/features/route/route_screen.dart`), `RouteController` (`route_controller.dart`), `StopDetailScreen` (`apps/vendor_app/lib/features/stops/stop_detail_screen.dart`), and `HandoverSheet` (`handover_sheet.dart`). Prior implementation suffered from text-search Google Maps routing instead of exact lat/lng coordinate navigation, raw `ElevatedButton` and `OutlinedButton` implementations on stop execution actions, unreferenced duplicate completion files (`triple_sheet.dart`, `pod_sheet.dart`), and raw Flutter palette colors (`Colors.orange`, `Colors.deepOrange`, `Colors.red.shade700`, `Colors.red.shade50/200`).
+- **Decisions**:
+  1. **Coordinate-First Google Maps Navigation (`V2-01`):** Added optional `lat` and `lng` to `RouteStop` and its `fromJson` parser. Enhanced `_navigate` in both `route_screen.dart` and `stop_detail_screen.dart` to construct `https://www.google.com/maps/search/?api=1&query=$lat,$lng` when coordinates are available, falling back gracefully to encoded address text. Added a `Navigate` text action alongside `Call customer` in `StopDetailScreen`.
+  2. **Canonical Action Button Migration (`V2-02`):** Migrated the stockout confirm button in `route_screen.dart` to `AppButton` (`kind: AppButtonKind.danger`, `expand: false`). In `stop_detail_screen.dart`, migrated Delivery Handover (`kind: AppButtonKind.primary`, with `Icons.verified_outlined`), Cash Collection (`kind: AppButtonKind.money`, with `Icons.payments_outlined`), RTO Issue Reporting (`kind: AppButtonKind.danger`, with `Icons.report_problem_outlined`), Pickup Completion (`kind: AppButtonKind.primary`), Error Retry (`kind: AppButtonKind.primary`, `expand: false`), and Dialog Mark RTO (`kind: AppButtonKind.danger`, `expand: false`) to canonical `AppButton`.
+  3. **Color & Design Token Hygiene (`V2-03`):** Replaced raw `Colors.orange` and `Colors.red.shade700` in `route_screen.dart` with `ShodashaTheme.warning` and `AppButtonKind.danger`. Replaced `Colors.deepOrange` in `handover_sheet.dart` with `ShodashaTheme.warning`. Replaced `Colors.deepOrange` and `Colors.red.shade50/200` in `stop_detail_screen.dart` with `ShodashaTheme.danger.withValues(alpha: 0.08)` and `ShodashaTheme.danger.withValues(alpha: 0.3)`. Standardized spacers and padding to `AppSpacing` tokens.
+  4. **Dead Code Cleanup (`V2-04`):** Permanently deleted obsolete, unreferenced legacy modal files `apps/vendor_app/lib/features/stops/triple_sheet.dart` and `pod_sheet.dart` (superseded by `handover_sheet.dart` in ADR-157).
+  5. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_route_stops_test.dart` (3 tests) verifying coordinate parsing, stockout danger button, and stop detail `AppButton` hierarchy. Vendor test suite expanded to **79 / 79 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Exact geographic delivery pin handoff to native Google Maps navigation on field devices.
+  - Zero raw Flutter palette colors or raw button bypasses in route and stop execution screens.
+  - Complete elimination of legacy duplicate sheets, simplifying maintenance and cognitive load.
+
+### ADR-178: Screen Unslop V1 Implemented — Vendor Auth & Profile (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for Vendor Cluster 1 (`Feature_docs/ux-unslop-audit/13-vendor-auth-shell-profile.md`) covering `VendorCodeScreen` (`apps/vendor_app/lib/features/auth/vendor_code_screen.dart`) and `ProfileScreen` (`apps/vendor_app/lib/features/profile/profile_screen.dart`). Prior implementation suffered from raw `ElevatedButton` and `OutlinedButton` implementations on login, profile saving, leave applications, support links, and logout, bypassing `AppButton` ergonomics; a hardcoded `https://wa.me/919302190067` WhatsApp URI in `profile_screen.dart:128` bypassing the canonical `kSupportPhone` constant; and magic pixel spacers/paddings (`12`, `16`, `24`, `32`) bypassing `AppSpacing` tokens.
+- **Decisions**:
+  1. **Canonical Action Button Migration (`V1-01`):** In `vendor_code_screen.dart`, migrated the primary login CTA (`AppButtonKind.primary`, with `busy` spinner support) and admin WhatsApp support link (`AppButtonKind.secondary`, with `Icons.chat_bubble_outline`) to canonical `AppButton`. In `profile_screen.dart`, migrated profile save (`AppButtonKind.primary`), error retry (`AppButtonKind.primary`), leave request trigger (`AppButtonKind.secondary`), WhatsApp support (`AppButtonKind.secondary`), and logout (`AppButtonKind.danger`) to `AppButton`.
+  2. **Harmonized WhatsApp Phone Derivation (`V1-02`):** In `profile_screen.dart:128`, eliminated the hardcoded `919302190067` phone string. WhatsApp URI now dynamically extracts digits directly from `kSupportPhone` (`final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');`), mirroring `vendor_shell.dart`.
+  3. **Spacing Token Alignment (`V1-03`):** In both `vendor_code_screen.dart` and `profile_screen.dart`, replaced magic numbers with standard `AppSpacing` tokens (`AppSpacing.xl` 24dp, `AppSpacing.xxl` 32dp, `AppSpacing.lg` 16dp, `AppSpacing.md` 12dp, `AppSpacing.sm` 8dp, `AppSpacing.xs` 4dp).
+  4. **Automated Unit Tests & Verification:** Created `apps/vendor_app/test/vendor_auth_profile_test.dart` (2 tests) verifying canonical `AppButton` presence and labels on `VendorCodeScreen` and `ProfileScreen`. Vendor test suite expanded to **76 / 76 passed**, donor tests **122 / 122 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings across both apps.
+- **Consequences**:
+  - Full adherence to 48dp bounding touch targets on mobile viewports for all vendor auth and profile actions.
+  - Zero hardcoded WhatsApp support numbers remaining in vendor profile code.
+  - Consistent visual identity and button states (primary, secondary, danger) across driver profile and auth workflows.
+
+### ADR-177: Screen Unslop 12 Implemented — Donor Support & Jar Returns (2026-11-01)
+
+- **Date**: 2026-11-01
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 12 (`Feature_docs/ux-unslop-audit/12-donor-support-returns.md`) covering `SupportScreen` (`apps/user_app_donor/lib/features/support/support_screen.dart`) and `ReturnSheet` (`return_sheet.dart`). Prior implementation suffered from inverted visual hierarchy in `SupportScreen` where four static FAQ blocks were placed above complaint filing and active ticket tracking, forcing users with urgent delivery issues to scroll past informational copy, hardcoded `EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom)` padding in `ReturnSheet`, off-scale 20px w900 typography on modal headers, fractional 12.5px font sizes on jar quantity and refund summaries, and 18dp non-token helpline padding.
+- **Decisions**:
+  1. **Elevated Complaint Resolution Hierarchy (`D12-01`):** In `support_screen.dart:230-256`, elevated the Complaints section (`_ComplaintEntryCard` and `_ComplaintsSection`) directly beneath the Helpline card, giving immediate visibility to active tickets and new complaint filing. Positioned "Common questions" beneath complaints as secondary reference.
+  2. **Helpline Padding Token Hygiene (`D12-02`):** In `support_screen.dart:279`, normalized `_HelplineCard` internal padding from 18dp to `AppSpacing.lg` (16dp).
+  3. **Return Sheet Padding Normalization (`D12-03`):** In `return_sheet.dart:100-105`, replaced hardcoded 20dp padding with standard `EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom)`.
+  4. **Typography Token Alignment (`D12-04`):** In `return_sheet.dart`, normalized sheet title and success header from 20px w900 to standard 18px w700 (`titleLarge`, `letterSpacing: -0.2`), and replaced fractional 12.5px font sizes on quantity and refund summary rows with standard 12px `ShodashaTheme.bodySmall`.
+  5. **Normalized Spacing Scale (`D12-05`):** Standardized vertical spacers in `return_sheet.dart` to `AppSpacing.lg` (16dp).
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/support_returns_test.dart` (2 tests) verifying SupportScreen layout hierarchy (complaints section Top dy < common questions Top dy) and ReturnSheet 18px w700 title styling. Donor test suite expanded to **122 / 122 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Urgent customer remediation paths are immediately reachable above the fold.
+  - Complete elimination of non-token padding and fractional typography in ReturnSheet.
+  - Full adherence to 10 working days return SLA and server-enforced complaint window contracts.
+  - All 12 Donor screens from the UI/UX Unslop Audit (Files 01–12) are now 100% complete.
+
+
+### ADR-176: Screen Unslop 11 Implemented — Donor Profile & Settings (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 11 (`Feature_docs/ux-unslop-audit/11-donor-profile.md`) covering `DonorProfileScreen` (`apps/user_app_donor/lib/features/profile/donor_profile_screen.dart`) and `EditProfileSheet` (`edit_profile_sheet.dart`). Prior implementation suffered from a jarring solid dark-teal AppBar (`ShodashaTheme.tealDeep`) that clashed with the other 4 primary shell tabs (Home, Orders, Plans, Wallet all use white `ShodashaTheme.surface` AppBars), dual design token imports mixing legacy `AppColors` aliases with `ShodashaTheme`, a vanity "Session: Active" metric in the profile stat strip that provided no customer utility, off-scale typography (`19px` bold name, `12.5px` phone), non-token card padding (`18dp`), and developer-facing API limitations discussed in customer water quality modals.
+- **Decisions**:
+  1. **Surface AppBar Theme Alignment (`D11-01`):** In `donor_profile_screen.dart:134-154`, aligned the AppBar background to `ShodashaTheme.surface` (white) with `ShodashaTheme.ink` title typography and icon buttons (`scrolledUnderElevation: 0`), creating seamless tab switching across all 5 shell destinations.
+  2. **Purged Dev-Speak & Reassured Quality (`D11-02`):** In `_showQuality()`, updated customer copy to focus strictly on certified local purity: `'Every Shodasha 20L can undergoes automated 9-stage purification (RO + UV + Ozonation), batch tested daily at our certified Bhopal facility. Mineral analysis reports are verified and available upon request.'` Zero developer excuses or internal API caveats are surfaced.
+  3. **Retired `AppColors` Token Facade (`D11-03`):** Removed `import '../../core/constants/app_constants.dart'` and migrated all `AppColors.surface`, `AppColors.border`, `AppColors.primary`, `AppColors.textPrimary`, and `AppColors.textSecondary` references to canonical `ShodashaTheme.surface`, `ShodashaTheme.border`, `ShodashaTheme.teal`, `ShodashaTheme.ink`, and `ShodashaTheme.muted`.
+  4. **Dropped Vanity Session Metric (`D11-04`):** Omitted the 3rd "Session: Active" column from the profile card statistics strip, presenting a clean 2-column layout focused exclusively on customer activity: `Orders` and `Addresses`.
+  5. **Normalized Spacing & Typography Tokens (`D11-05`):** Standardized profile card and skeleton internal padding from 18dp to `AppSpacing.lg` (16dp), screen edge padding to `AppSpacing.xl` (24dp), and section title vertical margins to `AppSpacing.sm` (8dp). Normalized customer name typography from 19px w900 to standard 18px w700 (`titleLarge`), and phone from 12.5px to 12px `ShodashaTheme.bodySmall`.
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/donor_profile_screen_test.dart` (2 tests) verifying surface AppBar styling, 2-metric customer stat strip (Orders + Addresses without vanity Session), and water quality modal text. Donor test suite expanded to **120 / 120 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Seamless navigation visual consistency across all five shell tabs.
+  - Zero leakage of engineering constraints or internal architecture in customer modals.
+  - Complete elimination of redundant `AppColors` token facade in the donor profile domain.
+  - Unsaved profile edits discard guard and account logout invariants remain 100% intact.
+
+
+### ADR-175: Screen Unslop 10 Implemented — Donor Addresses & Map Picker (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 10 (`Feature_docs/ux-unslop-audit/10-donor-addresses.md`) covering `AddressScreen` (`apps/user_app_donor/lib/features/addresses/address_screen.dart`) and `MapPicker` (`map_picker.dart`). Prior implementation suffered from the primary "Add address" action button being placed at the tail end of the scrollable address `ListView` (`i == c.items.length + 1`) forcing users with multiple addresses to scroll past all cards to add a location, raw floating-point decimal coordinates (`Lat 23.25123, Lng 77.41234`) displayed in the map picker top floating banner providing no actionable semantic feedback, direct `ElevatedButton.styleFrom` bypasses in the empty state and form sheet stepper controls, off-scale 10dp list item separation, and ad-hoc inline `BoxShadow` definitions in `map_picker.dart`.
+- **Decisions**:
+  1. **Sticky Bottom CTA in `AddressScreen` (`D10-01`):** In `address_screen.dart`, pinned `AppButton(label: addressStrings['addFirst']!, kind: AppButtonKind.primary, icon: Icons.add, onPressed: () => _openForm())` into the Scaffold's `bottomNavigationBar` wrapped in `SafeArea` and `AppSpacing` padding (`AppSpacing.lg`, `AppSpacing.sm`, `AppSpacing.lg`, `AppSpacing.md`) whenever saved addresses exist (`c.items.isNotEmpty`).
+  2. **Clean `ListView.separated` Structure (`D10-02`):** Removed the scrolling tail button from `ListView.separated`. Set `itemCount` to `c.items.length + 1` (header + addresses) and normalized item separator from 10dp to `AppSpacing.md` (12dp).
+  3. **Standardized Empty State & Form Stepper Controls (`D10-03`):** Replaced raw `ElevatedButton` in empty state with `AppButton(label: addressStrings['addFirst']!, kind: AppButtonKind.primary, icon: Icons.add, onPressed: () => _openForm())`. Migrated `_AddressFormSheet` stepper controls from `TextButton` and `ElevatedButton` to canonical `AppButton` (`kind: AppButtonKind.secondary` for 'Back' with 48dp minimum target, and `kind: AppButtonKind.primary` with busy indicator for 'Next' / 'Save address').
+  4. **Human-Readable Map Pin Placement Feedback (`D10-04`):** In `map_picker.dart:258-268`, replaced raw decimal coordinates with friendly, actionable user guidance: `_pin == null ? 'Tap the map to place your delivery pin' : 'Pin placed · Tap map to adjust location'`.
+  5. **Normalized Elevation Tokens (`D10-05`):** Replaced inline ad-hoc `BoxShadow` definitions in `map_picker.dart` (top banner, tile failure banner, location note banner) with canonical `ShodashaTheme.subtleCardShadow`.
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/address_screen_test.dart` (4 tests) verifying empty state `AppButton`, sticky bottom `AppButton` on populated lists without tail buttons, and map picker human-readable pin prompt and confirmation feedback. Donor test suite expanded to **118 / 118 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings across both apps.
+- **Consequences**:
+  - Immediate, persistent accessibility for address creation regardless of list length.
+  - Clear human-readable feedback on spatial pin selection without floating-point clutter.
+  - Universal compliance with `AppButton` token hierarchy and 48dp bounding targets.
+  - 100% preservation of address CRUD contracts and 409 active order/subscription conflict gates.
+
+
+### ADR-174: Screen Unslop 09 Implemented — Donor Wallet & Payment History (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 09 (`Feature_docs/ux-unslop-audit/09-donor-wallet.md`) covering `DonorWalletScreen` (`apps/user_app_donor/lib/features/wallet/donor_wallet_screen.dart`) and `PaymentHistoryScreen` (`payment_history_screen.dart`). Prior implementation suffered from redundant jar metrics between the hero card badge and the first row of the "Deposit details" card (`Jars with you: X`), layout collapse on zero-jar custody where the return action collapsed into an unstyled raw text snippet breaking the action card grid, an unexplained cross-tab switch on dues action ("Review dues" silently routing to Subscriptions), fractional 12.5px font size in the dues warning card, and raw `ElevatedButton`/`OutlinedButton` with 15px font in `PaymentHistoryScreen._ErrorState`.
+- **Decisions**:
+  1. **Deduplicated Jar Custody Metrics (`D9-01`):** In `donor_wallet_screen.dart:388`, pruned redundant `_row('Jars with you', '${ledger.heldJars}')` from the "Deposit details" card. The hero container badge (`'${ledger.heldJars} jars with you'`) remains the single prominent custody indicator, leaving the details card cleanly dedicated to currency accounting (`Deposit paid`, `Deposit refunded`, `Outstanding dues`).
+  2. **Preserved Card Grid Rhythm on Zero-Jar Custody (`D9-02`):** In `donor_wallet_screen.dart`, added `bool disabled = false` to `_actionTile` and replaced the raw text snippet with a permanent, quiet disabled tile when `ledger.heldJars == 0` (`title: 'Return empty jars'`, `subtitle: '0 jars in custody · Pickup unlocks when you have empty jars'`, disabled background opacity, chevron hidden, inert tap). This maintains the clean 2-card action hub structure.
+  3. **Clarified Dues Navigation & Contextual Copy (`D9-03`):** In `_duesCard`, updated action label from `'Review dues'` to `'Review dues in Plans'` and expanded card body to explain: `'Clear dues to keep cash on delivery available and avoid holds on future jars. Dues from monthly plans and deliveries are reviewed and cleared in the Plans tab.'` This eliminates cross-tab disorientation when navigating to `onOpenSubscriptions`. Standardized font size from 12.5px to 12px `ShodashaTheme.bodySmall`.
+  4. **Standardized Payment History Error View Primitives (`D9-04`):** In `payment_history_screen.dart:461`, migrated `_ErrorState` from raw `ElevatedButton` and `OutlinedButton` to `AppButton` (`kind: AppButtonKind.primary` for sign in, `kind: AppButtonKind.secondary` for try again) and normalized message text size from 15px to standard 14px `ShodashaTheme.bodyMedium`.
+  5. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/donor_wallet_screen_test.dart` (2 tests) verifying zero-jar quiet action tile and active custody jar deduplication + dues Plans context button. Pruned unused import in `subscription_screen_test.dart`. Donor test suite expanded to **114 / 114 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Consistent commercial ledger presentation without duplicated metrics.
+  - Predictable action card rhythm regardless of bottle custody balance.
+  - Transparent cross-tab navigation expectations for dues clearing.
+  - Zero modifications to server-authoritative ledger snapshots or payment APIs.
+
+
+### ADR-173: Screen Unslop 08 Implemented — Donor Subscriptions & Plan Builder (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 08 (`Feature_docs/ux-unslop-audit/08-donor-subscriptions.md`) covering `SubscriptionScreen` (`apps/user_app_donor/lib/features/subscriptions/subscription_screen.dart`) and `PlanBuilderSheet` (`plan_builder_sheet.dart`). Prior implementation suffered from raw `ElevatedButton` bypasses of `AppButton` in the empty state and pause sheet, non-tokenized hardcoded list separator (10px), jarring teal-tint skeleton blocks, an aggressive danger-red "Cancel" text button sitting right alongside frequent daily plan actions (skip/pause), an oversized 20px w900 title in the plan builder sheet, and fractional 11.5px footer payment summary text.
+- **Decisions**:
+  1. **Standardized Empty State & Pause Actions on `AppButton` (`D8-01`):** Replaced raw `ElevatedButton.icon` in `_EmptyState` and `_PauseSheet` with `AppButton(label: subStrings['buildPlan']!, kind: AppButtonKind.primary, icon: Icons.add, onPressed: onBuild)` and `AppButton(label: subStrings['pauseConfirm']!, kind: AppButtonKind.primary, onPressed: _confirm)`.
+  2. **Relocated Destructive Cancel Action to Kebab Menu (`D8-02`):** In `_PlanCard`, replaced the flat `TextButton(child: Text('Cancel'), foregroundColor: ShodashaTheme.danger)` with a safe, secondary `PopupMenuButton<String>` with tooltip `'More options'`, displaying `'Cancel plan'` with `Icons.cancel_outlined` and danger styling. This prevents accidental cancellations on 360dp mobile screens while preserving immediate accessibility.
+  3. **Standardized Skeleton State to Theme Surface & Skeleton Tokens (`D8-03`):** In `_SubsSkeleton`, replaced the solid `ShodashaTheme.tealTint` container with a calm card container using `ShodashaTheme.surface`, `ShodashaTheme.border`, and internal placeholder bars styled with `ShodashaTheme.skeleton` and `AppSpacing.sm` spacing.
+  4. **Tokenized Plan Builder Sheet Typography & Spacing (`D8-04`):** In `plan_builder_sheet.dart`, scaled plan title down from 20px w900 to 18px w700 (`-0.2` letterSpacing), normalized header vertical gap to `AppSpacing.lg` (16dp), and eliminated fractional font size by updating payment summary from 11.5px to 12px `ShodashaTheme.bodySmall`.
+  5. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/subscription_screen_test.dart` (2 tests) verifying empty state `AppButton` rendering and plan card kebab menu with cancel action. Donor test suite expanded to **112 / 112 passed**, vendor tests **74 / 74 passed**, zero analyzer warnings.
+- **Consequences**:
+  - Consistent primary button styling across empty, pause, and creation flows.
+  - Safeguarded plan management preventing accidental plan cancellations.
+  - Zero modifications to server-authoritative subscription creation or billing calculations.
+
+
+### ADR-172: Screen Unslop 07 Implemented — Donor Bill Screen & Rating Sheet (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 07 (`Feature_docs/ux-unslop-audit/07-donor-bill-rating.md`) covering `BillScreen` (`apps/user_app_donor/lib/features/orders/bill_screen.dart`) and `RatingSheet` (`rating_sheet.dart`). Prior implementation suffered from an identity crisis on the WhatsApp button (labeled "Help on WhatsApp" but displaying `Icons.share_outlined`), an unformatted raw 32-character UUID in the bill header (`Bill · #b489021150c8425abd9a23f1af39839e`), a generic "Water" line item lacking SKU or quantity specification, a rating sheet that unconditionally displayed a complaint shortcut even when a happy user awarded 5 stars (violating contract §4.4), and a raw `ElevatedButton` bypass of `AppButton` with hardcoded 24px/16px padding.
+- **Decisions**:
+  1. **Resolved WhatsApp Button Identity Crisis (`D7-01`):** In `bill_screen.dart:205`, replaced `Icons.share_outlined` with `Icons.chat_outlined`, ensuring the icon correctly matches the "Help on WhatsApp" support intent.
+  2. **Truncated Order References in Bill Header (`D7-02`):** In `bill_screen.dart:56`, standardized AppBar title to `Bill · #$_orderRef` (8 characters uppercase, e.g. `Bill · #B4890211`).
+  3. **Enriched Itemized Water Line Item (`D7-03`):** In `bill_screen.dart:109`, enriched the primary water charge label using `order.itemSummary.trim().isNotEmpty ? order.itemSummary.trim() : '20L Water Refill'` (e.g. `"2 × 20L Refill"`), providing clear quantity and SKU context. Standardized footer text size from 11px to 12px `ShodashaTheme.bodySmall`.
+  4. **Enforced Conditional Complaint Shortcut Threshold (`D7-04`):** In `rating_sheet.dart`, conditionally revealed the "Something wrong? File a complaint" shortcut only when `widget.onSupport != null` and `((alreadyRated && (widget.order.stars ?? 0) <= 3) || (!alreadyRated && _stars > 0 && _stars <= 3))`. Satisfies contract §4.4 while keeping 4–5 star happy flows focused and positive.
+  5. **Migrated Rating Sheet to `AppButton` & Tokenized Spacing (`D7-05`):** Replaced raw `ElevatedButton` with `AppButton(label: ordersStringsHi['rateSubmit']!, kind: AppButtonKind.primary, busy: _busy, onPressed: ...)`. Standardized padding from `EdgeInsets.fromLTRB(24, 16, 24, 24)` to `AppSpacing.xl` (24dp) / `AppSpacing.lg` (16dp) tokens, and standardized vertical spacers to `AppSpacing.md` (12dp) and `AppSpacing.sm` (8dp).
+  6. **Automated Unit Tests & Verification:** Created `apps/user_app_donor/test/bill_rating_test.dart` (2 tests) verifying truncated bill order references, enriched SKU summary line, chat icon, and 5-star vs 2-star complaint shortcut conditional visibility. Donor test suite expanded to **110 / 110 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Unambiguous visual icons and clear commercial receipt hierarchy.
+  - Disciplined post-delivery customer feedback routing with zero unwanted complaint prompts for satisfied users.
+  - Zero modifications to server-authoritative money models or rating endpoints.
+
+
+### ADR-171: Screen Unslop 06 Implemented — Donor Tracking Screen & Delivery Code (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 06 (`Feature_docs/ux-unslop-audit/06-donor-tracking.md`) covering `TrackingScreen` (`apps/user_app_donor/lib/features/orders/tracking_screen.dart`), `_WindowCard`, `_LiveStopsAheadBanner`, `_RiderCard`, and `_DeliveryCodeCard`. Prior implementation contained off-scale spacing (`10px` horizontal gaps across 3 card widgets, `3px` vertical gaps), fractional font sizes (`12.5px` and `11.5px`), an overly aggressive 900-weight time window, trailing punctuation and choppy copy on delivery code states (`"Delivery complete — code used."`, `"For your safety this code is locked. Get a new one."`), and an exclamation mark with wordy text in the live stops ahead banner (`"Your stop is next!"`).
+- **Decisions**:
+  1. **Spacing & Layout Token Hygiene (`D6-01 & D6-05`):** Standardized horizontal gaps from hardcoded `10px` to `AppSpacing.sm` (8dp) across `_WindowCard:950`, `_RiderCard:1093`, and `_DeliveryCodeCard:1219`. Standardized micro vertical gaps from `3px` to `AppSpacing.xs` (4dp) in `_LiveStopsAheadBanner:1045` and `_DeliveryCodeCard:1234`. Normalized card outer and inner padding to `AppSpacing.lg` (16dp).
+  2. **Typography Scale Alignment (`D6-05`):** Standardized arrival window time text from `FontWeight.w900` to `FontWeight.w700` (`titleMedium` scale). Eliminated fractional `12.5px` and `11.5px` font sizes in `_DeliveryCodeCard`, `_FooterRetry`, and refund note summaries in favor of standard 12px `ShodashaTheme.bodySmall` and 11px `labelSmall`.
+  3. **Calm, High-Trust Copy Unslop (`D6-02`):**
+     - In `_LiveStopsAheadBanner`: Replaced `'Your stop is next!'` with `'Next stop is yours'`, replaced `'The driver is arriving at your address. Please keep your empty jar ready.'` with `'Arriving now · Please keep your empty jar ready'`, and refined the algorithmic estimate copy to `'Estimated arrival in ~${stopsAhead * 10}–${stopsAhead * 15} mins · Keep empty jar ready'`.
+     - In `_DeliveryCodeCard`: Replaced `'Delivery complete — code used.'` with `'Delivery complete · Code verified'`, and replaced `'For your safety this code is locked. Get a new one.'` with `'Code locked after wrong attempts · Request a new code'`.
+  4. **Preserved Invariants & Verification:** Maintained the intentional `_pushingBill` double-tap navigation debounce guard and centralized date formatting on `date_utils.dart`. Created `test/tracking_screen_test.dart` (4 tests) verifying next stop banner copy, multi-stop estimates, code verified terminal status, and locked code recovery notices. Donor test suite expanded to **108 / 108 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Consistent typography and spacing adhering strictly to the `ShodashaTheme` design token system.
+  - Authoritative, professional delivery tracking copy without exclamation marks or awkward phrasing.
+  - Zero modifications to backend OTP APIs or lifecycle polling mechanisms.
+
+
+### ADR-170: Screen Unslop 05 Implemented — Donor Orders List & Order Card (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 05 (`Feature_docs/ux-unslop-audit/05-donor-orders.md`) covering `DonorOrdersScreen` (`apps/user_app_donor/lib/features/orders/my_orders_screen.dart`), `DonorOrderCard` (`order_card.dart`), and cursor-paged list states. Prior implementation suffered from an illegal solid green CTA on "View bill" for closed orders (`order_card.dart:211`, violating the invariant that green is strictly reserved for conversion/payment actions), illegible 32-character raw UUID hashes (`#2236358550c8425abd9a23f1af39839e`), inert card containers with dead touch space, a bulky `AppStateView.empty("No active deliveries")` card injected when past orders exist (pushing history below the fold), fractional 12.5px font sizes, off-scale 17px prices, and technical error leak copy (`"Server problem — showing the orders already loaded."`).
+- **Decisions**:
+  1. **Demoted "View bill" to Secondary Hierarchy (`D5-01`):** In `order_card.dart:211`, updated `AppButton(label: 'View bill', kind: AppButtonKind.secondary, onPressed: onBill)` on closed orders. Upholds our strict design invariant: *Green is never used for navigation, tracking, or viewing invoices; green is strictly reserved for money/conversion CTAs ("Book water", "Pay", "Confirm order").*
+  2. **Truncated Order References (`D5-02`):** Truncated order IDs to 8 characters uppercase (`#$_orderRef`, e.g. `#22363585`) matching the convention established in notifications (ADR-167).
+  3. **Tappable Material Card Surface (`D5-03`):** Added `onTap: _isClosed ? onBill : onTrack` to `AppCard` in `order_card.dart`. Tapping anywhere on an active delivery card seamlessly routes to live tracking; tapping a past order opens the bill. Explicit action buttons remain for clarity, but the dead-space touch trap is eliminated.
+  4. **Eliminated "No active deliveries" Clutter (`D5-04`):** In `my_orders_screen.dart`, when a customer has order history (`all.isNotEmpty`), the "Active" header and its bulky empty truck card are omitted if `active.isEmpty`. Past orders are visible immediately above the fold without scrolling.
+  5. **Design System Token Hygiene (`D5-05`):** In `order_card.dart`, eliminated fractional `12.5px` font size on `_MetaRow` in favor of standard 12px `ShodashaTheme.bodySmall` (`height: 1.4`), normalized icon-to-text spacer from 6px to `AppSpacing.sm` (8dp), and standardized total price typography from off-scale 17px to `18px, FontWeight.w800` (`titleLarge` scale).
+  6. **Polite, Customer-Centric Copy (`D5-06`):** Replaced internal engineering leak `'Server problem — showing the orders already loaded.'` with `'Connection issue · Showing saved orders'` in `my_orders_screen.dart`, and sanitized generic `'Water order'` fallback title in `order_card.dart` to `'20L Jar Delivery'`.
+  7. **Verification & Automated Tests:** Expanded `test/donor_order_card_test.dart` to 6 tests covering 8-char truncation, card `onTap`, secondary button kind on closed bills, and fallback titles. Added `test/my_orders_screen_test.dart` (4 tests) verifying Active section omission when empty, multi-section rendering, stale banners, and zero-order empty states. Donor test suite expanded to **104 / 104 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Consistent visual button hierarchy with zero false green buttons.
+  - Smooth mobile-native tap affordances across all order cards.
+  - Zero changes to backend cursor pagination contracts or financial calculations.
+
+
+
+### ADR-169: Screen Unslop 04 Implemented — Donor Booking Flow, Steppers & Confirmation (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 04 (`Feature_docs/ux-unslop-audit/04-donor-booking.md`) covering `_CheckoutSheet` (`apps/user_app_donor/lib/features/booking/booking_sheet.dart`), `QtyStepper` (`stepper.dart`), `quote_confirm.dart`, and `product_detail_sheet.dart`. Prior implementation suffered from dead duplicate token classes (`ShodashaColors`), raw Flutter buttons in the error recovery panel leading to inadvertent green buttons on auxiliary COD fallback actions, unsupported custom date recurrence options causing calendar height overflows, compound em-dash status headlines (`Order placed — payment pending`), and internal server error text leaks.
+- **Decisions**:
+  1. **Pruned Duplicate Token Aliases (`D4-04`):** Deleted `abstract final class ShodashaColors` and unused `kShodashaRadius` in `stepper.dart`, repointing all stepper colors and dimensions directly to canonical `ShodashaTheme` tokens.
+  2. **Supported Recurrence Schedules Only (`D4-05`):** Removed `DeliveryType.custom` from `_deliveryLabels` and filtered frequency chips to supported schedules (`Daily`, `Alternate days`, `Weekly`). Eliminates `TableCalendar` modal height overflows on small screens and aligns with backend schedule capabilities.
+  3. **Standardized Recovery Button Hierarchy (`D4-03`):** Replaced raw `OutlinedButton` and `ElevatedButton` in the checkout error panel with `AppButton` (`AppButtonKind.primary` for `"Use Cash on Delivery"`, `AppButtonKind.secondary` for `"Retry"`, `"Check Orders"`, and `"Close"`). Prevents secondary fallback actions from inheriting primary money-green button styles.
+  4. **Design System Token Hygiene (`D4-06`):** Cleaned off-scale 20px padding in `quote_confirm.dart` and `product_detail_sheet.dart` to canonical `AppSpacing.lg` (16dp). Standardized header typography to 18px w700 (`titleLarge`) and inner vertical spacing to `AppSpacing.md` (12dp) / `AppSpacing.xs` (4dp).
+  5. **Polite, Customer-Centric Copy:** Replaced internal server error strings with user-friendly notices (`"Could not load subscription estimate. Please retry."`, `"Delivery slots unavailable. Tap to retry."`), refined status headline in `quote_confirm.dart` to `"Order placed · Awaiting payment"`, and refined advance charge copy to `"No advance charge today · Pay upon delivery"` (12px).
+  6. **Verification & Automated Tests:** Created `apps/user_app_donor/test/quote_confirm_test.dart` (3 tests) verifying order confirmed status, sanitized payment pending copy, and `QtyStepper` boundary enforcement. Donor test suite expanded to **96 / 96 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Payment recovery modal presents an unmistakable, non-confusing action hierarchy.
+  - Recurring scheduling is robustly constrained to backend-supported intervals.
+  - Zero changes to backend APIs or money calculation invariants.
+
+### ADR-168: Screen Unslop 03 Implemented — Donor Home, Quick Reorder & Product Cards (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 03 (`Feature_docs/ux-unslop-audit/03-donor-home.md`) covering `DonorHomeTab` (`apps/user_app_donor/lib/features/home/customer_home_screen.dart`) and its widget components (`mode_selection_cards.dart`, `featured_products.dart`, `live_purity_card.dart`, `top_bar.dart`). Prior implementation exhibited visual clutter from clashing asymmetric card colors (Card 1 dark teal vs Card 2 pastel yellow), fractional font sizes (`12.5px` and `11.5px`), custom ad-hoc badge containers, and colloquial/verbose product and support copy.
+- **Decisions**:
+  1. **Unified Surface Cards (`D3-04`):** Redesigned `ModeSelectionCards` so both Instant Order and Subscribe share a calm, unified neutral surface (`ShodashaTheme.surface`, 1dp `ShodashaTheme.border`, ink typography, muted 12px subtitle, and circular tinted icon badges). Eliminates the jarring visual asymmetry while maintaining distinct iconography and 48dp+ tap targets.
+  2. **First-Class Brand Tone on StatusPill (`D3-06`):** Added `StatusPillTone.brand` (`tealTint` background, `tealDeep` text/icon, subtle teal line) to `StatusPill` primitive. Replaced the ad-hoc custom Container on the home greeting with `StatusPill(label: 'RO + UV', tone: StatusPillTone.brand)`.
+  3. **Design System Token Hygiene (`D3-06`):** Standardized all fractional typography (`12.5px` and `11.5px`) to standard tokens (12px `bodySmall` and 11px `labelSmall`) across `featured_products.dart`, `live_purity_card.dart`, `mode_selection_cards.dart`, and `customer_home_screen.dart` (`_QuickReorderCard`, `_SupportCard`). Normalized off-scale 7px/3px padding to `AppSpacing` tokens and list bottom padding to `AppSpacing.xxl` (32dp).
+  4. **Doorstep Exchange & Pricing Copy Clarity (`D3-03`):** Refined 20L refill subtitle to `"Exchange empty jar at delivery · RO + UV purified"` (replaces "Bring your own jar"). Refined container subtitle to `"Includes ₹150 refundable jar deposit"`. Refined support subtitle to `"Call or WhatsApp Bhopal support directly"` and purity card detail to `"On WhatsApp"`.
+  5. **Verification & Automated Tests:** Created `apps/user_app_donor/test/home_tab_test.dart` verifying unified mode card interaction, `StatusPill` brand tone, and updated product/support copy. Donor test suite expanded to **93 / 93 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Home tab presents a serene, cohesive morning delivery interface adhering to Gestalt grouping laws.
+  - Doorstep swap mechanics and deposit charges are unambiguously explained to customers.
+  - Zero contract changes to backend or pricing calculations.
+
+### ADR-167: Screen Unslop 02 Implemented — Donor Shell, Navigation & Notifications (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit for File 02 (`Feature_docs/ux-unslop-audit/02-donor-shell-nav.md`) covering `DonorShell` (`apps/user_app_donor/lib/features/shell/donor_shell.dart`) and `DonorNotificationsScreen` (`apps/user_app_donor/lib/features/home/notifications_screen.dart`). Prior implementation suffered from raw 32-character database UUID headers blowing out notification titles, a dark teal AppBar jarringly breaking the donor app's clean neutral visual system, 12.5px fractional font sizes, off-scale microscopic 2px padding on offline strips, unhandled trailing periods in status banners, and absence of double-tap back protection on the root Home tab.
+- **Decisions**:
+  1. **Double-Tap Back Protection on Home (`D2-05`):** Standardized Android back navigation using `PopScope` and a 2-second timestamp threshold. Pressing back on non-Home tabs switches to Home (`DonorTab.home`). Pressing back on Home tab displays a transient `"Press back again to exit"` SnackBar; pressing back again within 2 seconds cleanly exits the app (`Navigator.pop` or `SystemNavigator.pop()`).
+  2. **Notification Screen Theme Alignment (`D2-03`):** Replaced the forced dark teal AppBar with standard `ShodashaTheme.surface` (neutral white), `ShodashaTheme.ink` title typography, and 0 elevation, creating a calm, cohesive header hierarchy.
+  3. **Order ID & Subscription Title Formatting (`D2-02`, `D2-06`):** Truncated order references in notification tiles to 8 characters uppercase (`Order #ORD_9876 · Placed`) preventing title blowouts; capitalized subscription status badges (`Plan · Active`, `Plan · Paused`, `Plan · Cancelled`) and added robust parsing for `status`, `cancelled_at`, and `paused`.
+  4. **Design System Token Hygiene (`D2-04`):** Replaced 12.5px font size with standard 12px `ShodashaTheme.bodySmall`; replaced 3px and 4px manual spacers with `AppSpacing.xs` (4dp); replaced microscopic 2px vertical padding on `_OfflineStrip` with `EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm)`; cleaned offline banner copy to `"You're offline · Showing saved data"`; cleaned restored strip copy to `"Back online"` (removed trailing period); standardized return address header padding and icon tint to `ShodashaTheme.teal`.
+  5. **Verification & Automated Tests:** Added 2 new tests in `apps/user_app_donor/test/donor_shell_test.dart` verifying double-tap back flow and calm offline strip tokens; created `apps/user_app_donor/test/notifications_screen_test.dart` (3 tests) verifying surface AppBar styling, truncated order ID formatting, and capitalized subscription title. Donor test suite expanded to **92 / 92 passed**, vendor tests **74 / 74 passed**, backend pytest **487 passed / 1 skipped**. Zero analyzer warnings.
+- **Consequences**:
+  - Eliminates accidental application exit on Android devices.
+  - Notification items present crisp, human-readable identifiers matching quick-commerce industry standards.
+  - Zero changes to backend APIs or money calculation invariants.
+
+### ADR-166: Screen Unslop 01 Implemented — Donor Auth, Shell Entry & Onboarding (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of screen-by-screen UI/UX unslop audit starting with File 01 (`Feature_docs/ux-unslop-audit/01-donor-auth.md`) covering Donor Login, Auth Gate, Auth Controller, and First-Run Onboarding Sheet. The prior implementation suffered from stock photography model artifacts (`login_hero.jpg`), giant bulbous mint-green containers, competing title hierarchies, 12.5px fractional text sizes, false cold-boot restore failure notices, and permanent silencing of first-run address prompts on accidental scrim taps.
+- **Decisions**:
+  1. **Tactile Hero & Quiet Brand Mark (D1-01)**: Removed `assets/images/login_hero.jpg` and the 28dp rounded `tealTint` container. Implemented a calm, tactile 64×64dp 20L canister badge in `ShodashaTheme.tealTint` with water drop geometry and clean title typography (`Shodasha` 24px w800) paired with a quiet trust pill (`RO+UV · Lab Tested · Bhopal`) on neutral surface `ShodashaTheme.surface`.
+  2. **Token & Input Standardization (D1-02)**: Standardized form inputs using `AppTextField` and theme tokens (`ShodashaTheme.radius` 12dp, `border`, `tealDark`), eliminating 12.5px fractional fonts and 14px off-scale vertical gaps in favor of `AppSpacing.lg` (16dp) and `AppSpacing.xs` (4dp). Preserved underlying `TextFormField` compatibility for testing.
+  3. **409 Account Exists Auto-Focus Pivot (D1-03)**: In `login_screen.dart:_submit()`, on HTTP 409 `ACCOUNT_EXISTS`, automatically scheduled `_passwordFocus.requestFocus()` on frame callback so the user immediately transitions to the password field without extra taps.
+  4. **Cold Boot Notice Guard (D1-04)**: In `auth_gate.dart`, removed false `"Couldn't restore your session. Sign in again."` notice on clean installs / timeouts when no prior session exists; updated session expiry notice to polite `"Please sign in to continue"`.
+  5. **First-Run Scrim Dismissal Guard (D1-05)**: In `first_run_sheet.dart`, guarded `markFirstRunDone()` to only persist on explicit user choices (`add != null`). Outside scrim/barrier dismissal leaves `kFirstRunFlag` unset so the customer is safely prompted again on future visits if addresses remain empty. Migrated raw `ElevatedButton` to `AppButton` (`AppButtonKind.primary`).
+  6. **Dead Code & Field Pruning (D1-06)**: Pruned unused `newDeviceAlert` and `verified` fields from `AuthSession`, `AuthController`, and `auth_impls.dart`. Removed dead string constants (`signingIn`, `creating`, `terms`, `rateLimitedWait`, `newDevice`).
+  7. **Copy & Banner Harmonization (D1-07 & D1-08)**: Harmonized canonical tagline `"Pure 20L water delivered to your doorstep"` across `login_screen.dart`, `auth_gate.dart`, and `auth_controller.dart`. Removed internal engineer jargon `"Shodasha customer app · Password protected"` from the footer; removed trailing periods from form subtitles; replaced `'Try again in ${wait}s.'` with `'Try again in $wait seconds'`.
+  8. **Test Verification**: Added `apps/user_app_donor/test/auth_gate_test.dart` (cold boot vs session expiry) and `apps/user_app_donor/test/first_run_sheet_test.dart` (scrim dismiss vs explicit choice). Expanded `apps/user_app_donor/test/login_screen_test.dart` (409 auto-focus pivot and hero emblem).
+- **Consequences**: Calm, dependable local utility first impression; frictionless login and registration handoffs; forgiving address onboarding; donor test suite expanded to **87 / 87 passed** (+7 new tests); vendor test suite **74 / 74 passed**; backend pytest **487 passed / 1 skipped**.
+- **Affects**: `apps/user_app_donor/lib/{core/auth_impls.dart,features/{addresses/first_run_sheet,auth/{auth_controller,auth_gate,login_screen}}.dart}`, `apps/user_app_donor/test/{auth_gate_test,first_run_sheet_test,login_screen_test}.dart`, `context/{progress-tracker,flow,decision}.md`.
+
+
+### ADR-165: Slice 9 Implemented — P3 Subtle Elevation Shadows & Telemetry Shimmer (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Execution of Section 3 P3 craft polish items from `Feature_docs/ux-unslop-audit/22-backlog.md` covering card elevation inconsistency and static telemetry presentation.
+- **Decisions**:
+  1. **Unified Elevation Token (`subtleCardShadow`)**: Defined `static const List<BoxShadow> subtleCardShadow = [BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2))];` in both `apps/user_app_donor/lib/core/theme.dart` and `apps/vendor_app/lib/core/theme.dart`. This provides a subtle 4% alpha diffused drop shadow that eliminates flat/harsh boundaries while remaining soft and modern.
+  2. **Cross-App Card Elevation**:
+     - Upgraded `AppCard` (`apps/user_app_donor/lib/shared/ui/app_card.dart`) with `Container(decoration: BoxDecoration(boxShadow: elevation ? ShodashaTheme.subtleCardShadow : null))` wrapping `Material`, projecting consistent elevation across donor order cards and home cards.
+     - Upgraded vendor route stop cards (`apps/vendor_app/lib/features/route/route_screen.dart:515`) with `subtleCardShadow` and wrapped `ListTile` in `Material(color: ShodashaTheme.bg)` to preserve ink splash visibility and eliminate Flutter framework `DecoratedBox` assertions.
+  3. **Telemetry Entrance Shimmer Pulse**: Converted `LivePurityCard` (`apps/user_app_donor/lib/features/home/widgets/live_purity_card.dart`) to a `StatefulWidget` with a gentle 1200ms `Tween<double>(begin: 0.65, end: 1.0)` entrance pulse on the lab-tested verification badge. Guarded by `MediaQuery.maybeDisableAnimationsOf(context)` for strict OS accessibility compliance; designed with a finite single-cycle pulse on mount to avoid infinite test loop timeouts.
+- **Consequences**: Consistent, agency-grade physical depth across donor and vendor cards; responsive, breathing verified-purity visual feedback; 80/80 donor tests + 74/74 vendor tests passing; 487 passed / 1 skipped backend pytest.
+- **Affects**: `apps/user_app_donor/lib/{core/theme.dart,shared/ui/app_card.dart,features/home/widgets/live_purity_card.dart}`, `apps/vendor_app/lib/{core/theme.dart,features/route/route_screen.dart}`, `context/{progress-tracker,flow,decision}.md`.
+
+
+### ADR-164: Slice 8 Implemented — Vendor App Single-Locale Toggle & String Unslop (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of DEF-11 from `Feature_docs/ux-unslop-audit/22-backlog.md` guided by Decision 1 (Option A Approved) in `23-owner-decisions.md`. The vendor app previously concatenated bilingual text with slashes on AppBars, buttons, and dropdown options (`"Duty / ड्यूटी"`, `"Earnings / कमाई"`, `"Customers / ग्राहक"`, `"Stock / स्टॉक"`, `"Damage Reason / खराबी की वजह"`, `"PoD / डिलीवरी पूरी करें"`, `"Triple / तीन काम एक साथ"`), causing severe text wrapping, button overflow, and cognitive friction on 360dp driver phones.
+- **Decisions**:
+  1. **Locale Architecture (`VendorLocaleController`)**: Created `apps/vendor_app/lib/core/vendor_locale.dart` providing a reactive `ChangeNotifier` singleton `VendorLocaleController.instance`. Defaults to Hindi (`'hi'`), persists user selection in `SharedPreferences` (key `'vendor_language'`), and exposes convenience helper `vtr(hi, en)`.
+  2. **Reactive Language Selection UI**: Added a dedicated `Card` in `apps/vendor_app/lib/features/profile/profile_screen.dart` featuring an interactive `SegmentedButton<String>` with `हिंदी (Hindi)` and `English` segments, updating language instantly across the entire app via `MaterialApp` rebuilds.
+  3. **String De-Slopping**: Replaced slash strings across all vendor screens (`customers_screen.dart`, `duty_screen.dart`, `earnings_screen.dart`, `inventory_screen.dart`, `profile_screen.dart`, `more_hub_screen.dart`, `handover_sheet.dart`, `pod_sheet.dart`, `triple_sheet.dart`, `stop_detail_screen.dart`, `stops_controller.dart`, `support_screen.dart`, `sync_screen.dart`) with clean unslashed strings rendered via `vtr(hi, en)`.
+  4. **Test Verification**: Created `apps/vendor_app/test/vendor_locale_test.dart` verifying defaults, reactive notification, and `SharedPreferences` persistence. Updated `vendor_shell_test.dart` and `wave1_ux_test.dart` to expect unslashed strings.
+- **Consequences**: Zero line-wrapping on narrow screens; drivers read clean, dedicated Hindi (or English) text; full live language toggle in Profile; vendor test suite expanded to 74/74 passing; donor 80/80 passing; backend 487 passed / 1 skipped.
+- **Affects**: `apps/vendor_app/lib/{core/vendor_locale.dart,main.dart,features/{customers,duty,earnings,inventory,profile,shell,stops,support,sync}/*}`, `apps/vendor_app/test/{vendor_locale_test,vendor_shell_test,wave1_ux_test}.dart`, `context/{progress-tracker,flow,decision}.md`.
+
+
+### ADR-163: Slice 7 Implemented — Cross-App Error Resilience & Tracking Navigation (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of DEF-06 and DEF-18 from `Feature_docs/ux-unslop-audit/22-backlog.md` covering tracking navigation stack pollution and fragile error string scraping across donor and vendor apps.
+- **Decisions**:
+  1. **DEF-06 (Tracking Navigation & Stack Pollution)**: In `TrackingScreen._confirmCancel()`, successful cancellation calls `widget.controller.stopTracking()` to halt background timer loops and pops the route with `true`. `MyOrdersScreen._track()` awaits this result, displays the cancellation snackbar, and calls `controller.load()` to refresh the orders list. This eliminates dead-end polling on cancelled orders and back-stack pollution.
+  2. **DEF-18 (Typed Error Resilience)**:
+     - In `BookingController` (`apps/user_app_donor`), exposed typed `bool ratesOffline` populated directly from `e.isOffline` during `refreshRates()`. In `customer_home_screen.dart`, replaced `ratesError.toLowerCase().contains('internet')` with typed `ratesOffline`.
+     - In `SyncController` (`apps/vendor_app`), introduced `enum SyncResultTone { none, success, networkError, serverError }` and exposed getter `tone`. In `sync_screen.dart`, replaced string scraping (`.contains('Network')` and `.contains('fail')`) with clean switch on `c.tone`.
+- **Consequences**: Zero string scraping for operational/network state; cleanly managed tracking navigation lifecycle; no background polling on terminal states; 80/80 donor + 71/71 vendor tests green; backend 487 passed / 1 skipped.
+- **Affects**: `apps/user_app_donor/lib/features/{booking/booking_controller,home/customer_home_screen,orders/{my_orders_screen,tracking_screen}}.dart`, `apps/vendor_app/lib/features/sync/{sync_controller,sync_screen}.dart`, `context/{progress-tracker,flow,decision}.md`.
+
+
+### ADR-162: Slice 6 Implemented — Donor App Polish, Touch Targets & Telephone Sync (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Final craft polish pass, defect remediation (DEF-19, DEF-20), and P3 micro-polish across `apps/user_app_donor`.
+- **Decisions**:
+  1. **DEF-19 (StatusPill Token & Typography Consistency)**: Standardized `StatusPill` border radius from stadium (999) to `ShodashaTheme.radiusSm` (8dp token) in `apps/user_app_donor/lib/shared/ui/status_pill.dart`. Standardized inline status pill typography in `subscription_screen.dart:1064` from off-scale 10.5px to canonical 12px token.
+  2. **DEF-20 (Support Phone Constant Unification)**: Added `AppConstants.kSupportPhone = '+91 93021 90067'` in `apps/user_app_donor/lib/core/constants/app_constants.dart`. Aliased `kSupportPhone = AppConstants.kSupportPhone` in `api_client.dart` for backward compatibility. Updated `support_screen.dart` to use `AppConstants.kSupportPhone` strictly across WhatsApp intents, telephone dialer, and clipboard fallbacks.
+  3. **P3 Touch Targets & Steppers**: Constrained stepper `IconButton`s (`removeJar` / `addJar`) in `plan_builder_sheet.dart` to 48dp minimum bounding boxes (`ShodashaTheme.minTarget`). Wrapped `_choiceChip` in `ConstrainedBox(constraints: const BoxConstraints(minHeight: ShodashaTheme.minTarget))` with `materialTapTargetSize: MaterialTapTargetSize.padded`.
+  4. **P3 Haptic Feedback**: Added subtle `HapticFeedback.lightImpact()` to `QtyStepper` in `stepper.dart`, `PlanBuilderSheet._setQty` in `plan_builder_sheet.dart`, and interactive primary action buttons (`AppButtonKind.primary`, `money`, `danger`) in `app_button.dart`.
+  5. **Financial Invariant Check**: Maintained strict server-authoritative financial invariant (zero client-side money math).
+- **Consequences**: Consistent tokenized pill radius and typography, robust touch accessibility (48dp), tactile feedback on quantity changes and CTA presses, and unified phone launcher single-source.
+- **Affects**: `apps/user_app_donor/lib/{core/{api_client,constants/app_constants},features/{booking/stepper,subscriptions/{plan_builder_sheet,subscription_screen},support/support_screen},shared/ui/{app_button,status_pill}}.dart`, `context/{progress-tracker,flow,decision}.md`.
+
+
+### ADR-161: Slice 5 Implemented — Cross-Cutting Reliability, Addresses & Hygiene (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Final slice of the UI/UX unslop audit covering cross-cutting reliability, address defaults, copy hygiene, deduplication, and accessibility across `apps/user_app_donor`.
+- **Decisions**:
+  1. **DEF-08 (Central Bhopal Fallback)**: Replaced default coordinates in `map_picker.dart` with `LatLng(23.2599, 77.4126)` representing Bhopal, MP.
+  2. **DEF-10 (Zero-Schedule Guard)**: Added `_qty > 0 && _schedule.isNotEmpty` guard to `canSubmit` in `plan_builder_sheet.dart` to prevent invalid plan submissions.
+  3. **DEF-09 (Wallet Zero-Flash Guard)**: Guarded initial and loading states in `donor_wallet_screen.dart` with skeleton loader and honest error view if ledger is null, eliminating fake ₹0 flash.
+  4. **DEF-12 (Copy Hygiene & Leak Scrubbing)**:
+     - Scrubbed `'Server prices'` chip from `featured_products.dart` and replaced with `'Daily verified'`.
+     - Scrubbed technical leak `'The app does not display live plant telemetry because the API does not expose it.'` in `donor_profile_screen.dart` and replaced with customer-facing verification copy `'Live batch reports and mineral analysis are verified daily at our Bhopal plant and available upon request.'`.
+     - Shortened order UUIDs in `notifications_screen.dart` to `#...${id.substring(id.length - 6)}`.
+  5. **DEF-15 (Centralized Month Array)**: Extracted duplicate month and day arrays into `apps/user_app_donor/lib/core/utils/date_utils.dart` (`kShortMonths`, `kShortWeekdays`), removing 90+ lines of duplicated arrays across 6 files (`order_card`, `tracking_screen`, `support_screen`, `donor_wallet_screen`, `payment_history_screen`, `booking_sheet`).
+  6. **DEF-16 (Dictionary Canonicalization)**: Renamed `authStringsHi` and `ordersStringsHi` to canonical `authStrings` and `ordersStrings` while retaining backward-compatible aliases.
+  7. **DEF-17 (Accessibility Semantics)**: Added `Semantics` wrappers with descriptive labels to profile avatar initials, purity card fact metrics, and tracking stepper dots.
+- **Consequences**: Zero regressions; clean codebase adhering strictly to ponytail principles (net negative lines of code); 80/80 donor and 71/71 vendor tests pass; backend 487 passed / 1 skipped.
+- **Affects**: `apps/user_app_donor/lib/core/utils/date_utils.dart`, `apps/user_app_donor/lib/features/{addresses,auth,booking,home,orders,profile,subscriptions,support,wallet}`, `context/{progress-tracker,flow,decision}.md`.
+
+### ADR-160: Slice 4 Implemented — Vendor Shell, Duty Gate & Navigation Hub (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 4 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decisions 2 & 3 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Retain side drawer triggered on bottom tab 4 tap.** Rejected (DEF-05): breaks mobile navigation ergonomics, creates gesture conflicts, and feels unpolished.
+  2. **Retain full-screen duty lockout.** Rejected (DEF-07): forces drivers to toggle duty on prematurely just to check earnings or profile from home, polluting backend availability metrics.
+  3. **Dedicated MoreHubScreen for Tab 4 + soft sticky duty banner with route lock.** Chosen (Option A).
+- **Decision**:
+  1. (DEF-05): Retired the side `Drawer` and `openDrawer()` call from `vendor_shell.dart`. Created `apps/vendor_app/lib/features/shell/more_hub_screen.dart` containing Customers, Stock Log, Sync Log (with pending queue badge), Duty Settings, Profile, WhatsApp SOS, and Logout. Tapping Tab 4 ("More") in `NavigationBar` switches the shell's body to `MoreHubScreen` via lazy-mounted `IndexedStack`.
+  2. (DEF-07): Removed full-screen off-duty lockout from `VendorShell.build()`. Introduced `_OffDutyBanner` at the top of the shell with `"Go On Duty"` CTA, and `_OffDutyRouteLock` on the Route tab (stops locked while off duty). Earnings (Tab 1), Support (Tab 2), and More (Tab 3) remain 100% interactive while off duty.
+  3. Added `surface`, `amberTint`, and `warning` tokens to `apps/vendor_app/lib/core/theme.dart` (completing DEF-14 token alignment).
+  4. Fixed text truncation in `AppButton` via `Flexible` on label and fixed row overflow in `earnings_screen.dart`.
+  5. Created unit test `apps/vendor_app/test/vendor_shell_test.dart`.
+  6. Gates: Flutter analyze clean (0 issues) in both apps; tests: vendor **71/71 passed**, donor **80/80 passed**, backend pytest **487 passed / 1 skipped**.
+- **Why**: Drastically improves driver ergonomics, eliminates navigation drawer traps, and allows drivers to check earnings without activating duty.
+- **Consequences**: Standard mobile bottom-tab navigation; no drawers in the vendor app.
+- **Affects**: `apps/vendor_app/lib/features/shell/vendor_shell.dart`, `apps/vendor_app/lib/features/shell/more_hub_screen.dart`, `apps/vendor_app/lib/core/theme.dart`, `apps/vendor_app/lib/features/route/route_screen.dart`, `apps/vendor_app/lib/features/earnings/earnings_screen.dart`, `apps/vendor_app/lib/shared/ui/app_button.dart`, `apps/vendor_app/test/vendor_shell_test.dart`, `context/*`.
+
+
+### ADR-159: Slice 3 Implemented — Donor Home Reorder & Search Retirement (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 3 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decision 5 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Keep search bar as dummy visual or search sheet for 2 SKUs.** Rejected (DEF-13): Catalog consists of only two SKUs (20L refill and 20L container jar). Search is an artificial step adding zero value and raising unnecessary keyboards.
+  2. **Require navigating to Orders tab for repeat ordering.** Rejected: 1-tap reorder on the home scroll drastically reduces friction for repeat water replenishment.
+  3. **Add `reorderCandidate` getter to `OrdersController` + `QuickReorderCard` on Home + complete retirement of `_SearchSheet`.** Chosen (Option A).
+- **Decision**:
+  1. (DEF-13): Retired `_SearchSheet`, `_SearchSheetState`, `_ProductPick`, and `_openSearch()` from `donor_shell.dart`. Removed `onSearch` callback prop from `DonorTopBar` and `DonorHomeTab`, and removed the decorative search bar row from `top_bar.dart`. Both SKUs remain immediately accessible on the home scroll via `FeaturedProductsShowcase`.
+  2. (DEF-03): Added `reorderCandidate` getter to `OrdersController` (returns first order in `_all` where `canReorder == true`, or null).
+  3. Added `_QuickReorderCard` to `customer_home_screen.dart` between greeting and `ModeSelectionCards`, rendered only when `orders.reorderCandidate != null`. Tapping fires `onOrderProduct(refill, container)` directly routing to `BookingSheet`.
+  4. Created unit test suite `apps/user_app_donor/test/quick_reorder_test.dart` (5 tests).
+  5. Gates: Flutter analyze clean (0 issues) in donor and vendor apps; tests: donor **80/80 passed** (75 baseline + 5 new), vendor **70/70 passed**, backend pytest **487 passed / 1 skipped**.
+- **Why**: Eliminates redundant UI friction and dead search modals while streamlining the primary user action (repeat water reordering) to a single tap.
+- **Consequences**: Zero loss in catalog discoverability; repeat customers can reorder in 1 tap directly from the home tab.
+- **Affects**: `apps/user_app_donor/lib/features/home/customer_home_screen.dart`, `apps/user_app_donor/lib/features/home/widgets/top_bar.dart`, `apps/user_app_donor/lib/features/orders/orders_controller.dart`, `apps/user_app_donor/lib/features/shell/donor_shell.dart`, `apps/user_app_donor/test/quick_reorder_test.dart`, `context/*`.
+
+
+### ADR-158: Slice 2 Implemented - Donor Token Foundation & Theme Reset (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted - implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 2 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decisions 4 & 7 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Change elevatedButtonTheme to tealDeep and create vendor AppButton.** Chosen - fixes the color semantics trap at the root without touching any screen that uses AppButton.money() explicitly.
+  2. **Override every non-money ElevatedButton individually per screen.** Rejected: 18 call sites across 6 screens; high fragility and maintenance burden.
+  3. **Keep money green as the default, add a warning comment only.** Rejected: violates the core design invariant enforced by ADR-157 (server authoritative for money, UI authoritative for signalling what IS money).
+- **Decision**:
+  1. (DEF-04): In `apps/user_app_donor/lib/core/theme.dart:311`, changed `elevatedButtonTheme` `backgroundColor` from `ShodashaTheme.greenDark` to `ShodashaTheme.tealDeep`. All raw `ElevatedButton` usages that previously defaulted to money-green now render in brand-primary teal. `AppButton.money()` and all explicit `backgroundColor: ShodashaTheme.greenDark` overrides in checkout/wallet/booking contexts remain unchanged.
+  2. (DEF-14): Added `AppSpacing`, `AppMotion`, `kMaxContentWidth` to `apps/vendor_app/lib/core/theme.dart`. Created `apps/vendor_app/lib/shared/ui/app_button.dart` with identical API to donor's AppButton but using vendor ink/blue identity (primary=ink, money=success, danger=danger). Migrated 3 buttons in `handover_sheet.dart` to `AppButton`.
+- **Why**: Smallest surface-area change that enforces the green=money invariant system-wide in the donor app and establishes the shared token foundation in the vendor app without any backend, API, or behavioral change.
+- **Consequences**: Any new `ElevatedButton` added to donor app without explicit color override now renders in teal (correct). Vendor features can now use `AppSpacing.md` instead of `EdgeInsets.all(12)` magic numbers; `AppButton` provides semantic kind system.
+- **Affects**: `apps/user_app_donor/lib/core/theme.dart`, `apps/vendor_app/lib/core/theme.dart`, `apps/vendor_app/lib/shared/ui/app_button.dart`, `apps/vendor_app/lib/features/stops/handover_sheet.dart`, `Feature_docs/ux-unslop-audit/slice-2-token-foundation.md`, `context/{progress-tracker,flow,decision}.md`
+
+
+### ADR-157: Slice 1 Implemented — Vendor Trust, Money & Doorstep Handover (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — implemented on `037-uiux-unslop-audit`.**
+- **Context**: Implementation of Slice 1 from `Feature_docs/ux-unslop-audit/22-backlog.md` and Owner Decisions 4 & 6 from `23-owner-decisions.md`.
+- **Options considered**:
+  1. **Keep separate Triple & PoD sheets with superficial UI polish.** Rejected: maintains the root cause of driver handover friction, redundant data entry, and record desynchronization.
+  2. **Keep client fallback calculation in earnings.** Rejected: violates financial invariant that money must be strictly server-authoritative.
+  3. **Unified 2-step HandoverSheet and server-only earnings payout display.** Chosen.
+- **Decision**:
+  1. (DEF-02): In `apps/vendor_app/lib/features/earnings/earnings_screen.dart:117`, replaced `rupees(c.stopsDone * 2000)` fallback with strict server-authoritative display (`rupees(c.earnedPayout)` when positive, `"Settlement Pending"` with subtitle `"Hisaab din ke ant me hoga"` when uncalculated, or `rupees(0)`).
+  2. (DEF-01): Created `apps/vendor_app/lib/features/stops/handover_sheet.dart` combining jar collection (fulls/empties/damaged/caps) and payment (cash/upi) into Step 1, and customer OTP verification with seal check into Step 2. Submitting executes `commitTriple` followed by `completePod` (with offline outbox queuing if offline).
+  3. Replaced disjoint buttons on `StopDetailScreen` with single clean CTA `"Delivery Handover (Bottles + OTP)"`.
+  4. Verified with `flutter analyze` (0 issues) and `flutter test` (vendor 70/70 passed, donor 75/75 passed). Added `apps/vendor_app/test/handover_sheet_test.dart` (2 tests).
+- **Why**: Eliminates fabricated money math and cuts driver doorstep completion time in half while maintaining all offline and backend invariants.
+- **Consequences**: Drivers have a unified 2-step flow. No changes to API payload formats or test expectations.
+- **Affects**: `apps/vendor_app/lib/features/{earnings/earnings_screen.dart,stops/stop_detail_screen.dart,stops/handover_sheet.dart}`, `test/handover_sheet_test.dart`, `context/*`.
+
+### ADR-156: UI/UX Unslop Audit Completed & Backlog Established (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — audit complete; owner approved Option A across all 7 strategic decisions (2026-10-31).**
+- **Context**: Execution of ADR-155. The donor and vendor Flutter applications required a rigorous unslop audit grounded in physical realities (20L water delivery, doorstep jar swaps, Bhopal operations). 20 field audit documents were generated following the strict 18-section contract.
+- **Options considered**:
+  1. **Immediately start editing code on findings.** Rejected: violates Non-Negotiable Rule 1 ("No code before design approval") and risks breaking money/session invariants.
+  2. **Audit donor app only.** Rejected: vendor app has critical driver operations, offline sync, and money flows that directly impact business viability.
+  3. **Strict docs-only audit with comprehensive synthesis, single-screen implementation slices, and owner approval gate.** Chosen.
+- **Decision**: (1) Completed audits D1–D12 (donor screens), V1–V4 (vendor clusters), and X1–X4 (cross-cutting). (2) Synthesized recurring themes into `21-synthesis.md`, including the `ElevatedButton` money-green theme trap (`theme.dart:311`), fabricated client-side earnings fallback (`earnings_screen.dart:117`), nested 3-sheet booking labyrinths, vendor slash-separated bilingual typography, and vendor design token absence. (3) Structured a 20-defect ranked backlog (DEF-01 to DEF-20) across 5 isolated implementation slices in `22-backlog.md`. (4) Framed exactly 7 strategic owner decisions in `23-owner-decisions.md`; the owner explicitly chose Option A across all 7 items on 2026-10-31. (5) Zero application code modified (`flutter test` donor 75/75, vendor 68/68 baseline intact).
+- **Why**: Establishing an evidence-backed defect inventory and ranked implementation slices ensures future code modifications are minimal, test-verified, and aligned with owner strategic choices.
+- **Consequences**: Implementation slices 1–5 are approved for execution in isolated, single-screen increments. Slices will be executed one screen at a time with strict baseline test verification.
+- **Affects**: `Feature_docs/ux-unslop-audit/*`, `context/{progress-tracker,flow,decision}.md`.
+
+### ADR-155: UI/UX improvement starts with a parallel, docs-only unslop audit (2026-10-31)
+
+- **Date**: 2026-10-31
+- **Status**: **Accepted — prompt written; audit not started.**
+- **Context**: The owner wants the donor (primary) and vendor apps audited screen by screen — interactions, flows, spacing, components, redundant/copied code, for-show functions — before anything is redesigned. Prior UI work (`035-premium-ui-states-release`, the donor import) was accepted screen by screen without a shared evidence base, so "is this better?" had no answer beyond opinion.
+- **Options considered**:
+  1. **One agent audits everything, then implements.** Rejected: the two apps are ~28k lines; a single pass either skims or blows the context window.
+  2. **Implement directly, review later.** Rejected by the repo's design-first law and by the owner's explicit instruction not to treat the current build as the benchmark.
+  3. **Parallel read-only audit producing one markdown per screen cluster, then synthesis, then an approval gate.** Chosen.
+  4. **Rewrite from scratch.** Rejected: money/auth/API invariants and passing tests are worth keeping; the audit decides what survives.
+- **Decision**: Branch `037-uiux-unslop-audit`; ~20 read-only subagents (12 donor screen clusters, 4 vendor, 4 cross-cutting: tokens/shared UI, duplication/dead code, flows/state machines, copy/a11y/motion). Each writes one file with an 18-section contract (interaction inventory, flow map, slop audit, spacing/type/color tables with `file:line`, component and dead-code audits, states matrix, unslop direction, prioritized fixes). Lead agent then writes `21-synthesis.md`, `22-backlog.md`, `23-owner-decisions.md` and stops at the approval gate. The only permitted writes are markdown under `Feature_docs/ux-unslop-audit/`; a throwaway screenshot harness is allowed but not committed.
+- **Why**: Parallel screen ownership keeps each agent's context small and its findings verifiable; a fixed 18-section contract makes consolidation mechanical and prevents "looks AI-generated" hand-waving; the docs-only branch guarantees the audit cannot silently change behaviour.
+- **Consequences**: Implementation is blocked until the owner approves the backlog. Audit docs are the new evidence base for every later UI decision. Vendor work is explicitly second priority. No dependency, API, money, auth, or CI change is permitted during the audit.
+- **Affects**: `Feature_docs/ux-unslop-audit/handoff-prompt.md`, `context/{progress-tracker,decision}.md`; no application code.
 
 ### ADR-154: Demo login removed everywhere; one live admin access code (2026-10-31)
 

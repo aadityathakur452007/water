@@ -99,7 +99,7 @@ void main() {
     expect(find.textContaining('short_delivery'), findsOneWidget);
     await tester.tap(find.textContaining('short_delivery'));
     await tester.pump();
-    expect(find.text('Sahmat / Agree'), findsOneWidget);
+    expect(find.text('सहमत हैं'), findsOneWidget);
 
     controller.dispose();
   });

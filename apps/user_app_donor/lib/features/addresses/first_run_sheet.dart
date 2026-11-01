@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 
 /// Prefs flag (v1 — bump when the flow changes shape).
 const String kFirstRunFlag = 'firstrun_done_v1';
@@ -50,10 +51,12 @@ Future<void> maybeOfferFirstRun(
     ),
     builder: (_) => const _FirstRunSheet(),
   );
-  try {
-    await markFirstRunDone();
-  } catch (_) {
-    // A failed prefs write only means the sheet may appear once more.
+  if (add != null) {
+    try {
+      await markFirstRunDone();
+    } catch (_) {
+      // A failed prefs write only means the sheet may appear once more.
+    }
   }
   if (add == true && context.mounted) onAddAddress();
 }
@@ -65,7 +68,12 @@ class _FirstRunSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          AppSpacing.xl,
+          AppSpacing.xl,
+          AppSpacing.md,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -84,35 +92,32 @@ class _FirstRunSheet extends StatelessWidget {
                 size: 26,
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpacing.lg),
             const Text(
-              'Set your delivery address',
+              'Where should we deliver?',
               style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w900,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
                 color: ShodashaTheme.ink,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: AppSpacing.xs),
             const Text(
-              'Add your address once and ordering takes a tap. You can '
-              'change it anytime in Addresses.',
-              style: TextStyle(color: ShodashaTheme.muted, fontSize: 14),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              height: ShodashaTheme.minTarget,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ShodashaTheme.teal,
-                  foregroundColor: ShodashaTheme.surface,
-                ),
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Add address'),
+              'Save your address once for 1-tap reordering. You can '
+              'edit it anytime.',
+              style: TextStyle(
+                color: ShodashaTheme.muted,
+                fontSize: 14,
+                height: 1.4,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSpacing.lg),
+            AppButton(
+              label: 'Add address',
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+            const SizedBox(height: AppSpacing.sm),
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
               style: TextButton.styleFrom(

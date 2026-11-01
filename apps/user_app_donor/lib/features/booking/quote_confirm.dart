@@ -58,7 +58,7 @@ class _ConfirmSheet extends StatelessWidget {
     final r = result;
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,34 +76,34 @@ class _ConfirmSheet extends StatelessWidget {
                     r.isSubscription
                         ? 'Plan created'
                         : r.attention
-                        ? 'Order placed — payment pending'
+                        ? 'Order placed · Awaiting payment'
                         : 'Order confirmed',
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
-                      fontSize: 20,
+                      fontSize: 18,
                       letterSpacing: -0.3,
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             if (r.attention) ...[
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
                   color: ShodashaTheme.blueTint,
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                 ),
                 child: Text(
                   r.attentionMessage,
-                  style: const TextStyle(fontSize: 13),
+                  style: const TextStyle(fontSize: 12, height: 1.4),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: AppSpacing.sm),
             ],
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
                 border: Border.all(color: ShodashaTheme.border),
                 borderRadius: BorderRadius.circular(ShodashaTheme.radius),
@@ -127,7 +127,7 @@ class _ConfirmSheet extends StatelessWidget {
                       'Water ${rupeesLabel(r.waterPaise)}'
                       '${r.depositPaise > 0 ? ' + Deposit ${rupeesLabel(r.depositPaise)}' : ''}'
                       '${r.capsPaise > 0 ? ' + Cap ${rupeesLabel(r.capsPaise)} (at handover)' : ''}',
-                      style: const TextStyle(fontSize: 13),
+                      style: const TextStyle(fontSize: 12, height: 1.4),
                     ),
                   if (r.totalPaise > 0)
                     Text(
@@ -139,7 +139,7 @@ class _ConfirmSheet extends StatelessWidget {
                       'Address: ${r.addressLabel}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13),
+                      style: const TextStyle(fontSize: 12, height: 1.4),
                     ),
                   if (r.isSubscription)
                     const Text(
@@ -165,9 +165,9 @@ class _ConfirmSheet extends StatelessWidget {
               ),
             ),
             if (r.upiPending && !r.attention) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: AppSpacing.sm),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
                   color: ShodashaTheme.blueTint,
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),
@@ -192,7 +192,7 @@ class _ConfirmSheet extends StatelessWidget {
             if (!r.attention) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
                   color: ShodashaTheme.tealTint,
                   borderRadius: BorderRadius.circular(ShodashaTheme.radius),
@@ -216,7 +216,7 @@ class _ConfirmSheet extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

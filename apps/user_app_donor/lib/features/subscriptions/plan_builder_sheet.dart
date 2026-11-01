@@ -17,6 +17,7 @@
 // pending → server error copy or success pop; no amount is ever computed here.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
@@ -195,6 +196,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   void _setQty(int delta) {
     final next = _qty + delta;
     if (next < 1 || next > _maxQty) return;
+    HapticFeedback.lightImpact();
     setState(() {
       _qty = next;
       _idemKey = const Uuid().v4();
@@ -296,7 +298,9 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         !_submitting &&
         _estimate != null &&
         !_estimateLoading &&
-        _estimateError == null;
+        _estimateError == null &&
+        _qty > 0 &&
+        _schedule.isNotEmpty;
     return PopScope(
       canPop: !_submitting,
       child: Padding(
@@ -350,13 +354,13 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                 Text(
                   subStrings['planTitle']!,
                   style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 if (_signedOut)
                   _SignedOutNote(
                     onSignIn: widget.onSignIn == null ? null : _signIn,
@@ -403,7 +407,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                     _paymentSummary,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 12,
                       height: 1.35,
                       color: ShodashaTheme.muted,
                     ),
@@ -460,6 +464,10 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
           ),
         ),
         IconButton(
+          constraints: const BoxConstraints(
+            minWidth: ShodashaTheme.minTarget,
+            minHeight: ShodashaTheme.minTarget,
+          ),
           tooltip: subStrings['removeJar'],
           onPressed: !_submitting && _qty > 1 ? () => _setQty(-1) : null,
           icon: const Icon(
@@ -476,6 +484,10 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
           ),
         ),
         IconButton(
+          constraints: const BoxConstraints(
+            minWidth: ShodashaTheme.minTarget,
+            minHeight: ShodashaTheme.minTarget,
+          ),
           tooltip: subStrings['addJar'],
           onPressed: !_submitting && _qty < _maxQty ? () => _setQty(1) : null,
           icon: const Icon(Icons.add_circle_outline, color: ShodashaTheme.teal),
@@ -551,21 +563,25 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   );
 
   Widget _choiceChip(String label, bool selected, VoidCallback? onSelected) =>
-      ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        selectedColor: ShodashaTheme.tealTint,
-        checkmarkColor: ShodashaTheme.teal,
-        labelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: onSelected == null
-              ? ShodashaTheme.muted
-              : selected
-              ? ShodashaTheme.tealDeep
-              : ShodashaTheme.ink,
+      ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: ShodashaTheme.minTarget),
+        child: ChoiceChip(
+          materialTapTargetSize: MaterialTapTargetSize.padded,
+          label: Text(label),
+          selected: selected,
+          selectedColor: ShodashaTheme.tealTint,
+          checkmarkColor: ShodashaTheme.teal,
+          labelStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: onSelected == null
+                ? ShodashaTheme.muted
+                : selected
+                ? ShodashaTheme.tealDeep
+                : ShodashaTheme.ink,
+          ),
+          onSelected: onSelected == null ? null : (_) => onSelected(),
         ),
-        onSelected: onSelected == null ? null : (_) => onSelected(),
       );
 
   String get _paymentSummary {

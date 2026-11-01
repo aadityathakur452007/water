@@ -10,7 +10,9 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_banner.dart';
+import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_state_view.dart';
 
 /// One receipt row from GET /v1/payments/me. Field names mirror the server
@@ -138,20 +140,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     if (iso == null || iso.isEmpty) return '';
     try {
       final dt = DateTime.parse(iso).toLocal();
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
+      const months = kShortMonths;
       final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
       final ampm = dt.hour >= 12 ? 'PM' : 'AM';
       final min = dt.minute.toString().padLeft(2, '0');
@@ -472,27 +461,35 @@ class _ErrorState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
-              Icons.error_outline,
+              Icons.error_outline_rounded,
               size: 48,
               color: ShodashaTheme.danger,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Text(
               message,
-              style: const TextStyle(color: ShodashaTheme.muted, fontSize: 15),
+              style: const TextStyle(color: ShodashaTheme.muted, fontSize: 14),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             if (onSignIn != null) ...[
-              ElevatedButton(onPressed: onSignIn, child: const Text('Sign in')),
-              const SizedBox(height: 8),
+              AppButton(
+                label: 'Sign in',
+                kind: AppButtonKind.primary,
+                onPressed: onSignIn,
+              ),
+              const SizedBox(height: AppSpacing.sm),
             ],
-            OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+            AppButton(
+              label: 'Try again',
+              kind: AppButtonKind.secondary,
+              onPressed: () => onRetry(),
+            ),
           ],
         ),
       ),

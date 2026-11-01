@@ -531,7 +531,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       onSkip: () => _skipToday(sub),
                       onCancel: () => _cancelSheet(sub),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: AppSpacing.md),
                   ],
                   OutlinedButton.icon(
                     onPressed: c.busy ? null : _openBuilder,
@@ -558,10 +558,34 @@ class _SubsSkeleton extends StatelessWidget {
     itemCount: 3,
     separatorBuilder: (_, _) => const SizedBox(height: 12),
     itemBuilder: (_, _) => Container(
-      height: 88,
+      height: 96,
       decoration: BoxDecoration(
-        color: ShodashaTheme.tealTint,
-        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        color: ShodashaTheme.surface,
+        border: Border.all(color: ShodashaTheme.border),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 14,
+            width: 140,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.skeleton,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            height: 12,
+            width: 220,
+            decoration: BoxDecoration(
+              color: ShodashaTheme.skeleton,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -778,18 +802,11 @@ class _EmptyState extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            // Plan creation is not a charge — teal, never money green.
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ShodashaTheme.teal,
-              foregroundColor: ShodashaTheme.surface,
-            ),
-            onPressed: onBuild,
-            icon: const Icon(Icons.add),
-            label: Text(subStrings['buildPlan']!),
-          ),
+        AppButton(
+          label: subStrings['buildPlan']!,
+          kind: AppButtonKind.primary,
+          icon: Icons.add,
+          onPressed: onBuild,
         ),
       ],
     ),
@@ -978,9 +995,10 @@ class _PlanCard extends StatelessWidget {
                 paise: monthly,
                 soft: true,
               ),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 4,
+            const SizedBox(height: AppSpacing.sm),
+            const Divider(height: 1, color: ShodashaTheme.border),
+            const SizedBox(height: AppSpacing.xs),
+            Row(
               children: [
                 if (sub.isPrepaid)
                   TextButton.icon(
@@ -1015,12 +1033,39 @@ class _PlanCard extends StatelessWidget {
                     ),
                     child: Text(subStrings['skipToday']!),
                   ),
-                TextButton(
-                  onPressed: busy ? null : onCancel,
-                  style: TextButton.styleFrom(
-                    foregroundColor: ShodashaTheme.danger,
+                const Spacer(),
+                PopupMenuButton<String>(
+                  tooltip: 'More options',
+                  icon: const Icon(
+                    Icons.more_vert_rounded,
+                    color: ShodashaTheme.muted,
+                    size: 20,
                   ),
-                  child: Text(subStrings['cancel']!),
+                  onSelected: (value) {
+                    if (value == 'cancel' && !busy) onCancel();
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'cancel',
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.cancel_outlined,
+                            size: 18,
+                            color: ShodashaTheme.danger,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Text(
+                            subStrings['cancel']!,
+                            style: const TextStyle(
+                              color: ShodashaTheme.danger,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1061,7 +1106,7 @@ class _StatusPill extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 10.5,
+            fontSize: 12,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.3,
             color: fg,
@@ -1247,17 +1292,10 @@ class _PauseSheetState extends State<_PauseSheet> {
             ),
           ),
         const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            // Plan management → teal (never the money green).
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ShodashaTheme.teal,
-              foregroundColor: ShodashaTheme.surface,
-            ),
-            onPressed: _confirm,
-            child: Text(subStrings['pauseConfirm']!),
-          ),
+        AppButton(
+          label: subStrings['pauseConfirm']!,
+          kind: AppButtonKind.primary,
+          onPressed: _confirm,
         ),
       ],
     ),

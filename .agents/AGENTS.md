@@ -58,6 +58,7 @@ These skills are downloaded and installed by the Skills.py bootstrap script into
 | **gpt-taste** | `.agents/skills/gpt-taste/` | GPT-augmented design taste engine | Say: `I'll use gpt-taste` |
 | **hallmark** | `.agents/skills/hallmark/` | Design system: component recipes, macrostructures, references | Say: `I'll use hallmark` → Read SKILL.md → Reference cookbook |
 | **Design Engineering** | `.agents/skills/emil-design-eng/` | Emil Kowalski's design eng: animation decisions, UI polish, details | Say: `I'll apply Emil's Design Engineering philosophy` → Read skill → Apply 4-question framework |
+| **unslop** | `.agents/skills/unslop/` | Audits AI-looking UI, sets a direction, then fixes spacing → color → icons → copy → type → layout → details → visuals → motion | Say: `I'll use unslop` → audit + propose direction BEFORE editing |
 | **animation-vocabulary** | `.agents/skills/animation-vocabulary/` | Common animation terms and concepts | Say: `I'll use animation-vocabulary` |
 | **apple-design** | `.agents/skills/apple-design/` | Apple's design principles and patterns | Say: `I'll use apple-design` |
 | **find-animation-opportunities** | `.agents/skills/find-animation-opportunities/` | Identify where to add animations | Say: `I'll find animation opportunities` |

@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../../shared/ui/app_button.dart';
 import '../../shared/ui/app_icon_button.dart';
 import '../addresses/address_screen.dart';
@@ -89,7 +90,6 @@ const Map<DeliveryType, String> _deliveryLabels = {
   DeliveryType.daily: 'Daily plan',
   DeliveryType.alternate: 'Alternate days',
   DeliveryType.weekly: 'Weekly',
-  DeliveryType.custom: 'Custom dates',
 };
 
 const Map<DeliveryType, IconData> _deliveryIcons = {
@@ -97,7 +97,6 @@ const Map<DeliveryType, IconData> _deliveryIcons = {
   DeliveryType.daily: Icons.repeat,
   DeliveryType.alternate: Icons.event_repeat_outlined,
   DeliveryType.weekly: Icons.calendar_view_week_outlined,
-  DeliveryType.custom: Icons.date_range_outlined,
 };
 
 class _CheckoutSheet extends StatefulWidget {
@@ -297,7 +296,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       setState(() {
         _subTotal = total;
         _estimateError = total == null
-            ? 'The server did not return the first-cycle amount. Please retry.'
+            ? 'Could not load subscription estimate. Please retry.'
             : '';
         _estimateLoading = false;
       });
@@ -320,7 +319,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         _quoteError = _loadingSlots
             ? 'Loading delivery windows…'
             : _slotsFailed
-            ? 'Delivery windows did not load. Retry before paying.'
+            ? 'Delivery slots unavailable. Tap to retry.'
             : 'Choose a delivery window before paying.';
       });
       return;
@@ -1005,7 +1004,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: DeliveryType.values.map((t) {
+      children: DeliveryType.values.where(_deliveryLabels.containsKey).map((t) {
         final selected = t == c.deliveryType;
         return ChoiceChip(
           avatar: Icon(
@@ -1111,9 +1110,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'No payment is collected here. Your plan starts now and '
-                    'the first delivery is billed as usual.',
-                    style: TextStyle(fontSize: 13),
+                    'No advance charge today · Pay upon delivery',
+                    style: TextStyle(fontSize: 12),
                   ),
                 ),
               ],
@@ -1176,19 +1174,29 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         runSpacing: 4,
                         children: [
                           if (_needsSignIn) ...[
-                            OutlinedButton(
+                            AppButton(
+                              label: 'Sign in again',
+                              kind: AppButtonKind.secondary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy ? null : _signIn,
-                              child: const Text('Sign in again'),
                             ),
                           ] else if (_recovery == _Recovery.retry) ...[
-                            OutlinedButton(
+                            AppButton(
+                              label: 'Retry',
+                              kind: AppButtonKind.secondary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy ? null : _pay,
-                              child: const Text('Retry'),
                             ),
                             if (_isOnce &&
                                 codOk &&
                                 c.paymentMode == PaymentMode.upi)
-                              ElevatedButton(
+                              AppButton(
+                                label: 'Choose COD',
+                                kind: AppButtonKind.primary,
+                                expand: false,
+                                height: 40,
                                 onPressed: busy
                                     ? null
                                     : () {
@@ -1197,37 +1205,54 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         );
                                         _pay();
                                       },
-                                child: const Text('Choose COD'),
                               ),
                           ] else if (_recovery == _Recovery.created) ...[
-                            OutlinedButton(
+                            AppButton(
+                              label: 'Retry payment',
+                              kind: AppButtonKind.secondary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy ? null : _recoverPayment,
-                              child: const Text('Retry payment'),
                             ),
                             if (_isOnce && codOk)
-                              ElevatedButton(
+                              AppButton(
+                                label: 'Use Cash on Delivery',
+                                kind: AppButtonKind.primary,
+                                expand: false,
+                                height: 40,
                                 onPressed: busy ? null : _switchToCod,
-                                child: const Text('Use Cash on Delivery'),
                               ),
-                            OutlinedButton(
+                            AppButton(
+                              label: 'Check Orders',
+                              kind: AppButtonKind.secondary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy ? null : _checkOrders,
-                              child: const Text('Check Orders'),
                             ),
                           ] else if (_recovery == _Recovery.unconfirmed) ...[
-                            OutlinedButton(
+                            AppButton(
+                              label: 'Check payment again',
+                              kind: AppButtonKind.secondary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy ? null : _checkPaymentAgain,
-                              child: const Text('Check payment again'),
                             ),
-                            ElevatedButton(
+                            AppButton(
+                              label: 'Check Orders',
+                              kind: AppButtonKind.primary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy ? null : _checkOrders,
-                              child: const Text('Check Orders'),
                             ),
                           ] else if (_recovery == _Recovery.checkOnly)
-                            OutlinedButton(
+                            AppButton(
+                              label: 'Close',
+                              kind: AppButtonKind.secondary,
+                              expand: false,
+                              height: 40,
                               onPressed: busy
                                   ? null
                                   : () => Navigator.of(context).pop(),
-                              child: const Text('Close'),
                             ),
                         ],
                       ),
@@ -1553,20 +1578,7 @@ String _slotDateLabel(String isoDate) {
   final d = DateTime.tryParse(isoDate);
   if (d == null) return isoDate;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
+  const months = kShortMonths;
   return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
 }
 
