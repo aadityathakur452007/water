@@ -350,15 +350,31 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                                           ),
                                           const SizedBox(width: AppSpacing.sm),
                                           Expanded(
-                                            child: Text(
-                                              customerName,
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w800,
-                                                color: isDelivered
-                                                    ? ShodashaTheme.muted
-                                                    : ShodashaTheme.ink,
-                                              ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  customerName,
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: isDelivered
+                                                        ? ShodashaTheme.muted
+                                                        : ShodashaTheme.ink,
+                                                  ),
+                                                ),
+                                                if (phone.isNotEmpty) ...[
+                                                  const SizedBox(height: 1),
+                                                  Text(
+                                                    phone,
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: ShodashaTheme.muted,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                           ),
                                           if (phone.isNotEmpty)
@@ -566,3 +582,4 @@ class _Badge extends StatelessWidget {
     );
   }
 }
+

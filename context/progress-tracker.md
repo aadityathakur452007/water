@@ -4,6 +4,26 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**DELIVERY OTP UI PARITY & SSDLC DISPATCH HARDENING (2026-11-02, ADR-188):** On branch `042-rider-donor-otp-ux-security`:
+- **Customer App OTP Visibility Parity (`apps/user_app_donor`):**
+  - Added dedicated high-contrast Delivery OTP highlight container directly on `DonorOrderCard` (`order_card.dart`) with bold 18sp letter-spaced OTP and helper copy ("DELIVERY OTP (SHARE WITH RIDER)").
+  - Added `_ActiveDeliveryCard` to `CustomerHomeScreen` (`customer_home_screen.dart`): shows live order state, 20L cane item count, doorstep delivery OTP pill, and 1-tap "View details & tracking" navigation.
+  - Linked `onOpenOrders` from `DonorShell` (`donor_shell.dart`) to switch directly to the orders tab from the home active delivery card.
+  - Hardened `_DeliveryCodeCard` on `tracking_screen.dart` with explicit doorstep delivery partner handoff copy.
+- **Rider App Doorstep Handover Polish (`apps/rider_app`):**
+  - Enhanced `PodSheet` (`pod_sheet.dart`) to display the complete 5-element delivery checklist: (1) Customer name, (2) Customer phone number with 1-tap dialer (`tel:`), (3) Full delivery address with landmark and lift availability indicator, (4) Number of bottles to deliver (`X × 20L Cane`), and (5) Customer delivery OTP input field.
+  - Enhanced `DeliveryScreen` (`delivery_screen.dart`) stop cards to display customer phone number as text directly under their name.
+- **SSDLC Security & Logic Hardening (`workers/api`):**
+  - Rate limiting on Rider Auth: Applied `LOGIN_PHONE_LIMIT` (5 attempts per 15 min) in `AuthService.rider_login` to block brute-force mobile enumeration attacks.
+  - Strict Pydantic Bounds: Updated `RiderPodIn` with regex pattern `r"^\d{4,8}$"`, upper bounds on empty cans and cash to prevent numeric overflow.
+  - IDOR & Isolation Protection: Enforced in `RiderService.complete_stop` and `fail_stop` that riders can only complete unassigned stops or stops explicitly assigned to them (rejecting attempts on other riders' stops with 404).
+  - Audit Trail Integrity: Unassigned stops completed by a rider are atomically linked (`stops.rider_id = rider_id`) and logged with `write_audit(action="rider.complete_stop")`.
+- **Verification:**
+  - `apps/rider_app`: Flutter analyze clean (**0 issues**), tests: **3 / 3 passed** (`rider_app_test.dart`).
+  - `apps/user_app_donor`: Flutter analyze clean (**0 issues**), tests: **122 / 122 passed**.
+  - `apps/vendor_app`: Flutter analyze clean (**0 issues**), tests: **90 / 90 passed**.
+  - `workers/api`: Pytest suite: **502 passed in 18.76s (0 failures)**.
+
 **RIDER APP & OTP DELIVERY DISPATCH ENGINE (2026-11-02, ADR-187):** On branch `041-rider-feature-backend-app`:
 - **Rider Workflow & Backend Dispatch API (`workers/api`):**
   - Schema migration `030_rider_dispatch.sql` adds `stops.rider_id` column with index `idx_stops_rider_date`.

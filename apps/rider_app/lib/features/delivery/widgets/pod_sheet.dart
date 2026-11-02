@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../../core/api_client.dart';
 import '../../../core/theme.dart';
 import '../../../shared/ui/app_button.dart';
@@ -39,6 +41,15 @@ class _PodSheetState extends State<PodSheet> {
   void dispose() {
     _otpController.dispose();
     super.dispose();
+  }
+
+  Future<void> _makeCall(String phone) async {
+    final cleaned = phone.replaceAll(RegExp(r'\D'), '');
+    if (cleaned.isEmpty) return;
+    final uri = Uri.parse('tel:$cleaned');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
   }
 
   Future<void> _submit() async {
@@ -85,7 +96,12 @@ class _PodSheetState extends State<PodSheet> {
   Widget build(BuildContext context) {
     final stop = widget.stop;
     final customerName = stop['customer_name']?.toString() ?? 'Customer';
+    final phone = stop['customer_phone']?.toString() ?? '';
     final qty = stop['quantity']?.toString() ?? '1';
+    final address = (stop['address'] as Map<String, dynamic>?) ?? {};
+    final formattedAddress = address['formatted']?.toString() ?? 'Delivery address';
+    final landmark = address['landmark']?.toString() ?? '';
+    final hasLift = address['has_lift'] == true;
     final isCod = stop['payment_mode'] == 'cod';
     final amountDue = stop['amount_due'] as int? ?? 0;
 
@@ -100,33 +116,17 @@ class _PodSheetState extends State<PodSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header
+              // Top Bar: Modal Title + Bottles to Deliver Badge
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'DOORSTEP HANDOVER',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: ShodashaTheme.muted,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          customerName,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: ShodashaTheme.ink,
-                          ),
-                        ),
-                      ],
+                  const Text(
+                    'DOORSTEP HANDOVER',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: ShodashaTheme.muted,
+                      letterSpacing: 0.8,
                     ),
                   ),
                   Container(
@@ -145,6 +145,123 @@ class _PodSheetState extends State<PodSheet> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Customer Name + Phone Row
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          customerName,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: ShodashaTheme.ink,
+                          ),
+                        ),
+                        if (phone.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            phone,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: ShodashaTheme.muted,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (phone.isNotEmpty)
+                    IconButton.filledTonal(
+                      tooltip: 'Call customer',
+                      onPressed: () => _makeCall(phone),
+                      icon: const Icon(Icons.call_rounded, size: 20),
+                      style: IconButton.styleFrom(
+                        backgroundColor: ShodashaTheme.tealTint,
+                        foregroundColor: ShodashaTheme.teal,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+
+              // Full Delivery Address Card with Landmark and Lift status
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.bg,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  border: Border.all(color: ShodashaTheme.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.location_on_rounded,
+                          size: 16,
+                          color: ShodashaTheme.teal,
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
+                          child: Text(
+                            formattedAddress,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: ShodashaTheme.ink,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (landmark.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 20),
+                        child: Text(
+                          'Landmark: $landmark',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: ShodashaTheme.muted,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.xs),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 20),
+                      child: Row(
+                        children: [
+                          Icon(
+                            hasLift ? Icons.elevator_rounded : Icons.stairs_rounded,
+                            size: 14,
+                            color: hasLift ? ShodashaTheme.successDark : ShodashaTheme.warningDark,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            hasLift ? 'Lift Available' : 'No Lift (Stairs)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: hasLift ? ShodashaTheme.successDark : ShodashaTheme.warningDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
 
@@ -298,26 +415,28 @@ class _PodSheetState extends State<PodSheet> {
                 ),
               ],
 
-              // Error Notice
               if (_errorMessage != null) ...[
                 const SizedBox(height: AppSpacing.md),
                 Container(
-                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
                     color: ShodashaTheme.dangerTint,
                     borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline_rounded,
-                          color: ShodashaTheme.danger, size: 18),
-                      const SizedBox(width: AppSpacing.xs),
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        color: ShodashaTheme.dangerDark,
+                        size: 18,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
                           _errorMessage!,
                           style: const TextStyle(
                             color: ShodashaTheme.dangerDark,
-                            fontSize: 12,
+                            fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -329,13 +448,18 @@ class _PodSheetState extends State<PodSheet> {
 
               const SizedBox(height: AppSpacing.xl),
 
-              // Submit CTA
+              // Action Buttons
               AppButton(
                 label: 'Verify OTP & Mark Delivered',
                 kind: AppButtonKind.primary,
-                icon: Icons.check_circle_rounded,
                 busy: _busy,
-                onPressed: _submit,
+                onPressed: _busy ? null : _submit,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              AppButton(
+                label: 'Cancel',
+                kind: AppButtonKind.secondary,
+                onPressed: _busy ? null : () => Navigator.of(context).pop(),
               ),
             ],
           ),

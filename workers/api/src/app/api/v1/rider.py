@@ -21,13 +21,13 @@ def _svc(conn=Depends(get_db_conn)) -> RiderService:
 
 
 class RiderPodIn(BaseModel):
-    delivery_otp: str = Field(min_length=1, max_length=10)
-    empties_count: int = Field(ge=0, default=0)
-    cash: int = Field(ge=0, default=0)
+    delivery_otp: str = Field(min_length=4, max_length=8, pattern=r"^\d{4,8}$")
+    empties_count: int = Field(ge=0, le=100, default=0)
+    cash: int = Field(ge=0, le=10000000, default=0)
 
 
 class RiderFailIn(BaseModel):
-    reason_code: str = Field(min_length=1, max_length=50)
+    reason_code: str = Field(min_length=1, max_length=50, pattern=r"^[a-zA-Z0-9_\-]+$")
     note: str = Field(default="", max_length=500)
 
 
@@ -68,3 +68,4 @@ async def rider_fail_stop(
     user=Depends(_rider),
 ):
     return await _svc(conn).fail_stop(_uid(user), stop_id, payload.reason_code, payload.note)
+
