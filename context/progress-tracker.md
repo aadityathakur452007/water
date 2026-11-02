@@ -4,6 +4,22 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**PRUNE LEGACY APKS & CI/CD 3-APP MATRIX UPDATE (2026-11-02, ADR-189):** On branch `043-cicd-rider-prune-legacy-apps`:
+- **Repository Pruning & Dead Code Removal:**
+  - Removed deprecated `apps/user_app` (legacy flagship) and `apps/user_app_legacy_flutter`.
+  - Staged and verified retention of exactly 3 mobile apps (`apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app`) alongside web admin dashboard (`apps/admin_app`).
+- **Rider App Android Toolchain & Permissions:**
+  - Updated `apps/rider_app/android/app/src/main/AndroidManifest.xml`: added `android.permission.INTERNET` and `<queries>` intent filter for `tel:` dialer. Set `android:label="Shodasha Rider"`.
+  - Aligned Gradle build configuration with JDK 17, AGP 9.0.1, and Gradle 9.1.0.
+- **GitHub Actions Workflows Modernized:**
+  - `.github/workflows/ci.yml`: Matrix updated to 3 mobile apps (`donor`, `vendor`, `rider`) executing analyze, test, and debug APK build.
+  - `.github/workflows/release.yml`: Matrix updated to 3 mobile release targets (`donor`, `vendor`, `rider`). Release step packages `shodasha-donor-${tag}.apk`, `shodasha-vendor-${tag}.apk`, and `shodasha-rider-${tag}.apk` with unified `SHA256SUMS.txt`.
+- **Verification:**
+  - `apps/rider_app`: Flutter analyze clean (**0 issues**), tests: **3 / 3 passed**.
+  - `apps/user_app_donor`: Flutter analyze clean (**0 issues**), tests: **122 / 122 passed**.
+  - `apps/vendor_app`: Flutter analyze clean (**0 issues**), tests: **90 / 90 passed**.
+  - `workers/api`: Pytest suite: **502 passed in 18.76s (0 failures)**.
+
 **DELIVERY OTP UI PARITY & SSDLC DISPATCH HARDENING (2026-11-02, ADR-188):** On branch `042-rider-donor-otp-ux-security`:
 - **Customer App OTP Visibility Parity (`apps/user_app_donor`):**
   - Added dedicated high-contrast Delivery OTP highlight container directly on `DonorOrderCard` (`order_card.dart`) with bold 18sp letter-spaced OTP and helper copy ("DELIVERY OTP (SHARE WITH RIDER)").
