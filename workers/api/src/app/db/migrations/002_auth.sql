@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone TEXT UNIQUE,
     firebase_uid TEXT UNIQUE,
     name TEXT,
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','vendor','admin')),
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','vendor','admin','rider')),
     language TEXT NOT NULL DEFAULT 'hi',
     kyc_status TEXT NOT NULL DEFAULT 'none',
     suspended INTEGER NOT NULL DEFAULT 0,

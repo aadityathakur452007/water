@@ -2751,3 +2751,34 @@
 - **Why**: Matches the design language in `ui-context.md`; copy-paste ownership preferred per `DESIGN.md`.
 - **Consequences**: [things to watch out for]
 - **Affects**: `features/<feature>/components/`
+
+
+---
+
+## ADR-187: Dedicated Rider Mobile App & OTP Delivery Verification Dispatch Engine
+
+- **Status**: Accepted (implemented 2026-11-02)
+- **Date**: 2026-11-02
+- **Affects**: `apps/rider_app/`, `workers/api/src/app/api/v1/rider.py`, `workers/api/src/app/services/rider_service.py`, `workers/api/src/app/db/migrations/030_rider_dispatch.sql`, `workers/api/src/app/api/v1/auth.py`, `workers/api/src/app/services/auth_service.py`, `workers/api/src/app/api/v1/vendor.py`, `workers/api/src/app/services/vendor_service.py`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. Water delivery in Bhopal requires on-the-ground delivery riders who physically transport heavy 20-liter water cans up flights of stairs and navigate tight residential streets.
+  2. Previously, delivery handovers were handled either implicitly or solely through vendor staff credentials.
+  3. The product requires a zero-friction, minimal rider experience:
+     - Rider identity must only require Name + 10-digit mobile number (no complex passwords or multi-step onboarding).
+     - Delivery stops must be assigned by Vendors (or Admin).
+     - Rider's essential responsibilities at doorstep: Read customer address, see if building has a lift (crucial for 20L logistics), deliver the cans, collect cash if COD, take returned empty jars, and verify the customer's 6-digit delivery OTP.
+- **Decision**:
+  1. **Standalone Minimal Flutter App (`apps/rider_app`)**:
+     - Built a standalone Flutter app (`com.shodasha.rider_app`) rather than complicating `vendor_app`.
+     - High-contrast outdoor dark UI theme (`ShodashaTheme`), 52dp minimum touch targets, zero clutter.
+     - Single-card manifest view with shift progress bar, pending/delivered filters, 1-tap direct dial (`tel:`), lift indicator badge, cane count, and COD indicator.
+     - `PodSheet` modal for doorstep verification: large numeric OTP input, empty jar stepper, and cash amount confirmation.
+  2. **Backend Dispatch & Secure Proof-of-Delivery Reuse**:
+     - Added `stops.rider_id` migration `030_rider_dispatch.sql` and `role = 'rider'` support.
+     - `POST /v1/auth/rider/login`: Name + normalized Indian mobile number issues a 30-day bearer session.
+     - `POST /v1/rider/stops/{stop_id}/complete` delegates directly to `VendorService.pod_complete`: preserves timing-safe HMAC OTP comparison, 3-attempt brute-force protection, code expiry checks, order status update to `delivered`, jar return ledger logging, and cash collection reconciliation.
+     - Vendor fleet dispatch endpoints added to `vendor.py`: list riders, register rider, and assign stop to rider.
+- **Consequences**:
+  - Positive: Clean separation of concerns between vendor operational dashboard and rider outdoor execution app.
+  - Positive: Cryptographically secure OTP proof-of-delivery prevents fake delivery claims without adding mental burden to riders.
+  - Verification: 3/3 rider app tests pass, 499/499 backend tests pass, 122/122 donor app tests pass, 90/90 vendor app tests pass. 0 lint/analyze issues across all repos.

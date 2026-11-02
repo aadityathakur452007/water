@@ -1200,3 +1200,59 @@ class VendorService:
             (vendor_id, scoped, stop_id, phash, json.dumps(outcome), _now()),
         )
         self._conn.commit()
+
+    async def create_rider(self, vendor_id: str, name: str, phone: str) -> dict:
+        import uuid
+        import datetime as _dt
+        from app.services.auth_service import normalize_phone
+        from app.db import WRITE_LOCK
+
+        phone_n = normalize_phone(phone)
+        now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with WRITE_LOCK:
+            existing = (await self._conn.execute(
+                "SELECT id, phone, name, role FROM users WHERE phone = ?",
+                (phone_n,),
+            )).fetchone()
+            if existing is not None:
+                rider_id = existing["id"]
+                await self._conn.execute(
+                    "UPDATE users SET name = ?, role = 'rider', assigned_vendor_id = ?, suspended = 0 WHERE id = ?",
+                    (name.strip(), vendor_id, rider_id),
+                )
+            else:
+                rider_id = str(uuid.uuid4())
+                await self._conn.execute(
+                    "INSERT INTO users (id, phone, name, role, assigned_vendor_id, suspended, created_at) "
+                    "VALUES (?, ?, ?, 'rider', ?, 0, ?)",
+                    (rider_id, phone_n, name.strip(), vendor_id, now_iso),
+                )
+            self._conn.commit()
+        return {"id": rider_id, "name": name.strip(), "phone": phone_n, "vendor_id": vendor_id}
+
+    async def list_riders(self, vendor_id: str) -> list[dict]:
+        rows = (await self._conn.execute(
+            "SELECT id, phone, name, role, assigned_vendor_id, suspended FROM users "
+            "WHERE assigned_vendor_id = ? AND role = 'rider' ORDER BY created_at DESC",
+            (vendor_id,),
+        )).fetchall()
+        return [dict(r) for r in rows]
+
+    async def assign_rider_to_stop(self, vendor_id: str, stop_id: str, rider_id: str | None) -> dict:
+        from app.db import WRITE_LOCK
+        from app.core.errors import NotFoundError
+
+        stop = (await self._conn.execute(
+            "SELECT s.id, r.vendor_id FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
+            (stop_id,),
+        )).fetchone()
+        if stop is None or stop["vendor_id"] != vendor_id:
+            raise NotFoundError("Stop not found.", {"stop_id": stop_id})
+
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "UPDATE stops SET rider_id = ? WHERE id = ?",
+                (rider_id, stop_id),
+            )
+            self._conn.commit()
+        return {"stop_id": stop_id, "rider_id": rider_id}

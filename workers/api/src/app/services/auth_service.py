@@ -481,7 +481,7 @@ class AuthService:
 
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
-        if expected_role not in ("vendor", "admin"):
+        if expected_role not in ("vendor", "admin", "rider"):
             raise ValidationError("Unknown role.", {"role": expected_role})
         try:
             flag = await ConfigRepo(self._conn).get("access_code_login_enabled", "0")
@@ -552,6 +552,46 @@ class AuthService:
             pass
         await _audit_access_use(self._conn, user["id"], matched_id, legacy=False)
         return out
+
+    async def rider_login(
+        self, phone: str | None, name: str | None, device_id: str, device: dict | None = None
+    ) -> dict:
+        """Lightweight Rider login: registered mobile number + name.
+
+        Validates phone belongs to an active user with role == 'rider'.
+        No complex passwords or friction — the vendor registers the phone,
+        and the delivery worker logs straight in to start their route.
+        """
+        if not (device_id or "").strip():
+            raise ValidationError("Device id required.", {"device": "id"})
+        phone_n = normalize_phone(phone or "")
+        raw_phone = (phone or "").strip()
+
+        row = (await self._conn.execute(
+            "SELECT * FROM users WHERE (phone = ? OR phone = ?) AND role = 'rider' LIMIT 1",
+            (phone_n, raw_phone),
+        )).fetchone()
+
+        if row is None:
+            raise UnauthError("Mobile number is not registered as an active rider. Please contact your vendor.", {})
+
+        user = dict(row)
+        if bool(user.get("suspended")):
+            raise UnauthError("Rider account is suspended.", {})
+
+        if name and name.strip() and (not user.get("name") or user.get("name") == "Rider"):
+            with WRITE_LOCK:
+                try:
+                    await self._conn.execute(
+                        "UPDATE users SET name = ? WHERE id = ?",
+                        (name.strip(), user["id"]),
+                    )
+                    self._conn.commit()
+                    user["name"] = name.strip()
+                except Exception:
+                    pass
+
+        return await self._issue_session(user, device_id, device)
 
     # -- customer password auth (034) -------------------------------------------
 
