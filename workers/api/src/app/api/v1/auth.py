@@ -46,6 +46,13 @@ class AdminLoginIn(BaseModel):
     device: DeviceIn
 
 
+class RiderLoginIn(BaseModel):
+    phone: str = Field(min_length=10, max_length=16,
+                       pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
+    name: str | None = Field(default=None, max_length=100)
+    device: DeviceIn
+
+
 class UserRegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str | None = Field(default=None, max_length=254)
@@ -137,6 +144,17 @@ async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service
         payload.device.id,
         payload.device.model_dump(),
         expected_role="admin",
+    )
+
+
+@router.post("/auth/rider/login")
+async def rider_login(payload: RiderLoginIn, svc: AuthService = Depends(_service)):
+    """Rider quick login: registered phone + name → rider session."""
+    return await svc.rider_login(
+        payload.phone,
+        payload.name,
+        payload.device.id,
+        payload.device.model_dump(),
     )
 
 

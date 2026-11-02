@@ -258,3 +258,30 @@ async def report_vendor_stockout(payload: StockoutIn = StockoutIn(), conn=Depend
     """Emergency SOS: vendor vehicle is out of stock mid-shift; repool remaining stops."""
     return await _svc(conn).stockout(_uid(user), payload.reason)
 
+class RiderCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    phone: str = Field(min_length=10, max_length=16,
+                       pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
+
+
+class AssignRiderIn(BaseModel):
+    rider_id: str | None = None
+
+
+@router.post("/vendor/riders", status_code=201)
+async def create_vendor_rider(payload: RiderCreateIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Vendor onboards a delivery rider under their agency."""
+    return await _svc(conn).create_rider(_uid(user), payload.name, payload.phone)
+
+
+@router.get("/vendor/riders")
+async def list_vendor_riders(conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """List all riders working under this vendor agency."""
+    return {"data": await _svc(conn).list_riders(_uid(user))}
+
+
+@router.post("/vendor/stops/{stop_id}/assign-rider")
+async def assign_stop_rider(stop_id: str, payload: AssignRiderIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Assign a specific stop to a rider (or unassign with null)."""
+    return await _svc(conn).assign_rider_to_stop(_uid(user), stop_id, payload.rider_id)
+

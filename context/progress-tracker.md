@@ -4,6 +4,34 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**RIDER APP & OTP DELIVERY DISPATCH ENGINE (2026-11-02, ADR-187):** On branch `041-rider-feature-backend-app`:
+- **Rider Workflow & Backend Dispatch API (`workers/api`):**
+  - Schema migration `030_rider_dispatch.sql` adds `stops.rider_id` column with index `idx_stops_rider_date`.
+  - Auth role `rider` enabled in `002_auth.sql` CHECK constraint; `AuthService.rider_login` supports phone + name verification, auto-onboarding or matching riders in a vendor's fleet, and directly issues a 30-day bearer session (`POST /v1/auth/rider/login`).
+  - Rider API router (`workers/api/src/app/api/v1/rider.py`) and service (`rider_service.py`):
+    - `GET /v1/rider/me`: Rider profile, vendor association, and shift info.
+    - `GET /v1/rider/routes/today`: Fetch today's assigned route stops with customer name, phone, full address, lift availability, cane quantity, and payment details (prepaid vs Cash on Delivery amount due).
+    - `POST /v1/rider/stops/{stop_id}/complete`: Validates customer 6-digit delivery OTP using proven, hardened `VendorService.pod_complete` (timing-safe HMAC comparison, max 3 attempts limit, expiry validation, cash reconciliation, order delivered status update).
+    - `POST /v1/rider/stops/{stop_id}/fail`: Marks stop failed with reason code (`customer_unavailable`, `address_unreachable`, `customer_refused`, `other`).
+  - Vendor Dispatch endpoints in `vendor.py` / `vendor_service.py`: `POST /v1/vendor/riders` (add rider to vendor fleet), `GET /v1/vendor/riders` (list active riders), `POST /v1/vendor/stops/{stop_id}/assign-rider` (assign stop to specific rider).
+- **Minimal High-Contrast Rider Mobile App (`apps/rider_app`):**
+  - Lightweight standalone Flutter application tailored for outdoor delivery workers on budget phones (big 52dp touch targets, high contrast dark theme, zero clutter).
+  - Clean authentication gate (`LoginScreen`): Rider full name + 10-digit mobile number with 1-tap start shift button.
+  - Delivery Manifest (`DeliveryScreen`):
+    - Shift header with completed/total stops progress bar and active rider name.
+    - Segmented pending vs completed stop filters.
+    - Delivery cards highlighting: Stop sequence #, customer name with 1-tap direct dial (`tel:`), full delivery address, "Lift Available" (or "No Lift — Stairs") badge, 20L cane quantity, and COD / Prepaid badge.
+  - Doorstep Handover Modal Sheet (`PodSheet`):
+    - Large 6-digit OTP input with numeric keyboard and auto-focus.
+    - Tactile empty jar collection counter (`- / +` stepper) to track returned 20L empty cans.
+    - Cash collection reminder when order is COD.
+    - Canonical `AppButton` ("Verify OTP & Mark Delivered") with error handling.
+- **Verification:**
+  - `apps/rider_app`: Flutter analyze clean (**0 issues**), tests: **3 / 3 passed** (`rider_app_test.dart`).
+  - `apps/vendor_app`: Flutter analyze clean (**0 issues**), tests: **90 / 90 passed**.
+  - `apps/user_app_donor`: Flutter analyze clean (**0 issues**), tests: **122 / 122 passed**.
+  - `workers/api`: Pytest suite: **499 passed in 19.02s (0 failures)**.
+
 **DONOR APP ADDRESS REDESIGN — TAG-FIRST DELIVERY SHEET & 3-ADDRESS INDIAN NORMS (2026-11-02, ADR-186):** On branch `040-donor-address-redesign`:
 - **Tag-First Single-View Bottom Sheet (`address_screen.dart`):**
   - Completely replaced the cumbersome 3-step `Stepper` (Pata -> Pinpoint -> Details) with a fast, keyboard-resilient single-view modal sheet.

@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Rider App & OTP Delivery Dispatch Engine (2026-11-02, ADR-187): Dedicated mobile client for delivery riders (`apps/rider_app`) and backend dispatch service (`workers/api`). Riders authenticate with Name + Phone (`POST /v1/auth/rider/login`), fetch today's assigned delivery stops (`GET /v1/rider/routes/today`), and verify 6-digit customer OTP at the doorstep (`POST /v1/rider/stops/{stop_id}/complete`) which executes hardened atomic proof-of-delivery, empty jar returns tracking, and cash reconciliation via `VendorService.pod_complete`. Vendors manage and assign fleet riders (`POST /v1/vendor/riders`, `POST /v1/vendor/stops/{stop_id}/assign-rider`).
+
 - Atomic Vendor Onboarding & Staff Auth Collision Hardening (2026-11-01, ADR-185): Unified vendor creation, verification, shift capacity, and 90-day access code generation into a single atomic backend transaction on `POST /admin/vendors` (`auto_verify: true`). Added role-aware fallback in `AuthService.code_login` so vendor logins query `role = 'vendor'` rather than catching customer users with identical raw numbers. In `add-vendor-dialog.tsx`, streamlined form submission into 1 server call and immediately renders the plaintext access code card and WhatsApp credential link (`/vendor/login`).
 
 - Donor App UI/UX Redesign & Declutter (2026-11-01, ADR-184): Removed useless cart and redundant profile button from `DonorTopBar`, showcasing `assets/logo.png` and keeping quiet notification bell. Integrated real `assets/20l.jpg` into `FeaturedProductsShowcase`. Unsloped `quote_confirm.dart` into a clean receipt card prioritizing delivery window, address, and amount with canonical `AppButton` while hiding raw 36-char UUID in favor of quiet 8-char ref.
@@ -1958,3 +1960,44 @@ Update this file when any of the following change:
 - [ ] State management approach changed
 
 When you update, keep the diagrams in sync with the code — a stale diagram is worse than no diagram.
+
+
+### Rider App & Dispatch Flow (ADR-187)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor R as Rider (apps/rider_app)
+    actor C as Customer (Donor)
+    participant API as workers/api
+    participant DB as Cloudflare D1 (SQLite)
+
+    Note over R,API: Authentication (Minimal Name + Phone)
+    R->>API: POST /v1/auth/rider/login {phone, name}
+    API->>DB: Lookup/Upsert rider user & assign active session
+    API-->>R: 200 OK {token, rider: {id, name, phone, vendor_id}}
+
+    Note over R,API: Today's Delivery Manifest
+    R->>API: GET /v1/rider/routes/today
+    API->>DB: Query stops WHERE rider_id = ? AND date = today
+    API-->>R: 200 OK {stops: [{stop_id, customer_name, phone, address, has_lift, canes_count, is_cod, cod_amount}]}
+
+    Note over R,C: Doorstep Handover & Verification
+    R->>C: Arrives at address (Reads lift badge, dials phone if needed)
+    C-->>R: Shows 6-digit delivery OTP from donor app
+    R->>API: POST /v1/rider/stops/{stop_id}/complete {code, empties_collected}
+    API->>API: VendorService.pod_complete (Timing-safe HMAC OTP check, max 3 attempts)
+    API->>DB: Update stop/order status -> 'delivered', record cash collected, log jar returns
+    API-->>R: 200 OK {status: "delivered", collected_cash: ...}
+    R->>R: Update shift progress bar & mark stop card completed
+```
+
+#### Rider API Functions & Endpoints
+- `POST /v1/auth/rider/login`: `AuthService.rider_login(db, phone, name)` -> Issues bearer token.
+- `GET /v1/rider/me`: `RiderService.get_profile(rider_id)` -> Rider info.
+- `GET /v1/rider/routes/today`: `RiderService.routes_today(rider_id)` -> Today's delivery stops with addresses, lift info, quantity, COD status.
+- `POST /v1/rider/stops/{stop_id}/complete`: `RiderService.complete_stop(rider_id, stop_id, payload)` -> Validates OTP, updates order to delivered, records empty cans collected.
+- `POST /v1/rider/stops/{stop_id}/fail`: `RiderService.fail_stop(rider_id, stop_id, reason_code, note)` -> Records delivery failure reason.
+- `POST /v1/vendor/riders`: `VendorService.create_rider(...)` -> Adds new delivery rider to vendor's fleet.
+- `GET /v1/vendor/riders`: `VendorService.list_riders(...)` -> Lists active riders for vendor.
+- `POST /v1/vendor/stops/{stop_id}/assign-rider`: `VendorService.assign_rider(...)` -> Assigns a specific delivery stop to a rider.

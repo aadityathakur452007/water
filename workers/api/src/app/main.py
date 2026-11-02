@@ -27,6 +27,7 @@ from app.api.v1.quotes import router as quotes_router
 from app.api.v1.ratings import router as ratings_router
 from app.api.v1.returns import router as returns_router
 from app.api.v1.subscriptions import router as subscriptions_router
+from app.api.v1.rider import router as rider_router
 from app.api.v1.vendor import router as vendor_router
 from app.core.errors import register_exception_handlers
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/v1")
     app.include_router(payments_router, prefix="/v1")
     app.include_router(vendor_router, prefix="/v1")
+    app.include_router(rider_router, prefix="/v1")
     app.include_router(subscriptions_router, prefix="/v1")
     app.include_router(returns_router, prefix="/v1")
     app.include_router(complaints_router, prefix="/v1")
