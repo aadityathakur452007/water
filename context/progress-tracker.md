@@ -4,6 +4,23 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**DONOR APP ADDRESS REDESIGN — TAG-FIRST DELIVERY SHEET & 3-ADDRESS INDIAN NORMS (2026-11-02, ADR-186):** On branch `040-donor-address-redesign`:
+- **Tag-First Single-View Bottom Sheet (`address_screen.dart`):**
+  - Completely replaced the cumbersome 3-step `Stepper` (Pata -> Pinpoint -> Details) with a fast, keyboard-resilient single-view modal sheet.
+  - Quick-commerce tag chips: `Home`, `Work`, and `Other` (with adaptive custom label input for `Other`).
+  - Clear Indian manual delivery fields: Flat / House / Floor no., Apartment / Street / Locality, 6-digit Pincode with live background serviceability check, Landmark (optional), and Contact phone.
+  - Water logistics lift toggle: Added "Lift available in building" with helpful 20L heavy-jar guidance ("Helps delivery partners carry heavy 20L jars smoothly").
+  - Primary canonical `AppButton` ("Save delivery address") with inline field validation.
+- **Removed Map Picker & Raw GPS Coordinates:**
+  - Removed `flutter_map`, OpenStreetMap tile fetching, and geolocation permission barriers from the customer address flow. Deleted legacy `apps/user_app_donor/lib/features/addresses/map_picker.dart`.
+  - Silently defaulted `lat`/`lng` to central Bhopal (`23.2599, 77.4126`) in `toApi()`, completely fulfilling backend `_reject_null_island` schema validation without annoying the customer.
+- **Strict 3-Address Limit (Indian Quick-Commerce Norms):**
+  - Added address counter header: `SAVED DELIVERY ADDRESSES` · `X of 3 saved`.
+  - When reaching 3 saved addresses, bottom sticky CTA displays a muted informative button: `All 3 address slots used (Home, Work, Other)`, which taps to trigger an informative SnackBar prompting the customer to edit or delete existing addresses.
+- **Verification:**
+  - `apps/user_app_donor`: Flutter analyze clean (**0 issues**), tests: **122 / 122 passed** (including new tag-first sheet and 3-address limit tests in `test/address_screen_test.dart`).
+  - `apps/vendor_app`: Flutter analyze clean (**0 issues**), tests: **90 / 90 passed**.
+
 **ATOMIC VENDOR ONBOARDING & AUTH COLLISION HARDENING (2026-11-01, ADR-185):** On branch `039-vendor-onboarding-atomic-fix`:
 - **Vendor Auth Collision & D1 Resolution:** Resolved vendor 401 login issue where phone `9999999999` matched customer user `+919999999999` due to non-normalized phone storage in `/admin/vendors`. Updated D1 `shodasha` database: reassigned customer test phone and normalized vendor `7581779c...` to `+919999999999` with synchronized access codes in both `vendor_access_codes` and `access_codes`. Verified live vendor login with `9999999999` and `JJ6Z3gAFtYo6Rswi` returns 200 with active bearer session.
 - **Backend Auth & Onboarding Hardening (`admin.py`, `auth_service.py`):**

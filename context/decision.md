@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-186 | 2026-11-02 | Donor App Address Redesign — Tag-First Delivery Bottom Sheet, Map Removal, and 3-Address Indian Norms Slot Manager; removed clunky 3-step Stepper and flutter_map/OSM dependencies; human-readable manual address entry (House/Flat, Street/Locality, 6-digit Pincode with live serviceability check, Landmark, and 20L Jar Lift-Logistics toggle); enforced strict 3-address limit (Home, Work, Other) with informative slot feedback; decoupled backend GPS schema requirements by defaulting lat/lng to Bhopal center (23.2599, 77.4126); deleted legacy map_picker.dart; 122/122 donor + 90/90 vendor tests green | Accepted (implemented 2026-11-02) | apps/user_app_donor/lib/features/addresses/address_screen.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-185 | 2026-11-01 | Atomic Vendor Onboarding & Staff Auth Hardening — unified vendor registration, KYC verification, shift capacity, and 90-day access code issuance into one atomic transaction on POST /admin/vendors (auto_verify: true); added role-aware fallback in AuthService.code_login to eliminate customer/vendor phone collisions; updated add-vendor-dialog.tsx in apps/admin_app to a single atomic server call, displaying the access code immediately without 405 error; fixed WhatsApp credentials share link to /vendor/login; live D1 updated and vendor login verified | Accepted (implemented 2026-11-01) | workers/api/src/app/api/v1/admin.py, workers/api/src/app/services/auth_service.py, apps/admin_app/src/routes/(main)/dashboard/vendors/-components/add-vendor-dialog.tsx, context/{progress-tracker,flow,decision}.md |
 | ADR-184 | 2026-11-01 | Donor App UI/UX Redesign, Top Bar Declutter & Real Asset Integration — removed useless cart and redundant profile buttons from DonorTopBar; integrated brand assets (assets/logo.png, assets/20l.jpg) in top bar and featured products; unsloped quote_confirm.dart to hide raw 36-char UUID and highlight delivery window, address, amount and canonical AppButton CTA with quiet truncated 8-char ref; decluttered customer home screen; 122/122 donor and 90/90 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{home/widgets/{top_bar,featured_products}.dart,home/customer_home_screen.dart,booking/quote_confirm.dart}, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-183 | 2026-11-01 | Merge 037-uiux-unslop-audit to main — Complete UI/UX Unslop Implementation, 100% Audit Verification across Files 01–16, Release Packaging & Git Push | Accepted (merged & pushed to main) | Entire repository |
@@ -237,6 +238,35 @@
 ---
 
 ## Decision Entries
+
+### ADR-186: Donor App Address Redesign — Tag-First Delivery Bottom Sheet, Map Removal, and 3-Address Limit
+
+- **Status**: Accepted (implemented 2026-11-02)
+- **Date**: 2026-11-02
+- **Affects**: `apps/user_app_donor/lib/features/addresses/address_screen.dart`, `apps/user_app_donor/lib/features/addresses/map_picker.dart` (deleted), `apps/user_app_donor/test/address_screen_test.dart`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. The existing address adding flow in `apps/user_app_donor` relied on a clunky 3-step `Stepper` (Pata -> Pinpoint -> Details).
+  2. The interactive map picker (`flutter_map` / OpenStreetMap) and raw GPS / latitude-longitude calculations meant nothing to human customers in India and caused friction, blank tile delays, and permission friction.
+  3. Indian quick-commerce norms (Blinkit, Zepto, Swiggy Instamart) focus on manual, semantic address entry (Flat/House, Locality, Pincode, Landmark) and tag categorizations (`Home`, `Work`, `Other`).
+  4. Realistically, Indian residential delivery users do not need infinite addresses: a maximum limit of 3 saved addresses prevents address bloat and matches operational delivery profiles.
+  5. The backend API (`POST /addresses`) requires non-zero `lat`/`lng` (`_reject_null_island`).
+- **Decision**:
+  1. Followed the `redesign` skill workflow: assessed core requirements, broke legacy stepper assumptions, evaluated quick-commerce address UX, and presented two radical redesign alternatives to the user. The user approved Alternative A (tag-first single-view bottom sheet with map removed and 3-address maximum).
+  2. Rebuilt `_AddressFormSheet` as a single-view, keyboard-resilient bottom sheet:
+     - Tag chips: `Home`, `Work`, and `Other` (with optional custom label input for `Other`).
+     - Clear manual fields: Flat / House / Floor no., Apartment / Street / Locality, 6-digit Indian Pincode (with live background serviceability check), Landmark (optional), and Contact Phone.
+     - Water-logistics toggle: "Lift available in building" with explicit helper copy ("Helps delivery partners carry heavy 20L jars smoothly").
+     - Single primary `AppButton` ("Save delivery address") with clear inline validation and progress indicators.
+  3. Enforced a hard limit of 3 saved addresses:
+     - Address list displays counter (`X of 3 saved`).
+     - When 3 addresses exist, bottom sticky CTA displays a muted informative state (`All 3 address slots used (Home, Work, Other)`), tapping which informs the user via SnackBar to edit or delete an existing address.
+  4. Decoupled frontend human-first address input from backend schema validation by defaulting `lat`/`lng` silently to central Bhopal (`23.2599, 77.4126`), satisfying `_reject_null_island` without prompting or confusing the customer.
+  5. Deleted legacy `apps/user_app_donor/lib/features/addresses/map_picker.dart`.
+- **Consequences**:
+  - Positive: Rapid, zero-friction 10-second address entry. No map lag, no blank OSM tiles, no geolocation permission roadblocks.
+  - Positive: Clear water logistics communication for 20L jar heavy lifting (lift presence toggle).
+  - Positive: Clean 3-slot Indian address management with 0 clutter.
+  - Verification: `apps/user_app_donor` passes Flutter analyze (0 issues) and 122/122 tests; `apps/vendor_app` passes 90/90 tests.
 
 ### ADR-185: Atomic Vendor Onboarding & Staff Auth Hardening
 
