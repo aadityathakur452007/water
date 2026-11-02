@@ -35,6 +35,9 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-189 | 2026-11-02 | Prune Legacy / Flagship APKs & CI/CD 3-App Matrix Update — removed deprecated `apps/user_app` and `apps/user_app_legacy_flutter`; verified and configured `apps/rider_app` (Internet permission, dialer query, Java 17 / Gradle 9.1 alignment); updated `.github/workflows/ci.yml` and `.github/workflows/release.yml` to compile, test, and release exactly 3 mobile apps (`donor`, `vendor`, `rider`) under single GitHub release tag; SHA256 checksum generation updated | Accepted (implemented 2026-11-02) | `.github/workflows/{ci,release}.yml`, `apps/rider_app`, `apps/user_app` (deleted), `apps/user_app_legacy_flutter` (deleted), `context/{progress-tracker,flow,decision}.md` |
+| ADR-188 | 2026-11-02 | Delivery OTP UI Parity & SSDLC Dispatch Hardening — dedicated high-contrast Delivery OTP highlight container on DonorOrderCard and CustomerHomeScreen active delivery card; PodSheet enhanced with 5-point checklist (customer name, phone with 1-tap call, address with lift indicator, 20L cane bottle count, and OTP entry); hardened backend with login phone rate limiting (5/15m), Pydantic bounds regex, IDOR protection on stops, and atomic rider audit linking | Accepted (implemented 2026-11-02) | `apps/user_app_donor`, `apps/rider_app`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
+| ADR-187 | 2026-11-02 | Rider Mobile App & Backend Dispatch Engine — added stops.rider_id and rider auth role; created POST /auth/rider/login, GET /rider/routes/today, POST /rider/stops/{id}/complete (verifying customer 6-digit OTP via hardened VendorService.pod_complete), and vendor fleet management endpoints; built lightweight standalone Flutter apps/rider_app with login gate, shift progress, route manifest, and doorstep PodSheet; 3/3 rider tests green | Accepted (implemented 2026-11-02) | `workers/api`, `apps/rider_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-186 | 2026-11-02 | Donor App Address Redesign — Tag-First Delivery Bottom Sheet, Map Removal, and 3-Address Indian Norms Slot Manager; removed clunky 3-step Stepper and flutter_map/OSM dependencies; human-readable manual address entry (House/Flat, Street/Locality, 6-digit Pincode with live serviceability check, Landmark, and 20L Jar Lift-Logistics toggle); enforced strict 3-address limit (Home, Work, Other) with informative slot feedback; decoupled backend GPS schema requirements by defaulting lat/lng to Bhopal center (23.2599, 77.4126); deleted legacy map_picker.dart; 122/122 donor + 90/90 vendor tests green | Accepted (implemented 2026-11-02) | apps/user_app_donor/lib/features/addresses/address_screen.dart, apps/user_app_donor/test/address_screen_test.dart, context/{progress-tracker,flow,decision}.md |
 | ADR-185 | 2026-11-01 | Atomic Vendor Onboarding & Staff Auth Hardening — unified vendor registration, KYC verification, shift capacity, and 90-day access code issuance into one atomic transaction on POST /admin/vendors (auto_verify: true); added role-aware fallback in AuthService.code_login to eliminate customer/vendor phone collisions; updated add-vendor-dialog.tsx in apps/admin_app to a single atomic server call, displaying the access code immediately without 405 error; fixed WhatsApp credentials share link to /vendor/login; live D1 updated and vendor login verified | Accepted (implemented 2026-11-01) | workers/api/src/app/api/v1/admin.py, workers/api/src/app/services/auth_service.py, apps/admin_app/src/routes/(main)/dashboard/vendors/-components/add-vendor-dialog.tsx, context/{progress-tracker,flow,decision}.md |
 | ADR-184 | 2026-11-01 | Donor App UI/UX Redesign, Top Bar Declutter & Real Asset Integration — removed useless cart and redundant profile buttons from DonorTopBar; integrated brand assets (assets/logo.png, assets/20l.jpg) in top bar and featured products; unsloped quote_confirm.dart to hide raw 36-char UUID and highlight delivery window, address, amount and canonical AppButton CTA with quiet truncated 8-char ref; decluttered customer home screen; 122/122 donor and 90/90 vendor tests green | Accepted (implemented 2026-11-01) | apps/user_app_donor/lib/features/{home/widgets/{top_bar,featured_products}.dart,home/customer_home_screen.dart,booking/quote_confirm.dart}, apps/user_app_donor/test/quote_confirm_test.dart, context/{progress-tracker,flow,decision}.md |
@@ -238,6 +241,60 @@
 ---
 
 ## Decision Entries
+
+### ADR-189: Prune Legacy / Flagship APKs & CI/CD 3-App Matrix Update
+
+- **Status**: Accepted (implemented 2026-11-02)
+- **Date**: 2026-11-02
+- **Affects**: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `apps/rider_app/android/app/src/main/AndroidManifest.xml`, `apps/rider_app/test/rider_app_test.dart`, `apps/user_app` (deleted), `apps/user_app_legacy_flutter` (deleted), `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. The user requested cleaning up dead code and obsolete APK targets: removing the old flagship `apps/user_app` and `apps/user_app_legacy_flutter`.
+  2. Only 3 mobile apps should remain in the project and CI/CD pipelines: Customer (`apps/user_app_donor`), Vendor (`apps/vendor_app`), and Rider (`apps/rider_app`). (The web admin dashboard `apps/admin_app` remains untouched).
+  3. GitHub Actions (`ci.yml` and `release.yml`) must build, test, and release all 3 mobile apps, generating release APKs under a single release tag with unified SHA256 checksums.
+- **Decision**:
+  1. Deleted `apps/user_app` and `apps/user_app_legacy_flutter` completely from the repository.
+  2. Configured `apps/rider_app` Android target: added `android.permission.INTERNET`, `<queries>` for `tel:` dialer intents, and aligned gradle toolchain to AGP 9.0.1, Gradle 9.1.0, JDK 17.
+  3. Updated `.github/workflows/ci.yml` matrix with `donor`, `vendor`, and `rider`.
+  4. Updated `.github/workflows/release.yml` matrix with `donor`, `vendor`, and `rider`, outputting `shodasha-donor-${tag}.apk`, `shodasha-vendor-${tag}.apk`, and `shodasha-rider-${tag}.apk` along with `SHA256SUMS.txt`.
+- **Consequences**:
+  - CI/CD builds and verifies all 3 active mobile applications on every PR and main commit.
+  - No legacy or dead application code remains in the repository.
+
+---
+
+### ADR-188: Delivery OTP UI Parity & SSDLC Dispatch Hardening
+
+- **Status**: Accepted (implemented 2026-11-02)
+- **Date**: 2026-11-02
+- **Affects**: `apps/user_app_donor`, `apps/rider_app`, `workers/api`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. The user required verifying delivery OTP UI parity across both the customer app (so the user clearly sees and can share the OTP) and the rider app (entering the OTP, verifying customer details, phone, address, and bottle quantities).
+  2. Security audit (SSDLC) required identifying and fixing any logical flaws, brute force risks, or authorization leaks.
+- **Decision**:
+  1. Added dedicated high-contrast Delivery OTP highlight container on `DonorOrderCard` (`order_card.dart`) and `_ActiveDeliveryCard` on `CustomerHomeScreen`.
+  2. Enhanced Rider App `PodSheet` with the 5-point doorstep checklist (Customer name, direct 1-tap phone dialer, address with lift indicator, 20L cane count, 6-digit OTP input).
+  3. Hardened backend `workers/api` with mobile enumeration rate limiting (5 attempts per 15 min), Pydantic bounds regex, IDOR protection preventing cross-rider stop completions, and atomic audit logging.
+- **Consequences**:
+  - Robust delivery handover verification with complete customer transparency and strict backend authorization.
+
+---
+
+### ADR-187: Rider Mobile App & Backend Dispatch Engine
+
+- **Status**: Accepted (implemented 2026-11-02)
+- **Date**: 2026-11-02
+- **Affects**: `workers/api`, `apps/rider_app`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. Needed a dedicated, lightweight delivery partner application (`apps/rider_app`) to allow riders to view assigned routes, inspect customer delivery addresses, collect empty cans, and verify OTPs.
+  2. Required backend dispatch API endpoints supporting rider onboarding/login, route fetching, and OTP verification.
+- **Decision**:
+  1. Added `stops.rider_id` column and `rider` auth role.
+  2. Created `POST /v1/auth/rider/login`, `GET /v1/rider/routes/today`, `POST /v1/rider/stops/{stop_id}/complete`, `POST /v1/rider/stops/{stop_id}/fail`, and vendor fleet management endpoints.
+  3. Built lightweight standalone Flutter application `apps/rider_app` with high contrast, outdoor-friendly UI, and doorstep `PodSheet`.
+- **Consequences**:
+  - Full end-to-end delivery lifecycle from order placement -> vendor assignment -> rider delivery -> customer OTP verification.
+
+---
 
 ### ADR-186: Donor App Address Redesign — Tag-First Delivery Bottom Sheet, Map Removal, and 3-Address Limit
 

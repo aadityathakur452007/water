@@ -1,7 +1,8 @@
 name: ci
 
-# Fast feedback on every branch / PR, for all three apps. Never publishes a release.
-# Release builds happen only in release.yml (push to main).
+# Fast feedback on every branch / PR, for all three mobile apps:
+# user_app_donor (customer), vendor_app (agency), rider_app (delivery).
+# Never publishes a release. Release builds happen only in release.yml (push to main).
 on:
   push:
     branches-ignore:
@@ -19,24 +20,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # apps/user_app_legacy_flutter (the pre-032 customer app) is
-          # intentionally NOT in this matrix: reference-only, never built.
-          - app: user
-            dir: apps/user_app
-            label: Shodasha (customer)
-          - app: vendor
-            dir: apps/vendor_app
-            label: Shodasha Vendor (delivery)
-          # Donor is the third side-by-side APK (spec 035). Same gates as
-          # the other legs; release publishing stays in release.yml.
           - app: donor
             dir: apps/user_app_donor
-            label: Shodasha (customer parity)
+            label: Shodasha User (customer)
+          - app: vendor
+            dir: apps/vendor_app
+            label: Shodasha Vendor (agency)
+          - app: rider
+            dir: apps/rider_app
+            label: Shodasha Rider (delivery)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # AGP 9.0.1 documents JDK 17 (min + default). Both apps target
+      # AGP 9.0.1 documents JDK 17 (min + default). All apps target
       # JavaVersion.VERSION_17 (see android/app/build.gradle.kts),
       # so 17 is the tested runner for this toolchain.
       - name: Set up JDK 17
