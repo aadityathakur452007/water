@@ -208,3 +208,51 @@ def test_rider_complete_stop_success():
     assert res_today.status_code == 200
     assert res_today.json()["summary"]["delivered"] == 1
     assert res_today.json()["summary"]["pending"] == 0
+
+
+def test_rider_pod_validation_ssdlc():
+    conn = _seed_db()
+    client = _client(conn)
+    # Non-numeric OTP rejected by Pydantic validation
+    res = client.post(
+        "/v1/rider/stops/stop-1/complete",
+        headers={"Authorization": "Bearer token-rider"},
+        json={"delivery_otp": "abcd12", "empties_count": 2, "cash": 140},
+    )
+    assert res.status_code == 400
+
+
+def test_rider_cannot_complete_other_rider_stop():
+    conn = _seed_db()
+    # Explicitly assign stop-1 to a different rider 'rider-other'
+    conn.execute("UPDATE stops SET rider_id = 'rider-other' WHERE id = 'stop-1'")
+    conn.commit()
+
+    client = _client(conn)
+    # rider-1 tries to complete rider-other's stop -> 404
+    res = client.post(
+        "/v1/rider/stops/stop-1/complete",
+        headers={"Authorization": "Bearer token-rider"},
+        json={"delivery_otp": "654321", "empties_count": 2, "cash": 140},
+    )
+    assert res.status_code == 404
+    assert "Stop not found" in res.json().get("detail", "") or "Stop not found" in res.json().get("error", {}).get("message", "")
+
+
+def test_rider_completes_unassigned_links_rider():
+    conn = _seed_db()
+    # Stop-1 is unassigned (rider_id IS NULL)
+    conn.execute("UPDATE stops SET rider_id = NULL WHERE id = 'stop-1'")
+    conn.commit()
+
+    client = _client(conn)
+    res = client.post(
+        "/v1/rider/stops/stop-1/complete",
+        headers={"Authorization": "Bearer token-rider"},
+        json={"delivery_otp": "654321", "empties_count": 2, "cash": 140},
+    )
+    assert res.status_code == 200
+
+    # Verify stop is now linked to rider-1
+    row = conn.execute("SELECT rider_id FROM stops WHERE id = 'stop-1'").fetchone()
+    assert row["rider_id"] == "r1"

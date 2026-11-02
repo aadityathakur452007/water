@@ -116,16 +116,43 @@ class RiderService:
         if not vendor_id:
             raise ValidationError("Rider is not assigned to a vendor.", {})
 
+        from app.db import WRITE_LOCK
+        from app.services.dispatch_service import write_audit
+
         # Verify stop belongs to a route owned by the rider's vendor
         stop = (await self._conn.execute(
-            "SELECT s.id, r.vendor_id FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
+            "SELECT s.id, r.vendor_id, s.rider_id FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
             (stop_id,),
         )).fetchone()
         if stop is None or stop["vendor_id"] != vendor_id:
             raise NotFoundError("Stop not found.", {"stop_id": stop_id})
 
+        # Security check: If stop is explicitly assigned to another rider, reject
+        if stop["rider_id"] is not None and stop["rider_id"] != rider_id:
+            raise NotFoundError("Stop not found.", {"stop_id": stop_id})
+
         # Delegate to proven, hardened VendorService.pod_complete
         result = await self._vendor_svc.pod_complete(vendor_id, stop_id, payload)
+
+        # Audit trail: If stop was unassigned, link rider_id to this rider
+        if stop["rider_id"] is None:
+            with WRITE_LOCK:
+                await self._conn.execute(
+                    "UPDATE stops SET rider_id = ? WHERE id = ?",
+                    (rider_id, stop_id),
+                )
+                self._conn.commit()
+
+        try:
+            await write_audit(
+                self._conn,
+                actor=rider_id,
+                action="rider.complete_stop",
+                entity="stops",
+                entity_id=stop_id,
+            )
+        except Exception:
+            pass
 
         # If cash was collected and amount > 0, post cash automatically
         cash_amt = int(payload.get("cash") or 0)
@@ -142,8 +169,32 @@ class RiderService:
         }
 
     async def fail_stop(self, rider_id: str, stop_id: str, reason_code: str, note: str = "") -> dict:
+        from app.services.dispatch_service import write_audit
+
         rider = await self._get_rider(rider_id)
         vendor_id = rider.get("assigned_vendor_id")
         if not vendor_id:
             raise ValidationError("Rider is not assigned to a vendor.", {})
-        return await self._vendor_svc.fail_stop(vendor_id, stop_id, reason_code, note)
+
+        stop = (await self._conn.execute(
+            "SELECT s.id, r.vendor_id, s.rider_id FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
+            (stop_id,),
+        )).fetchone()
+        if stop is None or stop["vendor_id"] != vendor_id:
+            raise NotFoundError("Stop not found.", {"stop_id": stop_id})
+
+        if stop["rider_id"] is not None and stop["rider_id"] != rider_id:
+            raise NotFoundError("Stop not found.", {"stop_id": stop_id})
+
+        out = await self._vendor_svc.fail_stop(vendor_id, stop_id, reason_code, note)
+        try:
+            await write_audit(
+                self._conn,
+                actor=rider_id,
+                action="rider.fail_stop",
+                entity="stops",
+                entity_id=stop_id,
+            )
+        except Exception:
+            pass
+        return out

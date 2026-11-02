@@ -2782,3 +2782,36 @@
   - Positive: Clean separation of concerns between vendor operational dashboard and rider outdoor execution app.
   - Positive: Cryptographically secure OTP proof-of-delivery prevents fake delivery claims without adding mental burden to riders.
   - Verification: 3/3 rider app tests pass, 499/499 backend tests pass, 122/122 donor app tests pass, 90/90 vendor app tests pass. 0 lint/analyze issues across all repos.
+
+
+---
+
+## ADR-188: Delivery OTP UI Parity & SSDLC Dispatch Hardening
+
+- **Status**: Accepted (implemented 2026-11-02)
+- **Date**: 2026-11-02
+- **Affects**: `apps/user_app_donor/lib/features/{orders/order_card.dart,home/customer_home_screen.dart,shell/donor_shell.dart}`, `apps/rider_app/lib/features/delivery/{delivery_screen.dart,widgets/pod_sheet.dart}`, `workers/api/src/app/{api/v1/rider.py,services/rider_service.py,services/auth_service.py}`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. Customers needed immediate, effortless visibility into their 6-digit delivery OTP so they do not have to dig through multiple nested screens while the delivery partner is waiting outside.
+  2. Delivery riders needed a comprehensive, unified view in their doorstep completion sheet (`PodSheet`) showing all 5 vital attributes: Customer Name, Customer Phone (with direct dial), Full Delivery Address (with landmark and lift status), Bottle Delivery Quantity (`X × 20L Cane`), and the 6-digit OTP entry field.
+  3. Security review (SSDLC / STRIDE) identified hardening needs:
+     - Phone enumeration / brute force on `/v1/auth/rider/login`.
+     - Incomplete IDOR protection: a rider could potentially complete a stop assigned to another rider in the same vendor agency.
+     - Lack of audit trail when an unassigned pool stop is delivered.
+     - Pydantic schema missing strict regex and bounds validation on delivery OTP.
+- **Decision**:
+  1. **Customer OTP Visibility**:
+     - Rendered high-contrast Delivery OTP container directly on `DonorOrderCard` with copy: `DELIVERY OTP (SHARE WITH RIDER)`.
+     - Rendered `_ActiveDeliveryCard` on `CustomerHomeScreen` when an active order is in progress, showing status, cane summary, OTP, and 1-tap navigation to details.
+  2. **Rider Doorstep Handover UX**:
+     - Enriched `PodSheet` with customer name, phone with 1-tap `tel:` call button, full delivery address, landmark, lift availability badge, bottle count, and OTP field.
+     - Displayed customer phone number as text on `DeliveryScreen` stop cards.
+  3. **SSDLC Security Hardening**:
+     - Rate Limiting: Added `LOGIN_PHONE_LIMIT` (5 attempts / 15 min) in `AuthService.rider_login`.
+     - IDOR Prevention: Enforced in `RiderService.complete_stop` and `fail_stop` that riders cannot complete stops assigned to another rider (`stop["rider_id"] != rider_id` -> 404).
+     - Audit & Attribution: Automatically linked `stops.rider_id = rider_id` upon delivery of unassigned stops, and logged `write_audit` events.
+     - Strict Input Validation: Constrained `RiderPodIn` to `r"^\d{4,8}$"`, and clamped `empties_count` and `cash` within safe limits.
+- **Consequences**:
+  - Positive: Customer and rider experience is seamless and zero-friction at the doorstep.
+  - Positive: Complete auditability and cryptographic defense against unauthorized stop claims.
+  - Verification: 502/502 backend tests pass, 122/122 donor app tests pass, 90/90 vendor app tests pass, 3/3 rider app tests pass. 0 lint/analyze issues.

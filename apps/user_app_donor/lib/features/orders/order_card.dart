@@ -189,6 +189,66 @@ class DonorOrderCard extends StatelessWidget {
                 text: order.addressLabel,
               ),
             ],
+            if (order.deliveryOtp != null && order.deliveryOtp!.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  border: Border.all(
+                    color: ShodashaTheme.teal.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: ShodashaTheme.teal.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.key_rounded,
+                        color: ShodashaTheme.teal,
+                        size: 16,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'DELIVERY OTP (SHARE WITH RIDER)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: ShodashaTheme.tealDeep,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            order.deliveryOtp!,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: ShodashaTheme.tealDark,
+                              letterSpacing: 4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             if (_needsHelp && onSupport != null)
               Row(

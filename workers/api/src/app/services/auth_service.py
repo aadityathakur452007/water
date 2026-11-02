@@ -567,6 +567,10 @@ class AuthService:
         phone_n = normalize_phone(phone or "")
         raw_phone = (phone or "").strip()
 
+        await self._limit_checks([
+            (f"rider_login:phone:{phone_n}", *LOGIN_PHONE_LIMIT),
+        ])
+
         row = (await self._conn.execute(
             "SELECT * FROM users WHERE (phone = ? OR phone = ?) AND role = 'rider' LIMIT 1",
             (phone_n, raw_phone),

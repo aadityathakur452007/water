@@ -437,6 +437,7 @@ class _DonorShellState extends State<DonorShell> {
       onOpenCart: _openCart,
       orders: widget.orders,
       onOrderProduct: _orderProduct,
+      onOpenOrders: () => _selectTab(DonorTab.orders),
     ),
     DonorTab.orders => DonorOrdersScreen(
       controller: widget.orders,

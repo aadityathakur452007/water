@@ -34,7 +34,10 @@ class DonorHomeTab extends StatefulWidget {
     this.onOpenCart,
     this.orders,
     required this.onOrderProduct,
+    this.onOpenOrders,
   });
+
+  final VoidCallback? onOpenOrders;
 
   final ApiClient api;
   final BookingController booking;
@@ -167,6 +170,21 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                       ListenableBuilder(
                         listenable: widget.orders!,
                         builder: (context, _) {
+                          Order? activeOrder;
+                          for (final o in widget.orders!.allOrders) {
+                            if (o.state == OrderState.dispatched ||
+                                o.state == OrderState.assigned ||
+                                o.state == OrderState.placed) {
+                              activeOrder = o;
+                              break;
+                            }
+                          }
+                          if (activeOrder != null) {
+                            return _ActiveDeliveryCard(
+                              order: activeOrder,
+                              onTap: widget.onOpenOrders,
+                            );
+                          }
                           final candidate = widget.orders!.reorderCandidate;
                           if (candidate == null) return const SizedBox.shrink();
                           return Padding(
@@ -373,6 +391,157 @@ class _QuickReorderCard extends StatelessWidget {
             onPressed: onReorder,
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+class _ActiveDeliveryCard extends StatelessWidget {
+  const _ActiveDeliveryCard({
+    required this.order,
+    this.onTap,
+  });
+
+  final Order order;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOtp = order.deliveryOtp != null && order.deliveryOtp!.isNotEmpty;
+    final isDispatched = order.state == OrderState.dispatched;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.md,
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: ShodashaTheme.surface,
+          borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+          border: Border.all(
+            color: isDispatched ? ShodashaTheme.teal : ShodashaTheme.border,
+            width: isDispatched ? 1.5 : 1.0,
+          ),
+          boxShadow: ShodashaTheme.subtleCardShadow,
+        ),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: isDispatched ? ShodashaTheme.tealTint : ShodashaTheme.bg,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.local_shipping_rounded,
+                    color: isDispatched ? ShodashaTheme.teal : ShodashaTheme.muted,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'DELIVERY IN PROGRESS',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: ShodashaTheme.muted,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      Text(
+                        orderStateLabel(order.state),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: isDispatched ? ShodashaTheme.tealDark : ShodashaTheme.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.tealTint,
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  ),
+                  child: Text(
+                    order.itemSummary.isEmpty ? '20L Can' : order.itemSummary,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: ShodashaTheme.tealDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (hasOtp) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.bg,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  border: Border.all(color: ShodashaTheme.border),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.pin_rounded, color: ShodashaTheme.teal, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'DELIVERY OTP (SHARE AT DOORSTEP)',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: ShodashaTheme.muted,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          Text(
+                            order.deliveryOtp!,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: ShodashaTheme.teal,
+                              letterSpacing: 4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (onTap != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              AppButton(
+                label: 'View details & tracking',
+                kind: AppButtonKind.secondary,
+                icon: Icons.track_changes_rounded,
+                onPressed: onTap,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

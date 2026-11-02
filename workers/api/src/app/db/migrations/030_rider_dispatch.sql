@@ -5,3 +5,4 @@
 
 ALTER TABLE stops ADD COLUMN rider_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_stops_rider ON stops (rider_id, status);
+

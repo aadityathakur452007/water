@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Delivery OTP UI Parity & SSDLC Dispatch Hardening (2026-11-02, ADR-188): Surfaced 6-digit delivery OTP across all customer touchpoints in `user_app_donor` (Home tab active card, My Orders card, and Tracking screen). Enhanced Rider App `PodSheet` to present complete customer name, phone with 1-tap call, address with lift indicator, bottle count, and OTP entry. Hardened backend `workers/api` with phone brute-force rate limiting, strict Pydantic numeric validation, IDOR isolation preventing cross-rider stop completion, and atomic rider audit linking.
+
 - Rider App & OTP Delivery Dispatch Engine (2026-11-02, ADR-187): Dedicated mobile client for delivery riders (`apps/rider_app`) and backend dispatch service (`workers/api`). Riders authenticate with Name + Phone (`POST /v1/auth/rider/login`), fetch today's assigned delivery stops (`GET /v1/rider/routes/today`), and verify 6-digit customer OTP at the doorstep (`POST /v1/rider/stops/{stop_id}/complete`) which executes hardened atomic proof-of-delivery, empty jar returns tracking, and cash reconciliation via `VendorService.pod_complete`. Vendors manage and assign fleet riders (`POST /v1/vendor/riders`, `POST /v1/vendor/stops/{stop_id}/assign-rider`).
 
 - Atomic Vendor Onboarding & Staff Auth Collision Hardening (2026-11-01, ADR-185): Unified vendor creation, verification, shift capacity, and 90-day access code generation into a single atomic backend transaction on `POST /admin/vendors` (`auto_verify: true`). Added role-aware fallback in `AuthService.code_login` so vendor logins query `role = 'vendor'` rather than catching customer users with identical raw numbers. In `add-vendor-dialog.tsx`, streamlined form submission into 1 server call and immediately renders the plaintext access code card and WhatsApp credential link (`/vendor/login`).
@@ -2001,3 +2003,33 @@ sequenceDiagram
 - `POST /v1/vendor/riders`: `VendorService.create_rider(...)` -> Adds new delivery rider to vendor's fleet.
 - `GET /v1/vendor/riders`: `VendorService.list_riders(...)` -> Lists active riders for vendor.
 - `POST /v1/vendor/stops/{stop_id}/assign-rider`: `VendorService.assign_rider(...)` -> Assigns a specific delivery stop to a rider.
+
+
+### Delivery OTP Verification & Doorstep Handover (ADR-188)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Customer (user_app_donor)
+    actor R as Rider (rider_app)
+    participant API as workers/api
+    participant DB as Cloudflare D1 (SQLite)
+
+    Note over C,API: Order Dispatched & OTP Generation
+    API->>DB: Stop created with 6-digit pod_otp & pod_otp_expires_at
+    C->>API: GET /v1/orders/me
+    API-->>C: Returns order with delivery_otp, delivery_otp_state: "active"
+    C->>C: Displays OTP on Home Screen banner, Orders card, & Tracking screen
+
+    Note over R,C: Doorstep Delivery Handover
+    R->>API: GET /v1/rider/routes/today
+    API-->>R: Stops with Customer Name, Phone, Address, Lift, Quantity (20L)
+    R->>R: Opens PodSheet (views Name, Phone, Address, Lift, Bottle Count)
+    C-->>R: Shares 6-digit OTP at doorstep
+    R->>API: POST /v1/rider/stops/{stop_id}/complete {delivery_otp, empties_count, cash}
+    API->>API: Check rate limit & IDOR rider assignment
+    API->>API: Timing-safe HMAC OTP match, max 3 attempts
+    API->>DB: Atomically set stops.rider_id, order state -> 'delivered', write_audit
+    API-->>R: 200 OK {status: "delivered"}
+    R->>R: Card marked Delivered & empties tracked
+```
