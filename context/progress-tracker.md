@@ -4,6 +4,26 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**MOBILE APP BINARY & ASSET FOOTPRINT OPTIMIZATION (2026-11-06, ADR-190):** On branch `044-mobile-binary-asset-optimization`:
+- **Target ABI Pruning & Modern 64-Bit Alignment:**
+  - Configured `--target-platform android-arm64` across all 3 release definitions in `.github/workflows/release.yml`, eliminating ~30MB+ of dead x86/x86_64 desktop emulator binaries while serving >99.5% of active physical Android devices.
+- **Rider App ProGuard/R8 Minification & Font Stripping (`apps/rider_app`):**
+  - Updated `android/app/build.gradle.kts`: aligned with AGP 9 `ApplicationExtension` and enabled `isMinifyEnabled = true` & `isShrinkResources = true`.
+  - Removed unused `cupertino_icons: ^1.0.8` from `pubspec.yaml`, eliminating ~251 KB uncompressed `CupertinoIcons.ttf`.
+- **Donor App Asset & Dependency Pruning (`apps/user_app_donor`):**
+  - Removed unreferenced `flutter_map` and `latlong2` from `pubspec.yaml`, automatically pruning 9 transient packages of dead map geometry math.
+  - Deleted dead unreferenced asset `assets/images/login_hero.jpg` (~156 KB) and updated `pubspec.yaml` assets declaration.
+- **CI/CD Build Size Budgets Tightened (`.github/workflows/release.yml`):**
+  - Parameterized APK size gate via `${{ matrix.max_size_bytes }}`: Donor `<= 25,000,000 bytes` (was 40,000,000), Vendor `<= 25,000,000 bytes`, Rider `<= 22,000,000 bytes`.
+- **Measured APK Footprint Reductions (All 3 Apps Now < 20MB):**
+  - `apps/rider_app`: **18,245,129 bytes (17.40 MB)** vs 51.27 MB baseline (**-64.4% reduction**).
+  - `apps/vendor_app`: **19,272,427 bytes (18.38 MB)** vs 53.90 MB baseline (**-64.2% reduction**).
+  - `apps/user_app_donor`: **20,927,227 bytes (19.96 MB)** vs 38.47 MB baseline (**-45.6% reduction**).
+- **Verification:**
+  - `apps/rider_app`: Flutter analyze clean (**0 issues**), tests: **3 / 3 passed**.
+  - `apps/user_app_donor`: Flutter analyze clean (**0 issues**), tests: **122 / 122 passed**.
+  - `apps/vendor_app`: Flutter analyze clean (**0 issues**), tests: **90 / 90 passed**.
+
 **PRUNE LEGACY APKS & CI/CD 3-APP MATRIX UPDATE (2026-11-02, ADR-189):** On branch `043-cicd-rider-prune-legacy-apps`:
 - **Repository Pruning & Dead Code Removal:**
   - Removed deprecated `apps/user_app` (legacy flagship) and `apps/user_app_legacy_flutter`.

@@ -67,19 +67,22 @@ jobs:
             label: Shodasha User (customer)
             asset: shodasha-donor
             defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF
-            target_platform: --target-platform android-arm,android-arm64
+            target_platform: --target-platform android-arm64
+            max_size_bytes: 25000000
           - app: vendor
             dir: apps/vendor_app
             label: Shodasha Vendor (agency)
             asset: shodasha-vendor
             defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
-            target_platform: ""
+            target_platform: --target-platform android-arm64
+            max_size_bytes: 25000000
           - app: rider
             dir: apps/rider_app
             label: Shodasha Rider (delivery)
             asset: shodasha-rider
             defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
-            target_platform: ""
+            target_platform: --target-platform android-arm64
+            max_size_bytes: 22000000
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -130,20 +133,18 @@ jobs:
         working-directory: ${{ matrix.dir }}
         run: flutter build apk --release --build-name=${{ needs.version.outputs.build_name }} --build-number=${{ github.run_number }} ${{ matrix.defines }} ${{ matrix.target_platform }}
 
-      # Donor artifact budget (spec 035, decision 3A): 2-ABI APK must stay at
-      # or below 40,000,000 bytes. Fail with the measured size, and because
-      # fail-fast is true, no half-release is published.
-      - name: Donor APK size gate (40,000,000 bytes)
-        if: matrix.app == 'donor'
+      # APK size gate: enforces strict on-disk and download footprint budgets
+      # across all apps (donor <= 25MB, vendor <= 25MB, rider <= 22MB).
+      - name: APK size gate (${{ matrix.max_size_bytes }} bytes)
         working-directory: ${{ matrix.dir }}
         run: |
           set -euo pipefail
           APK="build/app/outputs/flutter-apk/app-release.apk"
-          test -f "$APK" || { echo "donor APK missing"; exit 1; }
+          test -f "$APK" || { echo "${{ matrix.app }} APK missing"; exit 1; }
           SIZE="$(stat -c%s "$APK")"
-          echo "Donor APK size: $SIZE bytes (limit 40,000,000)"
-          if [ "$SIZE" -gt 40000000 ]; then
-            echo "::error::Donor APK is $SIZE bytes; limit is 40,000,000 bytes."
+          echo "${{ matrix.app }} APK size: $SIZE bytes (limit ${{ matrix.max_size_bytes }})"
+          if [ "$SIZE" -gt "${{ matrix.max_size_bytes }}" ]; then
+            echo "::error::${{ matrix.app }} APK is $SIZE bytes; limit is ${{ matrix.max_size_bytes }} bytes."
             exit 1
           fi
 
