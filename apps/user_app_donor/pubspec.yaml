@@ -15,8 +15,6 @@ dependencies:
   http: ^1.6.0
   uuid: ^4.6.0
   url_launcher: ^6.3.2
-  flutter_map: ^8.3.2
-  latlong2: ^0.10.1
   geolocator: ^14.1.1
   geocoding: ^4.0.0
   razorpay_flutter: ^1.4.7
@@ -43,9 +41,7 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
 
-  # Real brand assets (no placeholders in shipped screens). login_hero.jpg
-  # is the donor hero image, adopted with the donor UI import.
+  # Real brand assets (no placeholders in shipped screens).
   assets:
     - assets/logo.png
     - assets/20l.jpg
-    - assets/images/
