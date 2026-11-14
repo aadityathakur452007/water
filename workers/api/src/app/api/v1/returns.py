@@ -9,13 +9,12 @@ sessions get 403, no oracle).
 from __future__ import annotations
 
 import datetime as _dt
-import sqlite3
 import uuid
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.auth_deps import get_current_user, require_active_user, require_role
+from app.api.auth_deps import get_current_user, require_role
 from app.api.deps import get_db_conn
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK

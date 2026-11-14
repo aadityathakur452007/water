@@ -29,7 +29,7 @@ ADR: `context/decision.md` ADR-191
 | Check | Result |
 |---|---|
 | `uv run pytest -q` | **512 passed, 1 skipped** |
-| `ruff check` on changed files | No new findings (4 pre-existing unused imports) |
+| `ruff check` on changed files | Clean — all checks passed |
 | `wrangler deploy --dry-run --config wrangler.ops.jsonc` | Clean |
 | `wrangler deploy --dry-run --config wrangler.admin.jsonc` | Clean |
 | `flutter analyze` (vendor) | No issues |

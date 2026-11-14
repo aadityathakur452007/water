@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
 from app.adapters.upi import get_provider
-from app.api.auth_deps import get_current_user, require_active_user, require_role
+from app.api.auth_deps import get_current_user, require_role
 from app.api.deps import get_db_conn
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo

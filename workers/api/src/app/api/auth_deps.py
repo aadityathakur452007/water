@@ -20,7 +20,6 @@ from fastapi import Depends, HTTPException, Request
 
 from app.api.deps import get_db_conn
 from app.repositories.session_repo import SessionRepo
-from app.repositories.user_repo import UserRepo
 
 # 045: per-isolate session memo. One `sessions JOIN users` read currently runs
 # on EVERY authenticated request; at 10 ms CPU that lookup is a large share of
