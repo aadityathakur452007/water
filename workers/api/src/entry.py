@@ -1,4 +1,4 @@
-"""Cloudflare Workers entrypoint — production only.
+"""Cloudflare Workers entrypoint — customer surface (`water`) + cron.
 
 Local dev and pytest keep using ``app.main:create_app()`` on uvicorn +
 sqlite, untouched. Shape mirrors the official FastAPI + cron examples
@@ -12,9 +12,9 @@ import gc
 from workers import WorkerEntrypoint
 
 from app.core.worker_env import set_worker_env
-from app.main import create_app
+from app.factory import create_app
 
-app = create_app()
+app = create_app("customer")
 
 
 class Default(WorkerEntrypoint):

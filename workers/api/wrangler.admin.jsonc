@@ -1,0 +1,41 @@
+{
+	// Admin Worker (045 worker split). Same codebase and D1 as `water`; only
+	// the mounted surface differs (src/entry_admin.py).
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "water-admin",
+	"main": "src/entry_admin.py",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": [
+		"python_workers",
+		"python_dedicated_snapshot"
+	],
+	"d1_databases": [
+		{
+			// Same database as wrangler.jsonc / wrangler.ops.jsonc.
+			// Change all three configs together (id drifts = wrong DB).
+			"binding": "DB",
+			"database_name": "shodasha",
+			"database_id": "da762aad-1d5c-46eb-992e-acc79505cc95",
+			"migrations_dir": "src/app/db/migrations"
+		}
+	],
+	"vars": {
+		// Admin login uses the D1 access_codes table; no money/OTP secrets.
+		"APP_ENV": "prod",
+		"FIREBASE_PROJECT_ID": "water-delivery-system-26"
+	},
+	// No triggers block on purpose: cron runs only on `water`.
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": true,
+			"persist": true
+		},
+		"traces": {
+			"enabled": false,
+			"head_sampling_rate": 1,
+			"persist": true
+		}
+	}
+}

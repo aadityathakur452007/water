@@ -4,6 +4,19 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**WORKER SPLIT — IMPLEMENTED, NEW WORKERS DEPLOYED (2026-11-14, ADR-191):** branch `045-worker-split-surfaces`
+- **Status:** backend split + client wiring done and verified. `water-ops` and `water-admin` are live. `water` still runs the old all-routes build; cutover step 5 (customer-only `water`) waits for APK redistribution + admin app redeploy.
+- **Spec / results:** `Feature_docs/worker-split/spec.md` (approved design) and `Feature_docs/worker-split/results.md` (deploy IDs, smoke results, remaining steps).
+- **Surfaces:** `water` = customer + Razorpay webhook + cron; `water-ops` = vendor + rider + returns pickup; `water-admin` = `/v1/admin/*` + admin login + refund writes. `/health` and shared auth on all three. Paths and D1 schema unchanged.
+- **Factory / entries:** `app/factory.py::create_app("all"|"customer"|"ops"|"admin")`; `app/main.py` is a shim; `entry.py` uses `"customer"`, new `entry_ops.py` / `entry_admin.py` use `"ops"` / `"admin"`. Only `water` has `scheduled()` and `triggers.crons`.
+- **Caching:** 10 s per-isolate session memo for user/vendor/rider (admin never cached, logout evicts, `AUTH_SESSION_CACHE_TTL_S=0` disables); 300 s memo for catalog/windows/serviceability. Tests default the session TTL to 0.
+- **Configs / scripts:** `wrangler.ops.jsonc` + `wrangler.admin.jsonc` (same D1 `da762aad-1d5c-46eb-992e-acc79505cc95`, no cron); `npm run deploy:ops` / `deploy:admin`.
+- **Clients:** admin `wrangler.jsonc` bindings `WATER_API` → `water-admin`, `OPS_API` → `water-ops`; build vars `API_URL` + `OPS_API_URL`; vendor portal moved to ops binding/URL. Vendor/rider Flutter defaults and `release.yml` point at `https://water-ops.adityathakur452007.workers.dev` (rider CI double-`/v1` fixed).
+- **Verification:** `uv run pytest -q` → 512 passed, 1 skipped; new `tests/test_surfaces.py` + `tests/test_caching_045.py`; `wrangler deploy --dry-run` clean for both configs; `flutter analyze` clean (vendor, rider); live smoke — `/health` 200 on both new hosts, wrong-surface paths 404, auth paths 400/401.
+- **Live deploy IDs:** `water-ops` `732212ef-7525-488e-8feb-c35dc87afcd6`; `water-admin` `adf32d10-2c7b-4f79-9a49-a35b9bc793e2`.
+- **Remaining cutover:** rebuild/distribute vendor + rider APKs, redeploy admin app with new bindings/build vars, then deploy `water` as customer-only; probe 404 isolation and measure `exceededCpu` / D1 rows read / 5xx for 24–72 h.
+- **Rollback:** deploy `water` with `create_app("all")` again — no data or schema change to reverse.
+
 **MOBILE APP BINARY & ASSET FOOTPRINT OPTIMIZATION (2026-11-06, ADR-190):** On branch `044-mobile-binary-asset-optimization`:
 - **Target ABI Pruning & Modern 64-Bit Alignment:**
   - Configured `--target-platform android-arm64` across all 3 release definitions in `.github/workflows/release.yml`, eliminating ~30MB+ of dead x86/x86_64 desktop emulator binaries while serving >99.5% of active physical Android devices.

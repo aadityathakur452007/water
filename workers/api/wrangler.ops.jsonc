@@ -1,0 +1,43 @@
+{
+	// Vendor + rider Worker (045 worker split). Same codebase and D1 as
+	// `water`; only the mounted surface differs (src/entry_ops.py).
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "water-ops",
+	"main": "src/entry_ops.py",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": [
+		"python_workers",
+		"python_dedicated_snapshot"
+	],
+	"d1_databases": [
+		{
+			// Same database as wrangler.jsonc / wrangler.admin.jsonc.
+			// Change all three configs together (id drifts = wrong DB).
+			"binding": "DB",
+			"database_name": "shodasha",
+			"database_id": "da762aad-1d5c-46eb-992e-acc79505cc95",
+			"migrations_dir": "src/app/db/migrations"
+		}
+	],
+	"vars": {
+		// No money/OTP secrets on this Worker: vendor + rider login use the
+		// D1 access_codes table. FIREBASE_PROJECT_ID stays because AuthService
+		// is constructed with the verifier dependency.
+		"APP_ENV": "prod",
+		"FIREBASE_PROJECT_ID": "water-delivery-system-26"
+	},
+	// No triggers block on purpose: cron runs only on `water`.
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": true,
+			"persist": true
+		},
+		"traces": {
+			"enabled": false,
+			"head_sampling_rate": 1,
+			"persist": true
+		}
+	}
+}

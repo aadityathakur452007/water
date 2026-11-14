@@ -4,7 +4,11 @@
 	"private": true,
 	"scripts": {
 		"deploy": "uv run pywrangler deploy",
+		"deploy:ops": "uv run pywrangler deploy --config wrangler.ops.jsonc",
+		"deploy:admin": "uv run pywrangler deploy --config wrangler.admin.jsonc",
 		"dev": "uv run pywrangler dev",
+		"dev:ops": "uv run pywrangler dev --config wrangler.ops.jsonc",
+		"dev:admin": "uv run pywrangler dev --config wrangler.admin.jsonc",
 		"start": "uv run pywrangler dev"
 	},
 	"devDependencies": {

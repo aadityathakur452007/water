@@ -23,6 +23,10 @@ from app.repositories.ledger_repo import LedgerRepo
 
 router = APIRouter(tags=["returns"])
 
+# 045: vendor pickup is an ops-surface route. Same path, mounted only by the
+# vendor+rider Worker so the customer bundle does not carry vendor writes.
+ops_router = APIRouter(tags=["returns"])
+
 _vendor = require_role("vendor")
 
 # Module-level so tests can override this exact dep (same pattern as
@@ -108,7 +112,7 @@ class PickupIn(BaseModel):
     caps_missing: int = Field(ge=0, default=0)
 
 
-@router.post("/returns/{return_id}/pickup")
+@ops_router.post("/returns/{return_id}/pickup")
 async def pickup_return(return_id: str, payload: PickupIn,
                   conn=Depends(get_db_conn), user=Depends(_vendor)):
     """F8: vendor collects empties for a return on their own route.

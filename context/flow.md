@@ -12,6 +12,8 @@
 
 ## Overview
 
+- Worker Split — `water` / `water-ops` / `water-admin` (2026-11-14, ADR-191): The single Python Worker `water` is split into three Workers that share one D1 database (`shodasha`). `app/factory.py::create_app(surface)` mounts only the routers a surface owns: `water` = customer app routes + Razorpay webhook + the `*/15` cron, `water-ops` = vendor + rider routes and return pickup, `water-admin` = all `/v1/admin/*` routes plus the three admin refund writes. `/health` and shared auth (`refresh`/`logout`/`me`) are mounted on all three. Route paths and D1 schema are unchanged; wrong-surface requests now 404. Per-isolate memos cut D1 traffic: 10 s session lookup cache for user/vendor/rider (admin never cached, logout evicts) and 300 s catalog/windows/serviceability cache. Admin BFF uses `WATER_API` → `water-admin` and new `OPS_API` → `water-ops`; vendor/rider APK defaults and CI point at `water-ops`. 512 tests pass; both new Workers are deployed, `water` stays all-routes until APKs/admin are moved.
+
 - Mobile App Binary & Asset Footprint Optimization (2026-11-06, ADR-190): Dramatically reduced APK download and on-disk install footprints across all three Flutter mobile applications (`apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`) to strictly under 20MB. Configured `--target-platform android-arm64` across all 3 release definitions in `.github/workflows/release.yml`, eliminating ~30MB+ of unused x86 desktop emulator binaries while serving >99.5% of modern Indian physical devices. Configured R8 minification and resource shrinking in `apps/rider_app`, removed dead `cupertino_icons` font asset, purged unreferenced `flutter_map` / `latlong2` dependencies and 7 transient math packages from `apps/user_app_donor`, and deleted dead `login_hero.jpg` asset. Tightened release size budgets in `release.yml` (Donor <= 25MB, Vendor <= 25MB, Rider <= 22MB). Verification: 100% tests green across all 3 apps, 0 analyze issues.
 
 - Prune Legacy / Flagship APKs & CI/CD 3-App Matrix Update (2026-11-02, ADR-189): Deprecated and purged `apps/user_app` and `apps/user_app_legacy_flutter`. Repository now maintains exactly 3 mobile applications: Customer (`apps/user_app_donor`), Vendor (`apps/vendor_app`), and Rider (`apps/rider_app`), plus web admin dashboard (`apps/admin_app`). GitHub Actions CI (`ci.yml`) and Release (`release.yml`) build matrices updated to compile, test, and release all three mobile apps under unified multi-asset releases (`shodasha-donor`, `shodasha-vendor`, `shodasha-rider`) with SHA256 checksums.
@@ -207,6 +209,25 @@ graph TD
     E --> API
     API --> DB
 ```
+
+### Worker surfaces (ADR-191)
+
+```mermaid
+graph LR
+    Donor[Flutter donor app] --> W[water<br/>customer + cron]
+    Vendor[Flutter vendor app] --> O[water-ops<br/>vendor + rider]
+    Rider[Flutter rider app] --> O
+    AdminWeb[Admin web BFF] -->|WATER_API binding| A[water-admin<br/>admin]
+    AdminWeb -->|OPS_API binding| O
+    W --> D1[(D1 shodasha)]
+    O --> D1
+    A --> D1
+```
+
+- `create_app("all")` still mounts the union for local uvicorn / pytest; Worker entrypoints call `create_app("customer" | "ops" | "admin")` from `app.factory` (never `app.main`).
+- Only `water` (`src/entry.py`) defines `scheduled()` and has `triggers.crons`; `wrangler.ops.jsonc` / `wrangler.admin.jsonc` have no cron, so subscription/reminder jobs cannot double-run.
+- Router split is inside existing files: `auth.py` exposes `shared_router` / `customer_router` / `ops_router` / `admin_router` plus the aggregate `router`; `payments.py` exposes `router` + `admin_router`; `returns.py` exposes `router` + `ops_router`.
+- Deploy: `npm run deploy` (water), `npm run deploy:ops`, `npm run deploy:admin`; migrations only through `wrangler.jsonc` / `water`.
 
 ---
 

@@ -360,13 +360,14 @@ def _client(c, user="u1", role="user"):
 
     from app.api.auth_deps import get_current_user
     from app.api.deps import get_db_conn
-    from app.api.v1.payments import router
+    from app.api.v1.payments import admin_router, router
     from app.core.errors import register_exception_handlers
     from app.db_d1 import AsyncSqliteConn
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
+    app.include_router(admin_router, prefix="/v1")  # 045: refunds are admin-surface
     app.dependency_overrides[get_db_conn] = lambda: AsyncSqliteConn(c)
     app.dependency_overrides[get_current_user] = lambda: {
         "id": user, "role": role, "phone": "+919000000000", "suspended": False,
