@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie, setCookie } from "@tanstack/react-start/server";
 
-import { callWorkerPublic } from "./admin-api";
+import { callOpsPublic } from "./admin-api";
 import { ACCESS_COOKIE_MAX_AGE, COOKIE_FLAGS, REFRESH_COOKIE_MAX_AGE } from "./admin-session";
 
 /**
@@ -34,7 +34,7 @@ export const loginVendorVerifyServer = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<VendorLoginResult> => {
     let res: Response;
     try {
-      res = await callWorkerPublic("/v1/auth/vendor/login", {
+      res = await callOpsPublic("/v1/auth/vendor/login", {
         phone: data.phone,
         code: data.code,
         device: { id: VENDOR_WEB_DEVICE },
@@ -91,7 +91,7 @@ export const refreshVendorSessionServer = createServerFn({ method: "POST" }).han
 
     activeVendorRefreshPromise = (async () => {
       try {
-        const res = await callWorkerPublic("/v1/auth/refresh", {
+        const res = await callOpsPublic("/v1/auth/refresh", {
           refresh_token,
           device: { id: VENDOR_WEB_DEVICE },
         });
@@ -118,7 +118,7 @@ export const refreshVendorSessionServer = createServerFn({ method: "POST" }).han
 export const logoutVendorServer = createServerFn({ method: "POST" }).handler(async () => {
   const access = getVendorSessionToken();
   if (access) {
-    await callWorkerPublic("/v1/auth/logout", {}, { authorization: `Bearer ${access}` }).catch(() => undefined);
+    await callOpsPublic("/v1/auth/logout", {}, { authorization: `Bearer ${access}` }).catch(() => undefined);
   }
   setCookie(VENDOR_SESSION_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });
   setCookie(VENDOR_REFRESH_COOKIE, "", { ...COOKIE_FLAGS, maxAge: 0 });

@@ -73,14 +73,15 @@ jobs:
             dir: apps/vendor_app
             label: Shodasha Vendor (agency)
             asset: shodasha-vendor
-            defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
+            defines: --dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev/v1
             target_platform: --target-platform android-arm64
             max_size_bytes: 25000000
           - app: rider
             dir: apps/rider_app
             label: Shodasha Rider (delivery)
             asset: shodasha-rider
-            defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1
+            # Rider paths already include /v1 (rider api_client.dart) — host only.
+            defines: --dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev
             target_platform: --target-platform android-arm64
             max_size_bytes: 22000000
     steps:

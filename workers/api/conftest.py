@@ -16,11 +16,18 @@ if str(SRC) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
-def _reset_schema_caches():
-    """Schema probes are per-isolate caches; each test builds its own DB."""
+def _reset_schema_caches(monkeypatch):
+    """Schema probes and TTL memos are per-isolate caches; each test builds its own DB."""
+    from app.api.auth_deps import reset_session_cache
+    from app.core import memo
     from app.db_schema import reset_schema_cache
     from app.services.subscription_service import reset_billing_mode_cache
 
+    # Tests keep the pre-045 zero-staleness behavior by default; the session
+    # cache test opts back in with its own TTL.
+    monkeypatch.setenv("AUTH_SESSION_CACHE_TTL_S", "0")
     reset_schema_cache()
     reset_billing_mode_cache()
+    reset_session_cache()
+    memo.clear()
     yield

@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
 import { bindingFetch } from "./admin-api";
-import { apiUrl, storeRotatedSessionServer } from "./admin-session";
+import { opsApiUrl, storeRotatedSessionServer } from "./admin-session";
 import { refreshVendorSessionServer } from "./vendor-session";
 
 /**
@@ -59,12 +59,12 @@ async function vendorWorkerFetch(
     signal: AbortSignal.timeout(15_000),
   };
   if (method !== "GET") init.body = JSON.stringify(body ?? {});
-  const viaBinding = await bindingFetch(path, init);
+  const viaBinding = await bindingFetch(path, init, "OPS_API");
   if (viaBinding) {
-    console.log(`[vendor-api] ${method} ${path} via WATER_API binding`);
+    console.log(`[vendor-api] ${method} ${path} via OPS_API binding`);
     return viaBinding;
   }
-  return fetch(`${apiUrl()}${path}`, init);
+  return fetch(`${opsApiUrl()}${path}`, init);
 }
 
 function parseEnvelope<T>(raw: string, fallback: T): T | WorkerErrorShape {

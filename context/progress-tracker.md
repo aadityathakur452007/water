@@ -4,6 +4,47 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**ANTI-FRAUD HARDENING, 4-DIGIT OTP, RIDER NAVIGATION, VENDOR RIDERS & DIRECT USER-VENDOR ASSIGNMENT (2026-11-15, ADR-192):** branch `045-worker-split-surfaces`
+- **Delivery OTP Ease-of-Use (4 Digits):**
+  - Updated OTP minting in `workers/api/src/app/services/delivery_code.py` to 4 digits (`secrets.randbelow(10_000):04d`).
+  - Updated `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart` to 4-digit input layout (`maxLength: 4`), hint `• • • •`, and 4-digit validation error.
+  - Aligned all backend unit test assertions in `test_orders.py`, `test_phase01_split2.py`, and `test_phase02_splita.py`.
+- **Customer Phone Masking & Poaching Protection:**
+  - Added `mask_phone()` in `workers/api/src/app/services/rider_service.py` to mask raw mobile numbers (e.g. `+91 99*** **759`) on `GET /v1/rider/routes/today`.
+  - Updated `apps/rider_app/lib/features/delivery/delivery_screen.dart` and `pod_sheet.dart` to display masked phone numbers and route in-app dialer clicks to virtual dispatch bridge (`07554300000`).
+- **Rider Drop Location Navigation:**
+  - Added 1-tap `Navigate` button on stop cards in `apps/rider_app/lib/features/delivery/delivery_screen.dart` opening Google Maps search directly with customer drop address.
+- **Direct User-to-Vendor Assignment (Admin Dashboard):**
+  - Added `POST /v1/admin/users/{user_id}/assign-vendor` in `workers/api/src/app/api/v1/admin.py` with vendor role validation, audit logging, and persistence to `users.assigned_vendor_id`.
+  - Updated `AdminReadRepo` in `workers/api/src/app/repositories/admin_read_repo.py` to query `assigned_vendor_id` and `assigned_vendor_name`.
+  - Extended `apps/admin_app`: updated types in `admin-types.ts`, added "Assigned Vendor" column and "Assign vendor" row action in `users-columns.tsx`, added `AssignVendorDialog` in `users.tsx`, and added "Assign Vendor" action button on user detail view in `user-detail.tsx`.
+- **Vendor Fleet Rider Management (`apps/vendor_app`):**
+  - Added API client methods (`listRiders`, `createRider`, `assignStopRider`) in `apps/vendor_app/lib/core/api_client.dart`.
+  - Built dedicated `RidersScreen` in `apps/vendor_app/lib/features/riders/riders_screen.dart` displaying fleet riders, simple mobile-only credentials, and modal dialog to register new riders.
+  - Linked `Delivery Riders` tile in "More Tools" hub (`more_hub_screen.dart` & `vendor_shell.dart`).
+- **Cloudflare D1 Remote Database Purge:**
+  - Created `workers/api/scripts/reset_d1_keep_admin_only.sql` and executed against remote D1 database `shodasha`.
+  - Cleaned all orders, stops, routes, payments, ledger, subscriptions, addresses, sessions, vendors, and non-admin users, keeping only verified admin account `+917828442476` (`id: 1a276f3033644bc496e31f115c5950f2`).
+- **Verification:**
+  - Backend tests: `513 passed, 1 skipped` (`uv run pytest -q` in `workers/api`).
+  - Rider app: `3 / 3 passed`, `flutter analyze` 0 issues.
+  - Vendor app: `90 / 90 passed`, `flutter analyze` 0 issues.
+  - Donor app: `122 / 122 passed`.
+  - Admin app: Biome and TypeScript clean on all modified users route files.
+
+**WORKER SPLIT — IMPLEMENTED, NEW WORKERS DEPLOYED (2026-11-14, ADR-191):** branch `045-worker-split-surfaces`
+- **Status:** backend split + client wiring done and verified. `water-ops` and `water-admin` are live. `water` still runs the old all-routes build; cutover step 5 (customer-only `water`) waits for APK redistribution + admin app redeploy.
+- **Spec / results:** `Feature_docs/worker-split/spec.md` (approved design) and `Feature_docs/worker-split/results.md` (deploy IDs, smoke results, remaining steps).
+- **Surfaces:** `water` = customer + Razorpay webhook + cron; `water-ops` = vendor + rider + returns pickup; `water-admin` = `/v1/admin/*` + admin login + refund writes. `/health` and shared auth on all three. Paths and D1 schema unchanged.
+- **Factory / entries:** `app/factory.py::create_app("all"|"customer"|"ops"|"admin")`; `app/main.py` is a shim; `entry.py` uses `"customer"`, new `entry_ops.py` / `entry_admin.py` use `"ops"` / `"admin"`. Only `water` has `scheduled()` and `triggers.crons`.
+- **Caching:** 10 s per-isolate session memo for user/vendor/rider (admin never cached, logout evicts, `AUTH_SESSION_CACHE_TTL_S=0` disables); 300 s memo for catalog/windows/serviceability. Tests default the session TTL to 0.
+- **Configs / scripts:** `wrangler.ops.jsonc` + `wrangler.admin.jsonc` (same D1 `da762aad-1d5c-46eb-992e-acc79505cc95`, no cron); `npm run deploy:ops` / `deploy:admin`.
+- **Clients:** admin `wrangler.jsonc` bindings `WATER_API` → `water-admin`, `OPS_API` → `water-ops`; build vars `API_URL` + `OPS_API_URL`; vendor portal moved to ops binding/URL. Vendor/rider Flutter defaults and `release.yml` point at `https://water-ops.adityathakur452007.workers.dev` (rider CI double-`/v1` fixed).
+- **Verification:** `uv run pytest -q` → 512 passed, 1 skipped; new `tests/test_surfaces.py` + `tests/test_caching_045.py`; `ruff` clean on all changed Python files; vendor tests 90/90, rider tests 3/3; `wrangler deploy --dry-run` clean for both configs; `flutter analyze` clean (vendor, rider); live smoke — `/health` 200 on both new hosts, wrong-surface paths 404, auth paths 400/401.
+- **Live deploy IDs:** `water-ops` `732212ef-7525-488e-8feb-c35dc87afcd6`; `water-admin` `adf32d10-2c7b-4f79-9a49-a35b9bc793e2`.
+- **Remaining cutover:** rebuild/distribute vendor + rider APKs, redeploy admin app with new bindings/build vars, then deploy `water` as customer-only; probe 404 isolation and measure `exceededCpu` / D1 rows read / 5xx for 24–72 h.
+- **Rollback:** deploy `water` with `create_app("all")` again — no data or schema change to reverse.
+
 **MOBILE APP BINARY & ASSET FOOTPRINT OPTIMIZATION (2026-11-06, ADR-190):** On branch `044-mobile-binary-asset-optimization`:
 - **Target ABI Pruning & Modern 64-Bit Alignment:**
   - Configured `--target-platform android-arm64` across all 3 release definitions in `.github/workflows/release.yml`, eliminating ~30MB+ of dead x86/x86_64 desktop emulator binaries while serving >99.5% of active physical Android devices.

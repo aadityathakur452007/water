@@ -266,3 +266,36 @@ def test_payments_refunds_ledger_pages_and_cursor():
     body = client.get("/v1/admin/ledger").json()
     assert body["data"][0]["customer_id"] == "u1"
     assert body["data"][0]["held"] == 1
+
+
+def test_admin_assign_user_to_vendor():
+    c = _conn()
+    _seed_base(c)
+    # Ensure assigned_vendor_id column exists
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN assigned_vendor_id TEXT")
+        c.commit()
+    except Exception:
+        pass
+    client = _client(c)
+    # Assign u1 to vendor v1
+    res = client.post("/v1/admin/users/u1/assign-vendor", json={"vendor_id": "v1"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["assigned_vendor_id"] == "v1"
+
+    row = c.execute("SELECT assigned_vendor_id FROM users WHERE id = 'u1'").fetchone()
+    assert row["assigned_vendor_id"] == "v1"
+
+    # Verify user detail reflects assignment
+    detail = client.get("/v1/admin/users/u1/detail").json()
+    assert detail["user"]["assigned_vendor_id"] == "v1"
+
+    # Unassign
+    res_unassign = client.post("/v1/admin/users/u1/assign-vendor", json={"vendor_id": None})
+    assert res_unassign.status_code == 200
+    assert res_unassign.json()["assigned_vendor_id"] is None
+    row2 = c.execute("SELECT assigned_vendor_id FROM users WHERE id = 'u1'").fetchone()
+    assert row2["assigned_vendor_id"] is None
+

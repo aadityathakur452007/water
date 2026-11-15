@@ -35,6 +35,8 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-192 | 2026-11-15 | Anti-Fraud Hardening, 4-Digit Delivery OTP, Rider Drop Navigation & Masked Calling, Vendor Fleet Hub, Admin Direct User-Vendor Assignment & D1 Reset to Admin-Only — updated delivery OTP minting to 4 digits for doorstep ease-of-use (`workers/api/src/app/services/delivery_code.py`); masked customer phone numbers across rider routes API and mobile views to eliminate customer poaching; added 1-tap Google Maps drop location navigation on rider stop cards; built dedicated RidersScreen in vendor_app for managing fleet delivery riders with mobile-only credentials; added direct customer-to-vendor assignment endpoint `POST /v1/admin/users/{user_id}/assign-vendor` and web UI in admin_app (table row action and user-detail); purged remote D1 `shodasha` database leaving ONLY the active admin account (+917828442476); 513 backend tests, 90 vendor tests, 122 donor tests, and 3 rider tests pass | Accepted (implemented 2026-11-15) | `workers/api`, `apps/rider_app`, `apps/vendor_app`, `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
+| ADR-191 | 2026-11-14 | Worker Split — three Python Workers on one D1: `water` (customer + cron), `water-ops` (vendor + rider), `water-admin` (admin); surface-aware `create_app(surface)` factory mounts only owned routers so wrong-surface requests 404; split auth/payments/returns routers (aggregate router kept for tests); per-isolate 10 s session memo for user/vendor/rider (admin never cached) + 300 s memo for catalog/windows/serviceability; ops/admin configs have no cron; admin BFF gains `OPS_API` binding and vendor portal talks to `water-ops`; vendor/rider defaults + CI point at `water-ops`; 512 tests pass, both new Workers deployed and smoke-tested (wrong-surface 404 verified) | Accepted (implemented, cutover step 5 pending 2026-11-14) | `workers/api/src/app/{factory,main}.py`, `workers/api/src/app/api/{auth_deps.py,v1/{auth,payments,returns,catalog}.py}`, `workers/api/src/{entry,entry_ops,entry_admin}.py`, `workers/api/{wrangler,wrangler.ops,wrangler.admin}.jsonc`, `apps/admin_app`, `apps/{vendor_app,rider_app}`, `.github/workflows/release.yml`, `Feature_docs/worker-split/`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-190 | 2026-11-06 | Mobile App Binary & Asset Footprint Optimization (Rider, Vendor & Donor) — configured `--target-platform android-arm64` across all 3 release targets in `.github/workflows/release.yml`; enabled R8 minification and resource shrinking (`isMinifyEnabled = true`, `isShrinkResources = true`) in `apps/rider_app`; removed unused `cupertino_icons` from Rider app; pruned unreferenced `flutter_map`, `latlong2` and 7 transient math packages from Donor app; deleted dead unreferenced `login_hero.jpg` asset; tightened CI/CD size budgets (Donor <= 25MB, Vendor <= 25MB, Rider <= 22MB); all 3 APKs reduced under 20MB (Rider: 17.4MB, Vendor: 18.4MB, Donor: 19.96MB); 100% test pass rate | Accepted (implemented 2026-11-06) | `.github/workflows/release.yml`, `apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-189 | 2026-11-02 | Prune Legacy / Flagship APKs & CI/CD 3-App Matrix Update — removed deprecated `apps/user_app` and `apps/user_app_legacy_flutter`; verified and configured `apps/rider_app` (Internet permission, dialer query, Java 17 / Gradle 9.1 alignment); updated `.github/workflows/ci.yml` and `.github/workflows/release.yml` to compile, test, and release exactly 3 mobile apps (`donor`, `vendor`, `rider`) under single GitHub release tag; SHA256 checksum generation updated | Accepted (implemented 2026-11-02) | `.github/workflows/{ci,release}.yml`, `apps/rider_app`, `apps/user_app` (deleted), `apps/user_app_legacy_flutter` (deleted), `context/{progress-tracker,flow,decision}.md` |
 | ADR-188 | 2026-11-02 | Delivery OTP UI Parity & SSDLC Dispatch Hardening — dedicated high-contrast Delivery OTP highlight container on DonorOrderCard and CustomerHomeScreen active delivery card; PodSheet enhanced with 5-point checklist (customer name, phone with 1-tap call, address with lift indicator, 20L cane bottle count, and OTP entry); hardened backend with login phone rate limiting (5/15m), Pydantic bounds regex, IDOR protection on stops, and atomic rider audit linking | Accepted (implemented 2026-11-02) | `apps/user_app_donor`, `apps/rider_app`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
@@ -242,6 +244,71 @@
 ---
 
 ## Decision Entries
+
+### ADR-192: Anti-Fraud Hardening, 4-Digit Delivery OTP, Rider Navigation, Vendor Riders Screen, Direct User-Vendor Assignment & D1 Database Reset
+
+- **Status**: Accepted (implemented 2026-11-15)
+- **Date**: 2026-11-15
+- **Affects**: `workers/api/src/app/services/{delivery_code.py,rider_service.py}`, `workers/api/src/app/api/v1/admin.py`, `workers/api/src/app/repositories/admin_read_repo.py`, `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart`, `apps/rider_app/lib/features/delivery/delivery_screen.dart`, `apps/vendor_app/lib/core/api_client.dart`, `apps/vendor_app/lib/features/riders/riders_screen.dart`, `apps/vendor_app/lib/features/shell/{more_hub_screen.dart,vendor_shell.dart}`, `apps/admin_app/src/lib/admin-types.ts`, `apps/admin_app/src/routes/(main)/dashboard/users/*`, `workers/api/scripts/reset_d1_keep_admin_only.sql`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. For ₹25/jar water delivery, off-platform fraud risks (customer poaching by vendors, fake delivery claims, billing manipulation) required hard technical locks across the apps and platform:
+     - Delivery OTP: 4-digit code (requested by user for ease of use) must be verified at doorstep before an order can be marked complete.
+     - Customer Phone Masking: Vendor and rider must never see raw customer mobile numbers; phone numbers must be masked (e.g. `+91 99*** **759`) and calling routed through a virtual dispatch bridge to prevent vendors from bypassing the platform.
+     - Drop Navigation: Riders need one-tap turn-by-turn navigation directly to customer drop addresses from stop cards.
+     - Direct User-to-Vendor Assignment: In admin dashboard, admin should be able to directly assign any customer to a trusted vendor (stored on `users.assigned_vendor_id`), so future orders auto-route without requiring order-history analysis.
+     - Vendor Fleet Management: Vendor app needs a dedicated UI to view fleet riders, add riders by name and phone, and show phone-based login instructions.
+     - D1 Remote Database Reset: Clean remote Cloudflare D1 `shodasha` database completely, keeping only the single verified admin account (`+917828442476`).
+- **Options considered**:
+  1. *Delivery OTP Length*: 6-digit vs 4-digit. 6-digit is standard banking OTP, but user explicitly specified 4-digit for quick doorstep handover convenience in low-connectivity water delivery contexts.
+  2. *User-Vendor Assignment Storage*: Dedicated routing table vs `users.assigned_vendor_id`. A direct column on `users` is already checked by `DispatchService.auto_assign_trusted_vendor`, creating zero schema overhead while immediately automating dispatch routing.
+  3. *Phone Masking*: In-app telephony SDK vs backend-masked string with virtual IVR dispatch number fallback. Backend masking prevents leaking raw PII in network requests; virtual bridge prevents rider-to-customer direct number discovery.
+- **Decision**:
+  1. Delivery OTP: Updated minting in `workers/api/src/app/services/delivery_code.py` to `4` digits (`secrets.randbelow(10_000)`). Updated `pod_sheet.dart` in `rider_app` with 4-box layout and 4-digit validation.
+  2. Customer Phone Masking: Added `mask_phone()` in `rider_service.py` to mask customer phone on `GET /v1/rider/routes/today`. Updated `delivery_screen.dart` and `pod_sheet.dart` to display masked phone and route calls to virtual support bridge (`07554300000`).
+  3. Rider Navigation: Added 1-tap `Navigate` button on stop cards in `rider_app/delivery_screen.dart` linking to `https://www.google.com/maps/search/?api=1&query=...` via `url_launcher`.
+  4. Direct User-Vendor Assignment: Implemented `POST /v1/admin/users/{user_id}/assign-vendor` in `workers/api/src/app/api/v1/admin.py`, queried in `AdminReadRepo`, and wired into `apps/admin_app` in both users table row dropdown and user-detail card.
+  5. Vendor Fleet Management: Created `RidersScreen` in `apps/vendor_app` under "More Tools" hub with full rider registration modal and clear credential guidance.
+  6. D1 Remote Wipe: Created `reset_d1_keep_admin_only.sql` and executed against remote D1 `shodasha`, verifying all orders, stops, routes, payments, ledger, subscriptions, addresses, sessions, vendors, and non-admin users were cleanly purged, leaving exactly 1 user (admin `+917828442476`).
+- **Consequences**:
+  - Customer contact information is safeguarded against poaching.
+  - Delivery verification is quick (4 digits) while preventing fake completions.
+  - Admin has direct single-click control to bind customers to vendors.
+  - D1 production database is completely pristine for clean system onboarding.
+
+### ADR-191: Worker Split — `water` / `water-ops` / `water-admin`
+
+- **Status**: Accepted (implemented 2026-11-14; cutover step 5 pending)
+- **Date**: 2026-11-14
+- **Affects**: `workers/api/src/app/{factory,main}.py`, `workers/api/src/app/api/{auth_deps.py,v1/{auth,payments,returns,catalog}.py}`, `workers/api/src/app/core/memo.py`, `workers/api/src/entry{,_ops,_admin}.py`, `workers/api/{wrangler,wrangler.ops,wrangler.admin}.jsonc`, `workers/api/package.json`, `apps/admin_app`, `apps/{vendor_app,rider_app}`, `.github/workflows/release.yml`, `Feature_docs/worker-split/`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. One Python Worker (`water`) served every surface: donor app, vendor app, rider app, admin web BFF, Razorpay webhook and the `*/15` cron. Every cold start paid for the union of ~139 routes and every surface shared one log stream, one CPU pool and one secret set.
+  2. The owner asked to split the Worker into customer / ops / admin Workers to isolate surfaces and distribute load.
+  3. Constraint check before deciding: splitting Workers does **not** raise the Free-tier 10 ms CPU limit per request and does **not** multiply the 100k requests/day account quota (that quota is per account). The split buys isolation, smaller per-surface bundles, separate secrets/logs and independent deploys — it is not a CPU fix (ADR-147/148 remain open).
+  4. Sessions are opaque random tokens stored in shared D1 `sessions`, not signed JWTs, so any Worker bound to the same D1 can validate any session without shared key material.
+- **Options considered**:
+  - **External host / Workers Paid / TypeScript rewrite** — rejected: the owner required staying on Cloudflare Python Workers + Free tier.
+  - **Separate D1 per surface** — rejected: cross-surface data (orders, sessions, ledger) would need replication; no migration or rollback story.
+  - **Staging Workers** — rejected by the owner: production-only staged cutover is enough because steps 1–4 are additive.
+  - **Three Workers, one D1, surface-aware factory** — chosen.
+- **Decision**:
+  1. `app/factory.py::create_app(surface)` accepts `"all" | "customer" | "ops" | "admin"`; `"all"` mounts the exact pre-existing route set so local uvicorn and all tests are unchanged. `app/main.py` is a 2-line shim.
+  2. Route ownership: `water` = catalog/quotes/addresses/orders/payments/webhook/subscriptions/returns(list+create)/complaints/ratings/devices + customer auth + cron; `water-ops` = vendor + rider routers, their logins, and returns pickup; `water-admin` = all `/v1/admin/*`, admin login, and the three refund writes. `/health` and shared auth (refresh/logout/me) are mounted on all three.
+  3. Routers were split **inside their existing files** (`auth.py` → shared/customer/ops/admin + aggregate; `payments.py` → `router` + `admin_router`; `returns.py` → `router` + `ops_router`) so handlers, DTOs and role checks did not move. The aggregate `auth.router` stays for direct-mount tests.
+  4. New entrypoints `entry_ops.py` / `entry_admin.py` import `app.factory` directly (never `app.main`) to avoid building the full app at import. Only `entry.py` (`water`) has `scheduled()`; ops/admin configs have no `triggers.crons`.
+  5. Caching to protect D1: a 10 s per-isolate memo of the `sessions JOIN users` lookup for user/vendor/rider (admin never cached; logout evicts in the current isolate; `AUTH_SESSION_CACHE_TTL_S=0` disables), plus a 300 s per-isolate memo for catalog / windows / serviceability. This deliberately relaxes "suspension re-read on EVERY request" to ≤10 s staleness, accepted by the owner.
+  6. Admin BFF: `WATER_API` binding retargeted to `water-admin`; new `OPS_API` binding to `water-ops`; `OPS_API_URL` build variable added and vendor portal (`vendor-api.ts`, `vendor-session.ts`) moved to the ops binding/URL.
+  7. Vendor/rider Flutter defaults and the release workflow now point at `https://water-ops.adityathakur452007.workers.dev` (rider fix also removed a pre-existing double-`/v1` in CI). Donor stays on `water`.
+- **Consequences**:
+  - A customer request can no longer reach a vendor/admin handler even if a role check were bypassed — wrong-surface paths 404 (covered by `tests/test_surfaces.py`).
+  - Customer bundle no longer carries admin refund writes or vendor pickup; admin bundle carries no catalog/orders code.
+  - Ops/admin secrets stay off `water` (currently ops/admin need no secrets at all).
+  - Three Workers mean three empty-session cold-start pools and three rate-limit silos; the in-memory anon throttle remains per isolate. Cold starts and `exceededCpu` must be measured after cutover.
+  - `water` still runs the old all-routes build until vendor/rider APKs are redistributed and the admin app is redeployed; only then is `water` flipped to `create_app("customer")`.
+  - Rollback is one `wrangler deploy` of `water` with `"all"`; no schema or data change to reverse.
+- **Verification**: 512 passed / 1 skipped (`uv run pytest -q`), new `test_surfaces.py` (16 checks) + `test_caching_045.py`; `wrangler deploy --dry-run` clean for both configs; `flutter analyze` clean for vendor and rider; live smoke — both new Workers `/health` 200, wrong-surface paths 404, auth paths 400/401.
+- **Live deploy IDs**: `water-ops` `732212ef-7525-488e-8feb-c35dc87afcd6`, `water-admin` `adf32d10-2c7b-4f79-9a49-a35b9bc793e2`.
+
+---
 
 ### ADR-190: Mobile App Binary & Asset Footprint Optimization (Rider, Vendor & Donor)
 

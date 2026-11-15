@@ -18,6 +18,7 @@ import '../earnings/earnings_controller.dart';
 import '../earnings/earnings_screen.dart';
 import '../inventory/inventory_screen.dart';
 import '../profile/profile_screen.dart';
+import '../riders/riders_screen.dart';
 import '../route/route_controller.dart';
 import '../route/route_screen.dart';
 import '../stops/stop_detail_screen.dart';
@@ -56,15 +57,14 @@ class VendorShell extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() meLoader;
   final Future<Map<String, dynamic>> Function()? profileLoader;
   final Future<Map<String, dynamic>> Function(Map<String, String> fields)?
-      profileSaver;
+  profileSaver;
   final ApiClient? api;
 
   @override
   State<VendorShell> createState() => _VendorShellState();
 }
 
-class _VendorShellState extends State<VendorShell>
-    with WidgetsBindingObserver {
+class _VendorShellState extends State<VendorShell> with WidgetsBindingObserver {
   int _tab = 0;
   final Set<int> _mounted = {0};
 
@@ -144,9 +144,7 @@ class _VendorShellState extends State<VendorShell>
   }
 
   void _push(Widget screen) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => screen),
-    );
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
   }
 
   Future<void> _whatsapp() async {
@@ -158,43 +156,47 @@ class _VendorShellState extends State<VendorShell>
   Widget _bodyFor(int index, bool isOffDuty, int pending) {
     if (!_mounted.contains(index)) return const SizedBox.shrink();
     return switch (index) {
-      0 => isOffDuty
-          ? _OffDutyRouteLock(
-              onGoOnDuty: () => widget.duty.setDuty(true),
-              onOpenEarnings: () => _selectTab(1),
-            )
-          : RouteScreen(
-              controller: widget.route,
-              api: widget.api,
-              onOpenStop: (s) => _openStop(context, s),
-              onOpenCustomers: () =>
-                  _push(CustomersScreen(controller: widget.customers)),
-              onOpenSync: () => _push(SyncScreen(controller: widget.sync)),
-              earnings: widget.earnings,
-              customers: widget.customers,
-            ),
+      0 =>
+        isOffDuty
+            ? _OffDutyRouteLock(
+                onGoOnDuty: () => widget.duty.setDuty(true),
+                onOpenEarnings: () => _selectTab(1),
+              )
+            : RouteScreen(
+                controller: widget.route,
+                api: widget.api,
+                onOpenStop: (s) => _openStop(context, s),
+                onOpenCustomers: () =>
+                    _push(CustomersScreen(controller: widget.customers)),
+                onOpenSync: () => _push(SyncScreen(controller: widget.sync)),
+                earnings: widget.earnings,
+                customers: widget.customers,
+              ),
       1 => EarningsScreen(controller: widget.earnings),
       2 => SupportScreen(controller: widget.support),
       3 => MoreHubScreen(
-          onOpenCustomers: () =>
-              _push(CustomersScreen(controller: widget.customers)),
-          onOpenStock: () => _push(InventoryScreen(route: widget.route)),
-          onOpenSync: () => _push(SyncScreen(controller: widget.sync)),
-          onOpenDuty: () => _push(DutyScreen(controller: widget.duty)),
-          onOpenProfile: () => _push(ProfileScreen(
+        onOpenCustomers: () =>
+            _push(CustomersScreen(controller: widget.customers)),
+        onOpenStock: () => _push(InventoryScreen(route: widget.route)),
+        onOpenRiders: () => _push(RidersScreen(api: widget.api)),
+        onOpenSync: () => _push(SyncScreen(controller: widget.sync)),
+        onOpenDuty: () => _push(DutyScreen(controller: widget.duty)),
+        onOpenProfile: () => _push(
+          ProfileScreen(
             auth: widget.auth,
             meLoader: widget.meLoader,
             profileLoader: widget.profileLoader,
             profileSaver: widget.profileSaver,
             api: widget.api,
-          )),
-          onWhatsApp: _whatsapp,
-          onLogout: () async {
-            await widget.auth.logout();
-          },
-          pendingSyncCount: pending,
-          onDuty: widget.duty.onDuty,
+          ),
         ),
+        onWhatsApp: _whatsapp,
+        onLogout: () async {
+          await widget.auth.logout();
+        },
+        pendingSyncCount: pending,
+        onDuty: widget.duty.onDuty,
+      ),
       _ => const SizedBox.shrink(),
     };
   }
@@ -221,8 +223,10 @@ class _VendorShellState extends State<VendorShell>
             if (widget.auth.capExpiresSoon)
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 color: ShodashaTheme.blueTint,
                 child: Text(
                   vendorStringsHi['capExpiring']!,
@@ -328,10 +332,7 @@ class _OffDutyBanner extends StatelessWidget {
                 ),
                 Text(
                   'Turn On Duty to receive delivery stops',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: ShodashaTheme.muted,
-                  ),
+                  style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
                 ),
               ],
             ),

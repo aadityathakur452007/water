@@ -15,7 +15,7 @@ class ApiClient {
   ApiClient({
     this.baseUrl = const String.fromEnvironment(
       'SHODASHA_API_BASE',
-      defaultValue: 'https://water.adityathakur452007.workers.dev',
+      defaultValue: 'https://water-ops.adityathakur452007.workers.dev',
     ),
     http.Client? client,
   }) : _client = client ?? http.Client();

@@ -31,15 +31,27 @@ export const ADMIN_WEB_DEVICE = "admin-web";
 
 let loggedApiHost = false;
 
+function normalizeOrigin(rawValue: string): string {
+  return rawValue.trim().replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
 export function apiUrl(): string {
   const raw = (process.env.API_URL ?? "http://127.0.0.1:8000").trim();
-  const url = raw.replace(/\/+$/, "").replace(/\/v1$/, "");
+  const url = normalizeOrigin(raw);
   if (!loggedApiHost) {
     loggedApiHost = true;
     if (url !== raw) console.error(`[admin-auth] normalized API_URL ${raw} → ${url}`);
     else console.log(`[admin-auth] API_URL ${url}`);
   }
   return url;
+}
+
+/**
+ * 045: vendor portal talks to `water-ops`. Local dev falls back to API_URL so
+ * one `uvicorn app.main:app` (surface "all") still serves every path.
+ */
+export function opsApiUrl(): string {
+  return normalizeOrigin(process.env.OPS_API_URL ?? process.env.API_URL ?? "http://127.0.0.1:8000");
 }
 
 const isDevHttp = process.env.NODE_ENV === "development" && !process.env.COOKIE_SECURE;

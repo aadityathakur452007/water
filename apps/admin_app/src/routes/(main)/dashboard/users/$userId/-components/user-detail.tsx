@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { useParams } from "@tanstack/react-router";
 
-import { Ban, Undo2 } from "lucide-react";
+import { Ban, Truck, Undo2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { UserDetail as ApiUserDetail } from "@/lib/admin-types";
+import type { UserDetail as ApiUserDetail, UserRow as ApiUserRow } from "@/lib/admin-types";
 import { dateTime, phoneMasked, rupees } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
 
@@ -43,11 +43,16 @@ export function UserDetail() {
   const { userId } = useParams({ strict: false }) as { userId: string };
   const invalidate = useInvalidateAdmin();
   const { data, isError, error } = useAdminQuery<ApiUserDetail>(`/v1/admin/users/${userId}/detail`);
+  const { data: vendorsData } = useAdminQuery<{ data: ApiUserRow[] }>("/v1/admin/vendors");
 
   const [blockOpen, setBlockOpen] = React.useState(false);
   const [reason, setReason] = React.useState("");
   const [level, setLevel] = React.useState<"restrict" | "suspend">("suspend");
   const [busy, setBusy] = React.useState(false);
+
+  const [vendorOpen, setVendorOpen] = React.useState(false);
+  const [selectedVendor, setSelectedVendor] = React.useState<string>("none");
+  const [assignBusy, setAssignBusy] = React.useState(false);
 
   if (isError) {
     return (
@@ -55,25 +60,20 @@ export function UserDetail() {
         <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
           <p className="max-w-md font-medium text-destructive text-sm">{errorMessage(error)}</p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => invalidate(`/v1/admin/users/${userId}/detail`)}
-            >
+            <Button variant="outline" size="sm" onClick={() => invalidate(`/v1/admin/users/${userId}/detail`)}>
               Dobara koshish karein (Retry)
             </Button>
             <Button
               variant="default"
               size="sm"
-              asChild
+              onClick={() =>
+                window.open(
+                  "https://wa.me/917828442476?text=Namaste%20Admin%2C%20user%20detail%20load%20karne%20me%20problem%20aa%20rahi%20hai",
+                  "_blank",
+                )
+              }
             >
-              <a
-                href="https://wa.me/917828442476?text=Namaste%20Admin%2C%20user%20detail%20load%20karne%20me%20problem%20aa%20rahi%20hai"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Admin WhatsApp: +91 7828442476
-              </a>
+              Admin WhatsApp: +91 7828442476
             </Button>
           </div>
         </CardContent>
@@ -121,6 +121,29 @@ export function UserDetail() {
     }
   }
 
+  async function submitAssignVendor() {
+    setAssignBusy(true);
+    try {
+      await adminPostServer({
+        data: {
+          path: `/v1/admin/users/${userId}/assign-vendor`,
+          body: { vendor_id: selectedVendor === "none" ? null : selectedVendor },
+        },
+      });
+      toast.add({
+        title: "Vendor Assigned",
+        description: selectedVendor === "none" ? "Unassigned vendor" : "Assigned customer to vendor partner",
+      });
+      setVendorOpen(false);
+      invalidate(`/v1/admin/users/${userId}/detail`);
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Assignment failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setAssignBusy(false);
+    }
+  }
+
   const meta = statusMeta[status];
 
   return (
@@ -138,7 +161,18 @@ export function UserDetail() {
           <CardDescription>
             {`${phoneMasked(u.phone)} · joined ${dateTime(u.created_at)}${u.suspended_reason ? ` · ${u.suspended_reason}` : ""}`}
           </CardDescription>
-          <CardAction>
+          <CardAction className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedVendor(u.assigned_vendor_id ?? "none");
+                setVendorOpen(true);
+              }}
+            >
+              <Truck className="size-4" />
+              {u.assigned_vendor_name ? `Vendor: ${u.assigned_vendor_name}` : "Assign Vendor"}
+            </Button>
             <Button
               variant={blocked ? "outline" : "destructive"}
               size="sm"
@@ -280,6 +314,41 @@ export function UserDetail() {
               onClick={() => void submit()}
             >
               {confirmLabel(busy, blocked)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={vendorOpen} onOpenChange={(open) => (!open ? setVendorOpen(false) : undefined)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Delivery Vendor</DialogTitle>
+            <DialogDescription>
+              Assign <strong>{u.name ?? u.phone ?? u.id}</strong> to a preferred delivery vendor partner.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-2">
+            <Label htmlFor="ud-vendor-select">Select Vendor Partner</Label>
+            <Select value={selectedVendor} onValueChange={(val) => setSelectedVendor(val ?? "none")}>
+              <SelectTrigger id="ud-vendor-select">
+                <SelectValue placeholder="Choose vendor partner..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None (Unassigned / General Pool)</SelectItem>
+                {(vendorsData?.data ?? []).map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name ?? v.phone ?? v.id} ({v.phone ?? "no phone"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVendorOpen(false)} disabled={assignBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitAssignVendor()} disabled={assignBusy}>
+              {assignBusy ? "Saving…" : "Save Assignment"}
             </Button>
           </DialogFooter>
         </DialogContent>

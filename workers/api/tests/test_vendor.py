@@ -568,13 +568,13 @@ def _client(c):
 
     from app.api.deps import get_db_conn
     from app.api.v1.vendor import router
-    from app.api.v1.returns import router as returns_router
+    from app.api.v1.returns import ops_router as returns_ops_router
     from app.core.errors import register_exception_handlers
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(router, prefix="/v1")
-    app.include_router(returns_router, prefix="/v1")
+    app.include_router(returns_ops_router, prefix="/v1")  # 045: pickup is ops-surface
     # get_current_user resolves via get_db_conn (Phase-A T2): same DB.
     app.dependency_overrides[get_db_conn] = lambda: (
         c if isinstance(c, AsyncSqliteConn) else AsyncSqliteConn(c)

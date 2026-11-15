@@ -45,8 +45,10 @@ class _PodSheetState extends State<PodSheet> {
 
   Future<void> _makeCall(String phone) async {
     final cleaned = phone.replaceAll(RegExp(r'\D'), '');
-    if (cleaned.isEmpty) return;
-    final uri = Uri.parse('tel:$cleaned');
+    final dialTarget = (cleaned.length >= 10 && !phone.contains('*'))
+        ? cleaned
+        : '07554300000';
+    final uri = Uri.parse('tel:$dialTarget');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
@@ -55,14 +57,19 @@ class _PodSheetState extends State<PodSheet> {
   Future<void> _submit() async {
     final otp = _otpController.text.trim();
     if (otp.length < 4) {
-      setState(() => _errorMessage = 'Enter the 6-digit delivery OTP from customer');
+      setState(
+        () => _errorMessage = 'Enter the 4-digit delivery OTP from customer',
+      );
       return;
     }
 
     final isCod = widget.stop['payment_mode'] == 'cod';
     final amountDue = widget.stop['amount_due'] as int? ?? 0;
     if (isCod && amountDue > 0 && !_cashReceived) {
-      setState(() => _errorMessage = 'Please confirm cash collection before completing delivery');
+      setState(
+        () => _errorMessage =
+            'Please confirm cash collection before completing delivery',
+      );
       return;
     }
 
@@ -99,7 +106,8 @@ class _PodSheetState extends State<PodSheet> {
     final phone = stop['customer_phone']?.toString() ?? '';
     final qty = stop['quantity']?.toString() ?? '1';
     final address = (stop['address'] as Map<String, dynamic>?) ?? {};
-    final formattedAddress = address['formatted']?.toString() ?? 'Delivery address';
+    final formattedAddress =
+        address['formatted']?.toString() ?? 'Delivery address';
     final landmark = address['landmark']?.toString() ?? '';
     final hasLift = address['has_lift'] == true;
     final isCod = stop['payment_mode'] == 'cod';
@@ -130,10 +138,15 @@ class _PodSheetState extends State<PodSheet> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: ShodashaTheme.tealTint,
-                      borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        ShodashaTheme.radiusSm,
+                      ),
                     ),
                     child: Text(
                       '$qty × 20L Cane',
@@ -244,9 +257,13 @@ class _PodSheetState extends State<PodSheet> {
                       child: Row(
                         children: [
                           Icon(
-                            hasLift ? Icons.elevator_rounded : Icons.stairs_rounded,
+                            hasLift
+                                ? Icons.elevator_rounded
+                                : Icons.stairs_rounded,
                             size: 14,
-                            color: hasLift ? ShodashaTheme.successDark : ShodashaTheme.warningDark,
+                            color: hasLift
+                                ? ShodashaTheme.successDark
+                                : ShodashaTheme.warningDark,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -254,7 +271,9 @@ class _PodSheetState extends State<PodSheet> {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: hasLift ? ShodashaTheme.successDark : ShodashaTheme.warningDark,
+                              color: hasLift
+                                  ? ShodashaTheme.successDark
+                                  : ShodashaTheme.warningDark,
                             ),
                           ),
                         ],
@@ -278,22 +297,22 @@ class _PodSheetState extends State<PodSheet> {
               TextField(
                 controller: _otpController,
                 keyboardType: TextInputType.number,
-                maxLength: 6,
+                maxLength: 4,
                 textAlign: TextAlign.center,
                 autofocus: true,
                 style: const TextStyle(
-                  fontSize: 26,
+                  fontSize: 28,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 8,
+                  letterSpacing: 10,
                   color: ShodashaTheme.ink,
                 ),
                 decoration: InputDecoration(
                   counterText: '',
-                  hintText: '• • • • • •',
+                  hintText: '• • • •',
                   hintStyle: const TextStyle(
-                    fontSize: 22,
+                    fontSize: 24,
                     color: ShodashaTheme.border,
-                    letterSpacing: 8,
+                    letterSpacing: 10,
                   ),
                   filled: true,
                   fillColor: ShodashaTheme.bg,
@@ -303,7 +322,10 @@ class _PodSheetState extends State<PodSheet> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-                    borderSide: const BorderSide(color: ShodashaTheme.teal, width: 2),
+                    borderSide: const BorderSide(
+                      color: ShodashaTheme.teal,
+                      width: 2,
+                    ),
                   ),
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -385,7 +407,8 @@ class _PodSheetState extends State<PodSheet> {
                       Checkbox(
                         value: _cashReceived,
                         activeColor: ShodashaTheme.warningDark,
-                        onChanged: (v) => setState(() => _cashReceived = v ?? false),
+                        onChanged: (v) =>
+                            setState(() => _cashReceived = v ?? false),
                       ),
                       const SizedBox(width: AppSpacing.xs),
                       Expanded(

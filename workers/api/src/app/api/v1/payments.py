@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 
 from app.adapters.upi import get_provider
-from app.api.auth_deps import get_current_user, require_active_user, require_role
+from app.api.auth_deps import get_current_user, require_role
 from app.api.deps import get_db_conn
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import OrderRepo
@@ -18,6 +18,10 @@ from app.repositories.payment_repo import PaymentRepo
 from app.services.payment_service import PaymentService
 
 router = APIRouter(tags=["payments"])
+
+# 045: admin refund writes live in their own router so the customer Worker
+# never mounts them (paths unchanged; only the owning surface moves).
+admin_router = APIRouter(tags=["payments"])
 
 # Module-level so tests can override this exact dep (same pattern as
 # vendor.py `_vendor`): user-money writes are a user-role-only surface.
@@ -121,16 +125,16 @@ async def invoice(order_id: str, conn=Depends(get_db_conn), user=Depends(get_cur
     return await _service(conn).get_invoice(_uid(user), order_id)
 
 
-@router.post("/refunds/{refund_id}/claim")
+@admin_router.post("/refunds/{refund_id}/claim")
 async def refund_claim(refund_id: str, conn=Depends(get_db_conn), user=Depends(require_role("admin"))):
     return await _service(conn).claim_refund(_uid(user), refund_id)
 
 
-@router.post("/refunds/{refund_id}/done")
+@admin_router.post("/refunds/{refund_id}/done")
 async def refund_done(refund_id: str, conn=Depends(get_db_conn), user=Depends(require_role("admin"))):
     return await _service(conn).complete_refund(_uid(user), refund_id, "done")
 
 
-@router.post("/refunds/{refund_id}/failed")
+@admin_router.post("/refunds/{refund_id}/failed")
 async def refund_failed(refund_id: str, conn=Depends(get_db_conn), user=Depends(require_role("admin"))):
     return await _service(conn).complete_refund(_uid(user), refund_id, "failed")

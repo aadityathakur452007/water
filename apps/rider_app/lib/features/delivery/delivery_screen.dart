@@ -7,11 +7,7 @@ import '../../shared/ui/app_button.dart';
 import 'widgets/pod_sheet.dart';
 
 class DeliveryScreen extends StatefulWidget {
-  const DeliveryScreen({
-    super.key,
-    required this.api,
-    required this.onLogout,
-  });
+  const DeliveryScreen({super.key, required this.api, required this.onLogout});
 
   final ApiClient api;
   final VoidCallback onLogout;
@@ -46,7 +42,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
       if (mounted) {
         setState(() {
-          _stops = stopsRaw.map((s) => Map<String, dynamic>.from(s as Map)).toList();
+          _stops = stopsRaw
+              .map((s) => Map<String, dynamic>.from(s as Map))
+              .toList();
           _summary = summaryRaw;
           _loading = false;
         });
@@ -63,10 +61,23 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
   Future<void> _makeCall(String phone) async {
     final cleaned = phone.replaceAll(RegExp(r'\D'), '');
-    if (cleaned.isEmpty) return;
-    final uri = Uri.parse('tel:$cleaned');
+    final dialTarget = (cleaned.length >= 10 && !phone.contains('*'))
+        ? cleaned
+        : '07554300000';
+    final uri = Uri.parse('tel:$dialTarget');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
+    }
+  }
+
+  Future<void> _navigateToLocation(String address) async {
+    if (address.isEmpty) return;
+    final query = Uri.encodeComponent(address);
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$query',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -76,7 +87,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       isScrollControlled: true,
       backgroundColor: ShodashaTheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(ShodashaTheme.radiusLg)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ShodashaTheme.radiusLg),
+        ),
       ),
       builder: (_) => PodSheet(
         stop: stop,
@@ -145,7 +158,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                 context: context,
                 builder: (ctx) => AlertDialog(
                   title: const Text('End Shift & Log Out?'),
-                  content: const Text('Are you sure you want to log out of the rider app?'),
+                  content: const Text(
+                    'Are you sure you want to log out of the rider app?',
+                  ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.of(ctx).pop(false),
@@ -174,7 +189,10 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
         children: [
           // Shift Progress Bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
             color: ShodashaTheme.surface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,7 +225,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                     value: total > 0 ? (delivered / total) : 0,
                     minHeight: 6,
                     backgroundColor: ShodashaTheme.border,
-                    valueColor: const AlwaysStoppedAnimation<Color>(ShodashaTheme.teal),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      ShodashaTheme.teal,
+                    ),
                   ),
                 ),
               ],
@@ -217,7 +237,12 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           // Filter Segmented Tabs
           Container(
             color: ShodashaTheme.surface,
-            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              AppSpacing.sm,
+            ),
             child: Row(
               children: [
                 Expanded(
@@ -246,256 +271,289 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.xl),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline_rounded,
-                                  color: ShodashaTheme.danger, size: 40),
-                              const SizedBox(height: AppSpacing.sm),
-                              Text(_error!, textAlign: TextAlign.center),
-                              const SizedBox(height: AppSpacing.md),
-                              AppButton(
-                                label: 'Retry',
-                                onPressed: _loadRoute,
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            color: ShodashaTheme.danger,
+                            size: 40,
                           ),
-                        ),
-                      )
-                    : visibleStops.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(AppSpacing.xl),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(_error!, textAlign: TextAlign.center),
+                          const SizedBox(height: AppSpacing.md),
+                          AppButton(label: 'Retry', onPressed: _loadRoute),
+                        ],
+                      ),
+                    ),
+                  )
+                : visibleStops.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _filter == 'pending'
+                                ? Icons.check_circle_outline_rounded
+                                : Icons.inbox_outlined,
+                            size: 48,
+                            color: ShodashaTheme.muted,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            _filter == 'pending'
+                                ? 'All deliveries completed for today!'
+                                : 'No completed deliveries yet.',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: ShodashaTheme.ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadRoute,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      itemCount: visibleStops.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: AppSpacing.md),
+                      itemBuilder: (context, i) {
+                        final stop = visibleStops[i];
+                        final isDelivered = stop['status'] == 'done';
+                        final customerName =
+                            stop['customer_name']?.toString() ?? 'Customer';
+                        final phone = stop['customer_phone']?.toString() ?? '';
+                        final qty = stop['quantity']?.toString() ?? '1';
+                        final address =
+                            (stop['address'] as Map<String, dynamic>?) ?? {};
+                        final formatted =
+                            address['formatted']?.toString() ??
+                            'Delivery address';
+                        final landmark = address['landmark']?.toString() ?? '';
+                        final hasLift = address['has_lift'] == true;
+                        final isCod = stop['payment_mode'] == 'cod';
+                        final amountDue = stop['amount_due'] as int? ?? 0;
+
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: ShodashaTheme.surface,
+                            borderRadius: BorderRadius.circular(
+                              ShodashaTheme.radius,
+                            ),
+                            border: Border.all(
+                              color: isDelivered
+                                  ? ShodashaTheme.border
+                                  : ShodashaTheme.border,
+                            ),
+                            boxShadow: const [ShodashaTheme.subtleCardShadow],
+                          ),
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Top row: Stop Seq + Name + Call
+                              Row(
                                 children: [
-                                  Icon(
-                                    _filter == 'pending'
-                                        ? Icons.check_circle_outline_rounded
-                                        : Icons.inbox_outlined,
-                                    size: 48,
-                                    color: ShodashaTheme.muted,
-                                  ),
-                                  const SizedBox(height: AppSpacing.md),
-                                  Text(
-                                    _filter == 'pending'
-                                        ? 'All deliveries completed for today!'
-                                        : 'No completed deliveries yet.',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: ShodashaTheme.ink,
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isDelivered
+                                          ? ShodashaTheme.border
+                                          : ShodashaTheme.tealTint,
+                                      borderRadius: BorderRadius.circular(
+                                        ShodashaTheme.radiusSm,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '#${stop['seq'] ?? (i + 1)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDelivered
+                                            ? ShodashaTheme.muted
+                                            : ShodashaTheme.tealDark,
+                                      ),
                                     ),
                                   ),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          customerName,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                            color: isDelivered
+                                                ? ShodashaTheme.muted
+                                                : ShodashaTheme.ink,
+                                          ),
+                                        ),
+                                        if (phone.isNotEmpty) ...[
+                                          const SizedBox(height: 1),
+                                          Text(
+                                            phone,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: ShodashaTheme.muted,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  if (phone.isNotEmpty)
+                                    IconButton(
+                                      tooltip: 'Call customer',
+                                      onPressed: () => _makeCall(phone),
+                                      icon: const Icon(Icons.call_rounded),
+                                      color: ShodashaTheme.teal,
+                                    ),
                                 ],
                               ),
-                            ),
-                          )
-                        : RefreshIndicator(
-                            onRefresh: _loadRoute,
-                            child: ListView.separated(
-                              padding: const EdgeInsets.all(AppSpacing.lg),
-                              itemCount: visibleStops.length,
-                              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-                              itemBuilder: (context, i) {
-                                final stop = visibleStops[i];
-                                final isDelivered = stop['status'] == 'done';
-                                final customerName = stop['customer_name']?.toString() ?? 'Customer';
-                                final phone = stop['customer_phone']?.toString() ?? '';
-                                final qty = stop['quantity']?.toString() ?? '1';
-                                final address = (stop['address'] as Map<String, dynamic>?) ?? {};
-                                final formatted = address['formatted']?.toString() ?? 'Delivery address';
-                                final landmark = address['landmark']?.toString() ?? '';
-                                final hasLift = address['has_lift'] == true;
-                                final isCod = stop['payment_mode'] == 'cod';
-                                final amountDue = stop['amount_due'] as int? ?? 0;
 
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    color: ShodashaTheme.surface,
-                                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-                                    border: Border.all(
-                                      color: isDelivered ? ShodashaTheme.border : ShodashaTheme.border,
+                              const SizedBox(height: AppSpacing.sm),
+
+                              // Full address
+                              Text(
+                                formatted,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  height: 1.3,
+                                  color: isDelivered
+                                      ? ShodashaTheme.muted
+                                      : ShodashaTheme.ink,
+                                ),
+                              ),
+
+                              if (landmark.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Landmark: $landmark',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: ShodashaTheme.muted,
+                                  ),
+                                ),
+                              ],
+
+                              const SizedBox(height: AppSpacing.sm),
+
+                              // Badges Row: 20L Cane Quantity + Lift + Payment
+                              Wrap(
+                                spacing: AppSpacing.xs,
+                                runSpacing: AppSpacing.xs,
+                                children: [
+                                  // Quantity badge
+                                  _Badge(
+                                    label: '$qty × 20L Cane',
+                                    bg: ShodashaTheme.tealTint,
+                                    fg: ShodashaTheme.tealDark,
+                                    icon: Icons.water_drop_rounded,
+                                  ),
+
+                                  // Lift badge
+                                  if (hasLift)
+                                    const _Badge(
+                                      label: 'Lift Available',
+                                      bg: ShodashaTheme.successTint,
+                                      fg: ShodashaTheme.successDark,
+                                      icon: Icons.elevator_rounded,
+                                    )
+                                  else
+                                    const _Badge(
+                                      label: 'No Lift (Stairs)',
+                                      bg: ShodashaTheme.warningTint,
+                                      fg: ShodashaTheme.warningDark,
+                                      icon: Icons.stairs_rounded,
                                     ),
-                                    boxShadow: const [ShodashaTheme.subtleCardShadow],
-                                  ),
-                                  padding: const EdgeInsets.all(AppSpacing.lg),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      // Top row: Stop Seq + Name + Call
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: isDelivered
-                                                  ? ShodashaTheme.border
-                                                  : ShodashaTheme.tealTint,
-                                              borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-                                            ),
-                                            child: Text(
-                                              '#${stop['seq'] ?? (i + 1)}',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w800,
-                                                color: isDelivered
-                                                    ? ShodashaTheme.muted
-                                                    : ShodashaTheme.tealDark,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: AppSpacing.sm),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  customerName,
-                                                  style: TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: isDelivered
-                                                        ? ShodashaTheme.muted
-                                                        : ShodashaTheme.ink,
-                                                  ),
-                                                ),
-                                                if (phone.isNotEmpty) ...[
-                                                  const SizedBox(height: 1),
-                                                  Text(
-                                                    phone,
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: ShodashaTheme.muted,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-                                          if (phone.isNotEmpty)
-                                            IconButton(
-                                              tooltip: 'Call customer',
-                                              onPressed: () => _makeCall(phone),
-                                              icon: const Icon(Icons.call_rounded),
-                                              color: ShodashaTheme.teal,
-                                            ),
-                                        ],
+
+                                  // Payment badge
+                                  if (isCod && amountDue > 0)
+                                    _Badge(
+                                      label:
+                                          'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Cash',
+                                      bg: ShodashaTheme.warningTint,
+                                      fg: ShodashaTheme.warningDark,
+                                      icon: Icons.payments_rounded,
+                                    )
+                                  else
+                                    const _Badge(
+                                      label: 'Paid Online',
+                                      bg: ShodashaTheme.successTint,
+                                      fg: ShodashaTheme.successDark,
+                                      icon: Icons.check_circle_outline_rounded,
+                                    ),
+                                ],
+                              ),
+
+                              const SizedBox(height: AppSpacing.md),
+
+                              // Bottom Action
+                              if (isDelivered)
+                                const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_rounded,
+                                      color: ShodashaTheme.successDark,
+                                      size: 18,
+                                    ),
+                                    SizedBox(width: AppSpacing.xs),
+                                    Text(
+                                      'Delivered successfully',
+                                      style: TextStyle(
+                                        color: ShodashaTheme.successDark,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
                                       ),
-
-                                      const SizedBox(height: AppSpacing.sm),
-
-                                      // Full address
-                                      Text(
-                                        formatted,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          height: 1.3,
-                                          color: isDelivered
-                                              ? ShodashaTheme.muted
-                                              : ShodashaTheme.ink,
-                                        ),
+                                    ),
+                                  ],
+                                )
+                              else
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: AppButton(
+                                        label: 'Navigate',
+                                        kind: AppButtonKind.secondary,
+                                        icon: Icons.navigation_rounded,
+                                        onPressed: () =>
+                                            _navigateToLocation(formatted),
                                       ),
-
-                                      if (landmark.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Landmark: $landmark',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: ShodashaTheme.muted,
-                                          ),
-                                        ),
-                                      ],
-
-                                      const SizedBox(height: AppSpacing.sm),
-
-                                      // Badges Row: 20L Cane Quantity + Lift + Payment
-                                      Wrap(
-                                        spacing: AppSpacing.xs,
-                                        runSpacing: AppSpacing.xs,
-                                        children: [
-                                          // Quantity badge
-                                          _Badge(
-                                            label: '$qty × 20L Cane',
-                                            bg: ShodashaTheme.tealTint,
-                                            fg: ShodashaTheme.tealDark,
-                                            icon: Icons.water_drop_rounded,
-                                          ),
-
-                                          // Lift badge
-                                          if (hasLift)
-                                            const _Badge(
-                                              label: 'Lift Available',
-                                              bg: ShodashaTheme.successTint,
-                                              fg: ShodashaTheme.successDark,
-                                              icon: Icons.elevator_rounded,
-                                            )
-                                          else
-                                            const _Badge(
-                                              label: 'No Lift (Stairs)',
-                                              bg: ShodashaTheme.warningTint,
-                                              fg: ShodashaTheme.warningDark,
-                                              icon: Icons.stairs_rounded,
-                                            ),
-
-                                          // Payment badge
-                                          if (isCod && amountDue > 0)
-                                            _Badge(
-                                              label: 'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Cash',
-                                              bg: ShodashaTheme.warningTint,
-                                              fg: ShodashaTheme.warningDark,
-                                              icon: Icons.payments_rounded,
-                                            )
-                                          else
-                                            const _Badge(
-                                              label: 'Paid Online',
-                                              bg: ShodashaTheme.successTint,
-                                              fg: ShodashaTheme.successDark,
-                                              icon: Icons.check_circle_outline_rounded,
-                                            ),
-                                        ],
+                                    ),
+                                    const SizedBox(width: AppSpacing.sm),
+                                    Expanded(
+                                      flex: 2,
+                                      child: AppButton(
+                                        label: 'Mark Delivered (Enter OTP)',
+                                        kind: AppButtonKind.primary,
+                                        icon: Icons.key_rounded,
+                                        onPressed: () => _openPodSheet(stop),
                                       ),
-
-                                      const SizedBox(height: AppSpacing.md),
-
-                                      // Bottom Action
-                                      if (isDelivered)
-                                        const Row(
-                                          children: [
-                                            Icon(Icons.check_circle_rounded,
-                                                color: ShodashaTheme.successDark, size: 18),
-                                            SizedBox(width: AppSpacing.xs),
-                                            Text(
-                                              'Delivered successfully',
-                                              style: TextStyle(
-                                                color: ShodashaTheme.successDark,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 13,
-                                              ),
-                                            ),
-                                          ],
-                                        )
-                                      else
-                                        SizedBox(
-                                          width: double.infinity,
-                                          child: AppButton(
-                                            label: 'Mark Delivered (Enter OTP)',
-                                            kind: AppButtonKind.primary,
-                                            icon: Icons.key_rounded,
-                                            onPressed: () => _openPodSheet(stop),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                                    ),
+                                  ],
+                                ),
+                            ],
                           ),
+                        );
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -582,4 +640,3 @@ class _Badge extends StatelessWidget {
     );
   }
 }
-

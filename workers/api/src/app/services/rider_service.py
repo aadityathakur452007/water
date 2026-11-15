@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 import datetime as _dt
-import json
+import re
 import sqlite3
 from typing import Any
 
 from app.adapters.firebase import UnauthError
 from app.core.errors import NotFoundError, ValidationError
 from app.services.vendor_service import VendorService
+
+
+def mask_phone(phone: str | None) -> str:
+    """Mask customer phone number to prevent poaching and direct off-platform circumvention."""
+    if not phone:
+        return ""
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) >= 10:
+        last10 = digits[-10:]
+        prefix = f"+{digits[:-10]} " if len(digits) > 10 else "+91 "
+        return f"{prefix}{last10[:2]}*** **{last10[-3:]}"
+    if len(digits) >= 6:
+        return f"{digits[:2]}***{digits[-2:]}"
+    return "***"
 
 
 def _today() -> str:
@@ -80,7 +94,7 @@ class RiderService:
                 "status": d["status"],
                 "order_id": d["order_id"],
                 "customer_name": d["customer_name"] or "Customer",
-                "customer_phone": d["customer_phone"] or "",
+                "customer_phone": mask_phone(d["customer_phone"]),
                 "quantity": int(d["fulls_exp"] or 1),
                 "empties_expected": int(d["empties_exp"] or 0),
                 "payment_mode": "cod" if is_cod else "prepaid",

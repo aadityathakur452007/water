@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
-import { apiUrl, refreshSessionServer, storeRotatedSessionServer } from "./admin-session";
+import { apiUrl, opsApiUrl, refreshSessionServer, storeRotatedSessionServer } from "./admin-session";
 
 /**
  * Admin read/write proxy (the TanStack-Start equivalent of the old admin's
@@ -52,23 +52,29 @@ export function apiMode(): "live" | "mock" {
 const ADMIN_PREFIX = "/v1/admin";
 
 /**
- * Direct Worker-to-Worker call via the WATER_API service binding (same
- * account). Public HTTPS fetch between workers.dev hosts can be stopped at
- * the edge (error 1003 historically, opaque 403 now) — the binding never
- * leaves Cloudflare's network: no DNS, no edge, no 403. Returns null when
- * unavailable (local `vite dev`) so callers fall back to API_URL.
+ * Direct Worker-to-Worker call via a service binding (same account). Public
+ * HTTPS fetch between workers.dev hosts can be stopped at the edge (error
+ * 1003 historically, opaque 403 now) — a binding never leaves Cloudflare's
+ * network: no DNS, no edge, no 403. Returns null when unavailable (local
+ * `vite dev`) so callers fall back to API_URL / OPS_API_URL.
+ *
+ * 045: `WATER_API` is the admin Worker, `OPS_API` is the vendor+rider Worker.
  */
-export async function bindingFetch(path: string, init: RequestInit): Promise<Response | null> {
+export async function bindingFetch(
+  path: string,
+  init: RequestInit,
+  bindingName: "WATER_API" | "OPS_API" = "WATER_API",
+): Promise<Response | null> {
   try {
     // @vite-ignore keeps this runtime-only: the client bundle must not try
     // to resolve the workers runtime import (build failure otherwise). This
     // only ever executes inside server functions on the worker / wrangler dev.
     const { env } = await import(/* @vite-ignore */ "cloudflare:workers");
-    const binding = (env as Record<string, unknown>).WATER_API as
+    const binding = (env as Record<string, unknown>)[bindingName] as
       | { fetch: typeof fetch }
       | undefined;
     if (!binding) return null;
-    return await binding.fetch(`https://water.internal${path}`, init);
+    return await binding.fetch(`https://worker.internal${path}`, init);
   } catch {
     return null;
   }
@@ -126,13 +132,16 @@ async function workerFetch(
 }
 
 /**
- * Unauthenticated worker POST without the admin cookie (login/logout edge).
- * Binding-first like workerFetch; extra headers (logout Bearer) pass through.
+ * Unauthenticated worker POST without a role cookie (login/refresh/logout
+ * edge). Binding-first like workerFetch; extra headers (logout Bearer) pass
+ * through. `WATER_API` = admin Worker, `OPS_API` = vendor+rider Worker.
  */
-export async function callWorkerPublic(
+async function callPublic(
   path: string,
   body: unknown,
-  headers?: Record<string, string>,
+  headers: Record<string, string> | undefined,
+  bindingName: "WATER_API" | "OPS_API",
+  baseUrl: string,
 ): Promise<Response> {
   const init: RequestInit = {
     method: "POST",
@@ -141,12 +150,28 @@ export async function callWorkerPublic(
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   };
-  const viaBinding = await bindingFetch(path, init);
+  const viaBinding = await bindingFetch(path, init, bindingName);
   if (viaBinding) {
-    console.log(`[admin-api] POST ${path} via WATER_API binding`);
+    console.log(`[admin-api] POST ${path} via ${bindingName} binding`);
     return viaBinding;
   }
-  return fetch(`${apiUrl()}${path}`, init);
+  return fetch(`${baseUrl}${path}`, init);
+}
+
+export function callWorkerPublic(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  return callPublic(path, body, headers, "WATER_API", apiUrl());
+}
+
+export function callOpsPublic(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  return callPublic(path, body, headers, "OPS_API", opsApiUrl());
 }
 
 function parseEnvelope<T>(raw: string, fallback: T): T | WorkerErrorShape {

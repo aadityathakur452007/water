@@ -56,9 +56,11 @@ Root directory `apps/admin_app`. In the Cloudflare dashboard set:
 
 - **Build command:** `npm run build:cloudflare` (Nitro `cloudflare_module` preset → `.output/`)
 - **Deploy command:** `npx wrangler deploy`
-- **Build variables:** `API_URL=https://water.adityathakur452007.workers.dev` (bare origin — the app appends
-  `/v1/...` server-side) and the three `VITE_FIREBASE_*` vars for admin OTP
+- **Build variables:** `API_URL=https://water-admin.adityathakur452007.workers.dev` (admin surface) and
+  `OPS_API_URL=https://water-ops.adityathakur452007.workers.dev` (vendor portal). Both are bare origins —
+  the app appends `/v1/...` server-side. Also set the three `VITE_FIREBASE_*` vars for admin OTP
   (the old `NEXT_PUBLIC_FIREBASE_*` names are Next.js-only — Vite builds read `VITE_*`).
+- **Service bindings** live in `wrangler.jsonc`: `WATER_API` → `water-admin`, `OPS_API` → `water-ops`.
 
 `wrangler.jsonc` pins the worker name (`shodasha-admin`), `nodejs_compat`, static assets at
 `.output/public` and the entrypoint at `.output/server/index.mjs`; Nitro regenerates the deploy config

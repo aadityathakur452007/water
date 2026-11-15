@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.api.caching import cached
 from app.api.deps import get_db_conn, get_settings
+from app.core import memo
 from app.core.errors import ValidationError
 from app.schemas.catalog import CatalogOut, SkuOut
 
@@ -15,6 +16,10 @@ router = APIRouter(tags=["catalog"])
 _PINCODE_RE = r"^[1-9]\d{5}$"
 _HOURS_DEFAULT = "08:00-20:00, all days"
 WINDOW_HORIZON_DAYS = 30
+# Matches the ETag freshness window below: repeat reads are a dict hit, not a
+# Worker recompute. workers.dev has no zone Cache Rule, so the isolate memo is
+# what actually keeps these routes off the hot path.
+_PUBLIC_TTL_S = 300
 
 
 def _prefixes() -> list[str]:
@@ -37,17 +42,21 @@ def _is_serviceable(pincode: str) -> bool:
 async def get_catalog(request: Request) -> object:
     # Phase 8 §8.5: cached 5 min + ETag (rates change via deploy/config,
     # not per request). Shape identical to the former response_model.
-    s = get_settings()
-    return cached(CatalogOut(
-        skus=[
-            SkuOut(id="refill", price_paise=s.rate_refill_paise),
-            SkuOut(id="container", price_paise=s.rate_container_paise),
-        ],
-        deposit_per_jar=s.deposit_per_jar_paise,
-        cap_charge=s.cap_charge_paise,
-        hours=str(getattr(s, "business_hours", _HOURS_DEFAULT)),
-        holidays=list(getattr(s, "holidays", None) or []),
-    ).model_dump(mode="json"), request)
+    body = memo.get("catalog")
+    if body is None:
+        s = get_settings()
+        body = CatalogOut(
+            skus=[
+                SkuOut(id="refill", price_paise=s.rate_refill_paise),
+                SkuOut(id="container", price_paise=s.rate_container_paise),
+            ],
+            deposit_per_jar=s.deposit_per_jar_paise,
+            cap_charge=s.cap_charge_paise,
+            hours=str(getattr(s, "business_hours", _HOURS_DEFAULT)),
+            holidays=list(getattr(s, "holidays", None) or []),
+        ).model_dump(mode="json")
+        memo.set("catalog", body, _PUBLIC_TTL_S)
+    return cached(body, request)  # type: ignore[arg-type]
 
 
 # 014: all-days delivery — Sundays serviceable, holidays still skip.
@@ -74,20 +83,33 @@ async def get_windows(request: Request, date: dt.date | None = None,
             {"date": day_in.isoformat()},
         )
     day = _next_serviceable_day(day_in)
+    key = f"windows:{day.isoformat()}:{pincode or '-'}"
+    body = memo.get(key)
+    if body is not None:
+        return cached(body, request)  # type: ignore[arg-type]
     if pincode is not None and not _is_serviceable(pincode):
-        return cached({"date": day.isoformat(), "windows": [], "serviceable": False,
-                       "lead_capture": True}, request)
-    slots = []
-    for h in range(8, 20):
-        for m in (0, 30):
-            eh, em = (h, 30) if m == 0 else (h + 1, 0)
-            slots.append({"start": f"{h:02d}:{m:02d}", "end": f"{eh:02d}:{em:02d}", "capacity_left": None})
-    return cached({"date": day.isoformat(), "windows": slots, "serviceable": True}, request)
+        body = {"date": day.isoformat(), "windows": [], "serviceable": False,
+                "lead_capture": True}
+    else:
+        slots = []
+        for h in range(8, 20):
+            for m in (0, 30):
+                eh, em = (h, 30) if m == 0 else (h + 1, 0)
+                slots.append({"start": f"{h:02d}:{m:02d}", "end": f"{eh:02d}:{em:02d}",
+                              "capacity_left": None})
+        body = {"date": day.isoformat(), "windows": slots, "serviceable": True}
+    memo.set(key, body, _PUBLIC_TTL_S)
+    return cached(body, request)  # type: ignore[arg-type]
 
 
 @router.get("/serviceability")
 def check_serviceability(request: Request, pincode: str = Query(pattern=_PINCODE_RE)):
-    return cached({"serviceable": _is_serviceable(pincode), "pincode": pincode}, request)
+    key = f"serviceability:{pincode}"
+    body = memo.get(key)
+    if body is None:
+        body = {"serviceable": _is_serviceable(pincode), "pincode": pincode}
+        memo.set(key, body, _PUBLIC_TTL_S)
+    return cached(body, request)  # type: ignore[arg-type]
 
 
 class LeadIn(BaseModel):

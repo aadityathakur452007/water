@@ -55,6 +55,8 @@ export type UserRow = {
   suspended_reason: string | null;
   suspended_at: string | null;
   created_at: string;
+  assigned_vendor_id?: string | null;
+  assigned_vendor_name?: string | null;
   /** Live vendor-profile join — present on /v1/admin/vendors rows only. */
   on_duty?: number | null;
   in_hand?: number | null;

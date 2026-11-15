@@ -18,7 +18,13 @@ from app.api.deps import get_db_conn
 from app.api.middleware import client_ip
 from app.services.auth_service import AuthService, OtpRetiredError
 
-router = APIRouter(tags=["auth"])
+# Surface routers (045): the app factory mounts only the routers its Worker
+# serves. `router` below stays the aggregate so existing tests/imports keep
+# working unchanged.
+shared_router = APIRouter(tags=["auth"])
+customer_router = APIRouter(tags=["auth"])
+ops_router = APIRouter(tags=["auth"])
+admin_router = APIRouter(tags=["auth"])
 
 
 class DeviceIn(BaseModel):
@@ -90,7 +96,7 @@ def _service(conn=Depends(get_db_conn), verifier=Depends(get_verifier)) -> AuthS
     return AuthService(conn, verifier)
 
 
-@router.post("/auth/otp/start")
+@customer_router.post("/auth/otp/start")
 async def otp_start():
     """Retired customer OTP door (034). Kept as an explicit 410, not a 404."""
     raise OtpRetiredError(
@@ -99,7 +105,7 @@ async def otp_start():
     )
 
 
-@router.post("/auth/otp/verify")
+@customer_router.post("/auth/otp/verify")
 async def otp_verify():
     """Retired customer OTP proof (034). Never mints a session."""
     raise OtpRetiredError(
@@ -108,7 +114,7 @@ async def otp_verify():
     )
 
 
-@router.post("/auth/demo")
+@customer_router.post("/auth/demo")
 async def demo_login(payload: DemoLoginIn, svc: AuthService = Depends(_service)):
     """QA demo login: seeded phone + demo code → normal session. The service
     enforces the config flag + demo_codes row; closed in prod by default."""
@@ -120,7 +126,7 @@ async def demo_login(payload: DemoLoginIn, svc: AuthService = Depends(_service))
     )
 
 
-@router.post("/auth/vendor/login")
+@ops_router.post("/auth/vendor/login")
 async def vendor_login(payload: VendorLoginIn, svc: AuthService = Depends(_service)):
     """Vendor access-code login: admin-issued code + vendor role → normal session.
     Generalized (028): ONE access_codes table; legacy 027 rows honored as
@@ -134,7 +140,7 @@ async def vendor_login(payload: VendorLoginIn, svc: AuthService = Depends(_servi
     )
 
 
-@router.post("/auth/admin/login")
+@admin_router.post("/auth/admin/login")
 async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service)):
     """Admin access-code login: admin-issued code + admin role → normal session.
     Same generic 401 shape as the vendor door (no role oracle)."""
@@ -147,7 +153,7 @@ async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service
     )
 
 
-@router.post("/auth/rider/login")
+@ops_router.post("/auth/rider/login")
 async def rider_login(payload: RiderLoginIn, svc: AuthService = Depends(_service)):
     """Rider quick login: registered phone + name → rider session."""
     return await svc.rider_login(
@@ -158,7 +164,7 @@ async def rider_login(payload: RiderLoginIn, svc: AuthService = Depends(_service
     )
 
 
-@router.post("/auth/user/register")
+@customer_router.post("/auth/user/register")
 async def user_register(
     payload: UserRegisterIn, request: Request, svc: AuthService = Depends(_service)
 ):
@@ -176,7 +182,7 @@ async def user_register(
     )
 
 
-@router.post("/auth/user/login")
+@customer_router.post("/auth/user/login")
 async def user_login(
     payload: UserLoginIn, request: Request, svc: AuthService = Depends(_service)
 ):
@@ -191,32 +197,39 @@ async def user_login(
     )
 
 
-@router.post("/auth/refresh")
+@shared_router.post("/auth/refresh")
 async def refresh(payload: RefreshIn, svc: AuthService = Depends(_service)):
     return await svc.refresh(payload.refresh_token, payload.device.id)
 
 
-@router.post("/auth/logout")
+@shared_router.post("/auth/logout")
 async def logout(
     payload: LogoutIn,
+    request: Request,
     user: dict = Depends(get_current_user),
     svc: AuthService = Depends(_service),
 ):
-    return await svc.logout(
+    result = await svc.logout(
         session_id=user["session_id"],
         family_id=user["family_id"],
         user_id=user["id"],
         device_id=payload.device_id or user["device_fp"],
         revoke_all=payload.revoke_all,
     )
+    # 045: drop the per-isolate session memo so this isolate sees the revoke
+    # immediately (other isolates converge within AUTH_SESSION_CACHE_TTL_S).
+    from app.api.auth_deps import invalidate_request_session  # noqa: PLC0415
+
+    invalidate_request_session(request)
+    return result
 
 
-@router.get("/auth/me")
+@shared_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user), svc: AuthService = Depends(_service)):
     return await svc.me(user["id"])
 
 
-@router.patch("/auth/me")
+@shared_router.patch("/auth/me")
 async def patch_me(
     payload: MePatchIn,
     user: dict = Depends(require_active_user),
@@ -229,3 +242,13 @@ async def patch_me(
         phone=payload.phone,
         email=payload.email,
     )
+
+
+# Aggregate router kept for existing imports/tests (`from app.api.v1.auth
+# import router`). The app factory mounts the surface routers directly, so a
+# Worker never gets routes from a surface it does not serve.
+router = APIRouter(tags=["auth"])
+router.include_router(shared_router)
+router.include_router(customer_router)
+router.include_router(ops_router)
+router.include_router(admin_router)
