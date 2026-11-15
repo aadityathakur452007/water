@@ -80,15 +80,14 @@ export function VendorDetail() {
             <Button
               variant="default"
               size="sm"
-              asChild
+              onClick={() =>
+                window.open(
+                  "https://wa.me/917828442476?text=Namaste%20Admin%2C%20vendor%20detail%20load%20karne%20me%20problem%20aa%20rahi%20hai",
+                  "_blank",
+                )
+              }
             >
-              <a
-                href="https://wa.me/917828442476?text=Namaste%20Admin%2C%20vendor%20detail%20load%20karne%20me%20problem%20aa%20rahi%20hai"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Admin WhatsApp: +91 7828442476
-              </a>
+              Admin WhatsApp: +91 7828442476
             </Button>
           </div>
         </CardContent>

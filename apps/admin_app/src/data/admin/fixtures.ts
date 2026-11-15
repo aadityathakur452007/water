@@ -637,7 +637,7 @@ export const vendorPreviewFixture: VendorPreview = {
   profile: vendorDetailFixture.profile,
   route: vendorTodayFixture,
   earnings: vendorEarningsFixture,
-  customers: { customers: vendorCustomersFixture },
+  customers: { date: "2026-10-06", customers: vendorCustomersFixture },
   complaints: { data: vendorComplaintsFixture },
 };
 

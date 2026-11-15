@@ -58,7 +58,7 @@ def expired(value: str | None, at: _dt.datetime | None = None) -> bool:
 
 
 def mint() -> str:
-    return f"{secrets.randbelow(1_000_000):06d}"
+    return f"{secrets.randbelow(10_000):04d}"
 
 
 def state(

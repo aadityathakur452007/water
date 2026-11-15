@@ -10,6 +10,8 @@ export type UserRow = {
   phone: string | null;
   role: string;
   status: UserStatus;
+  assigned_vendor_id?: string | null;
+  assigned_vendor_name?: string | null;
 };
 
 export const filters = {

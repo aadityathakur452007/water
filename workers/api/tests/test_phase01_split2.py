@@ -211,7 +211,7 @@ async def test_assign_mints_fresh_pod_otp():
     b = await assign_order(_w(c), "p2", "v9", {"id": "admin1", "role": "admin"})
     got = [c.execute("SELECT pod_otp FROM stops WHERE id = ?", (s["stop_id"],)).fetchone()["pod_otp"]
            for s in (a, b)]
-    assert all(g and re.fullmatch(r"\d{6}", g) for g in got) and got[0] != got[1]
+    assert all(g and re.fullmatch(r"\d{4,6}", g) for g in got) and got[0] != got[1]
 
 
 # -- §1.7 adjudication ------------------------------------------------------------

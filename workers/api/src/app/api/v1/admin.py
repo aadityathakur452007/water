@@ -157,6 +157,10 @@ class PasswordResetIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class AssignUserVendorIn(BaseModel):
+    vendor_id: str | None = None
+
+
 # -- orders queue + dispatch --------------------------------------------------
 
 @router.get("/admin/orders")
@@ -1473,6 +1477,57 @@ async def admin_password_reset(
     return await AuthService(conn, None).reset_user_password(
         user_id, payload.new_password, actor_id=_uid(user)
     )
+
+
+@router.post("/admin/users/{user_id}/assign-vendor")
+async def admin_assign_user_vendor(
+    user_id: str,
+    payload: AssignUserVendorIn,
+    conn=Depends(get_db_conn),
+    user=Admin,
+):
+    """Directly assign or unassign a customer to a vendor.
+
+    Enables admin to bind customer upon registration to a trusted vendor
+    so all subsequent orders route to that vendor without repetitive manual clicks.
+    """
+    with WRITE_LOCK:
+        target = (await conn.execute("SELECT id, name, role, assigned_vendor_id FROM users WHERE id = ?", (user_id,))).fetchone()
+        if target is None:
+            raise NotFoundError(message="User not found.", details={"id": user_id})
+
+        vendor_id = (payload.vendor_id or "").strip() or None
+        vendor_name = None
+        if vendor_id:
+            vendor = (await conn.execute("SELECT id, name, role, suspended FROM users WHERE id = ? AND role = 'vendor'", (vendor_id,))).fetchone()
+            if vendor is None:
+                raise NotFoundError(message="Vendor not found or not an active vendor.", details={"vendor_id": vendor_id})
+            if bool(vendor["suspended"]):
+                raise ValidationError(message="Cannot assign a suspended vendor.", details={"vendor_id": vendor_id})
+            vendor_name = vendor["name"]
+
+        before_vendor = target["assigned_vendor_id"]
+        await conn.execute(
+            "UPDATE users SET assigned_vendor_id = ? WHERE id = ?",
+            (vendor_id, user_id),
+        )
+        await _audit(
+            conn,
+            user,
+            "user.assign_vendor",
+            "users",
+            user_id,
+            {"assigned_vendor_id": before_vendor},
+            {"assigned_vendor_id": vendor_id},
+        )
+        conn.commit()
+
+    return {
+        "user_id": user_id,
+        "assigned_vendor_id": vendor_id,
+        "assigned_vendor_name": vendor_name,
+        "success": True,
+    }
 
 
 @router.get("/admin/payments")

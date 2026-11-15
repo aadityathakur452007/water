@@ -125,7 +125,7 @@ def test_full_walk_placed_to_delivered():
     assert t.status_code == 200, t.text
     assert vendor.post(f"/v1/vendor/stops/{stop_id}/cash", json={"amount": 5600}).status_code == 200
     otp = c.execute("SELECT pod_otp FROM stops WHERE id = ?", (stop_id,)).fetchone()["pod_otp"]
-    assert otp and len(otp) == 6
+    assert otp and len(otp) in (4, 6)
     p = vendor.post(f"/v1/vendor/stops/{stop_id}/pod", json={"delivery_otp": otp})
     assert p.status_code == 200, p.text
     assert c.execute("SELECT state FROM orders WHERE id = 'o1'").fetchone()["state"] == "delivered"

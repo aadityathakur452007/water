@@ -6,7 +6,7 @@ import { cn } from "cn";
 
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { adminMeServer, adminRoleServer } from "@/server/admin-api";
+import { adminMeServer } from "@/server/admin-api";
 import { hasSessionServer, refreshSessionServer, storeRotatedSessionServer } from "@/server/admin-session";
 import { getDashboardLayout } from "@/server/server-actions";
 

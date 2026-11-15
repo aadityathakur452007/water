@@ -27,7 +27,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
-import { errorMessage, useInvalidateAdmin } from "@/hooks/use-admin-api";
+import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import { useCursorPages } from "@/hooks/use-cursor-pages";
 import type { UserRow as ApiUserRow } from "@/lib/admin-types";
 import { dataTableFeatures } from "@/lib/data-table-features";
@@ -61,6 +61,8 @@ function adapt(u: ApiUserRow): UserRow {
     role: ROLE_LABEL[u.role] ?? u.role,
     status,
     joinedDate: Number.isNaN(created.getTime()) ? u.created_at : format(created, "dd MMM yyyy, h:mm a"),
+    assigned_vendor_id: u.assigned_vendor_id ?? null,
+    assigned_vendor_name: u.assigned_vendor_name ?? null,
   };
 }
 
@@ -70,13 +72,7 @@ export function Users() {
 
   // Cursor-follow: page 1 loads, Load more appends. The table paginates the
   // loaded rows — counts below are loaded rows, never server totals.
-  const {
-    rows: serverRows,
-    nextCursor,
-    loadMore,
-    isError,
-    error,
-  } = useCursorPages<ApiUserRow>("/v1/admin/users");
+  const { rows: serverRows, nextCursor, loadMore, isError, error } = useCursorPages<ApiUserRow>("/v1/admin/users");
   const rows = React.useMemo(() => serverRows.map(adapt), [serverRows]);
 
   const [rowSelection, setRowSelection] = React.useState({});
@@ -87,11 +83,18 @@ export function Users() {
   });
   const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
 
+  const { data: vendorsData } = useAdminQuery<{ data: ApiUserRow[] }>("/v1/admin/vendors");
+
   // Block / unblock sheet state (typed reason — server audits every action).
   const [target, setTarget] = React.useState<UserRow | null>(null);
   const [reason, setReason] = React.useState("");
   const [level, setLevel] = React.useState<"restrict" | "suspend">("suspend");
   const [busy, setBusy] = React.useState(false);
+
+  // Assign vendor modal state
+  const [assignTarget, setAssignTarget] = React.useState<UserRow | null>(null);
+  const [selectedVendor, setSelectedVendor] = React.useState<string>("none");
+  const [assignBusy, setAssignBusy] = React.useState(false);
 
   const table = useTable({
     features: dataTableFeatures,
@@ -113,6 +116,10 @@ export function Users() {
           setTarget(user);
           setReason("");
           setLevel("suspend");
+        },
+        assignVendor: (user: UserRow) => {
+          setAssignTarget(user);
+          setSelectedVendor(user.assigned_vendor_id ?? "none");
         },
       },
     } as never,
@@ -150,6 +157,32 @@ export function Users() {
       toast.add({ title: "Action failed", description: errorMessage(err), type: "error" });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function submitAssignVendor() {
+    if (!assignTarget) return;
+    setAssignBusy(true);
+    try {
+      await adminPostServer({
+        data: {
+          path: `/v1/admin/users/${assignTarget.id}/assign-vendor`,
+          body: { vendor_id: selectedVendor === "none" ? null : selectedVendor },
+        },
+      });
+      toast.add({
+        title: "Vendor Assigned",
+        description:
+          selectedVendor === "none"
+            ? `Unassigned vendor from ${assignTarget.name}`
+            : `Assigned ${assignTarget.name} to vendor partner`,
+      });
+      setAssignTarget(null);
+      invalidate("/v1/admin");
+    } catch (err) {
+      toast.add({ title: "Assignment failed", description: errorMessage(err), type: "error" });
+    } finally {
+      setAssignBusy(false);
     }
   }
 
@@ -284,6 +317,42 @@ export function Users() {
               onClick={() => void submitSuspend()}
             >
               {confirmLabel(busy, target)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={assignTarget !== null} onOpenChange={(open) => (!open ? setAssignTarget(null) : undefined)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Vendor Partner</DialogTitle>
+            <DialogDescription>
+              Assign <strong>{assignTarget?.name}</strong> to a delivery partner. Subsequent orders will auto-route to
+              this vendor.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-2">
+            <Label htmlFor="vendor-select">Delivery Partner (Vendor)</Label>
+            <Select value={selectedVendor} onValueChange={(val) => setSelectedVendor(val ?? "none")}>
+              <SelectTrigger id="vendor-select">
+                <SelectValue placeholder="Choose a vendor..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None (Unassigned / Open Pool)</SelectItem>
+                {(vendorsData?.data ?? []).map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name ?? v.phone ?? v.id} ({v.phone ?? "no phone"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignTarget(null)} disabled={assignBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitAssignVendor()} disabled={assignBusy}>
+              {assignBusy ? "Saving…" : "Save Assignment"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -44,7 +44,7 @@ class ApiClient {
     this.deviceId = 'unknown-device',
     this.onUnauthorized,
     this.tryRefresh,
-  })  : _http = client ?? http.Client() {
+  }) : _http = client ?? http.Client() {
     // Fail fast in debug on cleartext prod builds: the release pipeline
     // always passes an https SHODASHA_API_BASE. Localhost stays allowed.
     assert(
@@ -132,7 +132,8 @@ class ApiClient {
       final flying = _inflight[key];
       if (flying != null) return flying;
       final fut = _sendWithRetry(
-        method, path,
+        method,
+        path,
         body: body,
         query: query,
         authed: authed,
@@ -142,18 +143,21 @@ class ApiClient {
         timeout: timeout,
       );
       _inflight[key] = fut;
-      unawaited(fut.then<void>(
-        (_) {
-          _inflight.remove(key);
-        },
-        onError: (_) {
-          _inflight.remove(key);
-        },
-      ));
+      unawaited(
+        fut.then<void>(
+          (_) {
+            _inflight.remove(key);
+          },
+          onError: (_) {
+            _inflight.remove(key);
+          },
+        ),
+      );
       return fut;
     }
     return _sendWithRetry(
-      method, path,
+      method,
+      path,
       body: body,
       query: query,
       authed: authed,
@@ -184,7 +188,8 @@ class ApiClient {
     // POST without an idempotency key (or explicit replay-safety) must never
     // auto-retry: a timeout may mean the server already applied it
     // (triple/PoD would double-apply).
-    final retryableMethod = method == 'GET' ||
+    final retryableMethod =
+        method == 'GET' ||
         method == 'DELETE' ||
         idempotencyKey != null ||
         retryPost;
@@ -194,7 +199,8 @@ class ApiClient {
       attempt += 1;
       try {
         return await _sendOnce(
-          method, path,
+          method,
+          path,
           body: body,
           query: query,
           authed: authed,
@@ -304,7 +310,11 @@ class ApiClient {
 
   /// Emergency SOS: vehicle out of stock mid-shift; repool remaining stops.
   Future<Map<String, dynamic>> reportStockout({String reason = ''}) async {
-    final raw = await send('POST', '/vendor/stockout', body: {'reason': reason});
+    final raw = await send(
+      'POST',
+      '/vendor/stockout',
+      body: {'reason': reason},
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -314,11 +324,11 @@ class ApiClient {
     required String endDate,
     String reason = '',
   }) async {
-    final raw = await send('POST', '/vendor/leaves', body: {
-      'start_date': startDate,
-      'end_date': endDate,
-      'reason': reason,
-    });
+    final raw = await send(
+      'POST',
+      '/vendor/leaves',
+      body: {'start_date': startDate, 'end_date': endDate, 'reason': reason},
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -327,7 +337,6 @@ class ApiClient {
     if (raw is List<dynamic>) return raw;
     return ((raw as Map<String, dynamic>)['data'] as List?) ?? [];
   }
-
 
   Future<Map<String, dynamic>> todayRoute({String? date}) async {
     final raw = await send(
@@ -340,8 +349,7 @@ class ApiClient {
 
   /// 015: placed pool for the Pull button (placed orders, no route yet).
   Future<List<dynamic>> placedPool({int limit = 20}) async {
-    final raw = await send('GET', '/vendor/placed',
-        query: {'limit': '$limit'});
+    final raw = await send('GET', '/vendor/placed', query: {'limit': '$limit'});
     if (raw is List<dynamic>) return raw;
     return ((raw as Map<String, dynamic>)['data'] as List?) ?? [];
   }
@@ -365,8 +373,12 @@ class ApiClient {
     required Map<String, dynamic> triple,
     required String idempotencyKey,
   }) async {
-    final raw = await send('POST', '/vendor/stops/$stopId/triple',
-        body: triple, idempotencyKey: idempotencyKey);
+    final raw = await send(
+      'POST',
+      '/vendor/stops/$stopId/triple',
+      body: triple,
+      idempotencyKey: idempotencyKey,
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -397,8 +409,12 @@ class ApiClient {
     required String stopId,
     required int amountPaise,
   }) async {
-    final raw = await send('POST', '/vendor/stops/$stopId/cash',
-        body: {'amount': amountPaise}, retryPost: true);
+    final raw = await send(
+      'POST',
+      '/vendor/stops/$stopId/cash',
+      body: {'amount': amountPaise},
+      retryPost: true,
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -413,21 +429,31 @@ class ApiClient {
     required int emptiesCollected,
     required int capsMissing,
   }) async {
-    final raw = await send('POST', '/returns/$returnId/pickup',
-        body: {'empties_collected': emptiesCollected, 'caps_missing': capsMissing},
-        retryPost: true);
+    final raw = await send(
+      'POST',
+      '/returns/$returnId/pickup',
+      body: {
+        'empties_collected': emptiesCollected,
+        'caps_missing': capsMissing,
+      },
+      retryPost: true,
+    );
     return (raw as Map<String, dynamic>);
   }
 
   Future<Map<String, dynamic>> syncBatch(
-      List<Map<String, dynamic>> items) async {
+    List<Map<String, dynamic>> items,
+  ) async {
     // Background flush waits longer than interactive calls (Workers cold
     // start + D1 bind on a big batch); attempts stay capped at 3. Replay is
     // safe: dedupe is per-item inside the batch (each item has its own key).
-    final raw = await send('POST', '/vendor/sync',
-        body: {'items': items},
-        retryPost: true,
-        timeout: const Duration(seconds: 60));
+    final raw = await send(
+      'POST',
+      '/vendor/sync',
+      body: {'items': items},
+      retryPost: true,
+      timeout: const Duration(seconds: 60),
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -445,10 +471,11 @@ class ApiClient {
     required bool agree,
     required String note,
   }) async {
-    final raw = await send('POST', '/complaints/$complaintId/verify', body: {
-      'agree': agree,
-      'note': note,
-    });
+    final raw = await send(
+      'POST',
+      '/complaints/$complaintId/verify',
+      body: {'agree': agree, 'note': note},
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -458,11 +485,11 @@ class ApiClient {
     required String check,
     required String note,
   }) async {
-    final raw = await send('POST', '/quality/$incidentId/vendor-check', body: {
-      'agree': agree,
-      'check': check,
-      'note': note,
-    });
+    final raw = await send(
+      'POST',
+      '/quality/$incidentId/vendor-check',
+      body: {'agree': agree, 'check': check, 'note': note},
+    );
     return (raw as Map<String, dynamic>);
   }
 
@@ -479,7 +506,8 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> saveVendorProfile(
-      Map<String, String> fields) async {
+    Map<String, String> fields,
+  ) async {
     final raw = await send('PATCH', '/vendor/profile', body: fields);
     return (raw as Map<String, dynamic>);
   }
@@ -489,8 +517,7 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
-  Future<Map<String, dynamic>> saveVendorSlots(
-      Map<String, bool> slots) async {
+  Future<Map<String, dynamic>> saveVendorSlots(Map<String, bool> slots) async {
     final raw = await send('PUT', '/vendor/slots', body: {'slots': slots});
     return (raw as Map<String, dynamic>);
   }
@@ -509,5 +536,34 @@ class ApiClient {
     final raw = await send('GET', '/vendor/complaints');
     return (raw as Map<String, dynamic>);
   }
-}
 
+  // ── Rider fleet management (ADR-187) ──────────────────────────────────
+  Future<List<dynamic>> listRiders() async {
+    final raw = await send('GET', '/vendor/riders');
+    return (raw as Map<String, dynamic>)['data'] as List<dynamic>? ?? [];
+  }
+
+  Future<Map<String, dynamic>> createRider({
+    required String name,
+    required String phone,
+  }) async {
+    final raw = await send(
+      'POST',
+      '/vendor/riders',
+      body: {'name': name, 'phone': phone},
+    );
+    return (raw as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> assignStopRider({
+    required String stopId,
+    required String? riderId,
+  }) async {
+    final raw = await send(
+      'POST',
+      '/vendor/stops/$stopId/assign-rider',
+      body: {'rider_id': riderId},
+    );
+    return (raw as Map<String, dynamic>);
+  }
+}

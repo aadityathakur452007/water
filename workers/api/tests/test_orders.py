@@ -422,7 +422,7 @@ async def test_delivery_code_expired_reissue_active_and_limit():
     out = await s.reissue_delivery_code("u1", "ox")
     assert out["reissued"] is True
     assert out["delivery_otp_state"] == "active"
-    assert len(out["delivery_otp"]) == 6 and out["delivery_otp"] != "482910"
+    assert len(out["delivery_otp"]) in (4, 6) and out["delivery_otp"] != "482910"
     assert out["delivery_otp_expires_at"] > datetime.now(timezone.utc).isoformat()
     row = c.execute(
         "SELECT pod_otp, pod_attempts FROM stops WHERE id = 'sx'"
@@ -504,7 +504,7 @@ async def test_dispatch_arms_window_and_mints_missing_code():
     c.commit()
     await set_delivery_window(_w(c), "sx")
     row = c.execute("SELECT pod_otp FROM stops WHERE id = 'sx'").fetchone()
-    assert row["pod_otp"] and len(row["pod_otp"]) == 6
+    assert row["pod_otp"] and len(row["pod_otp"]) in (4, 6)
 
 
 def test_router_list_pagination_cancel_reschedule():

@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Subscribe } from "@tanstack/react-table";
 
 import { cn } from "cn";
-import { Ban, Eye, MoreHorizontal, Undo2 } from "lucide-react";
+import { Ban, Eye, MoreHorizontal, Truck, Undo2 } from "lucide-react";
 
 import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ import { statusMeta, type UserRow } from "./data";
 type UsersMeta = {
   openDetail: (user: UserRow) => void;
   toggleSuspend: (user: UserRow) => void;
+  assignVendor: (user: UserRow) => void;
 };
 
 function metaOf(table: { options: { meta?: unknown } }): UsersMeta {
@@ -31,6 +32,7 @@ function metaOf(table: { options: { meta?: unknown } }): UsersMeta {
     ((table.options.meta ?? {}) as { shodasha?: UsersMeta }).shodasha ?? {
       openDetail: () => undefined,
       toggleSuspend: () => undefined,
+      assignVendor: () => undefined,
     }
   );
 }
@@ -158,6 +160,22 @@ export const usersColumns: ColumnDef<DataTableFeatures, UserRow>[] = [
     cell: ({ row }) => <RoleCell role={row.original.role} />,
   },
   {
+    id: "assignedVendor",
+    header: "Assigned Vendor",
+    cell: ({ row }) => {
+      const vName = row.original.assigned_vendor_name;
+      if (!vName) {
+        return <span className="text-muted-foreground text-xs">—</span>;
+      }
+      return (
+        <Badge variant="outline" className="gap-1 font-normal text-xs">
+          <Truck className="size-3" />
+          {vName}
+        </Badge>
+      );
+    },
+  },
+  {
     accessorKey: "status",
     header: "Status",
     filterFn: "equalsString",
@@ -195,6 +213,11 @@ export const usersColumns: ColumnDef<DataTableFeatures, UserRow>[] = [
                 <DropdownMenuItem onClick={() => meta.openDetail(row.original)}>
                   <Eye /> View profile
                 </DropdownMenuItem>
+                {row.original.role === "Customer" && (
+                  <DropdownMenuItem onClick={() => meta.assignVendor(row.original)}>
+                    <Truck /> Assign vendor
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>

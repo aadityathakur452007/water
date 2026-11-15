@@ -12,6 +12,7 @@ class MoreHubScreen extends StatelessWidget {
     required this.onOpenSync,
     required this.onOpenDuty,
     required this.onOpenProfile,
+    this.onOpenRiders,
     required this.onWhatsApp,
     required this.onLogout,
     this.pendingSyncCount = 0,
@@ -23,6 +24,7 @@ class MoreHubScreen extends StatelessWidget {
   final VoidCallback onOpenSync;
   final VoidCallback onOpenDuty;
   final VoidCallback onOpenProfile;
+  final VoidCallback? onOpenRiders;
   final VoidCallback onWhatsApp;
   final VoidCallback onLogout;
   final int pendingSyncCount;
@@ -48,12 +50,16 @@ class MoreHubScreen extends StatelessWidget {
             color: onDuty ? ShodashaTheme.blueTint : ShodashaTheme.surface,
             child: ListTile(
               leading: Icon(
-                onDuty ? Icons.check_circle_outline : Icons.pause_circle_outline,
+                onDuty
+                    ? Icons.check_circle_outline
+                    : Icons.pause_circle_outline,
                 color: onDuty ? ShodashaTheme.blue : ShodashaTheme.muted,
                 size: 28,
               ),
               title: Text(
-                onDuty ? 'Duty: Active (ड्यूटी चालू)' : 'Duty: Off (ड्यूटी बंद)',
+                onDuty
+                    ? 'Duty: Active (ड्यूटी चालू)'
+                    : 'Duty: Off (ड्यूटी बंद)',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               subtitle: Text(
@@ -87,17 +93,46 @@ class MoreHubScreen extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.people_outline, color: ShodashaTheme.ink),
+                  leading: const Icon(
+                    Icons.people_outline,
+                    color: ShodashaTheme.ink,
+                  ),
                   title: Text(vtr('ग्राहक', 'Customers')),
                   subtitle: const Text('Aaj ke grahak, khoj ke saath'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenCustomers,
                 ),
+                if (onOpenRiders != null) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.two_wheeler_outlined,
+                      color: ShodashaTheme.ink,
+                    ),
+                    title: Text(vtr('डिलीवरी राइडर', 'Delivery Riders')),
+                    subtitle: Text(
+                      vtr(
+                        'राइडर जोड़ें व क्रेडेंशियल्स देखें',
+                        'Manage fleet riders & login credentials',
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: onOpenRiders,
+                  ),
+                ],
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.inventory_2_outlined, color: ShodashaTheme.ink),
+                  leading: const Icon(
+                    Icons.inventory_2_outlined,
+                    color: ShodashaTheme.ink,
+                  ),
                   title: Text(vtr('स्टॉक', 'Stock')),
-                  subtitle: Text(vtr('लोडिंग शीट: भरे व खाली जार', 'Loading sheet: fulls & empty cans')),
+                  subtitle: Text(
+                    vtr(
+                      'लोडिंग शीट: भरे व खाली जार',
+                      'Loading sheet: fulls & empty cans',
+                    ),
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenStock,
                 ),
@@ -106,7 +141,10 @@ class MoreHubScreen extends StatelessWidget {
                   leading: Badge(
                     isLabelVisible: pendingSyncCount > 0,
                     label: Text('$pendingSyncCount'),
-                    child: const Icon(Icons.sync_outlined, color: ShodashaTheme.ink),
+                    child: const Icon(
+                      Icons.sync_outlined,
+                      color: ShodashaTheme.ink,
+                    ),
                   ),
                   title: Text(vtr('सिंक स्थिति', 'Sync Log')),
                   subtitle: Text(
@@ -142,7 +180,10 @@ class MoreHubScreen extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.person_outline, color: ShodashaTheme.ink),
+                  leading: const Icon(
+                    Icons.person_outline,
+                    color: ShodashaTheme.ink,
+                  ),
                   title: Text(vtr('प्रोफ़ाइल', 'Profile')),
                   subtitle: const Text('Dukaan profile, language & settings'),
                   trailing: const Icon(Icons.chevron_right),
@@ -150,7 +191,10 @@ class MoreHubScreen extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.support_agent_outlined, color: ShodashaTheme.ink),
+                  leading: const Icon(
+                    Icons.support_agent_outlined,
+                    color: ShodashaTheme.ink,
+                  ),
                   title: Text('WhatsApp Help ($kSupportPhone)'),
                   subtitle: const Text('Direct desk assistance'),
                   trailing: const Icon(Icons.open_in_new, size: 18),
@@ -158,10 +202,16 @@ class MoreHubScreen extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.logout, color: ShodashaTheme.danger),
+                  leading: const Icon(
+                    Icons.logout,
+                    color: ShodashaTheme.danger,
+                  ),
                   title: const Text(
                     'Logout (लॉग आउट)',
-                    style: TextStyle(color: ShodashaTheme.danger, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: ShodashaTheme.danger,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   onTap: () async {
                     final ok = await showDialog<bool>(
@@ -169,7 +219,9 @@ class MoreHubScreen extends StatelessWidget {
                       builder: (ctx) => AlertDialog(
                         shape: ShodashaTheme.shape,
                         title: const Text('Logout karein?'),
-                        content: const Text('Kya aap pakka logout karna chahte hain?'),
+                        content: const Text(
+                          'Kya aap pakka logout karna chahte hain?',
+                        ),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.of(ctx).pop(false),
@@ -197,4 +249,3 @@ class MoreHubScreen extends StatelessWidget {
     );
   }
 }
-

@@ -140,24 +140,55 @@ class AdminReadRepo:
             where.append("u.rowid < ?")
             args.append(cursor)
         clause = ("WHERE " + " AND ".join(where)) if where else ""
-        rows = (
-            await self._conn.execute(
-                "SELECT u.id, u.phone, u.name, u.role, u.kyc_status, u.suspended,"
-                " u.suspended_reason, u.suspended_at, u.created_at, u.rowid AS _rowid"
-                f" FROM users u {clause} ORDER BY u.rowid DESC LIMIT ?",
-                (*args, limit + 1),
-            )
-        ).fetchall()
+        try:
+            rows = (
+                await self._conn.execute(
+                    "SELECT u.id, u.phone, u.name, u.role, u.kyc_status, u.suspended,"
+                    " u.suspended_reason, u.suspended_at, u.created_at, u.assigned_vendor_id,"
+                    " (SELECT name FROM users WHERE id = u.assigned_vendor_id) AS assigned_vendor_name,"
+                    " u.rowid AS _rowid"
+                    f" FROM users u {clause} ORDER BY u.rowid DESC LIMIT ?",
+                    (*args, limit + 1),
+                )
+            ).fetchall()
+        except Exception as e:
+            if "no such column" in str(e).lower():
+                rows = (
+                    await self._conn.execute(
+                        "SELECT u.id, u.phone, u.name, u.role, u.kyc_status, u.suspended,"
+                        " u.suspended_reason, u.suspended_at, u.created_at, NULL AS assigned_vendor_id,"
+                        " NULL AS assigned_vendor_name, u.rowid AS _rowid"
+                        f" FROM users u {clause} ORDER BY u.rowid DESC LIMIT ?",
+                        (*args, limit + 1),
+                    )
+                ).fetchall()
+            else:
+                raise
         return _page(rows, limit)
 
     async def user_detail(self, user_id: str) -> dict | None:
-        user = (
-            await self._conn.execute(
-                "SELECT id, phone, firebase_uid, name, role, language, kyc_status, suspended,"
-                " suspended_reason, suspended_by, suspended_at, created_at FROM users WHERE id = ?",
-                (user_id,),
-            )
-        ).fetchone()
+        try:
+            user = (
+                await self._conn.execute(
+                    "SELECT id, phone, firebase_uid, name, role, language, kyc_status, suspended,"
+                    " suspended_reason, suspended_by, suspended_at, created_at, assigned_vendor_id,"
+                    " (SELECT name FROM users WHERE id = users.assigned_vendor_id) AS assigned_vendor_name"
+                    " FROM users WHERE id = ?",
+                    (user_id,),
+                )
+            ).fetchone()
+        except Exception as e:
+            if "no such column" in str(e).lower():
+                user = (
+                    await self._conn.execute(
+                        "SELECT id, phone, firebase_uid, name, role, language, kyc_status, suspended,"
+                        " suspended_reason, suspended_by, suspended_at, created_at, NULL AS assigned_vendor_id,"
+                        " NULL AS assigned_vendor_name FROM users WHERE id = ?",
+                        (user_id,),
+                    )
+                ).fetchone()
+            else:
+                raise
         if user is None:
             return None
         # Consolidated query: reduces 6 D1/Pyodide round-trips to 1, preventing CPU timeout.
