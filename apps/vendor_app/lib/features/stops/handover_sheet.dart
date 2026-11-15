@@ -345,11 +345,15 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     Expanded(
                       child: TextField(
                         controller: _upi,
+                        enabled: false,
                         keyboardType: TextInputType.number,
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: const InputDecoration(
-                          labelText: 'UPI liya (Rs)',
+                        decoration: InputDecoration(
+                          labelText: vtr('UPI (आगामी)', 'UPI (Upcoming)'),
+                          hintText: '0',
                           isDense: true,
+                          filled: true,
+                          fillColor: ShodashaTheme.bg,
                         ),
                       ),
                     ),

@@ -78,9 +78,10 @@ def _svc(c) -> OrderService:
     return OrderService(OrderRepo(_w(c)), LedgerRepo(_w(c)), pricing, _rates())
 
 
-def _payload(items=None, e=0, **over) -> dict:
+def _payload(items=None, e=0, rates=None, **over) -> dict:
     items = items if items is not None else [{"sku": "refill", "qty": 2}]
-    q = pricing.compute_quote(items, e, _rates(), address_id="a1", window_start=WINDOW,
+    use_rates = rates or _rates()
+    q = pricing.compute_quote(items, e, use_rates, address_id="a1", window_start=WINDOW,
                               rate_version=pricing.RATE_VERSION)
     base = {
         "items": items,
@@ -112,8 +113,9 @@ async def test_create_ok_freezes_server_totals():
 
 async def test_container_first_deposit_then_waived():
     c = _conn()
-    s = _svc(c)
-    cont = _payload(items=[{"sku": "container", "qty": 1}], e=0)
+    r = {"refill": 2800, "container": 3000, "deposit": 15000}
+    s = OrderService(OrderRepo(_w(c)), LedgerRepo(_w(c)), pricing, r)
+    cont = _payload(items=[{"sku": "container", "qty": 1}], e=0, rates=r)
     o1 = await s.create("u1", cont, "kc1")
     assert o1["deposit_due"] == 15000
     led = await LedgerRepo(_w(c)).get("u1")

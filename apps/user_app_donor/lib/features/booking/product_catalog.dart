@@ -72,11 +72,10 @@ List<CatalogSku> catalogFor(CatalogRates rates) => [
     depositPaise: rates.depositPaise,
     capPaise: rates.capPaise,
     asset: 'assets/20l.jpg',
-    tagline: 'New jar + container • refundable safety deposit',
+    tagline: 'New jar + container • zero safety deposit',
     description:
-        'A new 20L food-grade jar with a container. The first container '
-        'carries a refundable safety deposit; it comes back when you '
-        'return the jar.',
+        'A new 20L food-grade jar with a container. Ready to use with tap '
+        'nozzle. Safety deposit waived for instant orders.',
     tapNote:
         'Tap (nozzle) jar: ready to use, no dispenser needed. The '
         'cheaper no-tap option is Refill.',

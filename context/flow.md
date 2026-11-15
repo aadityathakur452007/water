@@ -12,6 +12,14 @@
 
 ## Overview
 
+- E2E Order Flow Hardening, Zero Security Deposit, Direct Vendor Routing & Doorstep Delivery OTP (2026-11-15, ADR-193):
+  1. Doorstep Delivery OTP: Minted directly upon order placement (`delivery_code.mint()`) and stored in `orders.delivery_otp` (migration `032_order_delivery_otp.sql`). The 4-digit OTP is returned in `create_order`, `OrderOut`, and `_delivery_view`, and rendered prominently on `quote_confirm.dart`, Customer Home active delivery card, and My Orders card, so the user never has to search for or wait for vendor assignment to see their OTP.
+  2. Zero Security Deposit (Instant Orders): Waived ₹150 deposit across backend pricing (`pricing.py`, `config_repo.py`, `config.py`), subscription service, and user app checkout sheets (`deposit_due = 0`).
+  3. UPI Payment Disabled / Cash On Delivery Enforced: User app booking sheet enforces COD by default and disables UPI chip with label "UPI (Upcoming in future)". Vendor app handover sheet disables UPI field (set to 0), collecting only Cash on Delivery at the doorstep.
+  4. Vendor Fleet Rider Creation & Migration 031: Applied remote D1 migration `031_users_role_rider.sql` updating `users` role CHECK constraint to include `'rider'`, resolving the 500 error when vendors add fleet riders.
+  5. Admin Direct User Vendor Assignment: Replaced confusing order-level "Assign" button in dispatch unassigned pool table (`dispatch.tsx`) with "Assign via User" directing admin to `/dashboard/users/$userId`. When admin assigns a vendor to a user, `POST /v1/admin/users/{user_id}/assign-vendor` immediately dispatches any existing `placed` orders to that vendor and binds all future orders to that assigned vendor.
+  6. Vendor App Polish: Default language switched to English (`'en'`), Hindi optional. Auto on-duty on login; empty route state displays clean "Waiting for orders".
+
 - Anti-Fraud Hardening, 4-Digit Delivery OTP, Rider Navigation, Vendor Riders Screen, Direct User-Vendor Assignment & D1 Database Reset (2026-11-15, ADR-192):
   1. Delivery OTP: 4 digits (`f"{secrets.randbelow(10_000):04d}"`) minted at dispatch (`workers/api/src/app/services/delivery_code.py`). `PodSheet` in `apps/rider_app` accepts 4 digits (`maxLength: 4`) with hint `• • • •`.
   2. Customer Phone Masking: Customer phone numbers serialized as masked strings (e.g. `+91 99*** **759`) in `GET /v1/rider/routes/today` via `rider_service.py:mask_phone`. Rider app displays masked string and routes phone tap through virtual dispatch bridge (`07554300000`).

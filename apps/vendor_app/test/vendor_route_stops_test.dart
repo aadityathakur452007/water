@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:vendor_app/core/api_client.dart';
+import 'package:vendor_app/core/vendor_locale.dart';
 import 'package:vendor_app/features/route/route_controller.dart';
 import 'package:vendor_app/features/route/route_screen.dart';
 import 'package:vendor_app/features/stops/stop_detail_screen.dart';
@@ -161,7 +162,7 @@ void main() {
     expect(cashFinder, findsOneWidget);
     expect(tester.widget<AppButton>(cashFinder).kind, AppButtonKind.money);
 
-    final rtoFinder = find.widgetWithText(AppButton, 'समस्या दर्ज करें (RTO)');
+    final rtoFinder = find.widgetWithText(AppButton, vtr('समस्या दर्ज करें (RTO)', 'Report Issue (RTO)'));
     expect(rtoFinder, findsOneWidget);
     expect(tester.widget<AppButton>(rtoFinder).kind, AppButtonKind.danger);
   });

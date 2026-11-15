@@ -175,6 +175,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   @override
   void initState() {
     super.initState();
+    c.paymentMode = PaymentMode.cod;
     c.addListener(_onChange);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1061,21 +1062,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           Row(
             children: [
               _PayChip(
-                label: 'UPI',
-                selected: c.paymentMode == PaymentMode.upi,
+                label: 'Cash on delivery (COD)',
+                selected: true,
                 enabled: !chipsFrozen,
-                onTap: chipsFrozen
-                    ? null
-                    : () => setState(() => c.paymentMode = PaymentMode.upi),
+                onTap: () => setState(() => c.paymentMode = PaymentMode.cod),
               ),
               const SizedBox(width: 8),
-              _PayChip(
-                label: 'Cash on delivery',
-                selected: c.paymentMode == PaymentMode.cod,
-                enabled: codOk && !chipsFrozen,
-                onTap: (codOk && !chipsFrozen)
-                    ? () => setState(() => c.paymentMode = PaymentMode.cod)
-                    : null,
+              const _PayChip(
+                label: 'UPI (Upcoming in future)',
+                selected: false,
+                enabled: false,
+                onTap: null,
               ),
             ],
           ),
@@ -1485,11 +1482,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Water ${rupeesLabel(c.serverWaterPaise ?? 0)} + Deposit '
-            '${rupeesLabel(c.serverDepositPaise ?? 0)}',
-            style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
-          ),
+          if ((c.serverDepositPaise ?? 0) > 0)
+            Text(
+              'Water ${rupeesLabel(c.serverWaterPaise ?? 0)} + Deposit '
+              '${rupeesLabel(c.serverDepositPaise ?? 0)}',
+              style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+            )
+          else
+            Text(
+              'Water ${rupeesLabel(c.serverWaterPaise ?? total)} (Zero deposit)',
+              style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+            ),
           const SizedBox(height: 2),
           Text(
             'Total ${rupeesLabel(total)}',

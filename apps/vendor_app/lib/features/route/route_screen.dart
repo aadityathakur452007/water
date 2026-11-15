@@ -8,6 +8,7 @@ import '../../core/api_client.dart' show ApiClient;
 import '../../core/cascade.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../../shared/ui/app_button.dart';
 import '../customers/customers_controller.dart';
 import '../earnings/earnings_controller.dart';
@@ -232,14 +233,38 @@ class _RouteScreenState extends State<RouteScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Aaj koi stop nahi — duty on karke dobara dekhein',
-                  textAlign: TextAlign.center,
+                const Icon(
+                  Icons.hourglass_empty_rounded,
+                  size: 48,
+                  color: ShodashaTheme.blue,
                 ),
                 const SizedBox(height: 16),
-                ElevatedButton(
+                Text(
+                  vtr('ऑर्डर की प्रतीक्षा है (Waiting for orders)', 'Waiting for orders'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  vtr(
+                    'नए ऑर्डर आते ही यहां दिखाई देंगे।',
+                    'New orders assigned to you will appear here automatically.',
+                  ),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: ShodashaTheme.muted,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
                   onPressed: () => c.load(),
-                  child: const Text('Dobara try karein'),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: Text(vtr('रिफ्रेश करें', 'Refresh')),
                 ),
               ],
             ),

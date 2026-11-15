@@ -185,7 +185,7 @@ void main() {
       find.text('Pure 20L water delivered to your doorstep'),
       findsOneWidget,
     );
-    expect(find.text('RO+UV · Lab Tested · Bhopal'), findsOneWidget);
+    expect(find.text('RO+UV · Lab Tested'), findsOneWidget);
     expect(find.byIcon(Icons.water_drop_rounded), findsOneWidget);
     expect(
       find.text('Shodasha customer app · Password protected'),

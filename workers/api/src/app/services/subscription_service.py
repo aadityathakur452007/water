@@ -711,7 +711,8 @@ class SubscriptionService:
         led = await LedgerRepo(self._conn).get(user_id)
         held_jars = max(0, int(led.get("held", 0)))
         return_id = None
-        deposit_rate = pricing.DEPOSIT_PAISE
+        deposit_paid = max(0, int(led.get("deposit_paid", 0)) - int(led.get("deposit_refunded", 0)))
+        deposit_rate = pricing.DEPOSIT_PAISE or (deposit_paid // held_jars if held_jars > 0 and deposit_paid > 0 else 0)
         jars_to_return = min(held_jars, int(sub.get("qty", 1))) if held_jars > 0 else 0
         now_str = _dt.datetime.now(_dt.timezone.utc).isoformat()
         refund = None

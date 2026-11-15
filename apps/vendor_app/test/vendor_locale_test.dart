@@ -7,31 +7,31 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    VendorLocaleController.instance.resetForTest('hi');
+    VendorLocaleController.instance.resetForTest('en');
   });
 
-  test('default language is Hindi and vtr selects Hindi string', () {
-    expect(VendorLocaleController.instance.lang, 'hi');
-    expect(VendorLocaleController.instance.isHindi, isTrue);
-    expect(vtr('कमाई', 'Earnings'), 'कमाई');
+  test('default language is English and vtr selects English string', () {
+    expect(VendorLocaleController.instance.lang, 'en');
+    expect(VendorLocaleController.instance.isHindi, isFalse);
+    expect(vtr('कमाई', 'Earnings'), 'Earnings');
   });
 
-  test('switching to English updates lang, isHindi, and vtr', () async {
+  test('switching to Hindi updates lang, isHindi, and vtr', () async {
     bool notified = false;
     VendorLocaleController.instance.addListener(() {
       notified = true;
     });
 
-    await VendorLocaleController.instance.setLanguage('en');
+    await VendorLocaleController.instance.setLanguage('hi');
 
-    expect(VendorLocaleController.instance.lang, 'en');
-    expect(VendorLocaleController.instance.isHindi, isFalse);
-    expect(vtr('कमाई', 'Earnings'), 'Earnings');
+    expect(VendorLocaleController.instance.lang, 'hi');
+    expect(VendorLocaleController.instance.isHindi, isTrue);
+    expect(vtr('कमाई', 'Earnings'), 'कमाई');
     expect(notified, isTrue);
 
     // Verify persisted in SharedPreferences
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('vendor_language'), 'en');
+    expect(prefs.getString('vendor_language'), 'hi');
   });
 
   test('init restores saved language preference from SharedPreferences', () async {

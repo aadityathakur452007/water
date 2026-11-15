@@ -154,10 +154,8 @@ int computeDepositDuePaise({
   required CatalogRates rates,
   int depositPaidPaise = 0,
 }) {
-  if (container <= 0) return 0;
-  if (depositPaidPaise >= rates.depositPaise) return 0;
-  final against = empties.clamp(0, container);
-  return (container - against) * rates.depositPaise;
+  // Security deposit waived for instant orders per owner requirement
+  return 0;
 }
 
 /// Full quote total: water + once-only container deposit + missing caps.
@@ -307,7 +305,7 @@ class BookingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  PaymentMode _paymentMode = PaymentMode.upi;
+  PaymentMode _paymentMode = PaymentMode.cod;
   PaymentMode get paymentMode => _paymentMode;
   set paymentMode(PaymentMode m) {
     if (_paymentMode != m) {

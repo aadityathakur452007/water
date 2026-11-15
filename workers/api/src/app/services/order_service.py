@@ -78,7 +78,7 @@ def _stop_status(stop: dict) -> str | None:
     return status
 
 
-def _delivery_view(order_state: str, stop: dict | None) -> dict:
+def _delivery_view(order_state: str, stop: dict | None, order: dict | None = None) -> dict:
     if order_state == "delivered":
         return {
             "delivery_otp": None,
@@ -86,32 +86,40 @@ def _delivery_view(order_state: str, stop: dict | None) -> dict:
             "delivery_otp_state": "used",
             "delivery_otp_reissue_available": False,
         }
-    if stop is None:
-        return {
-            "delivery_otp": None,
-            "delivery_otp_expires_at": None,
-            "delivery_otp_state": "none",
-            "delivery_otp_reissue_available": False,
-        }
-    state = delivery_code.state(
-        order_state=order_state,
-        stop_status=_stop_status(stop),
-        code=stop.get("pod_otp"),
-        code_expires_at=stop.get("pod_otp_expires_at"),
-        attempts=int(stop.get("pod_attempts") or 0),
-    )
-    return {
-        "delivery_otp": stop.get("pod_otp") if state == "active" else None,
-        "delivery_otp_expires_at": (
-            stop.get("pod_otp_expires_at")
-            if state in {"active", "expired", "locked"} else None
-        ),
-        "delivery_otp_state": state,
-        "delivery_otp_reissue_available": delivery_code.reissue_available(
+    if stop is not None:
+        state = delivery_code.state(
             order_state=order_state,
             stop_status=_stop_status(stop),
-            code_state=state,
-        ),
+            code=stop.get("pod_otp"),
+            code_expires_at=stop.get("pod_otp_expires_at"),
+            attempts=int(stop.get("pod_attempts") or 0),
+        )
+        return {
+            "delivery_otp": stop.get("pod_otp") if state == "active" else None,
+            "delivery_otp_expires_at": (
+                stop.get("pod_otp_expires_at")
+                if state in {"active", "expired", "locked"} else None
+            ),
+            "delivery_otp_state": state,
+            "delivery_otp_reissue_available": delivery_code.reissue_available(
+                order_state=order_state,
+                stop_status=_stop_status(stop),
+                code_state=state,
+            ),
+        }
+    direct_otp = order.get("delivery_otp") if order else None
+    if direct_otp and order_state in {"placed", "accepted", "picked", "packed", "assigned", "dispatched"}:
+        return {
+            "delivery_otp": direct_otp,
+            "delivery_otp_expires_at": None,
+            "delivery_otp_state": "active",
+            "delivery_otp_reissue_available": False,
+        }
+    return {
+        "delivery_otp": None,
+        "delivery_otp_expires_at": None,
+        "delivery_otp_state": "none",
+        "delivery_otp_reissue_available": False,
     }
 
 
@@ -291,6 +299,7 @@ class OrderService:
             "quote_hash": q["quote_hash"],
             "quote_rate_version": current_rv,
             "_actor": user_id,
+            "delivery_otp": delivery_code.mint(),
         }
         if addr_snapshot:
             order["address_snapshot_json"] = addr_snapshot
@@ -335,7 +344,7 @@ class OrderService:
         # stop is active. Expired/locked/unavailable rows expose state + reissue,
         # never a fallback code. Delivered rows are "used".
         stop = await self.orders.stop_delivery_state(order_id)
-        delivery = _delivery_view(order["state"], stop)
+        delivery = _delivery_view(order["state"], stop, order)
         stops_ahead: int | None = None
         rider_info: dict | None = None
         if order["state"] in ("assigned", "dispatched"):

@@ -208,7 +208,7 @@ def test_router_sub_estimate_and_schedule_allowlist():
     assert r.status_code == 200, r.text
     assert r.json()["total"] == 5600  # 2x refill, refill never deposits
     r = client.post("/v1/subscriptions/estimate", json={"qty": 1, "sku_mix": "container"})
-    assert r.json()["total"] == 3000 + 15000  # fresh wallet: deposit due
+    assert r.json()["total"] == 3000  # deposit waived: 0
     bad = client.post("/v1/subscriptions",
                       json={"address_id": "a1", "qty": 2, "schedule_type": "monthly"})
     assert bad.status_code == 400

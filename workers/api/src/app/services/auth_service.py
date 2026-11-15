@@ -546,6 +546,15 @@ class AuthService:
         if user is None or user.get("role") != expected_role or matched_id is None:
             raise UnauthError("Invalid credentials.", {})
         out = await self._issue_session(user, device_id, device)
+        if expected_role == "vendor":
+            try:
+                now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+                await self._conn.execute(
+                    "UPDATE vendor_profile SET on_duty = 1, duty_on = COALESCE(duty_on, ?) WHERE user_id = ?",
+                    (now_iso, user["id"]),
+                )
+            except Exception:
+                pass
         try:
             await AccessCodeRepo(self._conn).touch_last_used(matched_id)
         except Exception:  # noqa: BLE001 — touch must never break login
