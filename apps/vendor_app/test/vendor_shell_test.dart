@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:vendor_app/core/api_client.dart';
 import 'package:vendor_app/core/auth_impls.dart';
 import 'package:vendor_app/core/theme.dart';
+import 'package:vendor_app/core/vendor_locale.dart';
 import 'package:vendor_app/features/auth/auth_controller.dart';
 import 'package:vendor_app/features/customers/customers_controller.dart';
 import 'package:vendor_app/features/duty/duty_controller.dart';
@@ -90,16 +91,16 @@ void main() {
     // Switch to Earnings tab (Tab 1) while off duty
     await tester.tap(find.byIcon(Icons.payments_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('कमाई'), findsOneWidget);
+    expect(find.text(vtr('कमाई', 'Earnings')), findsAtLeastNWidgets(1));
 
     // Switch to More tab (Tab 3) - DEF-05: verify MoreHubScreen renders without opening drawer
     await tester.tap(find.byIcon(Icons.grid_view_outlined));
     await tester.pumpAndSettle();
     expect(find.byType(MoreHubScreen), findsOneWidget);
-    expect(find.text('ग्राहक'), findsOneWidget);
-    expect(find.text('स्टॉक'), findsOneWidget);
-    expect(find.text('सिंक स्थिति'), findsOneWidget);
-    expect(find.text('प्रोफ़ाइल'), findsOneWidget);
+    expect(find.text(vtr('ग्राहक', 'Customers')), findsOneWidget);
+    expect(find.text(vtr('स्टॉक', 'Stock')), findsOneWidget);
+    expect(find.text(vtr('सिंक स्थिति', 'Sync Log')), findsOneWidget);
+    expect(find.text(vtr('प्रोफ़ाइल', 'Profile')), findsOneWidget);
 
     // Switch back to Route tab (Tab 0)
     await tester.tap(find.byIcon(Icons.route_outlined));

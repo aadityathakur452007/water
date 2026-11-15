@@ -200,10 +200,14 @@ class _DetailSheetState extends State<_DetailSheet> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '${rupeesLabel(sku.depositPaise)} safety deposit applies '
-                      'only to the first container, once • Missing cap: '
-                      '${rupeesLabel(sku.capPaise)} • Delivery: morning 8–12, '
-                      'daily.',
+                      sku.depositPaise > 0
+                          ? '${rupeesLabel(sku.depositPaise)} safety deposit applies '
+                              'only to the first container, once • Missing cap: '
+                              '${rupeesLabel(sku.capPaise)} • Delivery: morning 8–12, '
+                              'daily.'
+                          : 'Zero safety deposit • Missing cap: '
+                              '${rupeesLabel(sku.capPaise)} • Delivery: morning 8–12, '
+                              'daily.',
                       style: const TextStyle(
                         fontSize: 13,
                         color: ShodashaTheme.ink,

@@ -9,7 +9,7 @@ import json
 
 REFILL_PAISE = 2800
 CONTAINER_PAISE = 3000
-DEPOSIT_PAISE = 15000
+DEPOSIT_PAISE = 0
 CAP_PAISE = 300
 RATE_VERSION = "v1"
 CAP_NOTE = "Rs 3/jar extra only if a returned empty is missing its cap (counted at handover)."
@@ -43,11 +43,11 @@ def compute_quote(items, e, rates=None, address_id="", window_start="", rate_ver
     # Container deposit calculation: refill never carries deposit.
     # Container carries deposit for any net new jars that exceed both
     # the returned empties and deposits already held in the customer's wallet.
-    if n_container <= 0:
+    if n_container <= 0 or deposit <= 0:
         deposit_due = 0
     else:
         e_vs_containers = max(0, min(int(e), n_container))
-        covered_jars = max(0, int(deposit_already_paid_paise or 0) // deposit)
+        covered_jars = max(0, int(deposit_already_paid_paise or 0) // deposit) if deposit > 0 else 0
         net_uncovered = max(0, n_container - e_vs_containers - covered_jars)
         deposit_due = net_uncovered * deposit
     total = water_bill + deposit_due

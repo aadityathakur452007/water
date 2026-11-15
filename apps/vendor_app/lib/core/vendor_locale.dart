@@ -2,14 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Single source of truth for Vendor App language localization (DEF-11, ADR-164).
-/// Defaults to Hindi ('hi') per Decision 1 in 23-owner-decisions.md, with English ('en') optional.
+/// Defaults to English ('en') with Hindi ('hi') optional.
 class VendorLocaleController extends ChangeNotifier {
   VendorLocaleController._();
   static final VendorLocaleController instance = VendorLocaleController._();
 
   static const String prefKey = 'vendor_language';
 
-  String _lang = 'hi';
+  String _lang = 'en';
   String get lang => _lang;
   bool get isHindi => _lang == 'hi';
 
@@ -35,7 +35,7 @@ class VendorLocaleController extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void resetForTest([String lang = 'hi']) {
+  void resetForTest([String lang = 'en']) {
     _lang = lang;
     notifyListeners();
   }

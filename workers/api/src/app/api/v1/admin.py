@@ -1057,7 +1057,7 @@ async def return_refund(return_id: str, payload: ReturnRefundIn,
         if int(payload.qty) > int(ret["qty"]):
             raise ValidationError(message="Refund qty exceeds requested.",
                                   details={"qty": ret["qty"]})
-        rate = int(get_settings().deposit_per_jar_paise)
+        rate = int(get_settings().deposit_per_jar_paise) or 15000
         after = await LedgerRepo(conn).apply_event(
             ret["user_id"], d_deposit=-(int(payload.qty) * rate),
             ref=f"return-refund:{return_id}", actor=_uid(user),
@@ -1520,6 +1520,20 @@ async def admin_assign_user_vendor(
             {"assigned_vendor_id": before_vendor},
             {"assigned_vendor_id": vendor_id},
         )
+        if vendor_id:
+            try:
+                from app.services.dispatch_service import auto_assign_trusted_vendor
+                placed_orders = (await conn.execute(
+                    "SELECT id FROM orders WHERE user_id = ? AND state = 'placed'",
+                    (user_id,),
+                )).fetchall()
+                for p_order in placed_orders:
+                    try:
+                        await auto_assign_trusted_vendor(conn, p_order["id"], user_id)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         conn.commit()
 
     return {

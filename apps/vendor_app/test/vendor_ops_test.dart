@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:vendor_app/core/api_client.dart';
 import 'package:vendor_app/core/theme.dart';
+import 'package:vendor_app/core/vendor_locale.dart';
 import 'package:vendor_app/features/customers/customers_controller.dart';
 import 'package:vendor_app/features/customers/customers_screen.dart';
 import 'package:vendor_app/features/earnings/earnings_controller.dart';
@@ -271,8 +272,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final agreeFinder = find.widgetWithText(AppButton, 'सहमत हैं');
-      final disagreeFinder = find.widgetWithText(AppButton, 'असहमत');
+      final agreeFinder = find.widgetWithText(AppButton, vtr('सहमत हैं', 'Agree'));
+      final disagreeFinder = find.widgetWithText(AppButton, vtr('असहमत', 'Disagree'));
       expect(agreeFinder, findsOneWidget);
       expect(disagreeFinder, findsOneWidget);
 

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     database_path: str = "./data/shodasha.db"
     rate_refill_paise: int = 2800
     rate_container_paise: int = 3000
-    deposit_per_jar_paise: int = 15000
+    deposit_per_jar_paise: int = 0
     cap_charge_paise: int = 300
     quote_ttl_minutes: int = 15
     firebase_project_id: str | None = None

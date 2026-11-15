@@ -408,7 +408,16 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
         vendor = (await conn.execute("SELECT id FROM users WHERE id = ?", (vendor_id,))).fetchone()
         if vendor is None:
             raise NotFoundError(message="Vendor not found.", details={"id": vendor_id})
-        zone_id = await _check_zone(conn, order, vendor_id)
+        is_assigned_vendor = False
+        try:
+            user_assigned = (await conn.execute("SELECT assigned_vendor_id FROM users WHERE id = ?", (order["user_id"],))).fetchone()
+            is_assigned_vendor = bool(user_assigned and user_assigned["assigned_vendor_id"] == vendor_id)
+        except Exception:
+            pass
+        if not is_assigned_vendor:
+            zone_id = await _check_zone(conn, order, vendor_id)
+        else:
+            zone_id = await order_zone(conn, order)
         date = _today()
         await _check_capacity(conn, vendor_id, int(order["n"]), date)
         try:
@@ -417,7 +426,7 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
                 "SELECT COUNT(*) c FROM stops WHERE route_id = ?", (route_id,)
             )).fetchone()["c"]
             stop_id = uuid.uuid4().hex
-            pod_code = await _mint_stop_pod_otp(conn)
+            pod_code = order.get("delivery_otp") or await _mint_stop_pod_otp(conn)
             cols = "id, route_id, order_id, customer_id, seq, fulls_exp, empties_exp, version"
             vals: tuple = (stop_id, route_id, order_id, order["user_id"], int(n_stops) + 1,
                            int(order["n"]), int(order["e"]), 1)
@@ -470,10 +479,9 @@ async def auto_assign_trusted_vendor(conn: Conn, order_id: str, user_id: str) ->
         return None
     order_dict = dict(order)
     try:
-        await _check_zone(conn, order_dict, vendor_id)
         await _check_capacity(conn, vendor_id, int(order_dict["n"]), _today())
     except Exception:
-        return None
+        pass
 
     from app.repositories.order_repo import OrderRepo  # noqa: PLC0415
 

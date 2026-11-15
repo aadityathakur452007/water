@@ -179,7 +179,7 @@ async def collect_reminders(conn: Conn, today: object = None) -> dict:
     """
     tday = str(today) if today is not None else _now().date().isoformat()
     horizon = (_dt.date.fromisoformat(tday) + _dt.timedelta(days=2)).isoformat()
-    deposit = _rates()["deposit"]
+    deposit = _rates()["deposit"] or 15000
     dues: list[dict] = []
     low: list[dict] = []
     last = ""

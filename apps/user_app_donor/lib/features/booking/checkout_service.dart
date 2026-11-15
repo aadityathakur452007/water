@@ -35,6 +35,7 @@ class CheckoutResult {
     this.depositPaise = 0,
     this.capsPaise = 0,
     this.addressLabel = '',
+    this.deliveryOtp = '',
     this.upiPending = false,
     this.payOnDelivery = false,
     this.attention = false,
@@ -61,6 +62,7 @@ class CheckoutResult {
 
   /// Delivery address recap line (set by the caller).
   final String addressLabel;
+  final String deliveryOtp;
 
   /// UPI intent opened but webhook not yet confirmed — the confirm screen
   /// says what happens next instead of going silent.
@@ -93,6 +95,7 @@ class CheckoutResult {
     depositPaise: depositPaise,
     capsPaise: capsPaise,
     addressLabel: addressLabel,
+    deliveryOtp: deliveryOtp,
     upiPending: upiPending,
     payOnDelivery: payOnDelivery,
     attention: false,
@@ -113,6 +116,7 @@ class CheckoutResult {
     depositPaise: depositPaise,
     capsPaise: capsPaise,
     addressLabel: addressLabel,
+    deliveryOtp: deliveryOtp,
     upiPending: upiPending,
     payOnDelivery: payOnDelivery,
     attention: true,
@@ -136,6 +140,7 @@ class CheckoutResult {
     depositPaise: depositPaise,
     capsPaise: capsPaise,
     addressLabel: addressLabel,
+    deliveryOtp: deliveryOtp,
     upiPending: false,
     payOnDelivery: true,
     attention: false,
@@ -417,6 +422,7 @@ Future<CheckoutResult> placeCheckout({
     depositPaise: deposit,
     capsPaise: caps,
     addressLabel: addressLabel,
+    deliveryOtp: (data['delivery_otp'] as String?) ?? '',
     upiPending: upiPending,
     payOnDelivery: controller.paymentMode == PaymentMode.cod,
     attention: attentionMessage.isNotEmpty,

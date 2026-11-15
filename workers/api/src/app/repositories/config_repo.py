@@ -38,7 +38,7 @@ _SETTINGS_ATTRS = {
 }
 
 # Scope-lock values in paise (mirror B1 Settings defaults).
-_FALLBACK_DEFAULTS = {"refill": "2800", "container": "3000", "deposit": "15000", "cap": "300"}
+_FALLBACK_DEFAULTS = {"refill": "2800", "container": "3000", "deposit": "0", "cap": "300"}
 
 
 def _default_rates() -> dict[str, str]:

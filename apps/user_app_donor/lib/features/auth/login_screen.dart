@@ -517,7 +517,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               border: Border.all(color: ShodashaTheme.border),
             ),
             child: const Text(
-              'RO+UV · Lab Tested · Bhopal',
+              'RO+UV · Lab Tested',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,

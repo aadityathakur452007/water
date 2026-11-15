@@ -152,9 +152,9 @@ export function Dispatch() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => navigate({ to: "/dashboard/orders/$orderId", params: { orderId: o.id } })}
+                          onClick={() => navigate({ to: "/dashboard/users/$userId", params: { userId: o.user_id } })}
                         >
-                          Assign
+                          Assign via User
                         </Button>
                       </TableCell>
                     </TableRow>

@@ -135,7 +135,7 @@ def test_router_catalog_200():
     assert r.status_code == 200, r.text
     body = r.json()
     assert [s["price_paise"] for s in body["skus"]] == [2800, 3000]
-    assert (body["deposit_per_jar"], body["cap_charge"]) == (15000, 300)
+    assert (body["deposit_per_jar"], body["cap_charge"]) == (0, 300)
 
 
 def test_router_bad_pincode_400():

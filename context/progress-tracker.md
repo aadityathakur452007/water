@@ -4,7 +4,38 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-**ANTI-FRAUD HARDENING, 4-DIGIT OTP, RIDER NAVIGATION, VENDOR RIDERS & DIRECT USER-VENDOR ASSIGNMENT (2026-11-15, ADR-192):** branch `045-worker-split-surfaces`
+**E2E ORDER FLOW HARDENING, ZERO SECURITY DEPOSIT, DIRECT VENDOR ROUTING & DOORSTEP DELIVERY OTP (2026-11-15, ADR-193):** branch `046-e2e-order-flow-vendor-routing`
+- **User App Polish & Bhopal Reference Removal:**
+  - Removed " · Bhopal" badge from `apps/user_app_donor/lib/features/auth/login_screen.dart` (now "RO+UV · Lab Tested").
+  - Removed "Serviceable Bhopal pin codes" subtitle from `apps/user_app_donor/lib/features/home/widgets/top_bar.dart` (now "Tap to set delivery location").
+- **Zero Security Deposit (Instant Orders):**
+  - Updated backend pricing (`pricing.py`, `config_repo.py`, `config.py`) setting default `deposit_per_jar_paise = 0`.
+  - Guarded `pricing.compute_quote` against division by zero if deposit <= 0.
+  - Updated `apps/user_app_donor` booking controller and sheets to compute zero deposit and display "Zero safety deposit".
+- **UPI Disabled / COD Enforced:**
+  - Disabled UPI in `apps/user_app_donor` booking sheet (`PaymentMode.cod` enforced by default, chip disabled with "UPI (Upcoming in future)").
+  - Disabled UPI field in `apps/vendor_app` handover sheet (only cash collected at delivery).
+- **Vendor Fleet Rider 500 Error Fix & Migration 031:**
+  - Replaced legacy SQLite CHECK constraint on `users` table via migration `031_users_role_rider.sql` to include `'rider'`.
+  - Applied migration to remote Cloudflare D1 `shodasha` database.
+- **Direct User-Level Vendor Routing & Dispatch Board Fix:**
+  - Fixed "Assignment failed" conflict in `dispatch.tsx`: replaced unassigned pool "Assign" button with direct navigation to `/dashboard/users/$userId` ("Assign via User").
+  - Updated `workers/api/src/app/api/v1/admin.py::assign-vendor`: binding a user to a vendor now auto-dispatches any existing `placed` orders for that user to that vendor, and future orders automatically route directly to that vendor.
+- **Instant Doorstep Delivery OTP (4 Digits):**
+  - Applied migration `032_order_delivery_otp.sql` adding `delivery_otp TEXT` column to `orders` on remote D1 `shodasha`.
+  - Mints 4-digit OTP immediately upon `create_order` in `order_service.py` so the customer does not wait for vendor assignment to get their OTP.
+  - Added `delivery_otp` to `OrderOut`, `OrderRepo.insert`, and `CheckoutResult`.
+  - Displayed OTP prominently on `quote_confirm.dart` receipt, customer home screen, and order tracking cards.
+- **Vendor App Language & Login Polish:**
+  - Set default vendor locale to English (`'en'`), Hindi optional.
+  - Vendor login auto-sets `on_duty = 1` on backend; empty route screen displays clean "Waiting for orders".
+- **Verification:**
+  - Backend: `513 passed, 1 skipped` (`uv run pytest -q` in `workers/api`).
+  - User app: `122 / 122 passed`, `flutter analyze` 0 issues.
+  - Vendor app: `90 / 90 passed`, `flutter analyze` 0 issues.
+  - Admin app: `pnpm build` clean, 0 errors.
+
+## Previous Phases
 - **Delivery OTP Ease-of-Use (4 Digits):**
   - Updated OTP minting in `workers/api/src/app/services/delivery_code.py` to 4 digits (`secrets.randbelow(10_000):04d`).
   - Updated `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart` to 4-digit input layout (`maxLength: 4`), hint `• • • •`, and 4-digit validation error.

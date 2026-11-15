@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../../shared/ui/app_button.dart';
 import '../auth/auth_controller.dart';
 import '../auth/vendor_strings.dart';

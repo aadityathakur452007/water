@@ -135,9 +135,18 @@ class OrderRepo:
                 raise ValidationError(message="Bad cursor.", details={}) from None
             cursor_sql = " AND (created_at < ? OR (created_at = ? AND id < ?))"
             args += [ts, ts, oid]
+        cols = _ORDER_COLS
+        try:
+            has_otp_col = (await self._conn.execute(
+                "SELECT 1 FROM pragma_table_info('orders') WHERE name = 'delivery_otp'"
+            )).fetchone()
+            if has_otp_col:
+                cols += ", delivery_otp"
+        except Exception:
+            pass
         rows = (
             await self._conn.execute(
-                f"SELECT {_ORDER_COLS} FROM orders WHERE user_id = ?{cursor_sql}"  # noqa: S608
+                f"SELECT {cols} FROM orders WHERE user_id = ?{cursor_sql}"  # noqa: S608
                 " ORDER BY created_at DESC, id DESC LIMIT ?",
                 (*args, limit + 1),
             )
@@ -195,6 +204,13 @@ class OrderRepo:
 
     # -- writes (each = exactly one transaction) --------------------------
 
+    async def _table_cols(self) -> set[str]:
+        try:
+            rows = (await self._conn.execute("PRAGMA table_info(orders)")).fetchall()
+            return {r["name"] for r in rows}
+        except Exception:
+            return set()
+
     async def insert(self, order: dict, deposit_event: dict | None = None) -> dict:
         """Insert order + placed event + deposit ledger entry in ONE transaction/roundtrip."""
         order = {
@@ -210,43 +226,37 @@ class OrderRepo:
         items_json = order["items"] if isinstance(order["items"], str) else json.dumps(order["items"])
 
         stmts: list[tuple[str, tuple]] = []
-        has_snapshot = bool(order.get("address_snapshot_json"))
+        tcols = await self._table_cols()
+        has_snapshot = bool(order.get("address_snapshot_json")) and "address_snapshot_json" in tcols
+        has_otp = bool(order.get("delivery_otp")) and "delivery_otp" in tcols
 
+        cols = [
+            "id", "user_id", "address_id", "items", "n", "e", "m", "water_bill",
+            "deposit_due", "cap_charge", "total", "payment_mode", "payment_status", "state",
+            "window_start", "window_end", "idempotency_key", "payload_hash", "quote_hash",
+            "quote_rate_version", "created_at",
+        ]
+        vals = [
+            order["id"], order["user_id"], order["address_id"], items_json,
+            order["n"], order["e"], order["m"], order["water_bill"],
+            order["deposit_due"], order["cap_charge"], order["total"],
+            order["payment_mode"], order["payment_status"], "placed",
+            order["window_start"], order["window_end"], order["idempotency_key"],
+            order.get("payload_hash", ""), order.get("quote_hash", ""),
+            order.get("quote_rate_version", "v1"), order["created_at"],
+        ]
         if has_snapshot:
-            stmts.append((
-                "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
-                " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
-                " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
-                " quote_rate_version, created_at, address_snapshot_json)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    order["id"], order["user_id"], order["address_id"], items_json,
-                    order["n"], order["e"], order["m"], order["water_bill"],
-                    order["deposit_due"], order["cap_charge"], order["total"],
-                    order["payment_mode"], order["payment_status"], "placed",
-                    order["window_start"], order["window_end"], order["idempotency_key"],
-                    order.get("payload_hash", ""), order.get("quote_hash", ""),
-                    order.get("quote_rate_version", "v1"), order["created_at"],
-                    order["address_snapshot_json"],
-                ),
-            ))
-        else:
-            stmts.append((
-                "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
-                " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
-                " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
-                " quote_rate_version, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    order["id"], order["user_id"], order["address_id"], items_json,
-                    order["n"], order["e"], order["m"], order["water_bill"],
-                    order["deposit_due"], order["cap_charge"], order["total"],
-                    order["payment_mode"], order["payment_status"], "placed",
-                    order["window_start"], order["window_end"], order["idempotency_key"],
-                    order.get("payload_hash", ""), order.get("quote_hash", ""),
-                    order.get("quote_rate_version", "v1"), order["created_at"],
-                ),
-            ))
+            cols.append("address_snapshot_json")
+            vals.append(order["address_snapshot_json"])
+        if has_otp:
+            cols.append("delivery_otp")
+            vals.append(order["delivery_otp"])
+
+        ph = ", ".join(["?"] * len(vals))
+        stmts.append((
+            f"INSERT INTO orders({', '.join(cols)}) VALUES ({ph})",
+            tuple(vals),
+        ))
 
         stmts.append((
             "INSERT INTO order_events(id, order_id, from_state, to_state, actor_id, actor_role, reason, created_at)"
@@ -268,32 +278,7 @@ class OrderRepo:
 
         try:
             with WRITE_LOCK:
-                try:
-                    await self._conn.batch(stmts)
-                except Exception as e:
-                    msg = str(e).lower()
-                    if has_snapshot and ("no such column" in msg or "has no column" in msg):
-                        # Pre-023 fallback: run standard insert without address_snapshot_json
-                        fallback_stmts = list(stmts)
-                        fallback_stmts[0] = (
-                            "INSERT INTO orders(id, user_id, address_id, items, n, e, m, water_bill,"
-                            " deposit_due, cap_charge, total, payment_mode, payment_status, state,"
-                            " window_start, window_end, idempotency_key, payload_hash, quote_hash,"
-                            " quote_rate_version, created_at)"
-                            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                order["id"], order["user_id"], order["address_id"], items_json,
-                                order["n"], order["e"], order["m"], order["water_bill"],
-                                order["deposit_due"], order["cap_charge"], order["total"],
-                                order["payment_mode"], order["payment_status"], "placed",
-                                order["window_start"], order["window_end"], order["idempotency_key"],
-                                order.get("payload_hash", ""), order.get("quote_hash", ""),
-                                order.get("quote_rate_version", "v1"), order["created_at"],
-                            ),
-                        )
-                        await self._conn.batch(fallback_stmts)
-                    else:
-                        raise
+                await self._conn.batch(stmts)
                 self._conn.commit()
         except sqlite3.IntegrityError as e:
             self._conn.rollback()
@@ -323,6 +308,7 @@ class OrderRepo:
             "quote_rate_version": order.get("quote_rate_version", "v1"),
             "created_at": order["created_at"],
             "address_snapshot_json": order.get("address_snapshot_json"),
+            "delivery_otp": order.get("delivery_otp"),
         }
 
     async def transition(self, order_id: str, to_state: str, actor: object, reason: str = "") -> dict:

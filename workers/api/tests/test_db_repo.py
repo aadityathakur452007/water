@@ -24,7 +24,7 @@ def test_connection_uses_row_factory():
 
 
 async def test_seed_defaults():
-    assert await _repo().all_rates() == {"refill": 2800, "container": 3000, "deposit": 15000, "cap": 300}
+    assert await _repo().all_rates() == {"refill": 2800, "container": 3000, "deposit": 0, "cap": 300}
 
 
 async def test_seed_defaults_match_settings():

@@ -66,17 +66,17 @@ def _conn():
     return raw
 
 
-def _rates() -> dict:
+def _rates(deposit=15000) -> dict:
     from app.api.deps import get_settings
 
     s = get_settings()
     return {"refill": s.rate_refill_paise, "container": s.rate_container_paise,
-            "deposit": s.deposit_per_jar_paise}
+            "deposit": deposit}
 
 
-def _payload(mode="upi", items=None) -> dict:
+def _payload(mode="upi", items=None, deposit=15000) -> dict:
     items = items or [{"sku": "refill", "qty": 1}]
-    q = pricing.compute_quote(items, 0, _rates(), address_id="a1",
+    q = pricing.compute_quote(items, 0, _rates(deposit), address_id="a1",
                               window_start=WINDOW, rate_version=pricing.RATE_VERSION)
     return {
         "items": items, "e": 0, "address_id": "a1", "window_start": WINDOW,
@@ -88,10 +88,10 @@ def _payload(mode="upi", items=None) -> dict:
     }
 
 
-async def _order(raw, mode="upi", key="k1", items=None):
+async def _order(raw, mode="upi", key="k1", items=None, deposit=15000):
     conn = AsyncSqliteConn(raw)
-    svc = OrderService(OrderRepo(conn), LedgerRepo(conn), pricing, _rates())
-    return await svc.create("u1", _payload(mode, items), key)
+    svc = OrderService(OrderRepo(conn), LedgerRepo(conn), pricing, _rates(deposit))
+    return await svc.create("u1", _payload(mode, items, deposit), key)
 
 
 def _osvc(raw):

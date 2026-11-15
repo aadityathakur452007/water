@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:vendor_app/core/api_client.dart';
 import 'package:vendor_app/core/theme.dart';
+import 'package:vendor_app/core/vendor_locale.dart';
 import 'package:vendor_app/features/duty/duty_controller.dart';
 import 'package:vendor_app/features/duty/duty_screen.dart';
 import 'package:vendor_app/features/route/route_controller.dart';
@@ -99,7 +100,7 @@ void main() {
     expect(find.textContaining('short_delivery'), findsOneWidget);
     await tester.tap(find.textContaining('short_delivery'));
     await tester.pump();
-    expect(find.text('सहमत हैं'), findsOneWidget);
+    expect(find.text(vtr('सहमत हैं', 'Agree')), findsOneWidget);
 
     controller.dispose();
   });

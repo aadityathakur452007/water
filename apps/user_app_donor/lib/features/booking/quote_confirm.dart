@@ -213,6 +213,76 @@ class _ConfirmSheet extends StatelessWidget {
                 ],
               ),
             ),
+            if (r.deliveryOtp.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.tealTint,
+                  border: Border.all(color: ShodashaTheme.teal.withValues(alpha: 0.3)),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.xs),
+                      decoration: BoxDecoration(
+                        color: ShodashaTheme.teal,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Icon(Icons.key, color: Colors.white, size: 18),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Delivery OTP (share with delivery rider)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: ShodashaTheme.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            r.deliveryOtp,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 4,
+                              color: ShodashaTheme.tealDeep,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (!r.isSubscription) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.bg,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.vpn_key_outlined, size: 16, color: ShodashaTheme.muted),
+                    SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        'Delivery OTP is visible on your Home & Orders screen.',
+                        style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (r.upiPending && !r.attention) ...[
               const SizedBox(height: AppSpacing.sm),
               Container(
@@ -239,7 +309,7 @@ class _ConfirmSheet extends StatelessWidget {
                 ),
               ),
             ],
-            if (!r.attention) ...[
+            if (!r.attention && r.depositPaise > 0) ...[
               const SizedBox(height: AppSpacing.sm),
               Container(
                 padding: const EdgeInsets.all(AppSpacing.md),

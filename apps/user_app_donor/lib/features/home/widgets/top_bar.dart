@@ -51,9 +51,9 @@ class DonorTopBar extends StatelessWidget {
       (_, _, true, _) => ('Deliver to ${addressLabel!.trim()}', addressDetail),
       (_, _, _, true) => (
         'Add a delivery address',
-        'Serviceable Bhopal pin codes',
+        'Tap to set delivery location',
       ),
-      _ => ('Add a delivery address', 'Serviceable Bhopal pin codes'),
+      _ => ('Add a delivery address', 'Tap to set delivery location'),
     };
 
     return DecoratedBox(

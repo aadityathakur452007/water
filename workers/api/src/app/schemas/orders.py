@@ -61,6 +61,7 @@ class OrderOut(BaseModel):
     quote_hash: str
     quote_rate_version: str
     created_at: str
+    delivery_otp: str | None = None
 
 
 class OrderDetailOut(OrderOut):
