@@ -228,6 +228,9 @@ class SubscriptionEntry {
     this.billingStatus = 'active',
     this.creditBalancePaise = 0,
     this.lowBalance = false,
+    this.todayOrderId,
+    this.todayOrderState,
+    this.todayDeliveryOtp,
   });
 
   final String id;
@@ -266,6 +269,11 @@ class SubscriptionEntry {
 
   /// Server warning that the prepaid balance no longer covers one delivery.
   final bool lowBalance;
+
+  /// Today's active delivery order id, state, and 4-digit OTP (if generated for today).
+  final String? todayOrderId;
+  final String? todayOrderState;
+  final String? todayDeliveryOtp;
 
   bool get isPrepaid => billingMode == 'monthly_prepaid';
 
@@ -306,6 +314,9 @@ class SubscriptionEntry {
       billingStatus: (j['billing_status'] ?? 'active').toString(),
       creditBalancePaise: (j['credit_balance_paise'] as num?)?.toInt() ?? 0,
       lowBalance: j['low_balance'] == true,
+      todayOrderId: j['today_order'] is Map ? optional(j['today_order']['order_id']) : null,
+      todayOrderState: j['today_order'] is Map ? optional(j['today_order']['state']) : null,
+      todayDeliveryOtp: j['today_order'] is Map ? optional(j['today_order']['delivery_otp']) : null,
     );
   }
 }

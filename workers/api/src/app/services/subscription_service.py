@@ -336,14 +336,60 @@ class SubscriptionService:
         rows = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE user_id = ? ORDER BY rowid", (user_id,)
         )).fetchall()
-        return [self._decorate_sub(_row(r)) for r in rows]
+        subs = [self._decorate_sub(_row(r)) for r in rows]
+        if not subs:
+            return []
+        today_str = _now().date().isoformat()
+        try:
+            orders = (await self._conn.execute(
+                "SELECT id, state, delivery_otp, window_start, idempotency_key FROM orders"
+                " WHERE user_id = ? AND state IN ('placed', 'accepted', 'picked', 'packed', 'assigned', 'dispatched')"
+                " AND idempotency_key LIKE 'sub:%'",
+                (user_id,),
+            )).fetchall()
+            today_orders = {}
+            for o in orders:
+                parts = (o["idempotency_key"] or "").split(":")
+                if len(parts) >= 3 and parts[2] == today_str:
+                    today_orders[parts[1]] = {
+                        "order_id": o["id"],
+                        "state": o["state"],
+                        "delivery_otp": o["delivery_otp"],
+                        "window_start": o["window_start"],
+                    }
+            for s in subs:
+                if s.get("id") in today_orders:
+                    s["today_order"] = today_orders[s["id"]]
+        except Exception:
+            pass
+        return subs
 
     async def get_owned(self, user_id: str, sub_id: str) -> dict | None:
         await _ensure_billing_mode(self._conn)
         row = (await self._conn.execute(
             "SELECT * FROM subscriptions WHERE id = ? AND user_id = ?", (sub_id, user_id)
         )).fetchone()
-        return self._decorate_sub(_row(row)) if row is not None else None
+        if row is None:
+            return None
+        sub = self._decorate_sub(_row(row))
+        today_str = _now().date().isoformat()
+        try:
+            o = (await self._conn.execute(
+                "SELECT id, state, delivery_otp, window_start FROM orders"
+                " WHERE user_id = ? AND state IN ('placed', 'accepted', 'picked', 'packed', 'assigned', 'dispatched')"
+                " AND idempotency_key = ?",
+                (user_id, f"sub:{sub_id}:{today_str}"),
+            )).fetchone()
+            if o is not None:
+                sub["today_order"] = {
+                    "order_id": o["id"],
+                    "state": o["state"],
+                    "delivery_otp": o["delivery_otp"],
+                    "window_start": o["window_start"],
+                }
+        except Exception:
+            pass
+        return sub
 
     @staticmethod
     def _decorate_sub(d: dict) -> dict:

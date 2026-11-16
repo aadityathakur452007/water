@@ -4,6 +4,28 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**SUBSCRIPTION DAILY DELIVERY OTP LIFECYCLE, D1 SCHEMA & OTP FALLBACK HARDENING, AND VENDOR HANDOVER ENGLISH LOCALIZATION (2026-11-16, ADR-195):** on `main`
+- **Subscription Daily Delivery OTP Flow:**
+  - `subscription_service.py`: Query today's active delivery order (`idempotency_key = sub:{sub_id}:{today_date}`) in `list` and `get_owned`, returning `today_order: {order_id, state, delivery_otp, window_start}`.
+  - `subscription_controller.dart`: Mapped `todayOrderId`, `todayOrderState`, and `todayDeliveryOtp` in `SubscriptionEntry`.
+  - `subscription_screen.dart`: Added high-contrast "TODAY'S DELIVERY OTP" container inside `_PlanCard` rendering the 4-digit OTP, delivery state badge, and doorstep handover instructions.
+- **D1 Schema & OTP Persistence Hardening:**
+  - Hardened `order_repo.py`: Used schema fallback and PRAGMA table columns to guarantee `delivery_otp` persistence across both D1 and legacy test environments.
+  - Fixed `order_service.py:_delivery_view`: Retained `order.delivery_otp` for assigned/dispatched orders even before stop POD code population.
+  - Synchronized `pod_code` in `dispatch_service.py` with `orders.delivery_otp`.
+- **Vendor App English Handover Polish:**
+  - `handover_sheet.dart`: Localized all strings to clean English by default using `vtr()` (`Next: Customer OTP`, `Cash Collected (₹)`, `Back`, `Complete Delivery`, `Delivered Jars (Full)`, `Empty Jars Returned`, `Missing cap`).
+  - `route_screen.dart`: Added "Customer OTP Required at Doorstep" badge on pending stops.
+  - `stop_detail_screen.dart`: Updated action buttons to "Delivery Handover (Bottles + OTP)" and "Enter Customer OTP".
+  - `handover_sheet_test.dart`: Updated tests to assert English labels.
+- **Verification Across All Suites:**
+  - Backend API: `uv run pytest -q` → 513 passed, 1 skipped.
+  - User App: `flutter analyze` clean (0 issues), 122 / 122 tests passed.
+  - Vendor App: `flutter analyze` clean (0 issues), 90 / 90 tests passed.
+  - Rider App: `flutter analyze` clean (0 issues), 3 / 3 tests passed.
+
+## Previous Phases
+
 **CLOUDFLARE PAGES ADMIN BUILD HARDENING & CI STABILIZATION (2026-11-16, ADR-194):** on `main`
 - **Cloudflare Pages CI Build Failure Fix:**
   - Resolved `ERR_PNPM_NO_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent` when Cloudflare Pages runs `pnpm install --frozen-lockfile` inside `apps/admin_app`.

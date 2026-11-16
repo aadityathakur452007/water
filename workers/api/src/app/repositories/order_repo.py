@@ -206,6 +206,19 @@ class OrderRepo:
 
     async def _table_cols(self) -> set[str]:
         try:
+            from app.db_schema import order_columns  # noqa: PLC0415
+            cols = await order_columns(self._conn)
+            if cols:
+                return set(cols)
+        except Exception:
+            pass
+        try:
+            rows = (await self._conn.execute("SELECT name FROM pragma_table_info('orders')")).fetchall()
+            if rows:
+                return {r["name"] for r in rows}
+        except Exception:
+            pass
+        try:
             rows = (await self._conn.execute("PRAGMA table_info(orders)")).fetchall()
             return {r["name"] for r in rows}
         except Exception:
@@ -227,8 +240,8 @@ class OrderRepo:
 
         stmts: list[tuple[str, tuple]] = []
         tcols = await self._table_cols()
-        has_snapshot = bool(order.get("address_snapshot_json")) and "address_snapshot_json" in tcols
-        has_otp = bool(order.get("delivery_otp")) and "delivery_otp" in tcols
+        has_snapshot = bool(order.get("address_snapshot_json")) and ("address_snapshot_json" in tcols or not tcols)
+        has_otp = bool(order.get("delivery_otp")) and ("delivery_otp" in tcols or not tcols)
 
         cols = [
             "id", "user_id", "address_id", "items", "n", "e", "m", "water_bill",
@@ -283,6 +296,23 @@ class OrderRepo:
         except sqlite3.IntegrityError as e:
             self._conn.rollback()
             raise ConflictError(message="Order already exists.", details={"scoped_key": order["idempotency_key"]}) from e
+        except Exception as e:
+            if "delivery_otp" in str(e) and has_otp:
+                # Tolerance fallback for schemas without migration 032
+                cols_no_otp = [c for c in cols if c != "delivery_otp"]
+                vals_no_otp = [vals[i] for i, c in enumerate(cols) if c != "delivery_otp"]
+                ph_no_otp = ", ".join(["?"] * len(vals_no_otp))
+                fallback_stmts = [(f"INSERT INTO orders({', '.join(cols_no_otp)}) VALUES ({ph_no_otp})", tuple(vals_no_otp)), *stmts[1:]]
+                try:
+                    with WRITE_LOCK:
+                        await self._conn.batch(fallback_stmts)
+                        self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
+            else:
+                self._conn.rollback()
+                raise
 
         # Construct and return the order representation directly (eliminates redundant SELECT roundtrip)
         return {

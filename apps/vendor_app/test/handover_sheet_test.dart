@@ -39,16 +39,16 @@ void main() {
 
     expect(find.text('Doorstep Handover (1/2)'), findsOneWidget);
     expect(find.text('Step 1: Bottles'), findsOneWidget);
-    expect(find.text('Aage: Customer OTP'), findsOneWidget);
+    expect(find.text('Next: Customer OTP'), findsOneWidget);
 
     // Tap next to go to Step 2
-    await tester.tap(find.text('Aage: Customer OTP'));
+    await tester.tap(find.text('Next: Customer OTP'));
     await tester.pumpAndSettle();
 
     expect(find.text('Customer OTP (2/2)'), findsOneWidget);
     expect(find.text('Step 2: Verify'), findsOneWidget);
     expect(find.text('Customer Delivery OTP'), findsOneWidget);
-    expect(find.text('Peechhe'), findsOneWidget);
+    expect(find.text('Back'), findsOneWidget);
   });
 
   testWidgets('HandoverSheet starts directly on Step 2 when triple is already done', (tester) async {

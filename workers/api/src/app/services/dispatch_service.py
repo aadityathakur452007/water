@@ -436,6 +436,13 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             if pod_code is not None:
                 cols += ", pod_otp"
                 vals = (*vals, pod_code)
+                try:
+                    await conn.execute(
+                        "UPDATE orders SET delivery_otp = ? WHERE id = ? AND (delivery_otp IS NULL OR delivery_otp = '')",
+                        (pod_code, order_id),
+                    )
+                except Exception:
+                    pass
             placeholders = ", ".join(["?"] * len(vals))
             await conn.execute(
                 f"INSERT INTO stops({cols}, status) VALUES ({placeholders}, 'pending')",  # noqa: S608
@@ -592,6 +599,13 @@ async def reassign_order(conn: Conn, order_id: str, new_vendor_id: str,
             if pod_code is not None:
                 cols += ", pod_otp"
                 vals = (*vals, pod_code)
+                try:
+                    await conn.execute(
+                        "UPDATE orders SET delivery_otp = ? WHERE id = ? AND (delivery_otp IS NULL OR delivery_otp = '')",
+                        (pod_code, order_id),
+                    )
+                except Exception:
+                    pass
             placeholders = ", ".join(["?"] * len(vals))
             await conn.execute(
                 f"INSERT INTO stops({cols}, status) VALUES ({placeholders}, 'pending')",  # noqa: S608

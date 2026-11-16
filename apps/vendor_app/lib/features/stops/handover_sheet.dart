@@ -275,14 +275,17 @@ class _HandoverSheetState extends State<HandoverSheet> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Expected: ${widget.fullsExp} jars • ${widget.emptiesExp} wapas',
+                vtr(
+                  'उम्मीद: ${widget.fullsExp} भरे जार • ${widget.emptiesExp} खाली',
+                  'Expected: ${widget.fullsExp} full jars • ${widget.emptiesExp} empty returns',
+                ),
                 style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
               ),
               if (widget.collectPaise > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
-                    '${widget.paymentMode.toUpperCase()} • Collect ${rupees(widget.collectPaise)}',
+                    '${widget.paymentMode.toUpperCase()} • ${vtr('रुपये लें', 'Collect')} ${rupees(widget.collectPaise)}',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -294,8 +297,8 @@ class _HandoverSheetState extends State<HandoverSheet> {
 
               // Step 0: Bottles, Empties, Caps, Cash/UPI
               if (_step == 0) ...[
-                _stepper('Jars diye (Full)', _fulls, (v) => setState(() => _fulls = v)),
-                _stepper('Khaali wapas (Empty)', _empties, (v) => setState(() {
+                _stepper(vtr('जार दिए (भरे)', 'Delivered Jars (Full)'), _fulls, (v) => setState(() => _fulls = v)),
+                _stepper(vtr('खाली वापस लिए', 'Empty Jars Returned'), _empties, (v) => setState(() {
                       _empties = v;
                       if (_damaged > v) _damaged = v;
                     })),
@@ -325,8 +328,11 @@ class _HandoverSheetState extends State<HandoverSheet> {
                       ),
                     ),
                 ],
-                _stepper('Bina dhakkan ($_caps × Rs 3 = Rs $capRs)', _caps,
-                    (v) => setState(() => _caps = v)),
+                _stepper(
+                  vtr('बिना ढक्कन ($_caps × ₹3 = ₹$capRs)', 'Missing cap ($_caps × ₹3 = ₹$capRs)'),
+                  _caps,
+                  (v) => setState(() => _caps = v),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -335,8 +341,8 @@ class _HandoverSheetState extends State<HandoverSheet> {
                         controller: _cash,
                         keyboardType: TextInputType.number,
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: const InputDecoration(
-                          labelText: 'Cash liya (Rs)',
+                        decoration: InputDecoration(
+                          labelText: vtr('कैश लिया (₹)', 'Cash Collected (₹)'),
                           isDense: true,
                         ),
                       ),
@@ -361,7 +367,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                 ),
                 const SizedBox(height: 18),
                 AppButton(
-                  label: 'Aage: Customer OTP',
+                  label: vtr('आगे: कस्टमर OTP', 'Next: Customer OTP'),
                   icon: Icons.arrow_forward,
                   onPressed: () => setState(() => _step = 1),
                 ),
@@ -382,19 +388,19 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     children: [
                       Column(
                         children: [
-                          const Text('Jars', style: TextStyle(fontSize: 11, color: ShodashaTheme.muted)),
+                          Text(vtr('जार', 'Jars'), style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted)),
                           Text('$_fulls', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                         ],
                       ),
                       Column(
                         children: [
-                          const Text('Empties', style: TextStyle(fontSize: 11, color: ShodashaTheme.muted)),
+                          Text(vtr('खाली', 'Empties'), style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted)),
                           Text('$_empties', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                         ],
                       ),
                       Column(
                         children: [
-                          const Text('Collected', style: TextStyle(fontSize: 11, color: ShodashaTheme.muted)),
+                          Text(vtr('रकम', 'Collected'), style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted)),
                           Text(rupees((_rs(_cash) + _rs(_upi)) * 100),
                               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: ShodashaTheme.blue)),
                         ],
@@ -409,11 +415,11 @@ class _HandoverSheetState extends State<HandoverSheet> {
                   maxLength: 6,
                   autofocus: true,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: 'Customer Delivery OTP',
-                    hintText: '4 ya 6 digit OTP',
+                  decoration: InputDecoration(
+                    labelText: vtr('कस्टमर डिलीवरी OTP', 'Customer Delivery OTP'),
+                    hintText: vtr('4 या 6 अंकों का OTP दर्ज करें', 'Enter 4-digit customer OTP'),
                     counterText: '',
-                    prefixIcon: Icon(Icons.pin_outlined),
+                    prefixIcon: const Icon(Icons.pin_outlined),
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -432,7 +438,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                       Expanded(
                         flex: 1,
                         child: AppButton(
-                          label: 'Peechhe',
+                          label: vtr('पीछे', 'Back'),
                           kind: AppButtonKind.secondary,
                           onPressed: c.submitting ? null : () => setState(() => _step = 0),
                         ),
@@ -441,7 +447,9 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     Expanded(
                       flex: 2,
                       child: AppButton(
-                        label: c.submitting ? 'Complete ho raha…' : 'Delivery Complete',
+                        label: c.submitting
+                            ? vtr('पूरा हो रहा है…', 'Completing…')
+                            : vtr('डिलीवरी पूरी करें', 'Complete Delivery'),
                         busy: c.submitting,
                         onPressed: (_otp.text.trim().length >= 4 && !c.submitting)
                             ? _submitHandover

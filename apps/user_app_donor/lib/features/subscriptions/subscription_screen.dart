@@ -920,6 +920,71 @@ class _PlanCard extends StatelessWidget {
               ],
             ),
           ],
+          if (sub.todayDeliveryOtp != null && sub.todayDeliveryOtp!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: ShodashaTheme.tealTint,
+                borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                border: Border.all(color: ShodashaTheme.teal),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.pin_rounded, size: 16, color: ShodashaTheme.tealDeep),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text(
+                          "TODAY'S DELIVERY OTP",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: ShodashaTheme.tealDeep,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      if (sub.todayOrderState != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: ShodashaTheme.surface,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            sub.todayOrderState!.toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: ShodashaTheme.teal,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    sub.todayDeliveryOtp!,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: ShodashaTheme.tealDeep,
+                      letterSpacing: 4,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Share this 4-digit OTP with the delivery partner at your doorstep.',
+                    style: TextStyle(fontSize: 11, color: ShodashaTheme.ink),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (sub.paused && holdTo != null)
             Padding(
               padding: const EdgeInsets.only(top: 2),

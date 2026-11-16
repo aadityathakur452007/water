@@ -464,8 +464,8 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
         if (!stopDone && !stopFailed && returnId.isEmpty) ...[
           AppButton(
             label: tripleDone
-                ? 'OTP darj karein (PoD)'
-                : 'Delivery Handover (Bottles + OTP)',
+                ? vtr('OTP दर्ज करें (PoD)', 'Enter Customer OTP')
+                : vtr('डिलीवरी हैंडओवर (जार + OTP)', 'Delivery Handover (Bottles + OTP)'),
             kind: AppButtonKind.primary,
             icon: Icons.verified_outlined,
             onPressed: c.submitting || holdBlocked

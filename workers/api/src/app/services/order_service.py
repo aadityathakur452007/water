@@ -86,16 +86,18 @@ def _delivery_view(order_state: str, stop: dict | None, order: dict | None = Non
             "delivery_otp_state": "used",
             "delivery_otp_reissue_available": False,
         }
+    direct_otp = order.get("delivery_otp") if order else None
     if stop is not None:
+        effective_code = stop.get("pod_otp") or direct_otp
         state = delivery_code.state(
             order_state=order_state,
             stop_status=_stop_status(stop),
-            code=stop.get("pod_otp"),
+            code=effective_code,
             code_expires_at=stop.get("pod_otp_expires_at"),
             attempts=int(stop.get("pod_attempts") or 0),
         )
         return {
-            "delivery_otp": stop.get("pod_otp") if state == "active" else None,
+            "delivery_otp": effective_code if state == "active" else (direct_otp if order_state in {"placed", "accepted", "picked", "packed", "assigned", "dispatched"} else None),
             "delivery_otp_expires_at": (
                 stop.get("pod_otp_expires_at")
                 if state in {"active", "expired", "locked"} else None
@@ -107,7 +109,6 @@ def _delivery_view(order_state: str, stop: dict | None, order: dict | None = Non
                 code_state=state,
             ),
         }
-    direct_otp = order.get("delivery_otp") if order else None
     if direct_otp and order_state in {"placed", "accepted", "picked", "packed", "assigned", "dispatched"}:
         return {
             "delivery_otp": direct_otp,

@@ -12,6 +12,20 @@
 
 ## Overview
 
+- Subscription Daily Delivery OTP Lifecycle, D1 Schema & OTP Fallback Hardening, and Vendor Handover English Localization (2026-11-16, ADR-195):
+  1. Subscription Daily Delivery OTP Flow:
+     - `subscription_service.py`: `list(user_id)` and `get_owned(user_id, sub_id)` search for active subscription orders generated for today (`idempotency_key = sub:{sub_id}:{today_date}`) and attach `today_order: {order_id, state, delivery_otp, window_start}` to the API payload.
+     - `apps/user_app_donor`: `subscription_controller.dart` parses `todayOrderId`, `todayOrderState`, and `todayDeliveryOtp` into `SubscriptionEntry`. `subscription_screen.dart` renders a dedicated high-contrast `TODAY'S DELIVERY OTP` card inside `_PlanCard` displaying the 4-digit OTP, delivery status badge, and clear doorstep instructions.
+  2. D1 Schema & OTP Retention:
+     - `order_repo.py`: Fixed `_table_cols()` and `insert()` to ensure `delivery_otp` column is always preserved and safe against PRAGMA query differences between local SQLite test fixtures and remote Cloudflare D1.
+     - `order_service.py`: Fixed `_delivery_view(order_state, stop, order)` to guarantee `delivery_otp` fallback from `order["delivery_otp"]` even before a stop's POD code is populated.
+     - `dispatch_service.py`: Synchronized `pod_code` directly with `orders.delivery_otp`.
+  3. Vendor App Doorstep Handover Localization:
+     - `apps/vendor_app/lib/features/stops/handover_sheet.dart`: Standardized all UI strings to clean English by default using `vtr()` (`Next: Customer OTP`, `Cash Collected (₹)`, `Back`, `Complete Delivery`, `Delivered Jars (Full)`, `Empty Jars Returned`, `Missing cap`).
+     - `apps/vendor_app/lib/features/route/route_screen.dart`: Added `Customer OTP Required at Doorstep` badge.
+     - `apps/vendor_app/lib/features/stops/stop_detail_screen.dart`: Updated action buttons to `Delivery Handover (Bottles + OTP)` and `Enter Customer OTP`.
+  4. Verification: 513 pytest tests in `workers/api` passed (1 skipped), 122 tests in `apps/user_app_donor` passed, 90 tests in `apps/vendor_app` passed, 3 tests in `apps/rider_app` passed, all flutter analyzers 0 issues.
+
 - Cloudflare Pages Admin Build Hardening & CI Stabilization (2026-11-16, ADR-194):
   1. Cloudflare Pages CI Lockfile Fix: Generated valid `apps/admin_app/pnpm-lock.yaml` (format 9.0) resolving `ERR_PNPM_NO_LOCKFILE` during `pnpm install --frozen-lockfile`.
   2. Dependency Pinning & Allow-Builds: Pinned `@biomejs/biome: "2.5.15"` in `apps/admin_app/package.json` to prevent supply-chain release-age violations, and configured `pnpm-workspace.yaml` approving `esbuild` and `workerd` build scripts.

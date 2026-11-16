@@ -598,6 +598,24 @@ class _RouteScreenState extends State<RouteScreen> {
               if (s.address.isNotEmpty)
                 Text(s.address,
                     maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (!s.isDone && !failed && s.returnId.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.pin_outlined, size: 12, color: ShodashaTheme.blue),
+                      const SizedBox(width: 4),
+                      Text(
+                        vtr('डिलीवरी OTP जरूरी', 'Customer OTP Required at Doorstep'),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: ShodashaTheme.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (s.holdBlocked)
                 Text(
                   s.holdReason ?? 'Hold limit — deposit mangein',
