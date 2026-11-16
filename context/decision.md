@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-196 | 2026-11-16 | Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix — removed `pnpm-workspace.yaml` in `apps/admin_app` to eliminate `ERROR packages field missing or empty` in Cloudflare Pages `pnpm@9.10.0` CI and pinned `"packageManager": "pnpm@9.10.0"`; hid `monthly_prepaid` in `plan_builder_sheet.dart` leaving `per_delivery` and `monthly_postpaid`, enforced COD as default and only payment method for subscriptions, and updated `subscription_service.py` to allow `monthly_postpaid` with `cod`; added `_confirmExtraJarOrder()` in `donor_shell.dart` to verify customer intent before ordering extra jars when active subscription exists; added quick 1-tap scenario pause chips (`1 Day`, `2 Days`, `1 Week`, `Until I Resume`, `Custom Dates`) in `subscription_screen.dart`; added `delivery_otp_state` to `OrderOut` schema and deployed live Cloudflare Worker version `e49db65a-c238-4e01-9654-a4044b9daf1d`; verified 514 backend tests, 122 user tests, 90 vendor tests, and 0 flutter analyze warnings | Accepted (implemented 2026-11-16) | `apps/admin_app`, `apps/user_app_donor`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-195 | 2026-11-16 | Subscription Daily Delivery OTP Lifecycle, D1 Schema & OTP Fallback Hardening, and Vendor Handover English Localization — attached `today_order` (order_id, state, delivery_otp, window_start) to active subscriptions in `subscription_service.py`; added high-contrast "TODAY'S DELIVERY OTP" card with 4-digit OTP in `apps/user_app_donor` subscription screen; hardened D1 `order_repo.py` column resolution and `order_service.py` OTP view fallback so customer orders always retain OTP; standardized vendor handover sheet text to default English (`Next: Customer OTP`, `Back`, etc.) via `vtr()`; verified 513 backend tests, 122 donor tests, 90 vendor tests, 3 rider tests, and 0 flutter analyze issues | Accepted (implemented 2026-11-16) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-194 | 2026-11-16 | Cloudflare Pages Admin App Build Hardening (pnpm Lockfile Generation, Biome Pinning, Post-Install Allow-Builds) — resolved `ERR_PNPM_NO_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent` in Cloudflare Pages CI by generating a valid, complete `apps/admin_app/pnpm-lock.yaml` (lockfile format 9.0); pinned `@biomejs/biome: "2.5.15"` in `apps/admin_app/package.json` to prevent supply-chain release-age violations; added `apps/admin_app/pnpm-workspace.yaml` approving `esbuild` and `workerd` build scripts; verified `pnpm install --frozen-lockfile` and `pnpm run build` (both standard and `cloudflare_module` preset) build cleanly in <1s; verified full workspace test suites (90 vendor tests, 122 donor tests, 3 rider tests, 513 backend tests, and all flutter analyzers green) | Accepted (implemented 2026-11-16) | `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-193 | 2026-11-15 | E2E Order Flow Hardening, Zero Security Deposit, Direct Vendor Routing & Doorstep Delivery OTP — waived ₹150 deposit security (`deposit_per_jar_paise = 0`) across backend pricing and user app; disabled UPI payment for user checkout and vendor handover (COD only); fixed vendor fleet rider addition 500 error by applying migration `031_users_role_rider.sql` to remote D1 `shodasha` (added `'rider'` to SQLite users role CHECK constraint); resolved "assignment failed" conflict in admin dispatch unassigned pool by redirecting admin to `/dashboard/users/$userId` ("Assign via User"); auto-dispatched pending placed orders upon user-vendor assignment and permanently routed subsequent user orders to assigned vendor; added remote D1 migration `032_order_delivery_otp.sql` adding `delivery_otp` to `orders`, minting 4-digit OTP immediately upon order creation so customer sees OTP instantly on checkout receipt, home, and orders tabs; set default vendor language to English (`'en'`), auto on-duty on vendor login, and empty route displays "Waiting for orders"; 513 backend tests, 122 donor tests, 90 vendor tests, and admin build all green | Accepted (implemented 2026-11-15) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
@@ -247,6 +248,30 @@
 ---
 
 ## Decision Entries
+
+### ADR-196: Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix
+
+- **Status**: Accepted (implemented 2026-11-16)
+- **Date**: 2026-11-16
+- **Affects**: `apps/admin_app/{package.json,pnpm-workspace.yaml}`, `apps/user_app_donor/lib/features/{subscriptions/{plan_builder_sheet.dart,subscription_controller.dart,subscription_screen.dart},shell/donor_shell.dart}`, `apps/user_app_donor/test/subscription_billing_test.dart`, `workers/api/src/app/{services/subscription_service.py,schemas/orders.py}`, `workers/api/tests/test_monthly_billing.py`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. Cloudflare Pages CI failed on building `admin_app` with `ERROR packages field missing or empty` because `apps/admin_app/pnpm-workspace.yaml` existed without a `packages:` array in `pnpm@9.10.0`.
+  2. In `plan_builder_sheet.dart`, the user requested removing UPI, hiding `monthly_prepaid`, and enforcing Cash on Delivery (COD) for subscriptions since most customers pay per delivery or monthly dues via cash.
+  3. When customers with an active subscription attempt to order an extra jar from the home screen, there was no confirmation, leading to accidental extra jar bookings.
+  4. Subscription pause required users to manually select dates; users wanted quick 1-tap scenario pause options (1 day, 2 days, 1 week, indefinite until resume).
+  5. The user inquired why the delivery OTP was not showing in their placed order card in the mobile app, asking if it was because admin had not assigned a vendor yet.
+- **Decision**:
+  1. Deleted `apps/admin_app/pnpm-workspace.yaml` and pinned `"packageManager": "pnpm@9.10.0"` in `package.json`, completely resolving the Cloudflare Pages CI error.
+  2. Updated `plan_builder_sheet.dart` to hide `monthly_prepaid` (rendering only `per_delivery` and `monthly_postpaid`), removed the UPI chip, and defaulted to Cash on Delivery. Updated `subscription_service.py` to accept `payment_method == "cod"` for `monthly_postpaid`.
+  3. Added `_confirmExtraJarOrder()` in `donor_shell.dart`: intercepts checkout if the customer has an active subscription, presenting a clear confirmation dialog asking if they really need an extra water jar or wish to manage their plan.
+  4. Added scenario-based pause chips in `subscription_screen.dart`: `1 Day`, `2 Days`, `1 Week`, `Until I Resume`, and `Custom Dates`.
+  5. Ensured OTP is minted immediately upon order creation (`state: "placed"`) regardless of vendor assignment, added `delivery_otp_state` and `delivery_otp_expires_at` to `OrderOut` schema, backfilled remote D1 orders, and deployed worker version `e49db65a-c238-4e01-9654-a4044b9daf1d`.
+- **Consequences**:
+  - Cloudflare Pages builds successfully.
+  - Subscriptions can be created with Cash on Delivery without requiring UPI.
+  - Customers are protected from duplicate jar orders.
+  - Placed orders show delivery OTP immediately on the order card.
+  - All automated test suites (514 backend, 122 user, 90 vendor) pass with 0 flutter analyze warnings.
 
 ### ADR-195: Subscription Daily Delivery OTP Lifecycle, D1 Schema & OTP Fallback Hardening, and Vendor Handover English Localization
 

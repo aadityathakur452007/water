@@ -12,6 +12,21 @@
 
 ## Overview
 
+- Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix (2026-11-16, ADR-196):
+  1. Cloudflare Pages CI Build Stabilization:
+     - `apps/admin_app`: Removed `pnpm-workspace.yaml` (which caused `ERROR packages field missing or empty` in `pnpm@9.10.0`) and pinned `"packageManager": "pnpm@9.10.0"` in `package.json`.
+  2. Subscription Plan Builder COD & Hide Prepaid:
+     - `apps/user_app_donor/lib/features/subscriptions/plan_builder_sheet.dart`: Hid `monthly_prepaid` mode (leaving `per_delivery` and `monthly_postpaid` "Monthly bill"), removed the UPI chip, and defaulted to Cash on Delivery.
+     - `workers/api/src/app/services/subscription_service.py`: Updated validation to permit `monthly_postpaid` with `payment_method == "cod"`.
+  3. Extra Jar Double Verification:
+     - `apps/user_app_donor/lib/features/shell/donor_shell.dart`: Added `_confirmExtraJarOrder()` to intercept checkout when the customer already has an active subscription, preventing unintentional duplicate water jar orders.
+  4. Scenario-Based Subscription Pause:
+     - `apps/user_app_donor/lib/features/subscriptions/subscription_screen.dart`: Enhanced `_PauseSheet` with quick 1-tap scenario chips (`1 Day`, `2 Days`, `1 Week`, `Until I Resume`, and `Custom Dates`).
+  5. Doorstep Delivery OTP Instant Visibility:
+     - Added `delivery_otp_state` and `delivery_otp_expires_at` to `OrderOut` schema so list orders responses serialize OTP state.
+     - Deployed Cloudflare Worker version `e49db65a-c238-4e01-9654-a4044b9daf1d` to `https://water.adityathakur452007.workers.dev`.
+  6. Verification: 514 pytest tests green, 122 user tests green, 90 vendor tests green, 0 flutter analyze warnings.
+
 - Subscription Daily Delivery OTP Lifecycle, D1 Schema & OTP Fallback Hardening, and Vendor Handover English Localization (2026-11-16, ADR-195):
   1. Subscription Daily Delivery OTP Flow:
      - `subscription_service.py`: `list(user_id)` and `get_owned(user_id, sub_id)` search for active subscription orders generated for today (`idempotency_key = sub:{sub_id}:{today_date}`) and attach `today_order: {order_id, state, delivery_otp, window_start}` to the API payload.

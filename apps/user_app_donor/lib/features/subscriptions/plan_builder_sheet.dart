@@ -216,8 +216,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
     if (value == _billing) return;
     setState(() {
       _billing = value;
-      // Monthly modes are UPI-only; keep the form valid without a dead state.
-      if (_billing != 'per_delivery') _payment = 'upi';
+      _payment = 'cod';
       _idemKey = const Uuid().v4();
     });
   }
@@ -230,8 +229,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
     });
   }
 
-  bool _paymentAllowed(String value) =>
-      value == 'upi' || _billing == 'per_delivery';
+  bool _paymentAllowed(String value) => value == 'cod';
 
   void _setAddress(String value) {
     if (value == _addressId) return;
@@ -519,7 +517,6 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
     children: [
       for (final entry in const [
         ('per_delivery', 'billPerDelivery'),
-        ('monthly_prepaid', 'billPrepaid'),
         ('monthly_postpaid', 'billPostpaid'),
       ])
         _choiceChip(
@@ -538,27 +535,28 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         runSpacing: 8,
         children: [
           _choiceChip(
-            subStrings['payUpi']!,
-            _payment == 'upi',
-            _submitting ? null : () => _setPayment('upi'),
-          ),
-          _choiceChip(
             subStrings['payCod']!,
             _payment == 'cod',
             _submitting || !_paymentAllowed('cod')
                 ? null
                 : () => _setPayment('cod'),
           ),
+          _choiceChip(
+            'UPI (Upcoming in future)',
+            false,
+            null,
+          ),
         ],
       ),
-      if (_billing != 'per_delivery')
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            subStrings['monthlyNeedsUpi']!,
-            style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted),
-          ),
+      Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(
+          _billing == 'monthly_postpaid'
+              ? 'Monthly dues collected via cash at your doorstep.'
+              : 'Pay cash to delivery partner at doorstep upon arrival.',
+          style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted),
         ),
+      ),
     ],
   );
 

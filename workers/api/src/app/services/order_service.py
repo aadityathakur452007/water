@@ -513,6 +513,11 @@ class OrderService:
 
     async def list(self, user_id: str, limit: int = 20, cursor: str | None = None) -> dict:
         data, next_cursor = await self.orders.list_by_user(user_id, limit, cursor)
+        for item in data:
+            if item.get("delivery_otp") and item.get("state") in {"placed", "accepted", "picked", "packed", "assigned", "dispatched"}:
+                item["delivery_otp_state"] = "active"
+            elif item.get("state") == "delivered":
+                item["delivery_otp_state"] = "used"
         return {"data": data, "next_cursor": next_cursor}
 
     # -- cancel (§10 matrix) ----------------------------------------------

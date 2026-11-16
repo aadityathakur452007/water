@@ -66,15 +66,23 @@ async def test_create_monthly_postpaid_upi():
     assert s["payment_method"] == "upi"
 
 
-async def test_monthly_cod_rejected():
+async def test_monthly_prepaid_cod_rejected():
     c = _conn()
     _addr(c)
     try:
-        await _mk(c, billing_mode="monthly_postpaid", payment_method="cod")
+        await _mk(c, billing_mode="monthly_prepaid", payment_method="cod")
     except Exception as e:
         assert getattr(e, "code", "") == "VALIDATION"
     else:
-        raise AssertionError("monthly plans must be UPI")
+        raise AssertionError("monthly prepaid plans must be UPI")
+
+
+async def test_monthly_postpaid_cod_accepted():
+    c = _conn()
+    _addr(c)
+    s = await _mk(c, billing_mode="monthly_postpaid", payment_method="cod")
+    assert s["billing_mode"] == "monthly_postpaid"
+    assert s["payment_method"] == "cod"
 
 
 async def test_invalid_billing_mode_rejected():

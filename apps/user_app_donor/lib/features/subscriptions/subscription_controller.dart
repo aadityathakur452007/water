@@ -146,8 +146,8 @@ const Map<String, String> subStrings = {
       'delivery.',
   'billPostpaidNote':
       'No payment is collected now. Deliveries add to your monthly bill, '
-      'paid by UPI at the end of the month.',
-  'monthlyNeedsUpi': 'Monthly plans are paid by UPI.',
+      'collected via Cash on Delivery at month end.',
+  'monthlyNeedsUpi': 'Monthly plans are collected via Cash on Delivery.',
   'billingPending': 'Awaiting payment',
   'prepaidBalance': 'Prepaid water balance',
   'prepaidCovers':

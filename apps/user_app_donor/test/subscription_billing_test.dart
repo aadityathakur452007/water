@@ -44,7 +44,7 @@ void main() {
       expect(subStrings['cancelNoRefund'], contains('No refund is due'));
     });
 
-    testWidgets('monthly prepaid sends UPI and shows the server top-up', (
+    testWidgets('monthly postpaid sends COD and creates plan', (
       tester,
     ) async {
       final api = _BuilderApi();
@@ -63,12 +63,11 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Monthly prepaid'));
-      await tester.tap(find.text('Monthly prepaid'));
+      await tester.ensureVisible(find.text('Monthly bill'));
+      await tester.tap(find.text('Monthly bill'));
       await tester.pumpAndSettle();
 
-      // Monthly plans are UPI-only, and the estimate is the server's top-up.
-      expect(find.textContaining('covers 30 days of water'), findsOneWidget);
+      expect(find.textContaining('collected via Cash on Delivery at month end'), findsWidgets);
       await tester.ensureVisible(find.text('Cash on delivery'));
       await tester.tap(find.text('Cash on delivery'));
       await tester.pumpAndSettle();
@@ -78,8 +77,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.createCalls, 1);
-      expect(api.billingMode, 'monthly_prepaid');
-      expect(api.paymentMethod, 'upi');
+      expect(api.billingMode, 'monthly_postpaid');
+      expect(api.paymentMethod, 'cod');
       expect(api.idempotencyKey, isNotEmpty);
     });
 

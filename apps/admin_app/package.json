@@ -1,6 +1,7 @@
 {
   "name": "tanstack-shadcn-admin-dashboard",
   "private": true,
+  "packageManager": "pnpm@9.10.0",
   "type": "module",
   "imports": {
     "#/*": "./src/*"

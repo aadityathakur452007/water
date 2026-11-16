@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
+import '../../shared/ui/app_button.dart';
 import '../addresses/address_screen.dart';
 import '../auth/auth_controller.dart';
 import '../booking/booking_controller.dart';
@@ -234,6 +235,89 @@ class _DonorShellState extends State<DonorShell> {
     await _openCheckout();
   }
 
+  Future<bool> _confirmExtraJarOrder() async {
+    try {
+      final subs = await widget.api.listSubscriptions();
+      final hasActiveSub = subs.any((s) {
+        final canceled = s['canceled_at'] != null;
+        final status = (s['status'] ?? '').toString().toLowerCase();
+        return !canceled && status == 'active';
+      });
+      if (!hasActiveSub || !mounted) return true;
+
+      final proceed = await showModalBottomSheet<bool>(
+        context: context,
+        backgroundColor: ShodashaTheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(ShodashaTheme.radiusSheet),
+          ),
+        ),
+        builder: (ctx) => Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.tealTint,
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                    ),
+                    child: const Icon(Icons.water_drop_rounded, color: ShodashaTheme.teal, size: 24),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  const Expanded(
+                    child: Text(
+                      'Active Subscription Found',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Text(
+                'You already receive regular daily water jars under your active subscription plan. '
+                'Do you really want to order an extra water jar for this delivery?',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              AppButton(
+                label: 'Yes, Order Extra Jar',
+                kind: AppButtonKind.primary,
+                onPressed: () => Navigator.of(ctx).pop(true),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              AppButton(
+                label: 'Manage My Subscription Plan',
+                kind: AppButtonKind.secondary,
+                onPressed: () {
+                  Navigator.of(ctx).pop(false);
+                  _selectTab(DonorTab.subscriptions);
+                },
+              ),
+              const SizedBox(height: AppSpacing.xs),
+            ],
+          ),
+        ),
+      );
+      return proceed == true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> _openCheckout() async {
     final c = widget.booking;
     if (!c.canBook || c.isTanker) {
@@ -242,6 +326,9 @@ class _DonorShellState extends State<DonorShell> {
       );
       return;
     }
+    final shouldProceed = await _confirmExtraJarOrder();
+    if (!shouldProceed || !mounted) return;
+
     unawaited(_refreshLedger());
     await showCheckoutSheet(
       context,

@@ -4,6 +4,29 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**SUBSCRIPTION BUILDER COD ENFORCEMENT, EXTRA JAR DOUBLE VERIFICATION, SCENARIO PAUSE & CLOUDFLARE PAGES CI FIX (2026-11-16, ADR-196):** on `main`
+- **Cloudflare Pages pnpm CI Fix (`apps/admin_app`):**
+  - Removed `pnpm-workspace.yaml` which triggered ` ERROR  packages field missing or empty` in `pnpm@9.10.0` inside Cloudflare Pages CI build environment.
+  - Pinned `"packageManager": "pnpm@9.10.0"` in `apps/admin_app/package.json` to match Cloudflare Pages CI runtime.
+- **Subscription Builder COD Enforcement & Hide Monthly Prepaid:**
+  - `apps/user_app_donor/lib/features/subscriptions/plan_builder_sheet.dart`: Hid `monthly_prepaid` mode (only `per_delivery` and `monthly_postpaid` "Monthly bill" visible); removed UPI chip and enforced Cash on Delivery (COD) as default and only active payment method.
+  - `workers/api/src/app/services/subscription_service.py`: Updated validation logic so `monthly_postpaid` accepts `payment_method == "cod"`.
+  - Updated `subscription_controller.dart` copy and `subscription_billing_test.dart` assertions.
+- **Extra Jar Double Verification:**
+  - `apps/user_app_donor/lib/features/shell/donor_shell.dart`: Added `_confirmExtraJarOrder()` before opening checkout sheet. If the customer has an active subscription, surfaces a confirmation dialog asking if they really want an extra water jar or want to manage their subscription plan, avoiding accidental duplicate jar orders.
+- **Scenario-Based Subscription Pause:**
+  - `apps/user_app_donor/lib/features/subscriptions/subscription_screen.dart`: Enhanced `_PauseSheet` with quick 1-tap scenario chips (`1 Day`, `2 Days`, `1 Week`, `Until I Resume`, `Custom Dates`) with plain-English summary, allowing users to pause indefinitely or for quick periods without forced calendar picking.
+- **Doorstep Delivery OTP Instant Visibility:**
+  - Added `delivery_otp_state` and `delivery_otp_expires_at` to `OrderOut` schema so list orders response explicitly serializes OTP state.
+  - Backfilled remote D1 database orders with 4-digit OTPs and deployed latest worker to `https://water.adityathakur452007.workers.dev` (`Version e49db65a-c238-4e01-9654-a4044b9daf1d`).
+- **Comprehensive Workspace Verification:**
+  - Backend API: `uv run pytest -q` → 514 passed, 1 skipped.
+  - User App: `flutter analyze` clean (0 issues), 122 / 122 tests passed.
+  - Vendor App: `flutter analyze` clean (0 issues), 90 / 90 tests passed.
+  - Admin App: lockfile verified, `pnpm install` clean.
+
+## Previous Phases
+
 **SUBSCRIPTION DAILY DELIVERY OTP LIFECYCLE, D1 SCHEMA & OTP FALLBACK HARDENING, AND VENDOR HANDOVER ENGLISH LOCALIZATION (2026-11-16, ADR-195):** on `main`
 - **Subscription Daily Delivery OTP Flow:**
   - `subscription_service.py`: Query today's active delivery order (`idempotency_key = sub:{sub_id}:{today_date}`) in `list` and `get_owned`, returning `today_order: {order_id, state, delivery_otp, window_start}`.

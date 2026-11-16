@@ -252,9 +252,9 @@ class SubscriptionService:
             raise SubValidationError(
                 message="billing_mode must be per_delivery, monthly_prepaid or monthly_postpaid.",
                 details={"billing_mode": billing_mode})
-        if billing_mode in ("monthly_prepaid", "monthly_postpaid") and payment_method != "upi":
+        if billing_mode == "monthly_prepaid" and payment_method != "upi":
             raise SubValidationError(
-                message="Monthly plans are paid by UPI.",
+                message="Monthly prepaid plans are paid by UPI.",
                 details={"billing_mode": billing_mode, "payment_method": payment_method})
         key = (idempotency_key or "").strip()
         scoped = f"POST /v1/subscriptions:{key}" if key else ""

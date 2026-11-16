@@ -985,16 +985,26 @@ class _PlanCard extends StatelessWidget {
               ),
             ),
           ],
-          if (sub.paused && holdTo != null)
+          if (sub.paused)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                '${subStrings['pausedUntil']} $holdTo',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: ShodashaTheme.muted,
-                ),
+              child: Builder(
+                builder: (_) {
+                  final parsedHoldTo = DateTime.tryParse(sub.holdTo ?? '');
+                  final isIndefinite = parsedHoldTo != null &&
+                      parsedHoldTo.difference(DateTime.now()).inDays > 180;
+                  final text = isIndefinite
+                      ? 'Paused indefinitely (tap Resume anytime)'
+                      : (holdTo != null ? '${subStrings['pausedUntil']} $holdTo' : 'Paused');
+                  return Text(
+                    text,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: ShodashaTheme.muted,
+                    ),
+                  );
+                },
               ),
             ),
           if (sub.canceled)
@@ -1262,6 +1272,7 @@ class _PauseSheet extends StatefulWidget {
 }
 
 class _PauseSheetState extends State<_PauseSheet> {
+  String _scenario = '1_day';
   late DateTime _from;
   late DateTime _to;
   String? _error;
@@ -1269,9 +1280,37 @@ class _PauseSheetState extends State<_PauseSheet> {
   @override
   void initState() {
     super.initState();
+    _applyScenario('1_day');
+  }
+
+  void _applyScenario(String scenario) {
     final tomorrow = DateTime.now().add(const Duration(days: 1));
-    _from = tomorrow;
-    _to = tomorrow.add(const Duration(days: 7));
+    setState(() {
+      _scenario = scenario;
+      _error = null;
+      switch (scenario) {
+        case '1_day':
+          _from = tomorrow;
+          _to = tomorrow;
+          break;
+        case '2_days':
+          _from = tomorrow;
+          _to = tomorrow.add(const Duration(days: 1));
+          break;
+        case '1_week':
+          _from = tomorrow;
+          _to = tomorrow.add(const Duration(days: 6));
+          break;
+        case 'indefinite':
+          _from = tomorrow;
+          _to = tomorrow.add(const Duration(days: 365));
+          break;
+        case 'custom':
+          _from = tomorrow;
+          _to = tomorrow.add(const Duration(days: 7));
+          break;
+      }
+    });
   }
 
   Future<void> _pickDate({required bool isFrom}) async {
@@ -1289,18 +1328,81 @@ class _PauseSheetState extends State<_PauseSheet> {
       } else {
         _to = picked;
       }
+      _scenario = 'custom';
       _error = null;
     });
   }
 
   void _confirm() {
-    if (_to.compareTo(_from) <= 0) {
+    if (_to.compareTo(_from) < 0) {
       setState(() => _error = subStrings['errRange']);
       return;
     }
     Navigator.of(
       context,
     ).pop('${ApiClient.dateOnly(_from)}|${ApiClient.dateOnly(_to)}');
+  }
+
+  Widget _scenarioChips() => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      for (final s in const [
+        ('1_day', '1 Day'),
+        ('2_days', '2 Days'),
+        ('1_week', '1 Week'),
+        ('indefinite', 'Until I Resume'),
+        ('custom', 'Custom Dates'),
+      ])
+        ChoiceChip(
+          label: Text(s.$2),
+          selected: _scenario == s.$1,
+          selectedColor: ShodashaTheme.tealTint,
+          labelStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: _scenario == s.$1 ? ShodashaTheme.tealDeep : ShodashaTheme.ink,
+          ),
+          side: BorderSide(
+            color: _scenario == s.$1 ? ShodashaTheme.teal : ShodashaTheme.border,
+          ),
+          backgroundColor: ShodashaTheme.surface,
+          onSelected: (_) => _applyScenario(s.$1),
+        ),
+    ],
+  );
+
+  Widget _scenarioSummary() {
+    String text;
+    if (_scenario == '1_day') {
+      text = 'Deliveries will pause for tomorrow only and resume automatically the next day.';
+    } else if (_scenario == '2_days') {
+      text = 'Deliveries will pause for the next 2 days.';
+    } else if (_scenario == '1_week') {
+      text = 'Deliveries will pause for 7 days (1 week).';
+    } else if (_scenario == 'indefinite') {
+      text = 'Deliveries will pause starting tomorrow until you choose to resume. You can restart anytime with 1 tap.';
+    } else {
+      text = 'Pause from ${_from.day}/${_from.month} to ${_to.day}/${_to.month}.';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.tealTint,
+        borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+        border: Border.all(color: ShodashaTheme.teal.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: ShodashaTheme.tealDeep,
+          height: 1.35,
+        ),
+      ),
+    );
   }
 
   @override
@@ -1333,17 +1435,23 @@ class _PauseSheetState extends State<_PauseSheet> {
           ),
         ),
         const SizedBox(height: 16),
-        _dateRow(
-          label: subStrings['fromDate']!,
-          date: _from,
-          onTap: () => _pickDate(isFrom: true),
-        ),
-        const SizedBox(height: 8),
-        _dateRow(
-          label: subStrings['toDate']!,
-          date: _to,
-          onTap: () => _pickDate(isFrom: false),
-        ),
+        _scenarioChips(),
+        const SizedBox(height: 12),
+        _scenarioSummary(),
+        if (_scenario == 'custom') ...[
+          const SizedBox(height: 12),
+          _dateRow(
+            label: subStrings['fromDate']!,
+            date: _from,
+            onTap: () => _pickDate(isFrom: true),
+          ),
+          const SizedBox(height: 8),
+          _dateRow(
+            label: subStrings['toDate']!,
+            date: _to,
+            onTap: () => _pickDate(isFrom: false),
+          ),
+        ],
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
