@@ -4,6 +4,22 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**CLOUDFLARE PAGES ADMIN BUILD HARDENING & CI STABILIZATION (2026-11-16, ADR-194):** on `main`
+- **Cloudflare Pages CI Build Failure Fix:**
+  - Resolved `ERR_PNPM_NO_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent` when Cloudflare Pages runs `pnpm install --frozen-lockfile` inside `apps/admin_app`.
+  - Generated valid, complete `apps/admin_app/pnpm-lock.yaml` (format 9.0) with zero dependency mismatch.
+- **Supply-Chain & Build Script Security Hardening:**
+  - Pinned `@biomejs/biome: "2.5.15"` in `apps/admin_app/package.json` to prevent floating minor resolution to unstable/newly released versions that violate supply-chain minimum release age policies.
+  - Added `apps/admin_app/pnpm-workspace.yaml` explicitly approving build scripts (`allowBuilds`) for native modules `esbuild` and `workerd`.
+- **Comprehensive Workspace Verification:**
+  - Admin App: `pnpm install --frozen-lockfile` (clean 36ms), `pnpm run build` (<1s clean build), Nitro Cloudflare preset build verified.
+  - Vendor App: `flutter analyze` clean (0 issues), all 90 tests passed.
+  - Donor User App: `flutter analyze` clean (0 issues), all 122 tests passed.
+  - Rider App: `flutter analyze` clean (0 issues), all 3 tests passed.
+  - Backend API: `uv run pytest -q` (513 passed, 1 skipped).
+
+## Previous Phases
+
 **E2E ORDER FLOW HARDENING, ZERO SECURITY DEPOSIT, DIRECT VENDOR ROUTING & DOORSTEP DELIVERY OTP (2026-11-15, ADR-193):** branch `046-e2e-order-flow-vendor-routing`
 - **User App Polish & Bhopal Reference Removal:**
   - Removed " · Bhopal" badge from `apps/user_app_donor/lib/features/auth/login_screen.dart` (now "RO+UV · Lab Tested").

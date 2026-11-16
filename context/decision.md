@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-194 | 2026-11-16 | Cloudflare Pages Admin App Build Hardening (pnpm Lockfile Generation, Biome Pinning, Post-Install Allow-Builds) — resolved `ERR_PNPM_NO_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent` in Cloudflare Pages CI by generating a valid, complete `apps/admin_app/pnpm-lock.yaml` (lockfile format 9.0); pinned `@biomejs/biome: "2.5.15"` in `apps/admin_app/package.json` to prevent supply-chain release-age violations; added `apps/admin_app/pnpm-workspace.yaml` approving `esbuild` and `workerd` build scripts; verified `pnpm install --frozen-lockfile` and `pnpm run build` (both standard and `cloudflare_module` preset) build cleanly in <1s; verified full workspace test suites (90 vendor tests, 122 donor tests, 3 rider tests, 513 backend tests, and all flutter analyzers green) | Accepted (implemented 2026-11-16) | `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-193 | 2026-11-15 | E2E Order Flow Hardening, Zero Security Deposit, Direct Vendor Routing & Doorstep Delivery OTP — waived ₹150 deposit security (`deposit_per_jar_paise = 0`) across backend pricing and user app; disabled UPI payment for user checkout and vendor handover (COD only); fixed vendor fleet rider addition 500 error by applying migration `031_users_role_rider.sql` to remote D1 `shodasha` (added `'rider'` to SQLite users role CHECK constraint); resolved "assignment failed" conflict in admin dispatch unassigned pool by redirecting admin to `/dashboard/users/$userId` ("Assign via User"); auto-dispatched pending placed orders upon user-vendor assignment and permanently routed subsequent user orders to assigned vendor; added remote D1 migration `032_order_delivery_otp.sql` adding `delivery_otp` to `orders`, minting 4-digit OTP immediately upon order creation so customer sees OTP instantly on checkout receipt, home, and orders tabs; set default vendor language to English (`'en'`), auto on-duty on vendor login, and empty route displays "Waiting for orders"; 513 backend tests, 122 donor tests, 90 vendor tests, and admin build all green | Accepted (implemented 2026-11-15) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-192 | 2026-11-15 | Anti-Fraud Hardening, 4-Digit Delivery OTP, Rider Drop Navigation & Masked Calling, Vendor Fleet Hub, Admin Direct User-Vendor Assignment & D1 Reset to Admin-Only — updated delivery OTP minting to 4 digits for doorstep ease-of-use (`workers/api/src/app/services/delivery_code.py`); masked customer phone numbers across rider routes API and mobile views to eliminate customer poaching; added 1-tap Google Maps drop location navigation on rider stop cards; built dedicated RidersScreen in vendor_app for managing fleet delivery riders with mobile-only credentials; added direct customer-to-vendor assignment endpoint `POST /v1/admin/users/{user_id}/assign-vendor` and web UI in admin_app (table row action and user-detail); purged remote D1 `shodasha` database leaving ONLY the active admin account (+917828442476); 513 backend tests, 90 vendor tests, 122 donor tests, and 3 rider tests pass | Accepted (implemented 2026-11-15) | `workers/api`, `apps/rider_app`, `apps/vendor_app`, `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-191 | 2026-11-14 | Worker Split — three Python Workers on one D1: `water` (customer + cron), `water-ops` (vendor + rider), `water-admin` (admin); surface-aware `create_app(surface)` factory mounts only owned routers so wrong-surface requests 404; split auth/payments/returns routers (aggregate router kept for tests); per-isolate 10 s session memo for user/vendor/rider (admin never cached) + 300 s memo for catalog/windows/serviceability; ops/admin configs have no cron; admin BFF gains `OPS_API` binding and vendor portal talks to `water-ops`; vendor/rider defaults + CI point at `water-ops`; 512 tests pass, both new Workers deployed and smoke-tested (wrong-surface 404 verified) | Accepted (implemented, cutover step 5 pending 2026-11-14) | `workers/api/src/app/{factory,main}.py`, `workers/api/src/app/api/{auth_deps.py,v1/{auth,payments,returns,catalog}.py}`, `workers/api/src/{entry,entry_ops,entry_admin}.py`, `workers/api/{wrangler,wrangler.ops,wrangler.admin}.jsonc`, `apps/admin_app`, `apps/{vendor_app,rider_app}`, `.github/workflows/release.yml`, `Feature_docs/worker-split/`, `context/{progress-tracker,flow,decision}.md` |
@@ -245,6 +246,37 @@
 ---
 
 ## Decision Entries
+
+### ADR-194: Cloudflare Pages Admin App Build Hardening (pnpm Lockfile Generation, Biome Pinning, Post-Install Allow-Builds)
+
+- **Status**: Accepted (implemented 2026-11-16)
+- **Date**: 2026-11-16
+- **Affects**: `apps/admin_app/package.json`, `apps/admin_app/pnpm-lock.yaml`, `apps/admin_app/pnpm-workspace.yaml`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. Cloudflare Pages / Workers Builds failed with:
+     `ERR_PNPM_NO_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent`
+  2. The root cause was that `apps/admin_app` only had `package-lock.json`, while Cloudflare Pages CI environment detected `pnpm` and executed `pnpm install --frozen-lockfile` inside `apps/admin_app`.
+  3. Furthermore, `@biomejs/biome` had a floating minor `^2.5.15` in `apps/admin_app/package.json`, resolving to newly published versions that violate pnpm 12's default supply-chain `minimumReleaseAge` checks.
+  4. Native build scripts in dependencies (`esbuild`, `workerd`) required approval under pnpm's security model.
+- **Decision**:
+  1. Pin `@biomejs/biome` to stable `"2.5.15"` in `apps/admin_app/package.json`.
+  2. Generate a valid, complete `apps/admin_app/pnpm-lock.yaml` (format 9.0) with zero dependency mismatch so `pnpm install --frozen-lockfile` succeeds deterministically in CI.
+  3. Add `apps/admin_app/pnpm-workspace.yaml` explicitly approving build scripts for `esbuild` and `workerd` (`allowBuilds`).
+  4. Verify that `pnpm install --frozen-lockfile` and `pnpm run build` (both standard and `cloudflare_module` preset) build cleanly and instantaneously.
+  5. Verify that all workspace checks (Flutter analyzers, 90 vendor tests, 122 donor tests, 3 rider tests, 513 backend tests) pass 100%.
+
+### ADR-193: E2E Order Flow Hardening, Zero Security Deposit, Direct Vendor Routing & Doorstep Delivery OTP
+
+- **Status**: Accepted (implemented 2026-11-15)
+- **Date**: 2026-11-15
+- **Affects**: `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `apps/admin_app`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. Zero Deposit & COD: Waived ₹150 security deposit (`deposit_per_jar_paise = 0`) across pricing and user booking sheets. Disabled UPI payment across user checkout and vendor handover (COD only).
+  2. Vendor Fleet Rider Creation: Applied D1 migration `031_users_role_rider.sql` adding `'rider'` to SQLite users role CHECK constraint, fixing the 500 internal server error when vendors add riders.
+  3. Direct User Vendor Routing: Replaced dispatch unassigned pool "Assign" button with "Assign via User" directing admin to `/dashboard/users/$userId`. Binding a user to a vendor dispatches pending orders and permanently routes future orders to that vendor.
+  4. Doorstep Delivery OTP: Applied D1 migration `032_order_delivery_otp.sql` adding `delivery_otp` to `orders`, minting 4-digit OTP immediately upon order placement so customer sees OTP instantly on checkout receipt, home, and orders tabs.
+  5. Vendor App Defaults: Switched vendor default locale to English (`'en'`), auto on-duty on login, and empty route screen displays clean "Waiting for orders".
+
 
 ### ADR-192: Anti-Fraud Hardening, 4-Digit Delivery OTP, Rider Navigation, Vendor Riders Screen, Direct User-Vendor Assignment & D1 Database Reset
 

@@ -12,6 +12,11 @@
 
 ## Overview
 
+- Cloudflare Pages Admin Build Hardening & CI Stabilization (2026-11-16, ADR-194):
+  1. Cloudflare Pages CI Lockfile Fix: Generated valid `apps/admin_app/pnpm-lock.yaml` (format 9.0) resolving `ERR_PNPM_NO_LOCKFILE` during `pnpm install --frozen-lockfile`.
+  2. Dependency Pinning & Allow-Builds: Pinned `@biomejs/biome: "2.5.15"` in `apps/admin_app/package.json` to prevent supply-chain release-age violations, and configured `pnpm-workspace.yaml` approving `esbuild` and `workerd` build scripts.
+  3. Verification: Validated full automated suites across all surfaces (Admin Vite build, Vendor App 90 tests & analyze 0, User App 122 tests & analyze 0, Rider App 3 tests & analyze 0, Backend API 513 pytest tests).
+
 - E2E Order Flow Hardening, Zero Security Deposit, Direct Vendor Routing & Doorstep Delivery OTP (2026-11-15, ADR-193):
   1. Doorstep Delivery OTP: Minted directly upon order placement (`delivery_code.mint()`) and stored in `orders.delivery_otp` (migration `032_order_delivery_otp.sql`). The 4-digit OTP is returned in `create_order`, `OrderOut`, and `_delivery_view`, and rendered prominently on `quote_confirm.dart`, Customer Home active delivery card, and My Orders card, so the user never has to search for or wait for vendor assignment to see their OTP.
   2. Zero Security Deposit (Instant Orders): Waived ₹150 deposit across backend pricing (`pricing.py`, `config_repo.py`, `config.py`), subscription service, and user app checkout sheets (`deposit_due = 0`).
