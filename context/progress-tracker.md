@@ -33,6 +33,7 @@ Update this file after every meaningful implementation change.
   - Backend: `513 passed, 1 skipped` (`uv run pytest -q` in `workers/api`).
   - User app: `122 / 122 passed`, `flutter analyze` 0 issues.
   - Vendor app: `90 / 90 passed`, `flutter analyze` 0 issues.
+  - Rider app: `3 / 3 passed`, `flutter analyze` 0 issues.
   - Admin app: `pnpm build` clean, 0 errors.
 
 ## Previous Phases
