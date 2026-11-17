@@ -270,7 +270,7 @@
      - `apps/rider_app/lib/features/auth/login_screen.dart`: replaced `Icon(Icons.water_drop_rounded)` with a centered 88×88dp `Image.asset('assets/logo.png')` inside a white rounded card with `ShodashaTheme.border` and subtle elevation.
   2. GitHub Actions Automated Workers CI/CD:
      - Created `.github/workflows/deploy-workers.yml` triggering on push to `main` with paths `workers/api/**`.
-     - Uses `actions/setup-python@v5` (Python 3.12), `astral-sh/setup-uv@v5` (latest uv), and `actions/setup-node@v4` (Node 20).
+     - Uses `actions/setup-python@v5`, `astral-sh/setup-uv@v5`, and `actions/setup-node@v4` with Node.js 22 (pinned to satisfy Wrangler 4.x requirement of Node `>= 22.12.0`).
      - Runs `uv run pytest -q` quality gate (515 tests).
      - Deploys all 3 workers in the architecture:
        - `uv run pywrangler deploy` (`water` — customer core)

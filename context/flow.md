@@ -18,7 +18,7 @@
      - `apps/rider_app`: `login_screen.dart` renders 88×88dp `assets/logo.png` in a rounded white card (`ShodashaTheme.border`), replacing `Icons.water_drop_rounded`.
   2. Workers CI/CD Pipeline (`.github/workflows/deploy-workers.yml`):
      - Triggered on push to `main` with changes under `workers/api/**` or manual dispatch.
-     - Environment: Python 3.12, astral-sh/setup-uv, Node.js 20 with Wrangler.
+     - Environment: Python 3.12, astral-sh/setup-uv, Node.js 22 (Wrangler >= 22.12.0 requirement).
      - Quality Gate: `uv run pytest -q` (515 tests must pass).
      - Deployments:
        - `water`: `uv run pywrangler deploy` (Customer / Donor core API).

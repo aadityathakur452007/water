@@ -43,10 +43,10 @@ jobs:
           version: "latest"
           enable-cache: true
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22 (Wrangler requires >= 22.12.0)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: 'npm'
           cache-dependency-path: 'workers/api/package.json'
 

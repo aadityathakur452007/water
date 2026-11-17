@@ -10,7 +10,7 @@ Update this file after every meaningful implementation change.
   - `apps/rider_app`: Updated `login_screen.dart` to mount `assets/logo.png` (88×88dp) inside a clean rounded white card with subtle elevation and border, replacing generic placeholder `Icons.water_drop_rounded`.
 - **Automated GitHub Actions CI/CD for Cloudflare Workers (`deploy-workers.yml`):**
   - Created `.github/workflows/deploy-workers.yml` triggering on push to `main` with paths `workers/api/**`.
-  - Configured Python 3.12, `uv` cache, Node.js 20, and Wrangler installation.
+  - Configured Python 3.12, `uv` cache, Node.js 22 (pinned for Wrangler >= 22.12.0), and Wrangler installation.
   - Test quality gate: executes `uv run pytest -q` across all 515 backend test suites before deployment.
   - Automated deployment steps for all 3 workers in the architecture:
     1. `water` (Customer / Donor / Core API) via `uv run pywrangler deploy`
