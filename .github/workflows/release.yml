@@ -64,8 +64,8 @@ jobs:
         include:
           - app: donor
             dir: apps/user_app_donor
-            label: Shodasha User (customer)
-            asset: shodasha-donor
+            label: Shodasha Customer App (User)
+            asset: shodasha-customer
             defines: --dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF
             target_platform: --target-platform android-arm64
             max_size_bytes: 25000000
@@ -197,7 +197,7 @@ jobs:
           test -f dist/donor/app-release.apk || { echo "donor APK missing"; exit 1; }
           test -f dist/vendor/app-release.apk || { echo "vendor APK missing"; exit 1; }
           test -f dist/rider/app-release.apk || { echo "rider APK missing"; exit 1; }
-          mv dist/donor/app-release.apk "dist/shodasha-donor-${{ needs.version.outputs.tag }}.apk"
+          mv dist/donor/app-release.apk "dist/shodasha-customer-${{ needs.version.outputs.tag }}.apk"
           mv dist/vendor/app-release.apk "dist/shodasha-vendor-${{ needs.version.outputs.tag }}.apk"
           mv dist/rider/app-release.apk "dist/shodasha-rider-${{ needs.version.outputs.tag }}.apk"
           rm -rf dist/donor dist/vendor dist/rider
@@ -218,14 +218,14 @@ jobs:
             ## APKs — pick your app
             | File | App | Android package |
             |------|-----|---------------|
-            | `shodasha-donor-${{ needs.version.outputs.tag }}.apk` | Shodasha (customers — order water) | `com.shodasha.shodasha_donor` |
+            | `shodasha-customer-${{ needs.version.outputs.tag }}.apk` | Shodasha Customer App (order water, subscriptions, delivery OTP) | `com.shodasha.shodasha_donor` |
             | `shodasha-vendor-${{ needs.version.outputs.tag }}.apk` | Shodasha Vendor (agencies — routes, stops, earnings) | `com.shodasha.vendor_app` |
             | `shodasha-rider-${{ needs.version.outputs.tag }}.apk` | Shodasha Rider (delivery partners — route manifest, OTP verification) | `com.shodasha.rider_app` |
             All three apps install side-by-side. Verify with `sha256sum -c SHA256SUMS.txt`.
             Release signing requires the owner keystore secrets; without them
             these APKs carry the Android debug certificate.
           files: |
-            dist/shodasha-donor-${{ needs.version.outputs.tag }}.apk
+            dist/shodasha-customer-${{ needs.version.outputs.tag }}.apk
             dist/shodasha-vendor-${{ needs.version.outputs.tag }}.apk
             dist/shodasha-rider-${{ needs.version.outputs.tag }}.apk
             dist/SHA256SUMS.txt

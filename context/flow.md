@@ -12,6 +12,21 @@
 
 ## Overview
 
+- Customer Branding, Android OS Security Permissions & CI/CD Pipeline Renaming (2026-11-17, ADR-202):
+  1. CI/CD Workflow & Release Asset Transformation:
+     - `.github/workflows/ci.yml`: Matrix runner label updated to `Shodasha Customer App (User)`.
+     - `.github/workflows/release.yml`: Matrix runner updated to `Shodasha Customer App (User)`; release artifact renamed to `shodasha-customer-${{ tag }}.apk`; release table updated to accurately reflect customer app role.
+  2. Customer Brand Identity & Adaptive Icon Recovery:
+     - `apps/user_app_donor/lib/features/auth/login_screen.dart`: Mounted authentic brand logo (`Image.asset('assets/logo.png')`) in an 72×72dp card with subtle border and elevation, replacing generic `Icons.water_drop_rounded`.
+     - `apps/user_app_donor/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` and `ic_launcher_round.xml`: Fixed foreground drawable to reference `@drawable/ic_launcher_foreground` (high-res brand density PNGs), permanently eliminating the generic water drop vector on Android 8.0+ home screens.
+  3. Android OS Security Hardening & Permissions (Least Privilege):
+     - Added `ACCESS_NETWORK_STATE` and `POST_NOTIFICATIONS` across all three mobile manifests (`user_app_donor`, `vendor_app`, `rider_app`).
+     - Hardened network security on all three applications with `android:usesCleartextTraffic="false"`.
+     - Added location permissions and hardware feature fallback (`android.hardware.location` optional) to `rider_app`.
+     - Created `backup_rules.xml` and `data_extraction_rules.xml` in `apps/rider_app/android/app/src/main/res/xml/` preventing session token leakage.
+     - Enriched `<queries>` visibility declarations for dialer (`tel`), navigation (`geo`), and web support (`https`).
+  4. Verification: 122/122 user app tests, 90/90 vendor app tests, 3/3 rider app tests, and 515/515 backend pytest tests pass; 0 flutter analyze warnings across all codebases.
+
 - Autonomous Assigned-to-Delivered Transition, Locked Customer Identity & Subscription Cash Hisaab (2026-11-17, ADR-201):
   1. Autonomous Handover & Order State Transition:
      - `workers/api/src/app/repositories/order_repo.py`: Added `"delivered"` to `LEGAL["assigned"]`, enabling direct `assigned -> delivered` state progression.

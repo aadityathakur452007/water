@@ -22,7 +22,7 @@ jobs:
         include:
           - app: donor
             dir: apps/user_app_donor
-            label: Shodasha User (customer)
+            label: Shodasha Customer App (User)
           - app: vendor
             dir: apps/vendor_app
             label: Shodasha Vendor (agency)

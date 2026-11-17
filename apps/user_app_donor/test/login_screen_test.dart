@@ -186,7 +186,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('RO+UV · Lab Tested'), findsOneWidget);
-    expect(find.byIcon(Icons.water_drop_rounded), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
     expect(
       find.text('Shodasha customer app · Password protected'),
       findsNothing,

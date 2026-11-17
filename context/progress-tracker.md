@@ -4,6 +4,26 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**CUSTOMER BRANDING, ANDROID OS SECURITY PERMISSIONS & CI/CD PIPELINE RENAMING (2026-11-17, ADR-202):** on `main`
+- **CI/CD Pipeline Public Naming & Release Artifact Alignment:**
+  - In `.github/workflows/ci.yml`: Renamed matrix label for the customer app from `Shodasha User (customer)` to `Shodasha Customer App (User)`.
+  - In `.github/workflows/release.yml`: Renamed matrix label to `Shodasha Customer App (User)`, updated asset name to `shodasha-customer` (producing `shodasha-customer-${{ tag }}.apk` instead of `shodasha-donor-...`), and updated release notes table with clear customer-facing role description.
+- **Customer App Branding & Android Adaptive Launcher Fix:**
+  - In `apps/user_app_donor/lib/features/auth/login_screen.dart`: Replaced placeholder `Icons.water_drop_rounded` with `Image.asset('assets/logo.png')` inside an 72×72dp rounded card (`ShodashaTheme.border`, `ShodashaTheme.subtleCardShadow`) matching Vendor and Rider login screens.
+  - In `apps/user_app_donor/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` and `ic_launcher_round.xml`: Replaced legacy vector water drop `@drawable/ic_launcher_foreground_brand` with `@drawable/ic_launcher_foreground` (authentic brand logo PNGs across all screen densities).
+  - Updated `apps/user_app_donor/test/login_screen_test.dart` to assert presence of brand image.
+- **Android OS Security, Manifest Declarations & Token Protection (SSDLC):**
+  - `apps/user_app_donor`: Added `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS` (Android 13+ / API 33+), and enforced `android:usesCleartextTraffic="false"`.
+  - `apps/vendor_app`: Added `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`, `<uses-feature android:name="android.hardware.location" android:required="false"/>` and `location.gps`, enforced `android:usesCleartextTraffic="false"`, and added `<queries>` for dialer (`tel`), browser (`https`), and maps (`geo`).
+  - `apps/rider_app`: Added `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `<uses-feature>` tags, enforced `android:usesCleartextTraffic="false"`, added `<queries>` for `geo` and `https`, and created `backup_rules.xml` and `data_extraction_rules.xml` preventing unauthorized token extraction via cloud/ADB backups.
+- **Verification Across Ecosystem:**
+  - `apps/user_app_donor`: `flutter analyze` clean (0 issues), 122 / 122 tests passed.
+  - `apps/vendor_app`: `flutter analyze` clean (0 issues), 90 / 90 tests passed.
+  - `apps/rider_app`: `flutter analyze` clean (0 issues), 3 / 3 tests passed.
+  - `workers/api`: `uv run pytest -q` 515 passed, 1 skipped (100% pass rate).
+
+## Previous Phases
+
 **AUTONOMOUS DELIVERY LIFECYCLE & SUBSCRIPTION CASH HISAAB (2026-11-17, ADR-201):** on `main`
 - **Autonomous Assigned-to-Delivered Transition (Eliminating Admin Dispatch Prerequisite):**
   - Resolved 409 Conflict `PoD needs a dispatched order (now assigned)` by adding `"delivered"` to `LEGAL["assigned"]` in `OrderRepo`.

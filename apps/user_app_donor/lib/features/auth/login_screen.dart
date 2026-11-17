@@ -469,20 +469,19 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
       child: Column(
         children: [
           Container(
-            width: 64,
-            height: 64,
+            width: 72,
+            height: 72,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: ShodashaTheme.tealTint,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: ShodashaTheme.tealDark.withValues(alpha: 0.15),
-              ),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: ShodashaTheme.border),
+              boxShadow: ShodashaTheme.subtleCardShadow,
             ),
-            child: const Icon(
-              Icons.water_drop_rounded,
-              size: 34,
-              color: ShodashaTheme.tealDeep,
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              'assets/logo.png',
+              fit: BoxFit.contain,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
