@@ -1524,7 +1524,7 @@ async def admin_assign_user_vendor(
             try:
                 from app.services.dispatch_service import auto_assign_trusted_vendor
                 placed_orders = (await conn.execute(
-                    "SELECT id FROM orders WHERE user_id = ? AND state = 'placed'",
+                    "SELECT id FROM orders WHERE user_id = ? AND state IN ('placed', 'accepted', 'picked', 'packed')",
                     (user_id,),
                 )).fetchall()
                 for p_order in placed_orders:

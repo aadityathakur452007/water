@@ -140,6 +140,17 @@ async def test_reassign_fences_old_stop():
     assert (await check_stop_fresh(ac, out["stop_id"], out["version"]))["status"] == "pending"
 
 
+async def test_assign_placed_order_direct_by_admin():
+    c = _conn()
+    _seed_base(c)
+    _order(c, "o_placed", state="placed")
+    ac = AsyncSqliteConn(c)
+    out = await assign_order(ac, "o_placed", "v1", ADM)
+    assert out["version"] == 1
+    assert c.execute("SELECT state FROM orders WHERE id = 'o_placed'").fetchone()["state"] == "assigned"
+
+
+
 async def test_override_cancel_post_dispatch():
     c = _conn()
     _seed_base(c)

@@ -12,6 +12,19 @@
 
 ## Overview
 
+- Vendor Assignment Auto-Pack Hardening & End-to-End Real-Signal Production Verification (2026-11-17, ADR-197):
+  1. Auto-Pack Single-Touch Assignment Flow:
+     - `workers/api/src/app/services/dispatch_service.py`: `assign_order` and `auto_assign_trusted_vendor` auto-progress orders from `placed` / `accepted` / `picked` to `packed` before assigning stops, allowing admins and auto-dispatch to immediately assign placed orders without manual warehouse steps.
+  2. Production D1 Database Unblock:
+     - Remote Cloudflare D1 `shodasha`: Cleared `review_hold = 0` on vendor Yash Gupta (`be27df56e5784b77acb9e1c0af09124b`); linked Rider Aditya (`ed081008-0333-4ca3-9b3a-7d5cb44e5217`) to Yash Gupta in `users.assigned_vendor_id`.
+  3. Live Production Signals Lifecycle Verified:
+     - Admin Flow (`water-admin.adityathakur452007.workers.dev`): Login (`+917828442476`), user/vendor/zone listing, live zone creation (`POST /v1/admin/zones`), vendor creation (`POST /v1/admin/vendors`), and vendor access code issuance (`POST /v1/admin/users/{user_id}/access-codes`).
+     - Customer Flow (`water.adityathakur452007.workers.dev`): Login/register (`+919876543210`), address creation, quote generation (`POST /v1/quotes`), and order placement (`POST /v1/orders`) with Idempotency-Key and 4-digit doorstep delivery OTP.
+     - Vendor Flow (`water-ops.adityathakur452007.workers.dev`): Login with access code (`+919755076303`), real-time placed order pool feed (`GET /v1/vendor/placed`), order acceptance (`POST /v1/vendor/placed/{order_id}/accept`), today's route manifest, and rider stop assignment (`POST /v1/vendor/stops/{stop_id}/assign-rider`).
+     - Rider & Delivery Flow: Route dispatch (`POST /v1/admin/routes/{route_id}/dispatch`), Rider login (`+919713710316`), route view with drop address, phone, and jar count (`GET /v1/rider/routes/today`), and delivery completion with customer OTP (`POST /v1/rider/stops/{stop_id}/complete`).
+     - Reconciliation: Customer order status verified as `delivered` in remote D1!
+  4. Verification: 515 pytest tests pass in `workers/api` (1 skipped), 0 issues across all 3 mobile apps in `flutter analyze`.
+
 - Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix (2026-11-16, ADR-196):
   1. Cloudflare Pages CI Build Stabilization:
      - `apps/admin_app`: Removed `pnpm-workspace.yaml` (which caused `ERROR packages field missing or empty` in `pnpm@9.10.0`) and pinned `"packageManager": "pnpm@9.10.0"` in `package.json`.

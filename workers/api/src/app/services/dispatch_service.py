@@ -403,8 +403,23 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         order = dict(order)
         if order["state"] != "packed":
-            raise ConflictError(message=f"Only packed orders can be assigned (now {order['state']}).",
-                                details={"from": order["state"], "to": "assigned"})
+            if order["state"] in ("placed", "accepted", "picked"):
+                from app.repositories.order_repo import OrderRepo  # noqa: PLC0415
+
+                repo = OrderRepo(conn)
+                if order["state"] == "placed":
+                    await repo.transition(order_id, "accepted", actor, "single-touch pack")
+                    await repo.transition(order_id, "picked", actor, "single-touch pack")
+                    await repo.transition(order_id, "packed", actor, "single-touch pack")
+                elif order["state"] == "accepted":
+                    await repo.transition(order_id, "picked", actor, "single-touch pack")
+                    await repo.transition(order_id, "packed", actor, "single-touch pack")
+                elif order["state"] == "picked":
+                    await repo.transition(order_id, "packed", actor, "single-touch pack")
+                order = dict((await conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))).fetchone())
+            else:
+                raise ConflictError(message=f"Only packed orders can be assigned (now {order['state']}).",
+                                    details={"from": order["state"], "to": "assigned"})
         vendor = (await conn.execute("SELECT id FROM users WHERE id = ?", (vendor_id,))).fetchone()
         if vendor is None:
             raise NotFoundError(message="Vendor not found.", details={"id": vendor_id})
@@ -482,7 +497,7 @@ async def auto_assign_trusted_vendor(conn: Conn, order_id: str, user_id: str) ->
         return None
     vendor_id = str(urow["assigned_vendor_id"])
     order = (await conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))).fetchone()
-    if not order or str(order["state"]) != "placed":
+    if not order or str(order["state"]) not in ("placed", "accepted", "picked", "packed"):
         return None
     order_dict = dict(order)
     try:
@@ -490,14 +505,8 @@ async def auto_assign_trusted_vendor(conn: Conn, order_id: str, user_id: str) ->
     except Exception:
         pass
 
-    from app.repositories.order_repo import OrderRepo  # noqa: PLC0415
-
-    repo = OrderRepo(conn)
     actor = {"id": "system", "role": "admin"}
     try:
-        await repo.transition(order_id, "accepted", actor, "auto-dispatch: trusted vendor")
-        await repo.transition(order_id, "picked", actor, "auto-dispatch: single-touch pack")
-        await repo.transition(order_id, "packed", actor, "auto-dispatch: single-touch pack")
         out = await assign_order(conn, order_id, vendor_id, actor)
         return out
     except Exception:

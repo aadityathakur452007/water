@@ -4,6 +4,47 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**VENDOR ASSIGNMENT FIX & END-TO-END LIVE PRODUCTION REAL-SIGNAL VERIFICATION (2026-11-17, ADR-197):** on `main`
+- **Root Cause Resolution for Vendor Assignment Failure:**
+  - Diagnosed vendor assignment breakdown: `assign_order` in `dispatch_service.py` strictly rejected orders unless state was already `packed`. Hardened `assign_order` and `auto_assign_trusted_vendor` to support single-touch auto-progression from `placed`, `accepted`, and `picked` to `packed`.
+  - Identified vendor profile stall on live D1 database: vendor Yash Gupta (`be27df56e5784b77acb9e1c0af09124b`) had `review_hold = 1`, blocking all automatic and manual stop assignments with `CAPACITY_EXCEEDED`. Cleared `review_hold = 0` in remote D1.
+  - Linked fleet Rider Aditya (`ed081008-0333-4ca3-9b3a-7d5cb44e5217`) directly to vendor Yash Gupta in D1 `users.assigned_vendor_id`.
+  - Added unit test `test_assign_placed_order_direct_by_admin` in `test_dispatch_admin.py`.
+- **Full End-to-End Live Production Signals Verification (`scratch/test_live_system.py`):**
+  - **1. Admin Flow (`water-admin.adityathakur452007.workers.dev`):**
+    - `POST /v1/auth/admin/login`: Admin logged in with phone `+917828442476` and code `452007`.
+    - `GET /v1/admin/users`: Retrieved real users from D1.
+    - `GET /v1/admin/vendors`: Retrieved active vendors.
+    - `GET /v1/admin/zones`: Retrieved active service zones.
+    - `POST /v1/admin/zones`: Created new live zone in Satna (201 Created).
+    - `POST /v1/admin/vendors`: Created and auto-verified new vendor agency (201 Created).
+    - `POST /v1/admin/users/{user_id}/access-codes`: Issued live 90-day vendor access code for Yash Gupta.
+  - **2. Customer Flow (`water.adityathakur452007.workers.dev`):**
+    - `POST /v1/auth/user/login`: Customer authenticated.
+    - `POST /v1/addresses`: Added doorstep address in Satna with lift flag.
+    - `POST /v1/quotes`: Generated live pricing quote (Total ₹28.00 COD, ₹0 deposit).
+    - `POST /v1/orders`: Placed order with Idempotency-Key (201 Created, state `placed`, 4-digit doorstep delivery OTP issued).
+  - **3. Vendor Flow (`water-ops.adityathakur452007.workers.dev`):**
+    - `POST /v1/auth/vendor/login`: Vendor logged in with mobile `+919755076303` and access code.
+    - `GET /v1/vendor/placed`: Placed orders pool loaded in real-time, instantly surfacing new customer order.
+    - `POST /v1/vendor/placed/{order_id}/accept`: Vendor accepted order, generating route and stop.
+    - `GET /v1/vendor/routes/today`: Loaded route manifest with sequence, customer name, and COD total.
+    - `POST /v1/vendor/stops/{stop_id}/assign-rider`: Vendor assigned stop to Rider Aditya.
+  - **4. Dispatch & Rider Delivery Flow:**
+    - `POST /v1/admin/routes/{route_id}/dispatch`: Admin dispatched route, transitioning orders to `dispatched`.
+    - `POST /v1/auth/rider/login`: Rider Aditya logged in (`+919713710316`).
+    - `GET /v1/rider/routes/today`: Rider saw assigned stop with drop address, phone, jar count, and cash to collect.
+    - `POST /v1/rider/stops/{stop_id}/complete`: Rider completed doorstep delivery with customer OTP, cash collected, and empty return.
+  - **5. Final Status Reconciliation:**
+    - `GET /v1/orders/{order_id}`: Customer order transitioned to `delivered` in remote D1!
+- **Frontend Verification & Analysis:**
+  - `apps/rider_app`: `flutter analyze` 0 issues (clean), Maps navigation, dialer, and PodSheet verified.
+  - `apps/vendor_app`: `flutter analyze` 0 issues (clean), real-time placed order feed and rider assignment verified.
+  - `apps/user_app_donor`: `flutter analyze` 0 issues (clean), doorstep delivery OTP card verified.
+  - `workers/api`: `uv run pytest -q` → 515 passed, 1 skipped.
+
+## Previous Phases
+
 **SUBSCRIPTION BUILDER COD ENFORCEMENT, EXTRA JAR DOUBLE VERIFICATION, SCENARIO PAUSE & CLOUDFLARE PAGES CI FIX (2026-11-16, ADR-196):** on `main`
 - **Cloudflare Pages pnpm CI Fix (`apps/admin_app`):**
   - Removed `pnpm-workspace.yaml` which triggered ` ERROR  packages field missing or empty` in `pnpm@9.10.0` inside Cloudflare Pages CI build environment.

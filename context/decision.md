@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-197 | 2026-11-17 | Vendor Assignment Auto-Pack Hardening, D1 Profile Unblock & End-to-End Real-Signal Production Verification — hardened `dispatch_service.py` to auto-progress `placed`, `accepted`, and `picked` orders to `packed` during direct assignment, eliminating manual packing prerequisites for admin single-touch dispatch; unblocked vendor Yash Gupta in remote D1 `shodasha` by clearing `review_hold = 0` and linked Rider Aditya to vendor; executed full real-signal verification on live Cloudflare Workers (`water-admin`, `water`, `water-ops`) covering Admin login, user/vendor/zone listings, zone and vendor creation, vendor access-code issuance, customer registration/login, address and quote creation, order placement with 4-digit OTP, real-time vendor placed pool, vendor acceptance, route generation, rider assignment, route dispatch, rider route view with drop address and bottle count, and OTP delivery completion; verified all Flutter analyzers clean (0 issues) and 515 pytest tests pass | Accepted (implemented 2026-11-17) | `workers/api`, `apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-196 | 2026-11-16 | Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix — removed `pnpm-workspace.yaml` in `apps/admin_app` to eliminate `ERROR packages field missing or empty` in Cloudflare Pages `pnpm@9.10.0` CI and pinned `"packageManager": "pnpm@9.10.0"`; hid `monthly_prepaid` in `plan_builder_sheet.dart` leaving `per_delivery` and `monthly_postpaid`, enforced COD as default and only payment method for subscriptions, and updated `subscription_service.py` to allow `monthly_postpaid` with `cod`; added `_confirmExtraJarOrder()` in `donor_shell.dart` to verify customer intent before ordering extra jars when active subscription exists; added quick 1-tap scenario pause chips (`1 Day`, `2 Days`, `1 Week`, `Until I Resume`, `Custom Dates`) in `subscription_screen.dart`; added `delivery_otp_state` to `OrderOut` schema and deployed live Cloudflare Worker version `e49db65a-c238-4e01-9654-a4044b9daf1d`; verified 514 backend tests, 122 user tests, 90 vendor tests, and 0 flutter analyze warnings | Accepted (implemented 2026-11-16) | `apps/admin_app`, `apps/user_app_donor`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-195 | 2026-11-16 | Subscription Daily Delivery OTP Lifecycle, D1 Schema & OTP Fallback Hardening, and Vendor Handover English Localization — attached `today_order` (order_id, state, delivery_otp, window_start) to active subscriptions in `subscription_service.py`; added high-contrast "TODAY'S DELIVERY OTP" card with 4-digit OTP in `apps/user_app_donor` subscription screen; hardened D1 `order_repo.py` column resolution and `order_service.py` OTP view fallback so customer orders always retain OTP; standardized vendor handover sheet text to default English (`Next: Customer OTP`, `Back`, etc.) via `vtr()`; verified 513 backend tests, 122 donor tests, 90 vendor tests, 3 rider tests, and 0 flutter analyze issues | Accepted (implemented 2026-11-16) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-194 | 2026-11-16 | Cloudflare Pages Admin App Build Hardening (pnpm Lockfile Generation, Biome Pinning, Post-Install Allow-Builds) — resolved `ERR_PNPM_NO_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is absent` in Cloudflare Pages CI by generating a valid, complete `apps/admin_app/pnpm-lock.yaml` (lockfile format 9.0); pinned `@biomejs/biome: "2.5.15"` in `apps/admin_app/package.json` to prevent supply-chain release-age violations; added `apps/admin_app/pnpm-workspace.yaml` approving `esbuild` and `workerd` build scripts; verified `pnpm install --frozen-lockfile` and `pnpm run build` (both standard and `cloudflare_module` preset) build cleanly in <1s; verified full workspace test suites (90 vendor tests, 122 donor tests, 3 rider tests, 513 backend tests, and all flutter analyzers green) | Accepted (implemented 2026-11-16) | `apps/admin_app`, `context/{progress-tracker,flow,decision}.md` |
@@ -248,6 +249,34 @@
 ---
 
 ## Decision Entries
+
+### ADR-197: Vendor Assignment Auto-Pack Hardening, D1 Profile Unblock & End-to-End Real-Signal Production Verification
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (implemented 2026-11-17)
+- **Affects**: `workers/api/src/app/services/dispatch_service.py`, `workers/api/src/app/api/v1/admin.py`, `workers/api/tests/test_dispatch_admin.py`, `apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  - The user reported vendor assignment failure when attempting to assign a vendor in production, suspecting old worker code or logic errors.
+  - Root cause investigation revealed:
+    1. `assign_order` in `dispatch_service.py` strictly checked `order["state"] == "packed"`, rejecting any freshly placed or accepted order with `ConflictError: Only packed orders can be assigned (now placed)`.
+    2. In the remote Cloudflare D1 database (`shodasha`), vendor Yash Gupta had `review_hold = 1`, blocking all assignments with `CAPACITY_EXCEEDED`.
+    3. Rider Aditya was linked to vendor Ramesh while active routes belonged to vendor Yash Gupta, resulting in empty route lists.
+- **Decision**:
+  - **Auto-Pack on Assignment**: Updated `assign_order` and `auto_assign_trusted_vendor` in `dispatch_service.py` so if an order is in `placed`, `accepted`, or `picked` state, it is auto-transitioned to `packed` immediately, creating a seamless single-touch assignment flow without requiring manual warehouse packing steps.
+  - **D1 Database State Normalization**:
+    - Released `review_hold = 0` for vendor Yash Gupta (`be27df56e5784b77acb9e1c0af09124b`).
+    - Linked Rider Aditya (`ed081008-0333-4ca3-9b3a-7d5cb44e5217`) to Yash Gupta in `users.assigned_vendor_id`.
+  - **End-to-End Real Signal Production Verification**:
+    - Validated all 5 core stages against live production Cloudflare endpoints (`water-admin`, `water`, `water-ops`) and remote D1:
+      1. Admin login (`+917828442476`), user listing, vendor listing, zone listing, zone creation (`POST /v1/admin/zones`), vendor onboarding (`POST /v1/admin/vendors`), and vendor access code issuance (`POST /v1/admin/users/{user_id}/access-codes`).
+      2. Customer login (`+919876543210`), address creation, quote generation (₹28.00 COD, ₹0 deposit), and order placement with Idempotency-Key and 4-digit doorstep delivery OTP.
+      3. Vendor login (`+919755076303` with access code), real-time placed orders pool (`GET /v1/vendor/placed`), order acceptance (`POST /v1/vendor/placed/{order_id}/accept`), route loading, and stop assignment to Rider Aditya.
+      4. Route dispatch (`POST /v1/admin/routes/{route_id}/dispatch`), Rider Aditya login (`+919713710316`), route view with customer drop address, jar count, and amount due, and delivery completion via customer delivery OTP (`POST /v1/rider/stops/{stop_id}/complete`).
+      5. Order state verification flipping to `delivered` in remote D1.
+- **Consequences**:
+  - Direct vendor assignment is robust and no longer blocked by order state or vendor review hold.
+  - All 3 mobile apps (`apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`) analyze clean with 0 issues.
+  - Full backend test suite passes: 515 passed, 1 skipped.
 
 ### ADR-196: Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix
 
