@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-199 | 2026-11-17 | In-App Mobile Logo Embedding (Vendor & Rider Screens) & Automated Cloudflare Workers CI/CD Workflow — embedded official brand logos (`assets/logo.png`, 88×88dp) into `apps/vendor_app` (`vendor_code_screen.dart`) and `apps/rider_app` (`login_screen.dart`), replacing generic placeholder Material icons (`local_drink`, `water_drop_rounded`); created `.github/workflows/deploy-workers.yml` to automatically test (`pytest`) and deploy all 3 Cloudflare workers (`water` customer/donor core, `water-ops` vendor and rider operations, and `water-admin` admin portal) on push to `main` (paths: `workers/api/**`); added deployment shortcut scripts to root `package.json`; 90/90 vendor tests, 3/3 rider tests, and 515/515 pytest tests pass | Accepted (implemented 2026-11-17) | `apps/vendor_app`, `apps/rider_app`, `.github/workflows/deploy-workers.yml`, `package.json`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-198 | 2026-11-17 | Minimalist Android App Icons & Brand System for Vendor & Rider Apps (Concepts V1 + R1) — established operational role-differentiated Android app icons adhering to the master Shodasha monochrome aesthetic (white canvas `#FFFFFF`, deep charcoal `#111111`, zero decorative shields/badges/AI slop); Vendor app icon features two 20L commercial cans side-by-side with water swoosh and bold `VENDOR` typography; Rider app icon features a delivery scooter with 20L cane on rear rack, speed trails, and bold `RIDER` typography; compiled and deployed full Android adaptive icon assets (`mipmap-anydpi-v26`, `ic_launcher.xml`, `ic_launcher_round.xml`, `drawable/ic_launcher_foreground.png`), legacy mipmaps (`mdpi` to `xxxhdpi`), and 512×512 in-app `assets/logo.png` across `apps/vendor_app` and `apps/rider_app`; 90 vendor tests and 3 rider tests pass, 0 flutter analyze warnings | Accepted (implemented 2026-11-17) | `apps/vendor_app`, `apps/rider_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-197 | 2026-11-17 | Vendor Assignment Auto-Pack Hardening, D1 Profile Unblock & End-to-End Real-Signal Production Verification — hardened `dispatch_service.py` to auto-progress `placed`, `accepted`, and `picked` orders to `packed` during direct assignment, eliminating manual packing prerequisites for admin single-touch dispatch; unblocked vendor Yash Gupta in remote D1 `shodasha` by clearing `review_hold = 0` and linked Rider Aditya to vendor; executed full real-signal verification on live Cloudflare Workers (`water-admin`, `water`, `water-ops`) covering Admin login, user/vendor/zone listings, zone and vendor creation, vendor access-code issuance, customer registration/login, address and quote creation, order placement with 4-digit OTP, real-time vendor placed pool, vendor acceptance, route generation, rider assignment, route dispatch, rider route view with drop address and bottle count, and OTP delivery completion; verified all Flutter analyzers clean (0 issues) and 515 pytest tests pass | Accepted (implemented 2026-11-17) | `workers/api`, `apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-196 | 2026-11-16 | Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix — removed `pnpm-workspace.yaml` in `apps/admin_app` to eliminate `ERROR packages field missing or empty` in Cloudflare Pages `pnpm@9.10.0` CI and pinned `"packageManager": "pnpm@9.10.0"`; hid `monthly_prepaid` in `plan_builder_sheet.dart` leaving `per_delivery` and `monthly_postpaid`, enforced COD as default and only payment method for subscriptions, and updated `subscription_service.py` to allow `monthly_postpaid` with `cod`; added `_confirmExtraJarOrder()` in `donor_shell.dart` to verify customer intent before ordering extra jars when active subscription exists; added quick 1-tap scenario pause chips (`1 Day`, `2 Days`, `1 Week`, `Until I Resume`, `Custom Dates`) in `subscription_screen.dart`; added `delivery_otp_state` to `OrderOut` schema and deployed live Cloudflare Worker version `e49db65a-c238-4e01-9654-a4044b9daf1d`; verified 514 backend tests, 122 user tests, 90 vendor tests, and 0 flutter analyze warnings | Accepted (implemented 2026-11-16) | `apps/admin_app`, `apps/user_app_donor`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
@@ -250,6 +251,37 @@
 ---
 
 ## Decision Entries
+
+### ADR-199: In-App Mobile Logo Embedding (Vendor & Rider Screens) & Automated Cloudflare Workers CI/CD Workflow
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (implemented 2026-11-17)
+- **Affects**: `apps/vendor_app`, `apps/rider_app`, `.github/workflows/deploy-workers.yml`, `package.json`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  - Following the creation of the V1 (Vendor) and R1 (Rider) Android app icons (ADR-198), the in-app authentication screens still rendered generic Flutter material icons (`Icons.local_drink` in `apps/vendor_app/lib/features/auth/vendor_code_screen.dart` and `Icons.water_drop_rounded` in `apps/rider_app/lib/features/auth/login_screen.dart`).
+  - The user noticed that Cloudflare Worker `water` failed when built via Cloudflare's direct Dashboard Git integration, and inquired why the Vendor and Rider workers were not present in the CI/CD pipeline.
+  - Diagnosis:
+    1. Cloudflare Python Workers require Python 3.12, `uv`, and `pywrangler` (`workers/api/package.json`). Cloudflare Dashboard's default Git integration runner is a Node.js container without `uv` pre-installed, failing with `command not found: uv` or failing monorepo root detection.
+    2. Architecture: Vendor and Rider APIs are unified under the dedicated **`water-ops`** Worker (`workers/api/wrangler.ops.jsonc`), which mounts `entry_ops.py` (serving `https://water-ops.adityathakur452007.workers.dev/v1` for Vendor and `https://water-ops.adityathakur452007.workers.dev` for Rider).
+    3. Missing CI/CD: Previously, `.github/workflows` only contained `ci.yml` and `release.yml` for the Flutter mobile APKs; no GitHub Actions workflow existed to build, test, and deploy the backend Cloudflare Workers automatically.
+- **Decision**:
+  1. In-App Mobile Logo Embedding:
+     - `apps/vendor_app/lib/features/auth/vendor_code_screen.dart`: replaced `Icon(Icons.local_drink)` with a centered 88×88dp `Image.asset('assets/logo.png')` encased in a clean white rounded card with `ShodashaTheme.border` and subtle elevation.
+     - `apps/rider_app/lib/features/auth/login_screen.dart`: replaced `Icon(Icons.water_drop_rounded)` with a centered 88×88dp `Image.asset('assets/logo.png')` inside a white rounded card with `ShodashaTheme.border` and subtle elevation.
+  2. GitHub Actions Automated Workers CI/CD:
+     - Created `.github/workflows/deploy-workers.yml` triggering on push to `main` with paths `workers/api/**`.
+     - Uses `actions/setup-python@v5` (Python 3.12), `astral-sh/setup-uv@v5` (latest uv), and `actions/setup-node@v4` (Node 20).
+     - Runs `uv run pytest -q` quality gate (515 tests).
+     - Deploys all 3 workers in the architecture:
+       - `uv run pywrangler deploy` (`water` — customer core)
+       - `uv run pywrangler deploy --config wrangler.ops.jsonc` (`water-ops` — **Vendor & Rider API**)
+       - `uv run pywrangler deploy --config wrangler.admin.jsonc` (`water-admin` — admin portal API)
+     - Consumes `secrets.CLOUDFLARE_API_TOKEN` and `secrets.CLOUDFLARE_ACCOUNT_ID`.
+  3. Added root `package.json` convenience scripts: `deploy:water`, `deploy:ops`, and `deploy:admin`.
+- **Consequences**:
+  - Both mobile apps exhibit polished in-app branding consistent with their launcher icons and master brand guidelines.
+  - All 3 backend Cloudflare Workers have automated, test-gated CI/CD deployment via GitHub Actions.
+  - Verification: 90 / 90 vendor tests, 3 / 3 rider tests, and 515 / 515 pytest tests pass; `flutter analyze` reports 0 warnings across all mobile apps.
 
 ### ADR-198: Minimalist Android App Icons & Brand System for Vendor & Rider Apps (Concepts V1 + R1)
 

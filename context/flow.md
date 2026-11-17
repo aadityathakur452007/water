@@ -12,6 +12,20 @@
 
 ## Overview
 
+- In-App Mobile Logo Embedding & Cloudflare Workers Automated CI/CD (2026-11-17, ADR-199):
+  1. Mobile UI Logo Integration:
+     - `apps/vendor_app`: `vendor_code_screen.dart` renders 88×88dp `assets/logo.png` in a rounded white card (`ShodashaTheme.border`), replacing `Icons.local_drink`.
+     - `apps/rider_app`: `login_screen.dart` renders 88×88dp `assets/logo.png` in a rounded white card (`ShodashaTheme.border`), replacing `Icons.water_drop_rounded`.
+  2. Workers CI/CD Pipeline (`.github/workflows/deploy-workers.yml`):
+     - Triggered on push to `main` with changes under `workers/api/**` or manual dispatch.
+     - Environment: Python 3.12, astral-sh/setup-uv, Node.js 20 with Wrangler.
+     - Quality Gate: `uv run pytest -q` (515 tests must pass).
+     - Deployments:
+       - `water`: `uv run pywrangler deploy` (Customer / Donor core API).
+       - `water-ops`: `uv run pywrangler deploy --config wrangler.ops.jsonc` (Shared operations API for Vendor & Rider apps).
+       - `water-admin`: `uv run pywrangler deploy --config wrangler.admin.jsonc` (Admin portal API).
+  3. Verification: 90/90 vendor tests, 3/3 rider tests, 515/515 pytest tests pass; 0 flutter analyze warnings.
+
 - Minimalist Android App Icons & Brand System for Vendor & Rider Apps (2026-11-17, ADR-198):
   1. Brand Architecture & Role Differentiation:
      - Pure white canvas (`#FFFFFF`) with solid charcoal/black artwork (`#111111`), matching Shodasha master branding.

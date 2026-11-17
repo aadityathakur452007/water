@@ -4,6 +4,26 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**IN-APP MOBILE LOGO INTEGRATION & CLOUDFLARE WORKERS AUTOMATED CI/CD (2026-11-17, ADR-199):** on `main`
+- **In-App Mobile Branding Integration:**
+  - `apps/vendor_app`: Updated `vendor_code_screen.dart` to mount `assets/logo.png` (88×88dp) inside a clean rounded white card with subtle elevation and border, replacing generic placeholder `Icons.local_drink`.
+  - `apps/rider_app`: Updated `login_screen.dart` to mount `assets/logo.png` (88×88dp) inside a clean rounded white card with subtle elevation and border, replacing generic placeholder `Icons.water_drop_rounded`.
+- **Automated GitHub Actions CI/CD for Cloudflare Workers (`deploy-workers.yml`):**
+  - Created `.github/workflows/deploy-workers.yml` triggering on push to `main` with paths `workers/api/**`.
+  - Configured Python 3.12, `uv` cache, Node.js 20, and Wrangler installation.
+  - Test quality gate: executes `uv run pytest -q` across all 515 backend test suites before deployment.
+  - Automated deployment steps for all 3 workers in the architecture:
+    1. `water` (Customer / Donor / Core API) via `uv run pywrangler deploy`
+    2. `water-ops` (Vendor & Rider Operations API) via `uv run pywrangler deploy --config wrangler.ops.jsonc`
+    3. `water-admin` (Admin API) via `uv run pywrangler deploy --config wrangler.admin.jsonc`
+  - Added deployment convenience scripts (`deploy:water`, `deploy:ops`, `deploy:admin`) in repo root `package.json`.
+- **Verification Across Mobile Apps & Backend:**
+  - `apps/vendor_app`: `flutter analyze` 0 issues, 90 / 90 tests pass.
+  - `apps/rider_app`: `flutter analyze` 0 issues, 3 / 3 tests pass.
+  - `workers/api`: `uv run pytest -q` 515 passed, 1 skipped.
+
+## Previous Phases
+
 **VENDOR & RIDER MINIMALIST ANDROID APP ICONS & BRAND ASSET SYSTEM (2026-11-17, ADR-198):** on `main`
 - **Minimalist Brand Architecture & Design Mark Implementation:**
   - Designed official operational app logos aligned with the master Shodasha Mineral Waters monochrome identity (pure white canvas `#FFFFFF`, deep charcoal/black `#111111` silhouette artwork, zero generic AI slop/badges/shields).

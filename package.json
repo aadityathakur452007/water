@@ -4,7 +4,10 @@
   "description": "> [Short tagline — 1 sentence describing what this project does]",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy:water": "cd workers/api && npm run deploy",
+    "deploy:ops": "cd workers/api && npm run deploy:ops",
+    "deploy:admin": "cd workers/api && npm run deploy:admin"
   },
   "repository": {
     "type": "git",

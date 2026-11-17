@@ -78,20 +78,21 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Cane Emblem
+                // Rider App Logo
                 Center(
                   child: Container(
-                    width: 72,
-                    height: 72,
+                    width: 88,
+                    height: 88,
                     decoration: BoxDecoration(
-                      color: ShodashaTheme.tealTint,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: ShodashaTheme.teal.withValues(alpha: 0.3), width: 2),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: ShodashaTheme.border),
+                      boxShadow: const [ShodashaTheme.subtleCardShadow],
                     ),
-                    child: const Icon(
-                      Icons.water_drop_rounded,
-                      size: 40,
-                      color: ShodashaTheme.teal,
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset(
+                      'assets/logo.png',
+                      fit: BoxFit.contain,
                     ),
                   ),
                 ),

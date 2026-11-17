@@ -82,8 +82,24 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 48),
-              const Icon(Icons.local_drink, size: 64, color: ShodashaTheme.ink),
+              const SizedBox(height: 32),
+              Center(
+                child: Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: ShodashaTheme.border),
+                    boxShadow: ShodashaTheme.subtleCardShadow,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset(
+                    'assets/logo.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
               const SizedBox(height: AppSpacing.lg),
               Text(
                 vendorStringsHi['appName']!,
