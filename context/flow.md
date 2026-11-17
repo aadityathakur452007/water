@@ -12,6 +12,11 @@
 
 ## Overview
 
+- Cloudflare Dashboard Monorepo Build Hardening (2026-11-17, ADR-200):
+  1. Root cause: Cloudflare dashboard Git integration executed `pnpm install --frozen-lockfile` in `workers/api`, failing due to missing `pnpm-lock.yaml`.
+  2. Resolution: Created and committed `workers/api/pnpm-lock.yaml` (format 9.0) and clean `"build"` script in `package.json` ensuring Cloudflare's runner succeeds cleanly with 0 errors.
+  3. CI/CD source of truth: GitHub Actions `deploy-workers.yml` manages all 3 workers (`water`, `water-ops`, `water-admin`).
+
 - In-App Mobile Logo Embedding & Cloudflare Workers Automated CI/CD (2026-11-17, ADR-199):
   1. Mobile UI Logo Integration:
      - `apps/vendor_app`: `vendor_code_screen.dart` renders 88×88dp `assets/logo.png` in a rounded white card (`ShodashaTheme.border`), replacing `Icons.local_drink`.

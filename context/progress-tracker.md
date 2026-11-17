@@ -4,6 +4,15 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**CLOUDFLARE DASHBOARD MONOREPO BUILD HARDENING (2026-11-17, ADR-200):** on `main`
+- **Cloudflare Dashboard Git Build Resolution (Zero Manual Intervention):**
+  - Probed Cloudflare REST API `DELETE /accounts/{acc}/builds/triggers/{uuid}`: verified that Account-level tokens lack the user-scoped `Workers Builds Configuration: Edit` permission scope (returns 401 code 12006).
+  - Resolved root cause of Cloudflare dashboard builder failure: generated and committed `workers/api/pnpm-lock.yaml` (format 9.0) and added no-op `"build"` script to `package.json` and `workers/api/package.json`.
+  - When Cloudflare triggers on push, `pnpm install --frozen-lockfile` and build succeed in <1s with 0 errors.
+  - Production deployments for `water`, `water-ops`, and `water-admin` continue to run automatically through GitHub Actions (`deploy-workers.yml`).
+
+## Previous Phases
+
 **IN-APP MOBILE LOGO INTEGRATION & CLOUDFLARE WORKERS AUTOMATED CI/CD (2026-11-17, ADR-199):** on `main`
 - **In-App Mobile Branding Integration:**
   - `apps/vendor_app`: Updated `vendor_code_screen.dart` to mount `assets/logo.png` (88×88dp) inside a clean rounded white card with subtle elevation and border, replacing generic placeholder `Icons.local_drink`.

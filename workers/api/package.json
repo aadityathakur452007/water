@@ -3,6 +3,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
+		"build": "echo 'Deployment managed via GitHub Actions CI/CD' && exit 0",
 		"deploy": "uv run pywrangler deploy",
 		"deploy:ops": "uv run pywrangler deploy --config wrangler.ops.jsonc",
 		"deploy:admin": "uv run pywrangler deploy --config wrangler.admin.jsonc",
