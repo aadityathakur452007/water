@@ -11,11 +11,12 @@ Update this file after every meaningful implementation change.
 - **Automated GitHub Actions CI/CD for Cloudflare Workers (`deploy-workers.yml`):**
   - Created `.github/workflows/deploy-workers.yml` triggering on push to `main` with paths `workers/api/**`.
   - Configured Python 3.12, `uv` cache, Node.js 22 (pinned for Wrangler >= 22.12.0), and Wrangler installation.
+  - Configured repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in `aadityathakur452007/water` via GitHub CLI.
   - Test quality gate: executes `uv run pytest -q` across all 515 backend test suites before deployment.
-  - Automated deployment steps for all 3 workers in the architecture:
-    1. `water` (Customer / Donor / Core API) via `uv run pywrangler deploy`
-    2. `water-ops` (Vendor & Rider Operations API) via `uv run pywrangler deploy --config wrangler.ops.jsonc`
-    3. `water-admin` (Admin API) via `uv run pywrangler deploy --config wrangler.admin.jsonc`
+  - Successfully verified live deployment via GitHub Actions Run [44003828886](https://github.com/aadityathakur452007/water/actions/runs/44003828886):
+    1. `water` (Customer / Donor / Core API) -> `https://water.adityathakur452007.workers.dev` (`7fb29263-ef34-4a9c-b675-1a21bff79402`)
+    2. `water-ops` (Vendor & Rider Operations API) -> `https://water-ops.adityathakur452007.workers.dev` (`1b042bba-ffa1-4822-8489-44907302b26b`)
+    3. `water-admin` (Admin API) -> `https://water-admin.adityathakur452007.workers.dev` (`d8f7374b-949f-4866-ad08-6ee7a3d4da68`)
   - Added deployment convenience scripts (`deploy:water`, `deploy:ops`, `deploy:admin`) in repo root `package.json`.
 - **Verification Across Mobile Apps & Backend:**
   - `apps/vendor_app`: `flutter analyze` 0 issues, 90 / 90 tests pass.
