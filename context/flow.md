@@ -12,6 +12,17 @@
 
 ## Overview
 
+- Minimalist Android App Icons & Brand System for Vendor & Rider Apps (2026-11-17, ADR-198):
+  1. Brand Architecture & Role Differentiation:
+     - Pure white canvas (`#FFFFFF`) with solid charcoal/black artwork (`#111111`), matching Shodasha master branding.
+     - Vendor App (V1): Two commercial 20L cans side-by-side with water swoosh and bold `VENDOR` typography (agency/hub volume).
+     - Rider App (R1): Delivery scooter carrying 20L cane on rear rack with velocity lines and bold `RIDER` typography (on-the-road transit).
+  2. Android Launcher Assets:
+     - Mipmap densities (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`) generated for both standard and round icons.
+     - Adaptive icons (`mipmap-anydpi-v26/ic_launcher.xml` & `ic_launcher_round.xml`, `drawable/ic_launcher_foreground.png`).
+     - In-app master `assets/logo.png` (512×512) wired into `pubspec.yaml` and `AndroidManifest.xml`.
+  3. Verification: 90/90 vendor tests pass, 3/3 rider tests pass, 0 flutter analyze warnings across both apps.
+
 - Vendor Assignment Auto-Pack Hardening & End-to-End Real-Signal Production Verification (2026-11-17, ADR-197):
   1. Auto-Pack Single-Touch Assignment Flow:
      - `workers/api/src/app/services/dispatch_service.py`: `assign_order` and `auto_assign_trusted_vendor` auto-progress orders from `placed` / `accepted` / `picked` to `packed` before assigning stops, allowing admins and auto-dispatch to immediately assign placed orders without manual warehouse steps.

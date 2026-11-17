@@ -23,3 +23,4 @@ pylock.toml
 # Scratch & Tool caches
 .freebuff/
 .utim_tmp/
+scratch/

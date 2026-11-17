@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-198 | 2026-11-17 | Minimalist Android App Icons & Brand System for Vendor & Rider Apps (Concepts V1 + R1) — established operational role-differentiated Android app icons adhering to the master Shodasha monochrome aesthetic (white canvas `#FFFFFF`, deep charcoal `#111111`, zero decorative shields/badges/AI slop); Vendor app icon features two 20L commercial cans side-by-side with water swoosh and bold `VENDOR` typography; Rider app icon features a delivery scooter with 20L cane on rear rack, speed trails, and bold `RIDER` typography; compiled and deployed full Android adaptive icon assets (`mipmap-anydpi-v26`, `ic_launcher.xml`, `ic_launcher_round.xml`, `drawable/ic_launcher_foreground.png`), legacy mipmaps (`mdpi` to `xxxhdpi`), and 512×512 in-app `assets/logo.png` across `apps/vendor_app` and `apps/rider_app`; 90 vendor tests and 3 rider tests pass, 0 flutter analyze warnings | Accepted (implemented 2026-11-17) | `apps/vendor_app`, `apps/rider_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-197 | 2026-11-17 | Vendor Assignment Auto-Pack Hardening, D1 Profile Unblock & End-to-End Real-Signal Production Verification — hardened `dispatch_service.py` to auto-progress `placed`, `accepted`, and `picked` orders to `packed` during direct assignment, eliminating manual packing prerequisites for admin single-touch dispatch; unblocked vendor Yash Gupta in remote D1 `shodasha` by clearing `review_hold = 0` and linked Rider Aditya to vendor; executed full real-signal verification on live Cloudflare Workers (`water-admin`, `water`, `water-ops`) covering Admin login, user/vendor/zone listings, zone and vendor creation, vendor access-code issuance, customer registration/login, address and quote creation, order placement with 4-digit OTP, real-time vendor placed pool, vendor acceptance, route generation, rider assignment, route dispatch, rider route view with drop address and bottle count, and OTP delivery completion; verified all Flutter analyzers clean (0 issues) and 515 pytest tests pass | Accepted (implemented 2026-11-17) | `workers/api`, `apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-196 | 2026-11-16 | Subscription Builder COD Enforcement, Extra Jar Double Verification, Scenario Pause & Cloudflare Pages CI Fix — removed `pnpm-workspace.yaml` in `apps/admin_app` to eliminate `ERROR packages field missing or empty` in Cloudflare Pages `pnpm@9.10.0` CI and pinned `"packageManager": "pnpm@9.10.0"`; hid `monthly_prepaid` in `plan_builder_sheet.dart` leaving `per_delivery` and `monthly_postpaid`, enforced COD as default and only payment method for subscriptions, and updated `subscription_service.py` to allow `monthly_postpaid` with `cod`; added `_confirmExtraJarOrder()` in `donor_shell.dart` to verify customer intent before ordering extra jars when active subscription exists; added quick 1-tap scenario pause chips (`1 Day`, `2 Days`, `1 Week`, `Until I Resume`, `Custom Dates`) in `subscription_screen.dart`; added `delivery_otp_state` to `OrderOut` schema and deployed live Cloudflare Worker version `e49db65a-c238-4e01-9654-a4044b9daf1d`; verified 514 backend tests, 122 user tests, 90 vendor tests, and 0 flutter analyze warnings | Accepted (implemented 2026-11-16) | `apps/admin_app`, `apps/user_app_donor`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-195 | 2026-11-16 | Subscription Daily Delivery OTP Lifecycle, D1 Schema & OTP Fallback Hardening, and Vendor Handover English Localization — attached `today_order` (order_id, state, delivery_otp, window_start) to active subscriptions in `subscription_service.py`; added high-contrast "TODAY'S DELIVERY OTP" card with 4-digit OTP in `apps/user_app_donor` subscription screen; hardened D1 `order_repo.py` column resolution and `order_service.py` OTP view fallback so customer orders always retain OTP; standardized vendor handover sheet text to default English (`Next: Customer OTP`, `Back`, etc.) via `vtr()`; verified 513 backend tests, 122 donor tests, 90 vendor tests, 3 rider tests, and 0 flutter analyze issues | Accepted (implemented 2026-11-16) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `context/{progress-tracker,flow,decision}.md` |
@@ -249,6 +250,27 @@
 ---
 
 ## Decision Entries
+
+### ADR-198: Minimalist Android App Icons & Brand System for Vendor & Rider Apps (Concepts V1 + R1)
+
+- **Date**: 2026-11-17
+- **Status**: Accepted (implemented 2026-11-17)
+- **Affects**: `apps/vendor_app`, `apps/rider_app`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  - The Shodasha user app had master branding, but `apps/vendor_app` and `apps/rider_app` lacked custom icons and were using default Flutter placeholder launcher graphics.
+  - The user required custom Android app icons and logos specifically designed for the vendor and rider, eliminating generic AI decoration, badges, and security shields in favor of pure operational utility:
+    - High-contrast pure white canvas (`#FFFFFF`) with deep charcoal / black artwork (`#111111`).
+    - Immediate operational distinction: Vendor app shows two commercial 20L cans side-by-side (bulk stock / agency hub) with `"VENDOR"` label; Rider app shows a delivery scooter carrying a 20L cane on the rear carrier with speed lines and `"RIDER"` label.
+- **Decision**:
+  - Selected and implemented approved concepts **V1** (Two 20L Cans Bulk) and **R1** (Delivery Scooter with 20L Can).
+  - Built complete Android adaptive icon infrastructure:
+    - `mipmap-anydpi-v26/ic_launcher.xml` and `ic_launcher_round.xml` referencing `@color/ic_launcher_background` (`#FFFFFF`) and `@drawable/ic_launcher_foreground`.
+    - `drawable/ic_launcher_foreground.png` (432×432) with 66% (288px) centered safe mask so launcher masks (circle, squircle, round-rect) never clip the artwork.
+    - All standard density mipmaps (`mdpi`: 48px, `hdpi`: 72px, `xhdpi`: 96px, `xxhdpi`: 144px, `xxxhdpi`: 192px) for both standard and round icons.
+    - Master in-app branding asset `assets/logo.png` (512×512) and wired in `pubspec.yaml`.
+- **Consequences**:
+  - Both staff mobile applications possess production-grade, platform-compliant Android app icons and high-resolution brand assets.
+  - Test suites green: 90 / 90 vendor tests, 3 / 3 rider tests pass; `flutter analyze` reports 0 issues.
 
 ### ADR-197: Vendor Assignment Auto-Pack Hardening, D1 Profile Unblock & End-to-End Real-Signal Production Verification
 

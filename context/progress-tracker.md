@@ -4,6 +4,23 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**VENDOR & RIDER MINIMALIST ANDROID APP ICONS & BRAND ASSET SYSTEM (2026-11-17, ADR-198):** on `main`
+- **Minimalist Brand Architecture & Design Mark Implementation:**
+  - Designed official operational app logos aligned with the master Shodasha Mineral Waters monochrome identity (pure white canvas `#FFFFFF`, deep charcoal/black `#111111` silhouette artwork, zero generic AI slop/badges/shields).
+  - **Vendor App Icon (Concept V1)**: Two iconic 20L commercial water dispenser cans standing side-by-side with dynamic water swoosh and clear, bold **`VENDOR`** typography below, instantly signifying warehouse volume and bulk distribution to agency owners.
+  - **Rider App Icon (Concept R1)**: A sleek side silhouette of a water delivery scooter/motorcycle carrying a prominent 20L water cane on the rear carrier rack with motion trails, water droplets, and bold **`RIDER`** typography below, tailored for instant on-the-road recognition by delivery staff.
+- **Android Launcher & Adaptive Icon System:**
+  - Generated and installed adaptive foreground assets (`drawable/ic_launcher_foreground.png`, 432×432 with 288px safe mask area), adaptive launcher XMLs (`mipmap-anydpi-v26/ic_launcher.xml` and `ic_launcher_round.xml`), and white background resource (`values/colors.xml`).
+  - Generated all legacy square and round mipmap density assets (`mdpi`: 48, `hdpi`: 72, `xhdpi`: 96, `xxhdpi`: 144, `xxxhdpi`: 192) for both `apps/vendor_app` and `apps/rider_app`.
+  - Configured `android:icon="@mipmap/ic_launcher"` and `android:roundIcon="@mipmap/ic_launcher_round"` in `AndroidManifest.xml` for both apps.
+  - Placed 512×512 master high-resolution `assets/logo.png` in both apps and wired in `pubspec.yaml`.
+- **Verification Across Mobile Apps:**
+  - `apps/rider_app`: `flutter pub get` and `flutter analyze` clean (0 issues), 3 / 3 tests pass.
+  - `apps/vendor_app`: `flutter pub get` and `flutter analyze` clean (0 issues), 90 / 90 tests pass.
+  - Master visual presentation artifact created in `app_icons_presentation.md`.
+
+## Previous Phases
+
 **VENDOR ASSIGNMENT FIX & END-TO-END LIVE PRODUCTION REAL-SIGNAL VERIFICATION (2026-11-17, ADR-197):** on `main`
 - **Root Cause Resolution for Vendor Assignment Failure:**
   - Diagnosed vendor assignment breakdown: `assign_order` in `dispatch_service.py` strictly rejected orders unless state was already `packed`. Hardened `assign_order` and `auto_assign_trusted_vendor` to support single-touch auto-progression from `placed`, `accepted`, and `picked` to `packed`.
