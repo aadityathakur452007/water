@@ -68,7 +68,7 @@ class RiderService:
         query = (
             "SELECT s.id, s.route_id, s.order_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp, "
             " s.status, s.triple, s.rider_id, "
-            " o.payment_mode, o.payment_status, o.total, o.state AS order_state, o.instructions, "
+            " o.payment_mode, o.payment_status, o.total, o.state AS order_state, o.instructions, o.idempotency_key, "
             " a.formatted AS address_text, a.landmark, a.lift_flag, "
             " u.name AS customer_name, u.phone AS customer_phone "
             " FROM stops s "
@@ -83,10 +83,58 @@ class RiderService:
         stops: list[dict[str, Any]] = []
         for r in rows:
             d = dict(r)
-            # Payment calculation: if COD and not paid, amount due is order total
+            # Check if order is a subscription delivery
+            idem_key = str(d.get("idempotency_key") or "")
+            is_sub = ":sub:" in idem_key or idem_key.startswith("sub:")
+            sub_billing_mode = None
+            try:
+                if not is_sub and d.get("customer_id"):
+                    sub_row = (await self._conn.execute(
+                        "SELECT billing_mode FROM subscriptions WHERE user_id = ? AND status IN ('active', 'paused') LIMIT 1",
+                        (d["customer_id"],),
+                    )).fetchone()
+                    if sub_row:
+                        is_sub = True
+                        sub_billing_mode = str(sub_row["billing_mode"] or "")
+                elif is_sub and d.get("customer_id"):
+                    sub_row = (await self._conn.execute(
+                        "SELECT billing_mode FROM subscriptions WHERE user_id = ? LIMIT 1",
+                        (d["customer_id"],),
+                    )).fetchone()
+                    if sub_row:
+                        sub_billing_mode = str(sub_row["billing_mode"] or "")
+            except Exception:
+                pass
+
+            # Check customer ledger dues (e.g. month-end unpaid bill)
+            dues_paise = 0
+            try:
+                if d.get("customer_id"):
+                    led = (await self._conn.execute(
+                        "SELECT dues FROM ledger WHERE user_id = ?",
+                        (d["customer_id"],),
+                    )).fetchone()
+                    if led:
+                        dues_paise = max(0, int(led["dues"] or 0))
+            except Exception:
+                pass
+
             is_cod = (d.get("payment_mode") or "").lower() == "cod"
             is_paid = (d.get("payment_status") or "").lower() == "paid"
-            amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
+
+            # Payment calculation:
+            # - For subscription customers (monthly postpaid/prepaid):
+            #   Daily delivery is ₹0 cash.
+            #   If customer has pending monthly dues (>0), rider can collect the monthly bill.
+            is_monthly_dues = False
+            if is_sub:
+                if dues_paise > 0:
+                    amount_due = dues_paise
+                    is_monthly_dues = True
+                else:
+                    amount_due = 0
+            else:
+                amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
 
             stops.append({
                 "id": d["id"],
@@ -100,6 +148,10 @@ class RiderService:
                 "payment_mode": "cod" if is_cod else "prepaid",
                 "is_paid": is_paid,
                 "amount_due": amount_due,
+                "is_subscription": is_sub,
+                "is_monthly_dues": is_monthly_dues,
+                "monthly_dues": dues_paise,
+                "billing_mode": sub_billing_mode or ("monthly_postpaid" if is_sub else "per_delivery"),
                 "address": {
                     "formatted": d["address_text"] or "Delivery address",
                     "landmark": d["landmark"] or "",

@@ -55,6 +55,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
   // Step 2 state
   final TextEditingController _otp = TextEditingController();
   bool _sealOk = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -223,8 +224,9 @@ class _HandoverSheetState extends State<HandoverSheet> {
     if (mounted) {
       if (podOk || (c.notice ?? '').contains('Sync me queue')) {
         Navigator.of(context).pop();
-      } else if (c.notice != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(c.notice!)));
+      } else {
+        setState(() => _errorMessage = c.notice ?? 'Delivery completion failed. Please verify OTP.');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_errorMessage!)));
       }
     }
   }
@@ -431,6 +433,37 @@ class _HandoverSheetState extends State<HandoverSheet> {
                   activeColor: ShodashaTheme.blue,
                   onChanged: (v) => setState(() => _sealOk = v ?? true),
                 ),
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                      border: Border.all(color: ShodashaTheme.danger.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.error_outline_rounded,
+                          color: ShodashaTheme.danger,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: ShodashaTheme.danger,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Row(
                   children: [

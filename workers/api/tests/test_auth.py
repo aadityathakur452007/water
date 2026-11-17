@@ -376,8 +376,10 @@ def test_router_verify_me_patch():
     me = client.get("/v1/auth/me", headers=_auth_headers(token))
     assert me.status_code == 200, me.text
     assert me.json()["user"]["phone"] == PHONE
+    # Name cannot be changed once set
     p = client.patch("/v1/auth/me", json={"name": "Asha"}, headers=_auth_headers(token))
-    assert p.status_code == 200 and p.json()["user"]["name"] == "Asha"
+    assert p.status_code == 400
+    assert "Name cannot be changed" in p.json()["error"]["message"]
 
 
 def test_router_patch_me_phone_and_email():
@@ -385,15 +387,23 @@ def test_router_patch_me_phone_and_email():
     client = _client(c)
     out = _register_http(client)
     token = out["access_token"]
+    # Phone change is blocked
+    p_phone = client.patch(
+        "/v1/auth/me",
+        json={"phone": "9811122233"},
+        headers=_auth_headers(token),
+    )
+    assert p_phone.status_code == 400
+    assert "Phone number cannot be changed" in p_phone.json()["error"]["message"]
+
+    # Email can be updated without mutating phone/name
     p = client.patch(
         "/v1/auth/me",
-        json={"name": "Rahul", "phone": "9811122233", "email": "rahul@yahoo.com"},
+        json={"email": "rahul@yahoo.com"},
         headers=_auth_headers(token),
     )
     assert p.status_code == 200, p.text
     user = p.json()["user"]
-    assert user["name"] == "Rahul"
-    assert user["phone"] == "+919811122233"
     assert user["email"] == "rahul@yahoo.com"
     # Invalid email rejected; optional empty is allowed.
     bad_email = client.patch("/v1/auth/me", json={"email": "not-an-email"},

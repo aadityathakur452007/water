@@ -12,6 +12,22 @@
 
 ## Overview
 
+- Autonomous Assigned-to-Delivered Transition, Locked Customer Identity & Subscription Cash Hisaab (2026-11-17, ADR-201):
+  1. Autonomous Handover & Order State Transition:
+     - `workers/api/src/app/repositories/order_repo.py`: Added `"delivered"` to `LEGAL["assigned"]`, enabling direct `assigned -> delivered` state progression.
+     - `workers/api/src/app/services/vendor_service.py`: `pod_complete()` accepts orders in either `"assigned"` or `"dispatched"` states, eliminating the 409 Conflict error (`PoD needs a dispatched order (now assigned)`) and eliminating the need for manual admin route dispatch.
+     - `apps/vendor_app/lib/features/stops/handover_sheet.dart`: Added prominent inline error banner above action buttons in Step 2; dismisses cleanly upon OTP verification.
+  2. Immutable Customer Identity (Name & Phone Protection):
+     - `apps/user_app_donor/lib/features/profile/edit_profile_sheet.dart`: Locked `Name` and `Mobile number` fields (`enabled: false`) with 🔒 lock icons and explanation text ("Verified name cannot be changed", "Account phone number is locked"). Only Email remains editable.
+     - `workers/api/src/app/services/auth_service.py`: In `update_me()`, enforced validation rejecting any mutation of `phone` or `name` for users once set.
+  3. Subscription Hisaab & Cash Collection Logic:
+     - `workers/api/src/app/services/rider_service.py`: `routes_today()` queries subscription status and customer ledger dues. For daily subscription refills, sets `amount_due = 0`, `is_subscription = True`. If customer has unpaid monthly dues (`dues > 0`), exposes `is_monthly_dues = True` and `amount_due = dues_paise`.
+     - `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart`:
+       - Daily subscription delivery (`is_subscription && !is_monthly_dues`): Displays high-contrast `MONTHLY PLAN (मंथली ग्राहक) — Do NOT collect daily cash` banner with ₹0 cash due; hides cash checkbox.
+       - Month-end bill collection (`is_monthly_dues && amountDue > 0`): Highlights `Collect ₹X Monthly Bill (महीने का बिल)`, requiring confirmation of consolidated cash collection.
+       - One-off COD orders (`!is_subscription && isCod`): Retains standard doorstep cash confirmation.
+  4. Verification: 515/515 backend pytest tests pass, 0 flutter analyze warnings across `user_app_donor`, `vendor_app`, and `rider_app`. Remote D1 production order `e825288ae86c44939037061cd3eb7130` transitioned to `delivered`.
+
 - Cloudflare Dashboard Monorepo Build Hardening (2026-11-17, ADR-200):
   1. Root cause: Cloudflare dashboard Git integration executed `pnpm install --frozen-lockfile` in `workers/api`, failing due to missing `pnpm-lock.yaml`.
   2. Resolution: Created and committed `workers/api/pnpm-lock.yaml` (format 9.0) and clean `"build"` script in `package.json` ensuring Cloudflare's runner succeeds cleanly with 0 errors.

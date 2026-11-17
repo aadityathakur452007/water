@@ -4,6 +4,30 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**AUTONOMOUS DELIVERY LIFECYCLE & SUBSCRIPTION CASH HISAAB (2026-11-17, ADR-201):** on `main`
+- **Autonomous Assigned-to-Delivered Transition (Eliminating Admin Dispatch Prerequisite):**
+  - Resolved 409 Conflict `PoD needs a dispatched order (now assigned)` by adding `"delivered"` to `LEGAL["assigned"]` in `OrderRepo`.
+  - Updated `VendorService.pod_complete()` to accept orders in both `"assigned"` and `"dispatched"` states, so once admin assigns a vendor, the vendor and rider autonomously execute doorstep delivery with OTP verification.
+  - Added inline error banner in `apps/vendor_app/lib/features/stops/handover_sheet.dart` to clearly present OTP/network errors above the action buttons.
+- **Immutable Customer Identity (Name & Phone Protection):**
+  - Updated `apps/user_app_donor/lib/features/profile/edit_profile_sheet.dart` locking `Name` and `Mobile number` fields (`enabled: false`) with 🔒 lock icons and explanation text ("Verified name cannot be changed", "Account phone number is locked"). Only Email remains editable.
+  - Enforced immutability in backend `auth_service.py:update_me()` for users, rejecting phone or name alterations once set.
+- **Subscription Hisaab & Cash Collection Overhaul:**
+  - In `workers/api/src/app/services/rider_service.py:routes_today()`, added detection of subscription orders and ledger dues. For daily subscription refills, sets `amount_due = 0`, `is_subscription = True`. If customer has unpaid monthly dues (`dues > 0`), sets `is_monthly_dues = True` and `amount_due = dues_paise`.
+  - In `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart`:
+    - Daily subscription refills display `MONTHLY PLAN (मंथली ग्राहक) — Do NOT collect daily cash` banner with ₹0 due; cash collection checkbox is hidden.
+    - Month-end dues display `Collect ₹X Monthly Bill (महीने का बिल)`, requiring confirmation of consolidated cash collection.
+    - Standard one-off COD orders retain doorstep cash collection checkbox.
+- **Production D1 State Cleanup:**
+  - Transitioned stuck production order `e825288ae86c44939037061cd3eb7130` (Stop 17: Aaditya, OTP `8306`) from `assigned` to `delivered` in remote Cloudflare D1 `shodasha` and appended the `order_events` trail.
+- **Verification Across Repos:**
+  - `workers/api`: `uv run pytest -q` 515 passed, 1 skipped (100% pass rate).
+  - `apps/user_app_donor`: `flutter analyze` clean (0 issues).
+  - `apps/rider_app`: `flutter analyze` clean (0 issues).
+  - `apps/vendor_app`: `flutter analyze` clean (0 issues).
+
+## Previous Phases
+
 **CLOUDFLARE DASHBOARD MONOREPO BUILD HARDENING (2026-11-17, ADR-200):** on `main`
 - **Cloudflare Dashboard Git Build Resolution (Zero Manual Intervention):**
   - Probed Cloudflare REST API `DELETE /accounts/{acc}/builds/triggers/{uuid}`: verified that Account-level tokens lack the user-scoped `Workers Builds Configuration: Edit` permission scope (returns 401 code 12006).

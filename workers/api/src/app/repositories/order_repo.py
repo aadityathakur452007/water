@@ -41,7 +41,7 @@ LEGAL: dict[str, set[str]] = {
     "accepted": {"picked", "cancelled"},
     "picked": {"packed", "cancelled"},
     "packed": {"assigned", "cancelled"},
-    "assigned": {"dispatched", "cancelled"},
+    "assigned": {"dispatched", "delivered", "cancelled"},
     "dispatched": {"delivered", "failed", "cancelled"},
     "failed": {"dispatched", "cancelled"},
     "delivered": set(),

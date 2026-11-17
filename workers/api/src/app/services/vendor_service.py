@@ -647,13 +647,13 @@ class VendorService:
         if stop["order_id"]:
             order = (await self._conn.execute(
                 "SELECT state FROM orders WHERE id = ?", (stop["order_id"],))).fetchone()
-            if order is not None and order["state"] == "dispatched":
+            if order is not None and order["state"] in ("assigned", "dispatched"):
                 # Own txn inside OrderRepo (WRITE_LOCK is not reentrant — never nest it).
                 await OrderRepo(self._conn).transition(
                     stop["order_id"], "delivered", {"id": vendor_id, "role": "vendor"}, "pod otp verified")
-            elif order is not None and order["state"] not in ("delivered", "dispatched"):
+            elif order is not None and order["state"] != "delivered":
                 raise ConflictError(
-                    message=f"PoD needs a dispatched order (now {order['state']}).",
+                    message=f"PoD needs an assigned or dispatched order (now {order['state']}).",
                     details={"order_id": stop["order_id"], "state": order["state"]},
                 )
         with WRITE_LOCK:

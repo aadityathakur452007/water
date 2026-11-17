@@ -63,12 +63,13 @@ class _PodSheetState extends State<PodSheet> {
       return;
     }
 
-    final isCod = widget.stop['payment_mode'] == 'cod';
+    final isMonthlyDues = widget.stop['is_monthly_dues'] == true;
     final amountDue = widget.stop['amount_due'] as int? ?? 0;
-    if (isCod && amountDue > 0 && !_cashReceived) {
+    if (amountDue > 0 && !_cashReceived) {
       setState(
-        () => _errorMessage =
-            'Please confirm cash collection before completing delivery',
+        () => _errorMessage = isMonthlyDues
+            ? 'Please confirm monthly bill cash collection before completing delivery'
+            : 'Please confirm cash collection before completing delivery',
       );
       return;
     }
@@ -83,7 +84,7 @@ class _PodSheetState extends State<PodSheet> {
         stopId: widget.stop['id'].toString(),
         deliveryOtp: otp,
         emptiesCount: _emptiesCount,
-        cash: isCod ? amountDue : 0,
+        cash: _cashReceived ? amountDue : 0,
       );
       if (mounted) {
         Navigator.of(context).pop();
@@ -110,6 +111,8 @@ class _PodSheetState extends State<PodSheet> {
         address['formatted']?.toString() ?? 'Delivery address';
     final landmark = address['landmark']?.toString() ?? '';
     final hasLift = address['has_lift'] == true;
+    final isSubscription = stop['is_subscription'] == true;
+    final isMonthlyDues = stop['is_monthly_dues'] == true;
     final isCod = stop['payment_mode'] == 'cod';
     final amountDue = stop['amount_due'] as int? ?? 0;
 
@@ -392,8 +395,102 @@ class _PodSheetState extends State<PodSheet> {
                 ),
               ),
 
-              // Cash Collection Checkbox (if COD)
-              if (isCod && amountDue > 0) ...[
+              // Subscription Notice (if daily subscription delivery with ₹0 due)
+              if (isSubscription && !isMonthlyDues) ...[
+                const SizedBox(height: AppSpacing.md),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.tealTint,
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                    border: Border.all(color: ShodashaTheme.teal.withValues(alpha: 0.3)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.calendar_month_rounded,
+                        color: ShodashaTheme.tealDark,
+                        size: 20,
+                      ),
+                      SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'MONTHLY PLAN (मंथली ग्राहक)',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: ShodashaTheme.tealDark,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Do NOT collect daily cash — ₹0 due today',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: ShodashaTheme.ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Month-End Dues Notice & Cash Collection Checkbox
+              if (isMonthlyDues && amountDue > 0) ...[
+                const SizedBox(height: AppSpacing.md),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.warningTint.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                    border: Border.all(color: ShodashaTheme.warning, width: 1.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: _cashReceived,
+                        activeColor: ShodashaTheme.warningDark,
+                        onChanged: (v) =>
+                            setState(() => _cashReceived = v ?? false),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Monthly Bill (महीने का बिल)',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: ShodashaTheme.ink,
+                              ),
+                            ),
+                            const Text(
+                              'Month-end settlement — confirm cash received',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: ShodashaTheme.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Standard Cash Collection Checkbox (if regular COD and not monthly subscription)
+              if (!isSubscription && isCod && amountDue > 0) ...[
                 const SizedBox(height: AppSpacing.md),
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.md),

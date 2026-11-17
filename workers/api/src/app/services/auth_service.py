@@ -833,6 +833,16 @@ class AuthService:
     ) -> dict:
         if language is not None and not LANG_RE.fullmatch(language):
             raise ValidationError("Unsupported language.", {"language": language})
+        user_row = await self._users.find_by_id(user_id)
+        if user_row and user_row.get("role") == "user":
+            if phone is not None:
+                norm_p = normalize_phone(phone.strip())
+                curr_p = normalize_phone(user_row.get("phone") or "")
+                if norm_p != curr_p:
+                    raise ValidationError("Phone number cannot be changed. Contact support.", {"phone": phone})
+            if name is not None and user_row.get("name"):
+                if name.strip() != str(user_row.get("name") or "").strip():
+                    raise ValidationError("Name cannot be changed once set. Contact support.", {"name": name})
         if name is not None:
             name = name.strip()[:80]
             if not name:

@@ -30,8 +30,6 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _emailCtrl;
 
-  String? _nameError;
-  String? _phoneError;
   String? _emailError;
   String? _serverError;
   bool _saving = false;
@@ -40,8 +38,6 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   String _initialEmail = '';
 
   bool get _dirty =>
-      _nameCtrl.text.trim() != _initialName ||
-      _phoneCtrl.text.trim() != _initialPhone ||
       _emailCtrl.text.trim() != _initialEmail;
 
   @override
@@ -98,23 +94,20 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   }
 
   Future<void> _save() async {
-    final nameError = validateProfileName(_nameCtrl.text);
-    final phoneError = validateProfilePhone(_phoneCtrl.text);
-    final emailError = validateProfileEmail(_emailCtrl.text);
+    final email = _emailCtrl.text.trim();
+    final emailError = email.isEmpty ? null : validateProfileEmail(email);
     setState(() {
-      _nameError = nameError;
-      _phoneError = phoneError;
       _emailError = emailError;
       _serverError = null;
     });
-    if (nameError != null || phoneError != null || emailError != null) {
+    if (emailError != null) {
       return;
     }
 
     setState(() => _saving = true);
     final error = await widget.controller.updateProfile(
-      name: _nameCtrl.text,
-      phone: _phoneCtrl.text,
+      name: _initialName,
+      phone: _initialPhone,
       email: _emailCtrl.text,
     );
     if (!mounted) return;
@@ -160,36 +153,26 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
             TextField(
               key: const Key('profile-name'),
               controller: _nameCtrl,
-              enabled: !_saving,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              onChanged: (_) {
-                if (_nameError != null) setState(() => _nameError = null);
-              },
-              decoration: InputDecoration(
+              enabled: false,
+              style: const TextStyle(fontSize: 16, color: ShodashaTheme.muted),
+              decoration: const InputDecoration(
                 labelText: 'Your name',
-                prefixIcon: const Icon(Icons.person_outline),
-                errorText: _nameError,
+                helperText: 'Verified name cannot be changed',
+                prefixIcon: Icon(Icons.person_outline),
+                suffixIcon: Icon(Icons.lock_outline, size: 18, color: ShodashaTheme.muted),
               ),
             ),
             const SizedBox(height: AppSpacing.md),
             TextField(
               key: const Key('profile-phone'),
               controller: _phoneCtrl,
-              enabled: !_saving,
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
-              onChanged: (_) {
-                if (_phoneError != null) setState(() => _phoneError = null);
-              },
-              decoration: InputDecoration(
+              enabled: false,
+              style: const TextStyle(fontSize: 16, color: ShodashaTheme.muted),
+              decoration: const InputDecoration(
                 labelText: 'Mobile number',
-                hintText: '9876543210',
-                helperText: '10 digits, starting 6–9',
-                prefixIcon: const Icon(Icons.phone_outlined),
-                errorText: _phoneError,
+                helperText: 'Account phone number is locked',
+                prefixIcon: Icon(Icons.phone_outlined),
+                suffixIcon: Icon(Icons.lock_outline, size: 18, color: ShodashaTheme.muted),
               ),
             ),
             const SizedBox(height: AppSpacing.md),
