@@ -12,6 +12,27 @@
 
 ## Overview
 
+- Phase 4 Operational Delivery Calmness, 10 AM Cutoff Expectation & Rider Doorstep Cash Clarity (2026-11-18, ADR-206):
+  1. Rider Stop Card Doorstep Cash Clarity:
+     - `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Replaced legacy boolean fallback with `switch (resolveHandoverMode(stop))`, rendering:
+       - `HandoverMode.dailySubscription` -> `Monthly Plan (₹0 Cash)` (eliminates false "Paid Online" labels on subscription refills)
+       - `HandoverMode.monthEndDues` -> `Collect Month Dues: ₹X`
+       - `HandoverMode.standardCod` -> `Collect ₹X Cash`
+       - `HandoverMode.prepaid` -> `Paid Online (₹0 Cash)`
+     - Driver doorstep UX now aligns 1:1 with `pod_sheet.dart` handover invariants.
+  2. Customer Delivery Window & Cutoff Calmness:
+     - `apps/user_app_donor/lib/features/booking/booking_controller.dart`: Added `kSameDayCutoffHour = 10` and `isAfterTodayCutoff()`. `nextServiceableDay()` resolves today if placed before 10 AM, and tomorrow if at/after 10 AM.
+     - `apps/user_app_donor/lib/features/booking/booking_sheet.dart`: Retired 24 artificial 30-minute chips and "Change time" button. Standardized schedule card on `Morning (7 AM – 12 PM)` with humane helper text:
+       - Today: `"Delivered during today's morning route (7 AM – 12 PM)"`
+       - Tomorrow (after cutoff): `"Today's delivery cutoff is closed. Your order will arrive tomorrow morning."`
+       - Formatted `_slotDateLabel` as `"Today (Day, Date)"` or `"Tomorrow (Day, Date)"`.
+     - `apps/user_app_donor/lib/features/home/widgets/mode_selection_cards.dart`: Updated instant order subtitle to `'Morning 7 AM – 12 PM'`.
+     - `apps/user_app_donor/lib/features/orders/tracking_screen.dart`: Modernized customer order reschedule bottom sheet to select day and assign the morning route window card (`Morning Delivery (7:00 AM – 12:00 PM)`).
+  3. Verification:
+     - 534/534 pytest tests pass in `workers/api` (100%).
+     - 229/229 Flutter tests pass across `apps/rider_app` (9), `apps/user_app_donor` (128), and `apps/vendor_app` (92).
+     - `flutter analyze` clean (0 warnings) across all three Flutter apps.
+
 - Phase 3 Operational State Machines & Mindful Vendor Capacity Hardening (2026-11-18, ADR-205):
   1. Mindful Vendor Capacity Modernization:
      - `workers/api/src/app/core/state_machines.py`: `DEFAULT_MAX_JARS_PER_SHIFT = 250` (elevated from legacy default of 60) and `DEFAULT_MAX_STOPS_PER_SHIFT = 25`. Added `calculate_vendor_capacity_headroom()` calculating remaining stops, jars, utilization %, and full status across both standard and commercial multi-trip vehicles (up to 5,000 jars).

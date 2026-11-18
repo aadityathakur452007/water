@@ -63,7 +63,7 @@ void main() {
       // 2. Verify ModeSelectionCards
       expect(find.text('Instant order'), findsOneWidget);
       expect(find.text('Subscribe'), findsOneWidget);
-      expect(find.text('Pick a 30-min slot'), findsOneWidget);
+      expect(find.text('Morning 7 AM – 12 PM'), findsOneWidget);
       expect(find.text('Set a repeat plan'), findsOneWidget);
 
       await tester.tap(find.text('Instant order'));

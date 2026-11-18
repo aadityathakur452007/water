@@ -4,6 +4,32 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**PHASE 4 OPERATIONAL DELIVERY CALMNESS, 10 AM CUTOFF EXPECTATION & RIDER CASH CLARITY (2026-11-18, ADR-206):** on `main`
+- **Rider Stop Card Doorstep Cash Clarity (Zero Driver Confusion):**
+  - In `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Replaced legacy misleading boolean payment badge (`!(isCod && amountDue > 0)` defaulted to `Paid Online`) with typed `switch (resolveHandoverMode(stop))` pattern match.
+  - Subscriptions: Explicitly renders `[📅 Monthly Plan (₹0 Cash)]` (`HandoverMode.dailySubscription`). Eliminates false "Paid Online" tags on subscription refills and monthly postpaid plans.
+  - Month-End Dues: Renders `[💰 Collect Month Dues: ₹X]` (`HandoverMode.monthEndDues`).
+  - Standard COD: Renders `[💵 Collect ₹X Cash]` (`HandoverMode.standardCod`).
+  - Online Prepaid: Renders `[✅ Paid Online (₹0 Cash)]` (`HandoverMode.prepaid`).
+  - Removed unused local variable `isCod`.
+- **Customer Delivery Window Modernization (Anti-Overload & Realistic Logistics):**
+  - In `apps/user_app_donor/lib/features/booking/booking_controller.dart`: Defined `kSameDayCutoffHour = 10` and `isAfterTodayCutoff()`. Updated `nextServiceableDay()` so orders placed before 10:00 AM target today's morning delivery route, and orders placed at or after 10:00 AM target tomorrow's route.
+  - In `apps/user_app_donor/lib/features/booking/booking_sheet.dart`:
+    - Retired 24 artificial 30-minute micro-slot chips and the `Change time` picker button (`_slotChooser()`, `_editSchedule`).
+    - Standardized schedule card on **Morning (7 AM – 12 PM)** window with calm, humane helper text:
+      - Before cutoff / today: `"Delivered during today's morning route (7 AM – 12 PM)"`.
+      - After cutoff / tomorrow: `"Today's delivery cutoff is closed. Your order will arrive tomorrow morning."`.
+    - Updated `_slotDateLabel` to output explicit `"Today (Day, Date)"` or `"Tomorrow (Day, Date)"`, eliminating ambiguous date jumping.
+  - In `apps/user_app_donor/lib/features/home/widgets/mode_selection_cards.dart`: Updated instant order subtitle from `'Pick a 30-min slot'` to `'Morning 7 AM – 12 PM'`.
+  - In `apps/user_app_donor/lib/features/orders/tracking_screen.dart`: Modernized customer order reschedule bottom sheet to select delivery day and set morning window card (`Morning Delivery (7:00 AM – 12:00 PM)`) without 30-minute chip clutter.
+- **Verification Across Repositories:**
+  - `apps/rider_app`: `flutter test` 9 / 9 passed, `flutter analyze` clean (0 issues).
+  - `apps/user_app_donor`: `flutter test` 128 / 128 passed, `flutter analyze` clean (0 issues).
+  - `apps/vendor_app`: `flutter test` 92 / 92 passed, `flutter analyze` clean (0 issues).
+  - `workers/api`: `uv run pytest -q` 534 passed, 1 skipped (100% pass rate).
+
+## Previous Phases
+
 **PHASE 3 OPERATIONAL STATE MACHINES & MINDFUL VENDOR CAPACITY HARDENING (2026-11-18, ADR-205):** on `main`
 - **Mindful Vendor Capacity Modernization:**
   - In `workers/api/src/app/core/state_machines.py`: Set `DEFAULT_MAX_JARS_PER_SHIFT = 250` (elevated from legacy restrictive 60 jars) and `DEFAULT_MAX_STOPS_PER_SHIFT = 25`.

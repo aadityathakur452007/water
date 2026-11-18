@@ -267,10 +267,13 @@ class _TrackingScreenState extends State<TrackingScreen>
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         var selectedDay = days.first;
-        RescheduleSlot? selected;
+        final initialSlots = serviceSlotsForDay(selectedDay);
+        RescheduleSlot? selected =
+            initialSlots.isNotEmpty ? initialSlots.first : null;
         return StatefulBuilder(
           builder: (ctx, setSheet) {
             final slots = serviceSlotsForDay(selectedDay);
+            selected ??= slots.isNotEmpty ? slots.first : null;
             return AppSheet(
               title: ordersStringsHi['rescheduleTitle']!,
               onClose: () => Navigator.of(ctx).pop(),
@@ -314,7 +317,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                             ),
                             onSelected: (_) => setSheet(() {
                               selectedDay = day;
-                              selected = null;
+                              final s = serviceSlotsForDay(day);
+                              selected = s.isNotEmpty ? s.first : null;
                             }),
                           ),
                           const SizedBox(width: AppSpacing.sm),
@@ -324,37 +328,52 @@ class _TrackingScreenState extends State<TrackingScreen>
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   Text(
-                    '${_dayLabel(selectedDay)} · choose a 30-min slot',
+                    '${_dayLabel(selectedDay)} · Delivery Window',
                     style: Theme.of(ctx).textTheme.titleMedium,
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: [
-                      for (final slot in slots)
-                        ChoiceChip(
-                          label: Text(slot.label),
-                          selected: selected == slot,
-                          showCheckmark: false,
-                          materialTapTargetSize: MaterialTapTargetSize.padded,
-                          selectedColor: ShodashaTheme.tealTint,
-                          backgroundColor: ShodashaTheme.bg,
-                          side: BorderSide(
-                            color: selected == slot
-                                ? ShodashaTheme.teal
-                                : ShodashaTheme.border,
-                          ),
-                          labelStyle: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: selected == slot
-                                ? ShodashaTheme.tealDeep
-                                : ShodashaTheme.ink,
-                          ),
-                          onSelected: (_) => setSheet(() => selected = slot),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: ShodashaTheme.tealTint,
+                      borderRadius:
+                          BorderRadius.circular(ShodashaTheme.radiusSm),
+                      border: Border.all(color: ShodashaTheme.teal),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.wb_sunny_outlined,
+                          color: ShodashaTheme.teal,
+                          size: 20,
                         ),
-                    ],
+                        SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Morning Delivery (7:00 AM – 12:00 PM)',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: ShodashaTheme.tealDeep,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Delivered during the morning neighborhood route',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: ShodashaTheme.ink,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),

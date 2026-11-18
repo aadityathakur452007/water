@@ -214,10 +214,29 @@ String quoteHashOf({
 /// Idempotency key factory (one per sheet-open, reused on retry).
 String newIdempotencyKey() => const Uuid().v4();
 
+/// Standard cutoff for same-day morning delivery: 10:00 AM local time.
+const int kSameDayCutoffHour = 10;
+const int kSameDayCutoffMinute = 0;
+
+/// Returns true if the given time is at or after today's delivery cutoff.
+bool isAfterTodayCutoff([DateTime? now]) {
+  final current = now ?? DateTime.now();
+  if (current.hour > kSameDayCutoffHour) return true;
+  if (current.hour == kSameDayCutoffHour &&
+      current.minute >= kSameDayCutoffMinute) {
+    return true;
+  }
+  return false;
+}
+
 /// Next serviceable day: all days water (no Sunday skip).
+/// If before 10:00 AM cutoff, today is serviceable.
+/// If at/after 10:00 AM cutoff, earliest serviceable day is tomorrow.
 DateTime nextServiceableDay(DateTime from, {Set<DateTime>? holidays}) {
   DateTime day(DateTime d) => DateTime(d.year, d.month, d.day);
-  var cursor = day(from).add(const Duration(days: 1));
+  var cursor = isAfterTodayCutoff(from)
+      ? day(from).add(const Duration(days: 1))
+      : day(from);
   bool isHoliday(DateTime d) {
     if (holidays == null) return false;
     return holidays.any(

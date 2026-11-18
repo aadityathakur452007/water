@@ -380,7 +380,6 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                             'Delivery address';
                         final landmark = address['landmark']?.toString() ?? '';
                         final hasLift = address['has_lift'] == true;
-                        final isCod = stop['payment_mode'] == 'cod';
                         final amountDue = stop['amount_due'] as int? ?? 0;
 
                         return Container(
@@ -523,22 +522,39 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                                       icon: Icons.stairs_rounded,
                                     ),
 
-                                  // Payment badge
-                                  if (isCod && amountDue > 0)
-                                    _Badge(
-                                      label:
-                                          'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Cash',
-                                      bg: ShodashaTheme.warningTint,
-                                      fg: ShodashaTheme.warningDark,
-                                      icon: Icons.payments_rounded,
-                                    )
-                                  else
-                                    const _Badge(
-                                      label: 'Paid Online',
-                                      bg: ShodashaTheme.successTint,
-                                      fg: ShodashaTheme.successDark,
-                                      icon: Icons.check_circle_outline_rounded,
-                                    ),
+                                  // Payment badge with zero-confusion mode resolution
+                                  switch (resolveHandoverMode(stop)) {
+                                    HandoverMode.dailySubscription =>
+                                      const _Badge(
+                                        label: 'Monthly Plan (₹0 Cash)',
+                                        bg: ShodashaTheme.tealTint,
+                                        fg: ShodashaTheme.tealDark,
+                                        icon: Icons.calendar_month_rounded,
+                                      ),
+                                    HandoverMode.monthEndDues =>
+                                      _Badge(
+                                        label:
+                                            'Collect Month Dues: ₹${(amountDue / 100).toStringAsFixed(0)}',
+                                        bg: ShodashaTheme.warningTint,
+                                        fg: ShodashaTheme.warningDark,
+                                        icon: Icons.payments_rounded,
+                                      ),
+                                    HandoverMode.standardCod =>
+                                      _Badge(
+                                        label:
+                                            'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Cash',
+                                        bg: ShodashaTheme.warningTint,
+                                        fg: ShodashaTheme.warningDark,
+                                        icon: Icons.payments_rounded,
+                                      ),
+                                    HandoverMode.prepaid =>
+                                      const _Badge(
+                                        label: 'Paid Online (₹0 Cash)',
+                                        bg: ShodashaTheme.successTint,
+                                        fg: ShodashaTheme.successDark,
+                                        icon: Icons.check_circle_outline_rounded,
+                                      ),
+                                  },
                                 ],
                               ),
 

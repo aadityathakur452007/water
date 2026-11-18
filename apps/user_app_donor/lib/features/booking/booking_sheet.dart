@@ -145,7 +145,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   bool _estimateLoading = false;
   String _estimateError = '';
 
-  bool _editSchedule = false;
   bool _advancing = false;
   final Set<DateTime> _customDays = {};
   DateTime _focusedDay = DateTime.now();
@@ -247,16 +246,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return '${_slotDate}T${_slots[idx].start}:00';
   }
 
-  String get _selectedSlotLabel {
-    if (_slots.isEmpty) return '';
-    final idx = _slotIdx.clamp(0, _slots.length - 1);
-    return '${_slots[idx].start}–${_slots[idx].end}';
-  }
-
   String get _windowLabel {
     if (_isOnce) {
       if (_slots.isEmpty) return 'Delivery window not selected';
-      return '${_slotDateLabel(_slotDate)} • $_selectedSlotLabel';
+      return '${_slotDateLabel(_slotDate)} • Morning (7 AM – 12 PM)';
     }
     if (_isCustom) {
       final days = _customDays.toList()..sort();
@@ -1265,6 +1258,26 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   Widget _scheduleRecap() {
+    final d = DateTime.tryParse(_slotDate);
+    final now = DateTime.now();
+    final isToday =
+        d != null && d.year == now.year && d.month == now.month && d.day == now.day;
+    final isTomorrow = d != null &&
+        (() {
+          final t = now.add(const Duration(days: 1));
+          return d.year == t.year && d.month == t.month && d.day == t.day;
+        })();
+
+    final String helperText;
+    if (isToday) {
+      helperText = "Delivered during today's morning route (7 AM – 12 PM)";
+    } else if (isTomorrow && isAfterTodayCutoff()) {
+      helperText =
+          "Today's delivery cutoff is closed. Your order will arrive tomorrow morning.";
+    } else {
+      helperText = "Delivered during morning route (7 AM – 12 PM)";
+    }
+
     final when = _loadingSlots
         ? 'Loading delivery windows…'
         : _unserviceable
@@ -1273,7 +1286,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         ? 'Delivery window unavailable'
         : _slots.isEmpty
         ? 'No delivery windows for this day'
-        : '${_slotDateLabel(_slotDate)} • $_selectedSlotLabel';
+        : '${_slotDateLabel(_slotDate)} • Morning (7 AM – 12 PM)';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1302,20 +1315,36 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  when,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      when,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: ShodashaTheme.ink,
+                      ),
+                    ),
+                    if (!_loadingSlots &&
+                        !_unserviceable &&
+                        !_slotsFailed &&
+                        _slots.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        helperText,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: ShodashaTheme.muted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ),
-              TextButton(
-                onPressed: _loadingSlots
-                    ? null
-                    : () => setState(() => _editSchedule = !_editSchedule),
-                child: const Text('Change time'),
               ),
             ],
           ),
-          if (_editSchedule) ...[const SizedBox(height: 8), _slotChooser()],
           if (_unserviceable)
             const Padding(
               padding: EdgeInsets.only(top: 8),
@@ -1339,60 +1368,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             ),
           if (_slotsFailed) _slotsFailureRow(),
         ],
-      ),
-    );
-  }
-
-  void _selectSlot(int index) {
-    if (index == _slotIdx) return;
-    setState(() {
-      _slotIdx = index;
-      // A quote is bound to its window; force a fresh server quote.
-      _quote = null;
-      _quoteError = '';
-    });
-    // The create payload carries this window: a changed slot must use a new
-    // idempotency key or the server rejects it as PAYLOAD_MISMATCH.
-    c.refreshIdempotencyKey();
-    if (_step == _payStepIdx) _loadQuote();
-  }
-
-  Widget _slotChooser() {
-    if (_slots.isEmpty) {
-      return Text(
-        _loadingSlots
-            ? 'Loading the next available times…'
-            : 'No times to choose yet. Retry below or change the address.',
-        style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
-      );
-    }
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _slots.length,
-        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-        itemBuilder: (context, i) {
-          final slot = _slots[i];
-          final selected = i == _slotIdx;
-          return ChoiceChip(
-            label: Text('${slot.start}–${slot.end}'),
-            selected: selected,
-            showCheckmark: false,
-            materialTapTargetSize: MaterialTapTargetSize.padded,
-            backgroundColor: ShodashaTheme.bg,
-            selectedColor: ShodashaTheme.tealTint,
-            side: BorderSide(
-              color: selected ? ShodashaTheme.teal : ShodashaTheme.border,
-            ),
-            labelStyle: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected ? ShodashaTheme.tealDeep : ShodashaTheme.ink,
-            ),
-            onSelected: (_) => _selectSlot(i),
-          );
-        },
       ),
     );
   }
@@ -1580,9 +1555,20 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 String _slotDateLabel(String isoDate) {
   final d = DateTime.tryParse(isoDate);
   if (d == null) return isoDate;
+  final now = DateTime.now();
+  final isToday =
+      d.year == now.year && d.month == now.month && d.day == now.day;
+  final tomorrow = now.add(const Duration(days: 1));
+  final isTomorrow = d.year == tomorrow.year &&
+      d.month == tomorrow.month &&
+      d.day == tomorrow.day;
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const months = kShortMonths;
-  return '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+  final dateFormatted =
+      '${days[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+  if (isToday) return 'Today ($dateFormatted)';
+  if (isTomorrow) return 'Tomorrow ($dateFormatted)';
+  return dateFormatted;
 }
 
 /// Date-only equality (no collection helpers).

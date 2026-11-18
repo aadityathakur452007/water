@@ -28,7 +28,7 @@ class ModeSelectionCards extends StatelessWidget {
               iconBg: ShodashaTheme.tealTint,
               eyebrow: 'One delivery',
               title: 'Instant order',
-              subtitle: 'Pick a 30-min slot',
+              subtitle: 'Morning 7 AM – 12 PM',
               onTap: onInstantOrder,
             ),
           ),
