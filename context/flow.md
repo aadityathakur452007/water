@@ -12,6 +12,56 @@
 
 ## Overview
 
+- Phase 3 Operational State Machines & Mindful Vendor Capacity Hardening (2026-11-18, ADR-205):
+  1. Mindful Vendor Capacity Modernization:
+     - `workers/api/src/app/core/state_machines.py`: `DEFAULT_MAX_JARS_PER_SHIFT = 250` (elevated from legacy default of 60) and `DEFAULT_MAX_STOPS_PER_SHIFT = 25`. Added `calculate_vendor_capacity_headroom()` calculating remaining stops, jars, utilization %, and full status across both standard and commercial multi-trip vehicles (up to 5,000 jars).
+     - `workers/api/src/app/services/dispatch_service.py`: `vendor_profile` DDL and `_PROFILE_COLS` defaults elevated to 250 jars; `_check_capacity` dynamically elevates legacy uncustomized 60-jar limits to 250 baseline and correctly handles 0-stop caps.
+     - `workers/api/src/app/api/v1/admin.py`: `VendorCreateIn` accepts `max_jars` (1..5000 range, default 250); `create_vendor` persists `max_jars_per_shift` on creation.
+     - `apps/admin_app/src/routes/(main)/dashboard/vendors/-components/add-vendor-dialog.tsx`: Added `maxJars` state (default "250"), wired into `max_jars` payload, with dedicated input field in dialog.
+  2. Rider Duty State Machine:
+     - `workers/api/src/app/core/state_machines.py`: Formalized `LEGAL_RIDER_DUTY_TRANSITIONS` (`off_duty` $\leftrightarrow$ `on_duty` $\rightarrow$ `shift_ended` $\rightarrow$ `off_duty`/`on_duty`) and `validate_rider_duty_transition()`.
+     - `workers/api/src/app/services/rider_service.py`: Added `ensure_rider_profile()`, `get_duty()`, `set_duty()`, and gated `complete_stop` and `fail_stop` against off-duty execution.
+     - `workers/api/src/app/api/v1/rider.py`: Added `GET /rider/duty` and `POST /rider/duty` endpoints.
+     - `apps/rider_app/lib/core/api_client.dart`: Added `getDuty()` and `setDuty()`.
+     - `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Wired duty status from `routes_today`, added off-duty delivery block in `_openPodSheet`, and added ON/OFF duty status badge in shift progress header.
+  3. Return & Deposit Refund State Machine:
+     - `workers/api/src/app/core/state_machines.py`: Formalized `LEGAL_RETURN_TRANSITIONS` (`requested` $\rightarrow$ `assigned` $\rightarrow$ `picked` $\rightarrow$ `refunded` / `rejected`).
+     - `workers/api/src/app/api/v1/admin.py`: Wired `validate_return_transition()` into `return_assign` and `return_refund`, guaranteeing deposit refunds only execute against `picked` returns with double-refund protection.
+  4. Verification:
+     - 534/534 pytest tests pass in `workers/api` (100%, 12 new tests in `test_operational_state_machines.py`).
+     - 229/229 Flutter tests pass across `apps/rider_app` (9), `apps/vendor_app` (92), and `apps/user_app_donor` (128).
+     - `flutter analyze` clean (0 warnings) across all apps.
+     - `apps/admin_app`: `biome lint` clean (0 errors).
+
+- Phase 2 Mobile Client State Hardening — Subscription Lifecycle, Vendor Outbox Conflict Quarantine & Checkout Recovery Funnel (2026-11-18, ADR-204):
+  1. Customer Subscription Lifecycle State Machine:
+     - `apps/user_app_donor/lib/features/subscriptions/subscription_controller.dart`: `SubscriptionLifecycle { canceled, paused, awaitingPayment, lowBalance, active }` with strict prioritized getter.
+     - `apps/user_app_donor/lib/features/subscriptions/subscription_screen.dart`: Exhaustive pattern-matching switches on `sub.lifecycle`.
+  2. Vendor Offline Outbox & Conflict Quarantine:
+     - `apps/vendor_app/lib/features/sync/sync_controller.dart`: Terminal conflict stops quarantined to `_rejected` with SharedPreferences persistence (`vendor.outbox.rejected.v1`). Preserved cash custody warnings.
+     - `apps/vendor_app/lib/features/sync/sync_screen.dart`: Rendered cash warnings with manual dismissal action (`Hatayein`).
+  3. Customer Checkout Idempotency & Post-Order Guard:
+     - `apps/user_app_donor/lib/features/booking/booking_sheet.dart`: Audited post-order idempotency invariants (`_placed != null` routes retries to `_recoverPayment()` or `_switchToCod()`).
+
+- Phase 1 State Machine Hardening — Core Fulfillment, Money Flow & Doorstep Handover (2026-11-18, ADR-203):
+  1. Central State Machine & Invariant Engine:
+     - `workers/api/src/app/core/state_machines.py`: Created central transition engine defining `LEGAL_ORDER_TRANSITIONS`, `OVERRIDE_FROM`, `OVERRIDE_ROLES`, `TERMINAL_ORDER_STATES`, `DEAD_ORDER_STATES`, `PAID_STATUSES`, and `DELIVERY_CODE_STATES`.
+     - `validate_order_transition(from_state, to_state, actor_role)`: Enforces valid state transitions and dispatcher cancellation override guards across all order flows.
+     - `validate_late_capture_action(order_state)`: Inspects terminal order status; returns `"refund"` for dead orders (`cancelled`, `rejected`) and `"credit"` for live ones, preventing unearned revenue capture on dead orders.
+     - `validate_delivery_resolution()`: Cross-checks financial settlement before marking orders delivered (validates payment confirmation, ₹0 daily subscription, or physical doorstep cash verification).
+     - `validate_switch_to_cod()`: Protects against illegal payment mode conversions on paid or cancelled orders.
+  2. Repository & Service Wiring:
+     - `workers/api/src/app/repositories/order_repo.py`: Imported canonical transitions from `state_machines.py`, eliminating duplicate dict definitions and wiring `validate_order_transition()` directly into `transition()`.
+     - `workers/api/src/app/services/payment_service.py`: Enforced `validate_switch_to_cod()` in `switch_to_cod()`.
+     - `workers/api/src/app/services/delivery_code.py`: Standardized state definitions around `DELIVERY_CODE_STATES`.
+  3. Rider Doorstep Handover State Machine (`apps/rider_app`):
+     - `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart`: Introduced typed `enum HandoverMode { dailySubscription, monthEndDues, standardCod, prepaid }` and pure `resolveHandoverMode()`.
+     - In `_submit()` and `build()`: Handover mode directly drives UI presentation and validation — subscription refills render the monthly banner with ₹0 due and no cash checkbox, while month-end dues and COD orders strictly require cash verification before delivery completion.
+  4. Verification:
+     - 522/522 pytest tests pass in `workers/api` (100%, 7 new unit tests in `test_state_machines.py`).
+     - 9/9 Flutter tests pass in `apps/rider_app` (6 new unit/widget tests in `pod_sheet_test.dart`).
+     - `flutter analyze` clean (0 warnings) across `user_app_donor`, `vendor_app`, and `rider_app`.
+
 - Customer Branding, Android OS Security Permissions & CI/CD Pipeline Renaming (2026-11-17, ADR-202):
   1. CI/CD Workflow & Release Asset Transformation:
      - `.github/workflows/ci.yml`: Matrix runner label updated to `Shodasha Customer App (User)`.
@@ -207,11 +257,15 @@ VendorApp (main.dart: liveApi w/ accessTokenGetter → Bearer tracks session)
      │         as not-found (no oracle), 5 fails lock 429; user tracking shows
      │         the same stored code (order detail delivery_otp).
      ├─ SyncController.syncNow → POST /vendor/sync batch (applied/replayed/rejected per-stop)
+     │    └─ Phase 2 (ADR-204): Terminal conflicts (`STALE_STOP`, `ALREADY_COMPLETED`, etc.)
+     │         are quarantined from `_queue` (preventing infinite replay loops). Stops with
+     │         `cashAmountPaise > 0` preserve cash custody notes in `_rejected` and local storage
+     │         (`vendor.outbox.rejected.v1`) until manual review (`discardRejected`).
      ├─ EarningsController.load → GET /vendor/earnings (flagged_hold display-only)
      └─ SupportController.verifyComplaint/vendorCheckQuality
           └─ Phase 1: vendor agree → vendor_confirmed (+≥10-char note), never
                resolved — only the admin release writes resolved.
-Outbox persists in SharedPreferences (vendor.outbox.v1); money display-only via rupees() paise→Rs.
+Outbox persists in SharedPreferences (vendor.outbox.v1 & vendor.outbox.rejected.v1); money display-only via rupees() paise→Rs.
 - 017 sync (branch 017-flow-sync, ADR-065): `GET /orders/{id}` gains `delivery_otp` (owner + assigned/dispatched; user tracking code row) → PoD closable; `POST /vendor/stops/{id}/cash` (owned-stop, deterministic stop+amount dedupe, 409=already-jama) → `mark_paid_cash` + `in_hand` bump + sync `cash_amount` ride → user badge flips on poll; one-tap cash button (COD unpaid) + outbox now actually wired to TripleSheet; `hold_blocked` computed on route+stop (ledger>3, lights dead UI); duty persisted on vendor_profile (ensure convergence); quality on table; admin payouts gen/approve, custody confirm, reco close, zones list + UI (capacity PATCH via BFF, zone attach/detach, refunds actions, payouts, day-close, custody); user dues pay-link + reschedule key; returns assign (vendor+date→route)/pickup (owned-stop, held−/caps→dues)/refund (picked-only, settings deposit rate) + vendor pickup card + admin buttons.
 - Resilience: GET single-flight + replay-safe retry (3, backoff+jitter, Retry-After) + 60s sync flush; 401/403 → forceLogout → login; logout clears outbox.
 - Phase 5 (029-remediation): vendor 401 → tryRefresh once → retry (silent renew; 403 never; refresh opts out — no loop) → else expireSession (honest copy, outbox kept). Duty from GET /vendor/profile.on_duty (+repooled on setDuty-off). RouteController 60s discovery Timer on-duty/foreground only; acceptPlaced → POST /vendor/placed/{id}/accept → route reload. Stops carry paid_sum; predicates isPaid/isPartial/isLinkSent + remaining shared per surface (app + web copies).
@@ -976,6 +1030,19 @@ flowchart TD
 - Authed calls: `ApiClient.send()` adds `Authorization: Bearer` (live via `accessTokenGetter`) + `X-Device-Id`; `Idempotency-Key` on orders create/cancel/reschedule. Errors throw `ApiException{code}` — screens show offline banner on `NETWORK` (States.md).
 - Tab gates: guest browse keeps Home prices visible (flow 1); Profile shows login CTA when un-authed; OTP enforced at booking commit + profile data only.
 - Dev OTP: StubPhoneVerifier accepts `123456` until F1's Firebase verifier swap (one file, seams unchanged).
+
+### Client State Machines (Phase 2, ADR-204)
+1. **Customer Subscription Lifecycle (`SubscriptionController` & `SubscriptionScreen`)**:
+   - Explicit enum: `SubscriptionLifecycle { canceled, paused, awaitingPayment, lowBalance, active }`.
+   - Precedence: `canceled` > `paused` > `awaitingPayment` > `lowBalance` > `active`.
+   - UI status pills & action buttons switch exhaustively on `sub.lifecycle`.
+2. **Customer Checkout Machine (`BookingSheet`)**:
+   - `_Phase { form, paying, error }` & `_Recovery { none, retry, created, unconfirmed, checkOnly }`.
+   - Post-order invariant: Once `_placed != null`, checkout creation is locked. Retries route strictly to `_recoverPayment()` (same idempotency key) or `_switchToCod()`.
+   - PopScope lock is active while in-flight payment executes (`canPop: _allowPop || !_paying`).
+3. **Vendor Outbox Replay & Quarantine (`SyncController`)**:
+   - Terminal conflicts (`STALE_STOP`, `ALREADY_COMPLETED`, etc.) are dropped from `_queue` to prevent infinite batch loops.
+   - Retained in `_rejected` with cash custody warning preserved across restarts (`vendor.outbox.rejected.v1`).
 
 ## UI lift — ADR-057 (010-grocery-ui, layout shapes only, zero logic change)
 ```

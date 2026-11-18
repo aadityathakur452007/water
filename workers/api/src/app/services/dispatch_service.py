@@ -17,6 +17,11 @@ import sqlite3
 import uuid
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
+from app.core.state_machines import (
+    DEFAULT_MAX_JARS_PER_SHIFT,
+    DEFAULT_MAX_STOPS_PER_SHIFT,
+    calculate_vendor_capacity_headroom,
+)
 from app.db import WRITE_LOCK
 from app.db_d1 import AsyncSqliteConn, D1Conn
 from app.services import delivery_code
@@ -208,8 +213,8 @@ async def ensure_profile(conn: Conn, vendor_id: str) -> dict:
         await conn.execute(
             "CREATE TABLE vendor_profile ("
             "user_id TEXT PRIMARY KEY REFERENCES users(id),"
-            " max_stops_per_shift INTEGER NOT NULL DEFAULT 25,"
-            " max_jars_per_shift INTEGER NOT NULL DEFAULT 60,"
+            f" max_stops_per_shift INTEGER NOT NULL DEFAULT {DEFAULT_MAX_STOPS_PER_SHIFT},"
+            f" max_jars_per_shift INTEGER NOT NULL DEFAULT {DEFAULT_MAX_JARS_PER_SHIFT},"
             " per_stop_fee INTEGER NOT NULL DEFAULT 0,"
             " active INTEGER NOT NULL DEFAULT 1,"
             " on_duty INTEGER NOT NULL DEFAULT 0,"
@@ -240,8 +245,8 @@ _PROFILE_UNION = {
 
 # Column DDL for convergence ALTERs (NOT NULL ⇒ needs explicit DEFAULT).
 _PROFILE_COLS = {
-    "max_stops_per_shift": "max_stops_per_shift INTEGER NOT NULL DEFAULT 25",
-    "max_jars_per_shift": "max_jars_per_shift INTEGER NOT NULL DEFAULT 60",
+    "max_stops_per_shift": f"max_stops_per_shift INTEGER NOT NULL DEFAULT {DEFAULT_MAX_STOPS_PER_SHIFT}",
+    "max_jars_per_shift": f"max_jars_per_shift INTEGER NOT NULL DEFAULT {DEFAULT_MAX_JARS_PER_SHIFT}",
     "per_stop_fee": "per_stop_fee INTEGER NOT NULL DEFAULT 0",
     "active": "active INTEGER NOT NULL DEFAULT 1",
     "on_duty": "on_duty INTEGER NOT NULL DEFAULT 0",
@@ -291,12 +296,19 @@ async def _check_capacity(conn: Conn, vendor_id: str, need_jars: int, date: str)
         raise CapacityExceededError(message="Vendor is not available for new stops.",
                                     details={"vendor_id": vendor_id})
     stops, jars = await _load(conn, vendor_id, date)
-    if stops + 1 > int(prof.get("max_stops_per_shift", 25)):
+    raw_stops = prof.get("max_stops_per_shift")
+    max_stops = int(raw_stops) if raw_stops is not None else DEFAULT_MAX_STOPS_PER_SHIFT
+    raw_jars = prof.get("max_jars_per_shift")
+    max_jars = int(raw_jars) if raw_jars is not None else DEFAULT_MAX_JARS_PER_SHIFT
+    # If legacy default 60 is present on an uncustomized profile, elevate to mindful baseline (250)
+    if max_jars == 60:
+        max_jars = DEFAULT_MAX_JARS_PER_SHIFT
+    if stops + 1 > max_stops:
         raise CapacityExceededError(message="Vendor stop capacity reached.",
-                                    details={"stops": stops, "max": prof["max_stops_per_shift"]})
-    if jars + int(need_jars) > int(prof.get("max_jars_per_shift", 60)):
+                                    details={"stops": stops, "max": max_stops})
+    if jars + int(need_jars) > max_jars:
         raise CapacityExceededError(message="Vendor jar capacity reached.",
-                                    details={"jars": jars, "max": prof["max_jars_per_shift"]})
+                                    details={"jars": jars, "max": max_jars})
     return prof
 
 
@@ -385,7 +397,9 @@ async def least_loaded_vendor(conn: Conn, zone_id: str, date: str | None = None)
             continue
         prof = await ensure_profile(conn, str(c["vid"]))
         stops, jars = await _load(conn, str(c["vid"]), date)
-        if stops >= int(prof.get("max_stops_per_shift", 25)):
+        raw_stops = prof.get("max_stops_per_shift")
+        max_stops = int(raw_stops) if raw_stops is not None else DEFAULT_MAX_STOPS_PER_SHIFT
+        if stops >= max_stops:
             continue
         key = (stops, jars, int(c["pri"] or 0), str(prof.get("duty_on") or ""))
         if best is None or key < best:

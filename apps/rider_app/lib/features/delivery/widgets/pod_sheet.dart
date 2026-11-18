@@ -5,6 +5,45 @@ import '../../../core/api_client.dart';
 import '../../../core/theme.dart';
 import '../../../shared/ui/app_button.dart';
 
+/// Explicit Doorstep Handover State Machine Mode (Phase 1 State Machine Hardening).
+enum HandoverMode {
+  /// Daily subscription refill: ₹0 due, do not collect daily cash
+  dailySubscription,
+
+  /// Subscription month-end dues: cash collection required for accumulated dues
+  monthEndDues,
+
+  /// One-time Cash on Delivery: cash collection required for order total
+  standardCod,
+
+  /// Prepaid (UPI confirmed or ₹0 due): no doorstep cash collection
+  prepaid,
+}
+
+/// Pure resolution function for Doorstep Handover Mode.
+HandoverMode resolveHandoverMode(Map<String, dynamic> stop) {
+  final isSub = stop['is_subscription'] == true;
+  final isMonthlyDues = stop['is_monthly_dues'] == true;
+  final isCod = stop['payment_mode'] == 'cod';
+  final amountDue = (stop['amount_due'] as num?)?.toInt() ?? 0;
+  final paymentStatus = stop['payment_status']?.toString() ?? '';
+  final isPaid = paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+
+  if (isSub && !isMonthlyDues) {
+    return HandoverMode.dailySubscription;
+  }
+  if (isMonthlyDues && amountDue > 0) {
+    return HandoverMode.monthEndDues;
+  }
+  if (!isSub && isCod && amountDue > 0) {
+    return HandoverMode.standardCod;
+  }
+  if (isPaid || amountDue == 0) {
+    return HandoverMode.prepaid;
+  }
+  return HandoverMode.standardCod;
+}
+
 class PodSheet extends StatefulWidget {
   const PodSheet({
     super.key,
@@ -63,11 +102,14 @@ class _PodSheetState extends State<PodSheet> {
       return;
     }
 
-    final isMonthlyDues = widget.stop['is_monthly_dues'] == true;
+    final mode = resolveHandoverMode(widget.stop);
     final amountDue = widget.stop['amount_due'] as int? ?? 0;
-    if (amountDue > 0 && !_cashReceived) {
+    final requiresCash = (mode == HandoverMode.monthEndDues ||
+            mode == HandoverMode.standardCod) &&
+        amountDue > 0;
+    if (requiresCash && !_cashReceived) {
       setState(
-        () => _errorMessage = isMonthlyDues
+        () => _errorMessage = mode == HandoverMode.monthEndDues
             ? 'Please confirm monthly bill cash collection before completing delivery'
             : 'Please confirm cash collection before completing delivery',
       );
@@ -111,9 +153,10 @@ class _PodSheetState extends State<PodSheet> {
         address['formatted']?.toString() ?? 'Delivery address';
     final landmark = address['landmark']?.toString() ?? '';
     final hasLift = address['has_lift'] == true;
-    final isSubscription = stop['is_subscription'] == true;
-    final isMonthlyDues = stop['is_monthly_dues'] == true;
-    final isCod = stop['payment_mode'] == 'cod';
+    final mode = resolveHandoverMode(stop);
+    final isSubscription = mode == HandoverMode.dailySubscription;
+    final isMonthlyDues = mode == HandoverMode.monthEndDues;
+    final isCod = mode == HandoverMode.standardCod;
     final amountDue = stop['amount_due'] as int? ?? 0;
 
     return Padding(

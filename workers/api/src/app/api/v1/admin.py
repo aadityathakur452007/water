@@ -25,6 +25,7 @@ from app.api.auth_deps import get_current_user, require_role  # noqa: F401 (re-e
 from app.api.caching import cached
 from app.api.deps import get_db_conn
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
+from app.core.state_machines import validate_return_transition
 from app.db import WRITE_LOCK
 from app.repositories.admin_read_repo import AdminReadRepo, ist_today
 from app.repositories.access_code_repo import AccessCodeRepo
@@ -88,6 +89,7 @@ class VendorCreateIn(BaseModel):
     zone_id: str = Field(min_length=1)
     kyc_note: str = Field(default="", max_length=500)
     max_stops: int | None = Field(default=None, ge=1, le=500)
+    max_jars: int | None = Field(default=None, ge=1, le=5000)
     auto_verify: bool = False
 
 
@@ -311,9 +313,11 @@ async def vendor_create(payload: VendorCreateIn, conn=Depends(get_db_conn), user
             (vid, phone_n, payload.name.strip(), role, kyc, now_iso),
         )
         max_stops = payload.max_stops if payload.max_stops is not None else 50
+        max_jars = payload.max_jars if payload.max_jars is not None else 250
         await conn.execute(
-            "INSERT INTO vendor_profile(user_id, kyc_note, max_stops_per_shift, updated_at) VALUES (?, ?, ?, ?)",
-            (vid, payload.kyc_note or "Verified by Admin", max_stops, now_iso),
+            "INSERT INTO vendor_profile(user_id, kyc_note, max_stops_per_shift, max_jars_per_shift, updated_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (vid, payload.kyc_note or "Verified by Admin", max_stops, max_jars, now_iso),
         )
         await conn.execute("INSERT OR IGNORE INTO vendor_zones(vendor_id, zone_id) VALUES (?, ?)",
                      (vid, payload.zone_id))
@@ -1011,9 +1015,7 @@ async def return_assign(return_id: str, payload: ReturnAssignIn,
         ret = (await conn.execute("SELECT * FROM returns WHERE id = ?", (return_id,))).fetchone()
         if ret is None:
             raise NotFoundError(message="Return not found.", details={"id": return_id})
-        if ret["status"] != "requested":
-            raise ConflictError(message="Only requested returns can be assigned.",
-                                details={"id": return_id, "status": ret["status"]})
+        validate_return_transition(ret["status"], "assigned")
         dup = (await conn.execute("SELECT id FROM stops WHERE return_id = ?",
                             (return_id,))).fetchone()
         if dup is not None:
@@ -1051,9 +1053,7 @@ async def return_refund(return_id: str, payload: ReturnRefundIn,
         ret = (await conn.execute("SELECT * FROM returns WHERE id = ?", (return_id,))).fetchone()
         if ret is None:
             raise NotFoundError(message="Return not found.", details={"id": return_id})
-        if ret["status"] != "picked":
-            raise ConflictError(message="Only picked returns can be refunded.",
-                                details={"id": return_id, "status": ret["status"]})
+        validate_return_transition(ret["status"], "refunded")
         if int(payload.qty) > int(ret["qty"]):
             raise ValidationError(message="Refund qty exceeds requested.",
                                   details={"qty": ret["qty"]})

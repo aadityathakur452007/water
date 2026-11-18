@@ -40,6 +40,7 @@ export function AddVendorDialog() {
   const [phone, setPhone] = React.useState("");
   const [zoneId, setZoneId] = React.useState("");
   const [maxStops, setMaxStops] = React.useState("50");
+  const [maxJars, setMaxJars] = React.useState("250");
   const [kycNote, setKycNote] = React.useState("Verified by Admin");
 
   const invalidate = useInvalidateAdmin();
@@ -60,6 +61,7 @@ export function AddVendorDialog() {
     setPhone("");
     if (zones.length > 0) setZoneId(zones[0].id);
     setMaxStops("50");
+    setMaxJars("250");
     setKycNote("Verified by Admin");
     setCreatedResult(null);
     setCopied(false);
@@ -100,6 +102,7 @@ export function AddVendorDialog() {
     setSubmitting(true);
     try {
       const stopsNum = Number.parseInt(maxStops, 10);
+      const jarsNum = Number.parseInt(maxJars, 10);
       // Create vendor, set capacity, verify KYC, and generate access code atomically
       const createRes = (await adminPostServer({
         data: {
@@ -110,6 +113,7 @@ export function AddVendorDialog() {
             zone_id: zoneId,
             kyc_note: kycNote.trim() || "Verified by Admin",
             max_stops: !Number.isNaN(stopsNum) && stopsNum > 0 ? stopsNum : 50,
+            max_jars: !Number.isNaN(jarsNum) && jarsNum > 0 ? jarsNum : 250,
             auto_verify: true,
           },
         },
@@ -192,7 +196,8 @@ export function AddVendorDialog() {
                 Onboard Delivery Partner
               </DialogTitle>
               <DialogDescription>
-                Register a new vendor agency partner, assign their operating zone, verify KYC, and generate a login code.
+                Register a new vendor agency partner, assign their operating zone, verify KYC, and generate a login
+                code.
               </DialogDescription>
             </DialogHeader>
 
@@ -251,7 +256,9 @@ export function AddVendorDialog() {
                   className="w-full"
                 >
                   {zones.length === 0 && (
-                    <NativeSelectOption value="">No zones configured (Click &quot;New Zone&quot; above)</NativeSelectOption>
+                    <NativeSelectOption value="">
+                      No zones configured (Click &quot;New Zone&quot; above)
+                    </NativeSelectOption>
                   )}
                   {zones.map((z) => (
                     <NativeSelectOption key={z.id} value={z.id}>
@@ -261,17 +268,31 @@ export function AddVendorDialog() {
                 </NativeSelect>
               </div>
 
-              <div className="grid gap-1.5">
-                <Label htmlFor="vendor-capacity">Daily Shift Capacity (Stops)</Label>
-                <Input
-                  id="vendor-capacity"
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={maxStops}
-                  onChange={(e) => setMaxStops(e.target.value)}
-                  disabled={submitting}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="vendor-capacity">Shift Stops</Label>
+                  <Input
+                    id="vendor-capacity"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={maxStops}
+                    onChange={(e) => setMaxStops(e.target.value)}
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="vendor-jars">Shift Jars</Label>
+                  <Input
+                    id="vendor-jars"
+                    type="number"
+                    min={1}
+                    max={5000}
+                    value={maxJars}
+                    onChange={(e) => setMaxJars(e.target.value)}
+                    disabled={submitting}
+                  />
+                </div>
               </div>
 
               <div className="grid gap-1.5">

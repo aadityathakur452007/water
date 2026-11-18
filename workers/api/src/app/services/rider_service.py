@@ -47,6 +47,71 @@ class RiderService:
             raise UnauthError("Rider account is suspended.", {})
         return dict(row)
 
+    async def ensure_rider_profile(self, rider_id: str) -> dict:
+        from app.db import WRITE_LOCK
+
+        cols = {r["name"] for r in (await self._conn.execute(
+            "SELECT name FROM pragma_table_info('rider_profile')")).fetchall()}
+        if "user_id" not in cols:
+            with WRITE_LOCK:
+                await self._conn.execute(
+                    "CREATE TABLE IF NOT EXISTS rider_profile ("
+                    "user_id TEXT PRIMARY KEY REFERENCES users(id),"
+                    " duty_status TEXT NOT NULL DEFAULT 'on_duty',"
+                    " duty_on TEXT, duty_off TEXT, updated_at TEXT)"
+                )
+                self._conn.commit()
+        row = (await self._conn.execute(
+            "SELECT * FROM rider_profile WHERE user_id = ?", (rider_id,)
+        )).fetchone()
+        if row is None:
+            now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+            with WRITE_LOCK:
+                await self._conn.execute(
+                    "INSERT OR IGNORE INTO rider_profile(user_id, duty_status, duty_on, updated_at)"
+                    " VALUES (?, 'on_duty', ?, ?)",
+                    (rider_id, now_iso, now_iso),
+                )
+                self._conn.commit()
+            row = (await self._conn.execute(
+                "SELECT * FROM rider_profile WHERE user_id = ?", (rider_id,)
+            )).fetchone()
+        return dict(row)
+
+    async def get_duty(self, rider_id: str) -> dict:
+        rider = await self._get_rider(rider_id)
+        prof = await self.ensure_rider_profile(rider_id)
+        return {
+            "rider_id": rider_id,
+            "name": rider.get("name"),
+            "duty_status": prof.get("duty_status", "on_duty"),
+            "duty_on": prof.get("duty_on"),
+            "duty_off": prof.get("duty_off"),
+        }
+
+    async def set_duty(self, rider_id: str, new_status: str) -> dict:
+        from app.core.state_machines import validate_rider_duty_transition
+        from app.db import WRITE_LOCK
+
+        await self._get_rider(rider_id)
+        prof = await self.ensure_rider_profile(rider_id)
+        current = prof.get("duty_status", "on_duty")
+        validate_rider_duty_transition(current, new_status)
+        now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with WRITE_LOCK:
+            if new_status == "on_duty":
+                await self._conn.execute(
+                    "UPDATE rider_profile SET duty_status = ?, duty_on = ?, duty_off = NULL, updated_at = ? WHERE user_id = ?",
+                    (new_status, now_iso, now_iso, rider_id),
+                )
+            else:
+                await self._conn.execute(
+                    "UPDATE rider_profile SET duty_status = ?, duty_off = ?, updated_at = ? WHERE user_id = ?",
+                    (new_status, now_iso, now_iso, rider_id),
+                )
+            self._conn.commit()
+        return await self.get_duty(rider_id)
+
     async def routes_today(self, rider_id: str, date: str | None = None) -> dict:
         rider = await self._get_rider(rider_id)
         vendor_id = rider.get("assigned_vendor_id")
@@ -163,11 +228,13 @@ class RiderService:
         total = len(stops)
         delivered = sum(1 for s in stops if s["status"] == "done")
         pending = sum(1 for s in stops if s["status"] == "pending")
+        prof = await self.ensure_rider_profile(rider_id)
 
         return {
             "rider": rider,
             "route_id": route_id,
             "date": day,
+            "duty_status": prof.get("duty_status", "on_duty"),
             "stops": stops,
             "summary": {
                 "total": total,
@@ -178,6 +245,10 @@ class RiderService:
 
     async def complete_stop(self, rider_id: str, stop_id: str, payload: dict) -> dict:
         rider = await self._get_rider(rider_id)
+        prof = await self.ensure_rider_profile(rider_id)
+        if prof.get("duty_status") != "on_duty":
+            raise ValidationError("Rider must be on duty to deliver stops.",
+                                  details={"duty_status": prof.get("duty_status")})
         vendor_id = rider.get("assigned_vendor_id")
         if not vendor_id:
             raise ValidationError("Rider is not assigned to a vendor.", {})
@@ -238,6 +309,10 @@ class RiderService:
         from app.services.dispatch_service import write_audit
 
         rider = await self._get_rider(rider_id)
+        prof = await self.ensure_rider_profile(rider_id)
+        if prof.get("duty_status") != "on_duty":
+            raise ValidationError("Rider must be on duty to update stops.",
+                                  details={"duty_status": prof.get("duty_status")})
         vendor_id = rider.get("assigned_vendor_id")
         if not vendor_id:
             raise ValidationError("Rider is not assigned to a vendor.", {})

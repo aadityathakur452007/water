@@ -900,10 +900,7 @@ class _PlanCard extends StatelessWidget {
             ),
           _DetailRow(label: subStrings['billing']!, value: _billingLabel),
           _DetailRow(label: subStrings['payment']!, value: _paymentLabel),
-          if (!sub.paused &&
-              !sub.canceled &&
-              !sub.awaitingPayment &&
-              next != null) ...[
+          if (sub.lifecycle == SubscriptionLifecycle.active && next != null) ...[
             const SizedBox(height: 2),
             Row(
               children: [
@@ -1084,7 +1081,7 @@ class _PlanCard extends StatelessWidget {
                     icon: const Icon(Icons.add_card, size: 16),
                     label: Text(subStrings['addTopUp']!),
                   ),
-                if (sub.paused)
+                if (sub.lifecycle == SubscriptionLifecycle.paused)
                   TextButton(
                     onPressed: busy ? null : onResume,
                     style: TextButton.styleFrom(
@@ -1092,7 +1089,7 @@ class _PlanCard extends StatelessWidget {
                     ),
                     child: Text(subStrings['resume']!),
                   )
-                else
+                else if (sub.lifecycle == SubscriptionLifecycle.active)
                   TextButton(
                     onPressed: busy ? null : onPause,
                     style: TextButton.styleFrom(
@@ -1100,7 +1097,7 @@ class _PlanCard extends StatelessWidget {
                     ),
                     child: Text(subStrings['pause']!),
                   ),
-                if (!sub.paused && !sub.awaitingPayment)
+                if (sub.lifecycle == SubscriptionLifecycle.active)
                   TextButton(
                     onPressed: busy ? null : onSkip,
                     style: TextButton.styleFrom(
@@ -1158,17 +1155,33 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (label, fg, bg) = sub.canceled
-        ? (subStrings['canceled']!, ShodashaTheme.danger, ShodashaTheme.bg)
-        : sub.paused
-        ? (subStrings['paused']!, ShodashaTheme.muted, ShodashaTheme.bg)
-        : sub.awaitingPayment
-        ? (
-            subStrings['billingPending']!,
-            ShodashaTheme.solarDark,
-            ShodashaTheme.solarTint,
-          )
-        : (subStrings['active']!, ShodashaTheme.teal, ShodashaTheme.tealTint);
+    final (label, fg, bg) = switch (sub.lifecycle) {
+      SubscriptionLifecycle.canceled => (
+        subStrings['canceled']!,
+        ShodashaTheme.danger,
+        ShodashaTheme.bg,
+      ),
+      SubscriptionLifecycle.paused => (
+        subStrings['paused']!,
+        ShodashaTheme.muted,
+        ShodashaTheme.bg,
+      ),
+      SubscriptionLifecycle.awaitingPayment => (
+        subStrings['billingPending']!,
+        ShodashaTheme.solarDark,
+        ShodashaTheme.solarTint,
+      ),
+      SubscriptionLifecycle.lowBalance => (
+        subStrings['lowBalanceStatus']!,
+        ShodashaTheme.solarDark,
+        ShodashaTheme.solarTint,
+      ),
+      SubscriptionLifecycle.active => (
+        subStrings['active']!,
+        ShodashaTheme.teal,
+        ShodashaTheme.tealTint,
+      ),
+    };
     return Semantics(
       label: 'Status: $label',
       excludeSemantics: true,

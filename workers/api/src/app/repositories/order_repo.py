@@ -17,6 +17,14 @@ import sqlite3
 import uuid
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
+from app.core.state_machines import (
+    LEGAL_ORDER_TRANSITIONS,
+    OVERRIDE_FROM,
+    OVERRIDE_ROLES,
+    PAID_STATUSES,
+    NeedDispatchOverrideError,
+    validate_order_transition,
+)
 from app.db import WRITE_LOCK
 from app.db_d1 import AsyncSqliteConn, D1Conn
 from app.db_schema import stop_columns
@@ -25,36 +33,13 @@ from app.repositories.ledger_repo import LedgerRepo
 Conn = D1Conn | AsyncSqliteConn
 
 
-class NeedDispatchOverrideError(AppError):
-    code = "NEED_DISPATCH_OVERRIDE"
-    status_code = 409
-
-
 class AlreadyCancelledError(AppError):
     code = "ALREADY_CANCELLED"
     status_code = 409
 
 
-# State Machine (contract §2). Payment is a separate field, never a state.
-LEGAL: dict[str, set[str]] = {
-    "placed": {"accepted", "rejected", "cancelled"},
-    "accepted": {"picked", "cancelled"},
-    "picked": {"packed", "cancelled"},
-    "packed": {"assigned", "cancelled"},
-    "assigned": {"dispatched", "delivered", "cancelled"},
-    "dispatched": {"delivered", "failed", "cancelled"},
-    "failed": {"dispatched", "cancelled"},
-    "delivered": set(),
-    "rejected": set(),
-    "cancelled": set(),
-}
-
-# assigned/dispatched -> cancelled is dispatcher-override only (EC-S05, §10).
-OVERRIDE_FROM = {"assigned", "dispatched"}
-OVERRIDE_ROLES = {"dispatcher", "admin"}
-
-# Money moved iff the order row says so (payments table lands with that slice).
-PAID_STATUSES = {"paid_upi", "paid_cash", "partial_dues"}
+# Canonical State Machine (contract §2 / ADR-201). Payment is a separate field, never a state.
+LEGAL: dict[str, set[str]] = LEGAL_ORDER_TRANSITIONS
 
 _ORDER_COLS = (
     "id, user_id, address_id, items, n, e, m, water_bill, deposit_due, cap_charge,"
@@ -356,16 +341,7 @@ class OrderRepo:
                 raise NotFoundError(message="Order not found.", details={"id": order_id})
             order = _row(row)
             from_state = order["state"]
-            if to_state not in LEGAL.get(from_state, set()):
-                raise ConflictError(
-                    message=f"Illegal transition {from_state} -> {to_state}.",
-                    details={"from": from_state, "to": to_state},
-                )
-            if to_state == "cancelled" and from_state in OVERRIDE_FROM and _role(actor) not in OVERRIDE_ROLES:
-                raise NeedDispatchOverrideError(
-                    message="Post-assign cancel needs the dispatcher. Call support to cancel.",
-                    details={"from": from_state, "to": to_state},
-                )
+            validate_order_transition(from_state, to_state, _role(actor))
             token = uuid.uuid4().hex
             guard = _order_guard(order_id, token)
             stmts: list[tuple[str, tuple]] = [

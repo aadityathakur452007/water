@@ -4,6 +4,75 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**PHASE 3 OPERATIONAL STATE MACHINES & MINDFUL VENDOR CAPACITY HARDENING (2026-11-18, ADR-205):** on `main`
+- **Mindful Vendor Capacity Modernization:**
+  - In `workers/api/src/app/core/state_machines.py`: Set `DEFAULT_MAX_JARS_PER_SHIFT = 250` (elevated from legacy restrictive 60 jars) and `DEFAULT_MAX_STOPS_PER_SHIFT = 25`.
+  - Added pure `calculate_vendor_capacity_headroom()` calculating remaining stops, jars, utilization %, and full status across both standard delivery and commercial multi-trip vehicles (up to 5,000 jars).
+  - In `workers/api/src/app/services/dispatch_service.py`: Updated `vendor_profile` DDL and `_PROFILE_COLS` defaults to 250 jars; updated `_check_capacity` to dynamically elevate legacy uncustomized 60-jar limits to the 250 baseline and correctly respect 0-stop limits.
+  - In `workers/api/src/app/api/v1/admin.py`: Added `max_jars` field (1..5,000 range, defaulting to 250) to `VendorCreateIn`, persisting `max_jars_per_shift` on vendor creation.
+  - In `apps/admin_app/src/routes/(main)/dashboard/vendors/-components/add-vendor-dialog.tsx`: Added `maxJars` state defaulting to "250", wired into payload `max_jars`, with UI input field for Shift Jars.
+- **Rider Duty State Machine:**
+  - In `workers/api/src/app/core/state_machines.py`: Defined canonical `LEGAL_RIDER_DUTY_TRANSITIONS` (`off_duty` $\leftrightarrow$ `on_duty` $\rightarrow$ `shift_ended` $\rightarrow$ `off_duty`/`on_duty`) and `validate_rider_duty_transition()`.
+  - In `workers/api/src/app/services/rider_service.py`: Added `ensure_rider_profile()`, `get_duty()`, `set_duty()`, and gated `complete_stop` and `fail_stop` against off-duty execution with validation errors.
+  - In `workers/api/src/app/api/v1/rider.py`: Added `GET /rider/duty` and `POST /rider/duty`.
+  - In `apps/rider_app/lib/core/api_client.dart`: Added `getDuty()` and `setDuty()`.
+  - In `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Wired duty status from `routes_today`, added off-duty delivery block in `_openPodSheet`, and added ON/OFF duty status badge in the shift progress header.
+- **Vendor Leave / Stockout Auto-Repool Invariants:**
+  - Audited `vendor_service.py`: Confirmed unfulfilled stops auto-repool into the zone placed pool when vendor duty is toggled off or during vehicle stockout SOS.
+- **Customer Return & Deposit Refund State Machine:**
+  - In `workers/api/src/app/core/state_machines.py`: Formalized `LEGAL_RETURN_TRANSITIONS` (`requested` $\rightarrow$ `assigned` $\rightarrow$ `picked` $\rightarrow$ `refunded` / `rejected`).
+  - In `workers/api/src/app/api/v1/admin.py`: Wired `validate_return_transition()` into `return_assign` and `return_refund`, guaranteeing deposit refunds only execute against `picked` returns with double-refund protection.
+- **Verification Across Repositories:**
+  - `workers/api`: `uv run pytest -q` 534 passed, 1 skipped (12 new unit & integration tests in `test_operational_state_machines.py`).
+  - `apps/rider_app`: `flutter test` 9 / 9 passed, `flutter analyze` clean (0 issues).
+  - `apps/vendor_app`: `flutter test` 92 / 92 passed, `flutter analyze` clean (0 issues).
+  - `apps/user_app_donor`: `flutter test` 128 / 128 passed, `flutter analyze` clean (0 issues).
+  - `apps/admin_app`: `biome lint` clean (0 errors).
+
+## Previous Phases
+
+**PHASE 2 MOBILE CLIENT STATE HARDENING — SUBSCRIPTION LIFECYCLE, VENDOR OUTBOX CONFLICT QUARANTINE & CHECKOUT RECOVERY FUNNEL (2026-11-18, ADR-204):** on `main`
+- **Customer Subscription Lifecycle State Machine:**
+  - In `apps/user_app_donor/lib/features/subscriptions/subscription_controller.dart`: Defined prioritized `enum SubscriptionLifecycle { canceled, paused, awaitingPayment, lowBalance, active }` and added `lifecycle` getter on `SubscriptionEntry` enforcing strict evaluation order (`canceled` > `paused` > `awaitingPayment` > `lowBalance` > `active`).
+  - In `subscription_screen.dart`: Refactored action buttons and status pill (`_StatusPill`) to use exhaustive pattern-matching switches on `sub.lifecycle`. Added `lowBalanceStatus: 'Low balance'` string token.
+- **Vendor Offline Outbox & Reassignment Conflict Quarantine:**
+  - In `apps/vendor_app/lib/features/sync/sync_controller.dart`: Quarantined terminal conflict errors (`STALE_STOP`, `ALREADY_COMPLETED`, etc.) from the active `_queue` to permanently prevent infinite replay loops on reconnect/sync.
+  - Cash custody preservation: Any quarantined stop carrying `cashAmountPaise > 0` is retained in `_rejected` with formatted `cash_amount` and `cash_warning` (`₹X cash collected offline — hand over to admin`).
+  - Added SharedPreferences persistence (`vendor.outbox.rejected.v1`) for rejected stops across application restarts until explicit dismissal via `discardRejected`.
+  - In `apps/vendor_app/lib/features/sync/sync_screen.dart`: Rendered cash warnings directly on rejected cards with the `Hatayein` manual dismissal action.
+- **Customer Booking Checkout & Recovery Invariants:**
+  - In `apps/user_app_donor/lib/features/booking/booking_sheet.dart`: Audited and verified post-order idempotency invariants (`_placed != null` strictly disables `placeCheckout()` calls in `_pay()` and `_canPay()`, routing retries to `_recoverPayment()` or `_switchToCod()`).
+  - Verified `PopScope` dialog barrier prevents accidental exit while payments are in-flight.
+- **Verification Across Repositories:**
+  - `apps/user_app_donor`: `flutter test` 128 / 128 passed (6 new unit tests in `subscription_lifecycle_test.dart`), `flutter analyze` clean (0 issues).
+  - `apps/vendor_app`: `flutter test` 92 / 92 passed (2 new unit tests in `sync_quarantine_test.dart`), `flutter analyze` clean (0 issues).
+  - `apps/rider_app`: `flutter test` 9 / 9 passed, `flutter analyze` clean (0 issues).
+  - `workers/api`: `uv run pytest -q` 522 passed, 1 skipped (100% pass rate).
+
+## Previous Phases
+
+**PHASE 1 STATE MACHINE HARDENING — CORE FULFILLMENT, MONEY FLOW & DOORSTEP HANDOVER (2026-11-18, ADR-203):** on `main`
+- **Central State Machine & Invariant Engine:**
+  - In `workers/api/src/app/core/state_machines.py`: Formalized canonical `LEGAL_ORDER_TRANSITIONS` supporting autonomous delivery (`assigned -> delivered`, ADR-201) and role-gated cancellation overrides (`assigned`/`dispatched` $\rightarrow$ `cancelled`).
+  - Added `validate_order_transition()` enforcing transition legality and role permissions.
+  - Added `validate_late_capture_action()`: Guarantees that late UPI captures on dead orders (`cancelled`, `rejected`) automatically trigger refunds rather than crediting non-existent deliveries.
+  - Added `validate_delivery_resolution()`: Verifies that orders reaching `delivered` have unambiguous financial settlement (confirmed UPI/cash payment, ₹0 subscription refill, or verified doorstep cash receipt).
+  - Added `validate_switch_to_cod()`: Blocks invalid payment mode switches when orders are dead or already paid.
+- **Service & Repository Modernization:**
+  - Refactored `order_repo.py` to import and enforce canonical transitions from `state_machines.py`.
+  - Hooked `validate_switch_to_cod()` into `payment_service.py:switch_to_cod()`.
+  - Standardized `delivery_code.py` against `DELIVERY_CODE_STATES`.
+- **Rider App Doorstep Handover State Machine:**
+  - In `apps/rider_app/lib/features/delivery/widgets/pod_sheet.dart`: Replaced unstructured boolean logic with typed `enum HandoverMode { dailySubscription, monthEndDues, standardCod, prepaid }` and pure `resolveHandoverMode()`.
+  - UI cleanly differentiates ₹0 daily subscription deliveries (shows monthly plan notice, cash collection checkbox hidden) from month-end dues and one-off COD (cash collection verification strictly required).
+- **Verification Across Repositories:**
+  - `workers/api`: `uv run pytest -q` 522 passed, 1 skipped (100% pass rate, 7 new tests in `test_state_machines.py`).
+  - `apps/rider_app`: `flutter test` 9 / 9 passed (6 new tests in `pod_sheet_test.dart`), `flutter analyze` clean (0 issues).
+  - `apps/vendor_app`: `flutter analyze` clean (0 issues).
+  - `apps/user_app_donor`: `flutter analyze` clean (0 issues).
+
+## Previous Phases
+
 **CUSTOMER BRANDING, ANDROID OS SECURITY PERMISSIONS & CI/CD PIPELINE RENAMING (2026-11-17, ADR-202):** on `main`
 - **CI/CD Pipeline Public Naming & Release Artifact Alignment:**
   - In `.github/workflows/ci.yml`: Renamed matrix label for the customer app from `Shodasha User (customer)` to `Shodasha Customer App (User)`.

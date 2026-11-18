@@ -21,6 +21,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   String? _error;
   List<Map<String, dynamic>> _stops = [];
   Map<String, dynamic> _summary = {'total': 0, 'delivered': 0, 'pending': 0};
+  String _dutyStatus = 'on_duty';
   String _filter = 'pending'; // 'pending' or 'delivered'
 
   @override
@@ -39,6 +40,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       final data = await widget.api.getTodayRoute();
       final stopsRaw = data['stops'] as List<dynamic>? ?? [];
       final summaryRaw = data['summary'] as Map<String, dynamic>? ?? {};
+      final dutyStatus = (data['duty_status'] as String?) ?? 'on_duty';
 
       if (mounted) {
         setState(() {
@@ -46,6 +48,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
               .map((s) => Map<String, dynamic>.from(s as Map))
               .toList();
           _summary = summaryRaw;
+          _dutyStatus = dutyStatus;
           _loading = false;
         });
       }
@@ -82,6 +85,14 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
   }
 
   void _openPodSheet(Map<String, dynamic> stop) {
+    if (_dutyStatus != 'on_duty') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You are off-duty. Switch on duty to deliver stops.'),
+        ),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -200,13 +211,42 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '$delivered of $total Delivered',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: ShodashaTheme.ink,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          '$delivered of $total Delivered',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: ShodashaTheme.ink,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _dutyStatus == 'on_duty'
+                                ? ShodashaTheme.tealTint
+                                : ShodashaTheme.warningTint,
+                            borderRadius: BorderRadius.circular(
+                              ShodashaTheme.radiusSm,
+                            ),
+                          ),
+                          child: Text(
+                            _dutyStatus == 'on_duty' ? 'ON DUTY' : 'OFF DUTY',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: _dutyStatus == 'on_duty'
+                                  ? ShodashaTheme.teal
+                                  : ShodashaTheme.warningDark,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     Text(
                       '$pending Remaining',

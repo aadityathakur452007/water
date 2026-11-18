@@ -11,12 +11,14 @@ from __future__ import annotations
 import datetime as _dt
 import secrets
 
+from app.core.state_machines import DELIVERY_CODE_STATES
+
 TTL_HOURS = 24
 MAX_ATTEMPTS = 5
 REISSUE_LIMIT = 3
 REISSUE_WINDOW_HOURS = 24
 
-STATES = frozenset({"none", "active", "expired", "locked", "unavailable", "used"})
+STATES = DELIVERY_CODE_STATES
 
 
 def now() -> _dt.datetime:

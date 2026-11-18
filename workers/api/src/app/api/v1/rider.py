@@ -31,6 +31,10 @@ class RiderFailIn(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class RiderDutyIn(BaseModel):
+    status: str = Field(pattern=r"^(on_duty|off_duty|shift_ended)$")
+
+
 @router.get("/rider/me")
 async def get_rider_me(user=Depends(_rider)):
     return {
@@ -39,6 +43,16 @@ async def get_rider_me(user=Depends(_rider)):
         "phone": user.get("phone"),
         "role": user.get("role"),
     }
+
+
+@router.get("/rider/duty")
+async def get_rider_duty(conn=Depends(get_db_conn), user=Depends(_rider)):
+    return await _svc(conn).get_duty(_uid(user))
+
+
+@router.post("/rider/duty")
+async def set_rider_duty(payload: RiderDutyIn, conn=Depends(get_db_conn), user=Depends(_rider)):
+    return await _svc(conn).set_duty(_uid(user), payload.status)
 
 
 @router.get("/rider/routes/today")

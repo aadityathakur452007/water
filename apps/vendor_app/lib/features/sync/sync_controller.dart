@@ -71,6 +71,20 @@ class SyncController extends ChangeNotifier {
   SyncController({required ApiClient api}) : _api = api;
 
   static const storageKey = 'vendor.outbox.v1';
+  static const rejectedKey = 'vendor.outbox.rejected.v1';
+
+  /// Terminal rejection codes that cannot succeed on blind retry.
+  /// These are quarantined from the active queue to prevent infinite replay loops.
+  static const terminalRejectionCodes = {
+    'STALE_STOP',
+    'ALREADY_COMPLETED',
+    'CONFLICT',
+    'NOT_FOUND',
+    'POD_LOCKED',
+    'DELIVERY_CODE_EXPIRED',
+    'VALIDATION_ERROR',
+    'PAYLOAD_MISMATCH',
+  };
 
   final ApiClient _api;
 
@@ -106,6 +120,19 @@ class SyncController extends ChangeNotifier {
         _queue = const [];
       }
     }
+    final rawRejected = prefs.getString(rejectedKey);
+    if (rawRejected == null || rawRejected.isEmpty) {
+      _rejected = const [];
+    } else {
+      try {
+        final list = jsonDecode(rawRejected) as List;
+        _rejected = list
+            .whereType<Map<String, dynamic>>()
+            .toList();
+      } catch (_) {
+        _rejected = const [];
+      }
+    }
     _loaded = true;
     notifyListeners();
   }
@@ -114,6 +141,8 @@ class SyncController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         storageKey, jsonEncode(_queue.map((q) => q.toJson()).toList()));
+    await prefs.setString(
+        rejectedKey, jsonEncode(_rejected));
   }
 
   /// Drops the whole outbox (logout path: the next login must never inherit
@@ -124,6 +153,7 @@ class SyncController extends ChangeNotifier {
     _result = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(storageKey);
+    await prefs.remove(rejectedKey);
     notifyListeners();
   }
 
@@ -183,14 +213,37 @@ class SyncController extends ChangeNotifier {
       final applied = ((raw['applied'] as List?) ?? const []).toSet();
       final replayed = ((raw['replayed'] as List?) ?? const []).toSet();
       final done = {...applied, ...replayed};
-      _rejected = ((raw['rejected'] as List?) ?? const [])
+      final rawRejected = ((raw['rejected'] as List?) ?? const [])
           .whereType<Map<String, dynamic>>()
           .toList();
-      final rejectedIds =
-          _rejected.map((r) => r['stop_id']).toSet();
+
+      final queueByStop = {for (final q in _queue) q.stopId: q};
+      final newRejected = <Map<String, dynamic>>[];
+      final terminalRejectedIds = <String>{};
+
+      for (final r in rawRejected) {
+        final sid = (r['stop_id'] ?? '').toString();
+        final code = (r['code'] ?? '').toString();
+        final item = Map<String, dynamic>.from(r);
+        final queued = queueByStop[sid];
+        if (queued != null && queued.cashAmountPaise > 0) {
+          final rupees = (queued.cashAmountPaise / 100).toStringAsFixed(0);
+          item['cash_amount'] = queued.cashAmountPaise;
+          item['cash_warning'] =
+              '₹$rupees cash collected offline — hand over to admin';
+        }
+        newRejected.add(item);
+        if (terminalRejectionCodes.contains(code) || code.isNotEmpty) {
+          terminalRejectedIds.add(sid);
+        }
+      }
+
+      _rejected = newRejected;
+      // Succeeded items leave the queue. Terminal rejections are quarantined
+      // (dropped from active queue to avoid infinite retry loops) and surfaced in _rejected.
       _queue = _queue
           .where((q) =>
-              !done.contains(q.stopId) || rejectedIds.contains(q.stopId))
+              !done.contains(q.stopId) && !terminalRejectedIds.contains(q.stopId))
           .toList();
       await _persist();
       _result =

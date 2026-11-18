@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.state_machines import validate_late_capture_action, validate_switch_to_cod
 from app.services.order_service import COD_MAX_PAISE, CodNotAllowedError
 
 log = logging.getLogger(__name__)
@@ -144,6 +145,11 @@ class PaymentService:
             raise NotFoundError(message="Order not found.", details={"id": order_id})
         if order.get("payment_mode") == "cod":
             return await self.cod_confirm(user_id, order_id)
+        validate_switch_to_cod(
+            order.get("payment_mode", "upi"),
+            order.get("payment_status", "unpaid"),
+            order.get("state", "placed"),
+        )
         if order.get("payment_mode") != "upi":
             raise ValidationError(message="Order cannot be switched to COD.", details={})
         if int(order["total"]) > COD_MAX_PAISE:

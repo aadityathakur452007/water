@@ -86,6 +86,22 @@ class ApiClient {
     return _parseResponse(res);
   }
 
+  Future<Map<String, dynamic>> getDuty() async {
+    final url = Uri.parse('$baseUrl/v1/rider/duty');
+    final res = await _client.get(url, headers: _headers);
+    return _parseResponse(res);
+  }
+
+  Future<Map<String, dynamic>> setDuty(String status) async {
+    final url = Uri.parse('$baseUrl/v1/rider/duty');
+    final res = await _client.post(
+      url,
+      headers: _headers,
+      body: jsonEncode({'status': status}),
+    );
+    return _parseResponse(res);
+  }
+
   Future<Map<String, dynamic>> getTodayRoute() async {
     final url = Uri.parse('$baseUrl/v1/rider/routes/today');
     final res = await _client.get(url, headers: _headers);

@@ -44,6 +44,7 @@ const Map<String, String> subStrings = {
   'active': 'Active',
   'paused': 'Paused',
   'canceled': 'Canceled',
+  'lowBalanceStatus': 'Low balance',
   'pausedUntil': 'Paused until',
   'nextRun': 'Next delivery',
   'windowLabel': 'Window',
@@ -207,6 +208,24 @@ String addressLabelOf(Map<String, dynamic> a) {
 
 enum SubStatus { initial, loading, loaded, error }
 
+/// Explicit Customer Subscription Lifecycle (Phase 2 State Machine Hardening).
+enum SubscriptionLifecycle {
+  /// Plan is cancelled (highest precedence: canceled_at != null || status == 'canceled')
+  canceled,
+
+  /// Plan is on hold / paused (hold_from/to set or status == 'paused')
+  paused,
+
+  /// Monthly prepaid plan whose initial topup is pending
+  awaitingPayment,
+
+  /// Prepaid plan with credit balance insufficient for next delivery
+  lowBalance,
+
+  /// Normal active daily delivery plan
+  active,
+}
+
 /// One subscription row, parsed from `GET /subscriptions`.
 @immutable
 class SubscriptionEntry {
@@ -281,6 +300,15 @@ class SubscriptionEntry {
   /// active: no delivery will run until the server flips billing_status.
   bool get awaitingPayment =>
       !canceled && isPrepaid && billingStatus == 'pending_payment';
+
+  /// Deterministic lifecycle state per Phase 2 state machine rules.
+  SubscriptionLifecycle get lifecycle {
+    if (canceled) return SubscriptionLifecycle.canceled;
+    if (paused) return SubscriptionLifecycle.paused;
+    if (awaitingPayment) return SubscriptionLifecycle.awaitingPayment;
+    if (lowBalance) return SubscriptionLifecycle.lowBalance;
+    return SubscriptionLifecycle.active;
+  }
 
   static SubscriptionEntry fromApi(
     Map<String, dynamic> j, {
