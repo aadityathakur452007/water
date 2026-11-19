@@ -235,3 +235,10 @@ def test_return_illegal_transitions():
 
     with pytest.raises(InvalidStateTransitionError):
         validate_return_transition("rejected", "assigned")
+
+
+def test_order_assigned_to_failed_transition():
+    from app.core.state_machines import validate_order_transition, LEGAL_ORDER_TRANSITIONS
+    assert "failed" in LEGAL_ORDER_TRANSITIONS["assigned"]
+    validate_order_transition("assigned", "failed", "vendor")
+

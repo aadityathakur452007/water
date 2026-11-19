@@ -381,10 +381,13 @@ class OrderService:
             except Exception:
                 pass
 
+        failure_reason = stop.get("failure_reason") if stop else None
+
         return {
             **order,
             "delivery_address": delivery_address,
             **delivery,
+            "failure_reason": failure_reason,
             "stops_ahead": stops_ahead,
             "tracker": {"steps": ["placed", "packed", "dispatched", "delivered"], "current": order["state"]},
             "rider": rider_info,
@@ -636,6 +639,7 @@ class OrderService:
         return {
             "order_id": d["id"],
             "state": d["state"],
+            "failure_reason": d.get("failure_reason"),
             "tracker": d["tracker"],
             "rider": d["rider"],
             "window_start": d.get("window_start"),

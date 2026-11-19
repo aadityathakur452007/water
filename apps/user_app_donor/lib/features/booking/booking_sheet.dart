@@ -160,6 +160,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   /// Payment is in flight: back/barrier must confirm before leaving.
   bool _allowPop = false;
   bool _confirmingLeave = false;
+  bool _agreedToDamage = false;
 
   BookingController get c => widget.controller;
   bool get _isOnce => c.deliveryType == DeliveryType.once;
@@ -388,6 +389,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     if (_placed != null) return false;
     // >3 jars with the customer blocks every new order, not just COD.
     if (c.holdBlocked) return false;
+    if (!_agreedToDamage) return false;
     if (_isOnce) {
       if (_quote == null ||
           _quoteLoading ||
@@ -1107,6 +1109,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               ],
             ),
           ),
+        _damageAgreementCard(busy),
         if (_phase == _Phase.paying) ...[
           const SizedBox(height: 12),
           Row(
@@ -1547,6 +1550,73 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             style: TextStyle(fontSize: 12, color: ShodashaTheme.muted),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _damageAgreementCard(bool busy) {
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _agreedToDamage
+            ? ShodashaTheme.tealTint
+            : ShodashaTheme.surface,
+        border: Border.all(
+          color: _agreedToDamage
+              ? ShodashaTheme.teal
+              : ShodashaTheme.border,
+          width: _agreedToDamage ? 1.5 : 1.0,
+        ),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: InkWell(
+        onTap: busy
+            ? null
+            : () => setState(() => _agreedToDamage = !_agreedToDamage),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 24,
+              width: 24,
+              child: Checkbox(
+                value: _agreedToDamage,
+                activeColor: ShodashaTheme.teal,
+                onChanged: busy
+                    ? null
+                    : (val) => setState(() => _agreedToDamage = val ?? false),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'I agree to pay ₹650 if the jar is damaged or lost.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: ShodashaTheme.ink,
+                      height: 1.3,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    '20L water jars are reusable assets delivered without advance deposit. You agree to return jars in good condition.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ShodashaTheme.muted,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

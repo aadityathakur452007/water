@@ -39,8 +39,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       // Login screen mounted
-      expect(find.text('Shodasha'), findsOneWidget);
-      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.text('Doorstep Water Delivery'), findsOneWidget);
+      expect(find.text('Login'), findsOneWidget);
 
       // Must NOT show false negative restore failure notice
       expect(find.textContaining("Couldn't restore"), findsNothing);

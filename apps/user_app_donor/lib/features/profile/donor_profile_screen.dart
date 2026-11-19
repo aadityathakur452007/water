@@ -13,6 +13,7 @@ import '../../shared/ui/app_sheet.dart';
 import '../../shared/ui/app_state_view.dart';
 import '../addresses/address_screen.dart';
 import '../auth/auth_controller.dart';
+import '../legal/privacy_policy_screen.dart';
 import 'edit_profile_sheet.dart';
 import 'profile_controller.dart';
 
@@ -353,6 +354,22 @@ class _DonorProfileScreenState extends State<DonorProfileScreen> {
                   title: 'Water quality',
                   subtitle: 'RO + UV + Ozone · 20L sealed jars',
                   onTap: () => _showQuality(),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                const Text(
+                  'Legal & Privacy',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.muted,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _menuTile(
+                  icon: Icons.shield_outlined,
+                  title: 'Privacy Policy & Terms',
+                  subtitle: 'DPDP Act 2023 · Data security · Grievance',
+                  onTap: () => PrivacyPolicyScreen.open(context),
                 ),
                 const SizedBox(height: AppSpacing.xl),
                 AppButton(

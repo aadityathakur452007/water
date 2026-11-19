@@ -1,7 +1,8 @@
-// Customer sign-in / create-account screen (034, unslop 037).
+// Customer sign-in / create-account screen (034, unslop 037, hero redesign 038).
 //
 // Password auth only. This screen never calls the retired customer auth
-// routes. Sign in is the default; create account is an internal mode.
+// routes. Displays the branded 3D Shodasha delivery hero and provides
+// seamless transition between Welcome, Sign In, and Create Account modes.
 // Validation, busy, 401/409/422/429, offline and 5xx states all
 // live here, and duplicate signup pivots to sign-in without claiming the row.
 
@@ -12,18 +13,24 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
-
 import '../../core/theme.dart';
 import '../../shared/ui/app_button.dart';
+import '../legal/privacy_policy_screen.dart';
 import 'auth_controller.dart';
 
-enum _AuthMode { signIn, create }
+enum AuthMode { welcome, signIn, create }
 
 class DonorLoginScreen extends StatefulWidget {
-  const DonorLoginScreen({super.key, required this.controller, this.notice});
+  const DonorLoginScreen({
+    super.key,
+    required this.controller,
+    this.notice,
+    this.initialMode,
+  });
 
   final AuthController controller;
   final String? notice;
+  final AuthMode? initialMode;
 
   @override
   State<DonorLoginScreen> createState() => _DonorLoginScreenState();
@@ -39,7 +46,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   final _passwordFocus = FocusNode();
   final _confirmFocus = FocusNode();
 
-  _AuthMode _mode = _AuthMode.signIn;
+  late AuthMode _mode;
   bool _showPassword = false;
   bool _showConfirm = false;
   bool _submitting = false;
@@ -51,6 +58,8 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   @override
   void initState() {
     super.initState();
+    _mode = widget.initialMode ??
+        (widget.notice != null ? AuthMode.signIn : AuthMode.welcome);
     if (_auth.rateLimitSecondsRemaining > 0) _startRateTimer();
   }
 
@@ -78,7 +87,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     });
   }
 
-  void _switchMode(_AuthMode mode) {
+  void _switchMode(AuthMode mode) {
     if (_submitting) return;
     _auth.clearError();
     setState(() {
@@ -98,7 +107,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     });
     _auth.clearError();
 
-    final ok = _mode == _AuthMode.signIn
+    final ok = _mode == AuthMode.signIn
         ? await _auth.login(rawPhone: _phone.text, password: _password.text)
         : await _auth.register(
             name: _name.text,
@@ -118,7 +127,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     if (_auth.lastErrorCode == 'ACCOUNT_EXISTS') {
       _auth.clearError();
       setState(() {
-        _mode = _AuthMode.signIn;
+        _mode = AuthMode.signIn;
         _submitting = false;
         _showPassword = false;
         _localNotice = authStrings['accountExists'];
@@ -179,54 +188,27 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   }
 
   Future<void> _launch(Uri uri) async {
-    var opened = false;
-    try {
-      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      opened = false;
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
-    if (opened || !mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('Could not open the app. Support: $kSupportPhone'),
-        ),
-      );
   }
 
   @override
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
-      backgroundColor: ShodashaTheme.surface,
+      backgroundColor: Colors.white,
       body: SafeArea(
+        top: false,
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.only(bottom: viewInsets + 24),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: kMaxContentWidth),
-              child: Column(
-                children: [
-                  _hero(),
-                  if (widget.notice != null)
-                    _banner(widget.notice!, tone: _BannerTone.warning),
-                  if (_localNotice != null)
-                    _banner(_localNotice!, tone: _BannerTone.info),
-                  const SizedBox(height: AppSpacing.md),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.lg,
-                    ),
-                    child: Form(
-                      key: _formKey,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      child: AutofillGroup(child: _formBody()),
-                    ),
-                  ),
-                ],
-              ),
+              child: _mode == AuthMode.welcome
+                  ? _buildWelcomeView()
+                  : _buildFormView(),
             ),
           ),
         ),
@@ -234,8 +216,262 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     );
   }
 
+  Widget _buildHeroBanner({required bool showBackButton}) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF39B867),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  if (showBackButton)
+                    Semantics(
+                      button: true,
+                      label: 'Back',
+                      child: GestureDetector(
+                        onTap: () {
+                          if (_mode != AuthMode.welcome) {
+                            _switchMode(AuthMode.welcome);
+                          } else if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            shape: BoxShape.circle,
+                            boxShadow: ShodashaTheme.subtleCardShadow,
+                          ),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new_rounded,
+                            size: 16,
+                            color: ShodashaTheme.ink,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    const SizedBox(height: 40),
+                ],
+              ),
+            ),
+            Image.asset(
+              'assets/delivery_hero.png',
+              width: double.infinity,
+              fit: BoxFit.contain,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWelcomeView() {
+    return Column(
+      children: [
+        _buildHeroBanner(showBackButton: Navigator.of(context).canPop()),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.lg,
+            AppSpacing.xl,
+            AppSpacing.xl,
+          ),
+          child: Column(
+            children: [
+              if (widget.notice != null) ...[
+                _banner(widget.notice!, tone: _BannerTone.warning),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              if (_localNotice != null) ...[
+                _banner(_localNotice!, tone: _BannerTone.info),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    left: 0,
+                    top: 8,
+                    child: Icon(
+                      Icons.water_drop_rounded,
+                      size: 20,
+                      color: const Color(0xFF64B5F6).withValues(alpha: 0.5),
+                    ),
+                  ),
+                  Positioned(
+                    right: 6,
+                    top: 0,
+                    child: Icon(
+                      Icons.water_drop_rounded,
+                      size: 26,
+                      color: const Color(0xFF42A5F5).withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 26),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Doorstep Water Delivery',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2E9B55),
+                            letterSpacing: -0.4,
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        Text(
+                          'Pure 20L RO + UV water jars delivered fresh to your '
+                          'doorstep every morning across Bhopal',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            height: 1.45,
+                            color: ShodashaTheme.muted,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(
+                    Icons.water_drop_rounded,
+                    size: 16,
+                    color: const Color(0xFF64B5F6).withValues(alpha: 0.45),
+                  ),
+                  Icon(
+                    Icons.water_drop_rounded,
+                    size: 22,
+                    color: const Color(0xFF42A5F5).withValues(alpha: 0.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () => _switchMode(AuthMode.signIn),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF39B867),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                  ),
+                  child: const Text(
+                    'Login',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton(
+                  onPressed: () => _switchMode(AuthMode.create),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF39B867),
+                    side: const BorderSide(color: Color(0xFF39B867), width: 1.5),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                  ),
+                  child: const Text(
+                    'Create an Account',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: InkWell(
+                  onTap: () => PrivacyPolicyScreen.open(context),
+                  borderRadius: BorderRadius.circular(4),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Text.rich(
+                      TextSpan(
+                        text: 'By continuing, you agree to our ',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: ShodashaTheme.muted,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: 'Terms & Privacy Policy',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF2E9B55),
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFormView() {
+    return Column(
+      children: [
+        _buildHeroBanner(showBackButton: true),
+        if (widget.notice != null)
+          _banner(widget.notice!, tone: _BannerTone.warning),
+        if (_localNotice != null)
+          _banner(_localNotice!, tone: _BannerTone.info),
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          child: Form(
+            key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: AutofillGroup(child: _formBody()),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _formBody() {
-    final create = _mode == _AuthMode.create;
+    final create = _mode == AuthMode.create;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -304,16 +540,15 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           keyboardType: TextInputType.phone,
           textInputAction: TextInputAction.next,
           autofillHints: const [AutofillHints.telephoneNumber],
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
-            LengthLimitingTextInputFormatter(16),
-          ],
           style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
           decoration: _decoration(
             hint: authStrings['phoneHint']!,
             prefix: _phonePrefix(),
           ),
-          onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(10),
+          ],
           validator: (value) => isValidIndianPhone(value ?? '')
               ? null
               : authStrings['phoneError'],
@@ -417,16 +652,18 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         _errorPanel(),
         AppButton(
           label: create ? authStrings['createGo']! : authStrings['signInGo']!,
+          kind: AppButtonKind.primary,
           busy: _submitting,
-          onPressed: _submit,
+          onPressed: _auth.rateLimitSecondsRemaining > 0 ? null : _submit,
         ),
         const SizedBox(height: AppSpacing.md),
         Center(
           child: TextButton(
             onPressed: _submitting
                 ? null
-                : () =>
-                      _switchMode(create ? _AuthMode.signIn : _AuthMode.create),
+                : () => _switchMode(
+                      create ? AuthMode.signIn : AuthMode.create,
+                    ),
             style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
             child: Text(
               create ? authStrings['alreadyHere']! : authStrings['newHere']!,
@@ -441,92 +678,38 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         ),
         if (create) ...[
           const SizedBox(height: AppSpacing.xs),
-          const Center(
-            child: Text(
-              'By creating an account, you agree to Shodasha Terms & '
-              'Privacy Policy.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.4,
-                color: ShodashaTheme.muted,
+          Center(
+            child: InkWell(
+              onTap: () => PrivacyPolicyScreen.open(context),
+              borderRadius: BorderRadius.circular(4),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text.rich(
+                  TextSpan(
+                    text: 'By creating an account, you agree to ',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: ShodashaTheme.muted,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'Terms & Privacy Policy',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: ShodashaTheme.tealDeep,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
           ),
         ],
       ],
-    );
-  }
-
-  Widget _hero() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.sm,
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: ShodashaTheme.border),
-              boxShadow: ShodashaTheme.subtleCardShadow,
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Image.asset(
-              'assets/logo.png',
-              fit: BoxFit.contain,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          const Text(
-            'Shodasha',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: ShodashaTheme.tealDeep,
-              letterSpacing: -0.5,
-              height: 1.15,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          const Text(
-            'Pure 20L water delivered to your doorstep',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: ShodashaTheme.muted,
-              fontWeight: FontWeight.w500,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: ShodashaTheme.bg,
-              borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-              border: Border.all(color: ShodashaTheme.border),
-            ),
-            child: const Text(
-              'RO+UV · Lab Tested',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: ShodashaTheme.tealDeep,
-                letterSpacing: 0.2,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -631,12 +814,12 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
     if (message == null) return const SizedBox.shrink();
     final wait = _auth.rateLimitSecondsRemaining;
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: ShodashaTheme.danger.withValues(alpha: 0.06),
+          color: ShodashaTheme.danger.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
           border: Border.all(
             color: ShodashaTheme.danger.withValues(alpha: 0.28),

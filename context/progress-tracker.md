@@ -4,6 +4,74 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**PERSISTENT VENDOR SESSION AUTO-RENEWAL & DELIVERY FAILURE STATE SYNCHRONIZATION (2026-11-19, ADR-209):** on `main`
+- **Vendor App Silent Token Refresh & Resilient Credentials (`apps/vendor_app`):**
+  - Resolved vendor app logging out every 24 hours. In `auth_controller.dart:restoreSession()`, when `DateTime.now().isAfter(expiresAt)` is true on cold boot, it automatically triggers `await refreshSession()` instead of wiping stored credentials.
+  - In `refreshSession()`, handles `ApiException.isNetwork` (low connectivity/offline boot) by preserving credentials; only explicit 401/403 server rejection clears the store.
+  - Tested: 94 / 94 tests pass in `apps/vendor_app` (including new tests in `phase05_splita_test.dart`); `flutter analyze` reports 0 issues.
+- **Backend Autonomous Delivery Failure State Machine (`workers/api`):**
+  - Added `"failed"` to `LEGAL_ORDER_TRANSITIONS["assigned"]` in `src/app/core/state_machines.py`, resolving `InvalidStateTransitionError` when vendor fails a stop.
+  - Added `failure_reason: str | None = None` to `OrderOut` and `OrderDetailOut` schemas.
+  - Included `failure_reason` in `OrderRepo.stop_delivery_state()` and propagated it in `OrderService.detail()` and `tracking()`.
+  - Tested: 535 / 535 pytest tests pass in `workers/api` (100% pass rate).
+- **Customer App Delivery Failure Sync & Clear Customer Feedback (`apps/user_app_donor`):**
+  - `orders_controller.dart`: Added `failureReason` to `Order` model, parsed from JSON, and added `formatFailureReason()` mapping codes (`DOOR_LOCKED`, `CUSTOMER_UNREACHABLE`, `CUSTOMER_REFUSED`, `INCORRECT_ADDRESS`, `RESCHEDULE_REQUESTED`) to user-friendly copy.
+  - `customer_home_screen.dart`: Removed false "Arriving soon" active delivery card when order has failed. Added `_FailedDeliveryNoticeCard` displayed when an order failed today, showing the exact failure reason and button to view order details or contact support.
+  - `tracking_screen.dart`: Displays failure reason in error banner and suppresses active rider/stop tracking.
+  - `order_card.dart`: Hides delivery OTP on closed/failed orders, and displays high-contrast danger banner detailing the failure reason.
+  - Tested: 136 / 136 tests pass in `apps/user_app_donor` (including new tests in `donor_order_card_test.dart` and `tracking_screen_test.dart`); `flutter analyze` reports 0 issues.
+
+## Previous Phases
+
+**CUSTOMER WELCOME & LOGIN SCREEN MODERNIZATION (2026-11-19, ADR-208):** on `main`
+- **3D Delivery Hero Asset & Color Blending (`apps/user_app_donor`):**
+  - Extracted pre-rendered 3D delivery hero asset (`apps/user_app_donor/assets/delivery_hero.png`) from reference image, featuring an emerald delivery tempo loaded with 20L water cans and a friendly delivery driver.
+  - Registered asset in `pubspec.yaml`. Seamlessly blended into top emerald banner (`Color(0xFF39B867)`) and card surface below.
+- **Welcome Mode Architecture & Water Service Branding:**
+  - Modernized `apps/user_app_donor/lib/features/auth/login_screen.dart` with `AuthMode.welcome`, `AuthMode.signIn`, and `AuthMode.create` states.
+  - Replaced mockup placeholder text with official water delivery branding:
+    - Headline: `"Doorstep Water Delivery"` (`Color(0xFF2E9B55)`).
+    - Subtitle: `"Pure 20L RO + UV water jars delivered fresh to your doorstep every morning across Bhopal"`.
+    - Droplet accents and clean spacing.
+    - 52dp green pill `"Login"` button.
+    - Outlined 52dp `"Create an Account"` button.
+    - Interactive `"Terms & Privacy Policy"` link opening `PrivacyPolicyScreen.open(context)`.
+- **Form Mode Transitions & Back Navigation:**
+  - Added clean circular floating back button on form screens to return to Welcome view.
+  - Preserved phone formatting, password validation, 409 account exists auto-pivot, and rate-limiting.
+- **Verification Across Repositories:**
+  - Updated `login_screen_test.dart` (7 tests), `auth_gate_test.dart`, and `damage_agreement_test.dart`.
+  - `apps/user_app_donor`: `flutter test` 135 / 135 passed (100% pass rate).
+  - `apps/user_app_donor`: `flutter analyze` clean (0 warnings, 0 issues).
+
+## Previous Phases
+
+**₹650 JAR DAMAGE RULE AGREEMENT CHECKBOX & DPDP-COMPLIANT ANDROID PRIVACY POLICY & TERMS PAGE (2026-11-19, ADR-207):** on `main`
+- **₹650 Jar Damage Rule Agreement Checkbox (Zero Dispute Doorstep Protocol):**
+  - In `apps/user_app_donor/lib/features/booking/booking_sheet.dart`: Added `_agreedToDamage` state variable, rendered high-contrast `_damageAgreementCard(busy)` on Step 2 (Schedule & Payment Review) directly above the payment mode chips. Gated `_canPay(busy)` requiring `_agreedToDamage == true`.
+  - Checkbox text: `"I agree to pay ₹650 if the jar is damaged or lost."` with explanatory microcopy: `"20L water jars are reusable assets delivered without advance deposit. You agree to return jars in good condition."`. The Pay/Book button remains disabled until explicitly checked.
+  - In `apps/user_app_donor/lib/features/subscriptions/plan_builder_sheet.dart`: Gated `canSubmit` requiring `_agreedToDamage == true` and rendered `_damageAgreementCard()` directly above the Start Plan button, guaranteeing no subscription or single refill is ordered without prior explicit liability agreement.
+- **DPDP Act 2023 Compliant Android Privacy Policy Page (`apps/user_app_donor`):**
+  - Created `apps/user_app_donor/lib/features/legal/privacy_policy_screen.dart` with statutory disclosures adhering to the Digital Personal Data Protection Act 2023, IT SPDI Rules 2011, CERT-In Cyber Directions 2022, and Google Play Store policies.
+  - Structured into 7 clear, accessible cards:
+    1. Verified DPDP Act 2023 Compliance Banner & Privacy at a Glance (zero data selling, zero third-party ads, strictly limited to water delivery logistics).
+    2. Data We Collect & Purpose Limitation (DPDP Act Sec 5 & 6) — Phone & Name for OTP login, Address & GPS for rider doorstep delivery, Jar Ledger for inventory and asset protection.
+    3. Data Storage & Security Safeguards — TLS 1.3 in transit, AES-256 at rest, Indian cloud infrastructure, RBAC restricting riders to current active route stops.
+    4. Data Breach & Incident Response Protocol (CERT-In & DPDP Act Sec 8(6)) — mandatory reporting to CERT-In within 6 hours, direct notification to affected Data Principals and Data Protection Board of India without delay, zero cover-up guarantee.
+    5. ₹650 Reusable Jar Asset Terms — transparent terms regarding Shodasha jar property and replacement liability.
+    6. Your Rights as a Data Principal (DPDP Act Sec 11-13) — Right to Access, Right to Correction, Right to Erasure ("Right to be Forgotten").
+    7. Statutory Grievance Redressal Officer — Bhopal, MP contact details (`support@shodashawater.com`), 48-hour acknowledgment, 30-day resolution timeline.
+    8. In-App Account & Data Deletion Request Sheet meeting Google Play Store requirements.
+- **App Entry Points & Navigation:**
+  - In `apps/user_app_donor/lib/features/profile/donor_profile_screen.dart`: Added "Legal & Privacy" section with "Privacy Policy & Terms" navigation tile.
+  - In `apps/user_app_donor/lib/features/auth/login_screen.dart`: Transformed registration disclaimer into an interactive `InkWell` navigating to `PrivacyPolicyScreen`.
+- **Verification Across Repositories:**
+  - Added test suites: `test/privacy_policy_screen_test.dart` (3 tests) and `test/damage_agreement_test.dart` (3 tests).
+  - `apps/user_app_donor`: `flutter test` 134 / 134 passed (100% pass rate).
+  - `apps/user_app_donor`: `flutter analyze` clean (0 warnings, 0 issues).
+
+## Previous Phases
+
 **PHASE 4 OPERATIONAL DELIVERY CALMNESS, 10 AM CUTOFF EXPECTATION & RIDER CASH CLARITY (2026-11-18, ADR-206):** on `main`
 - **Rider Stop Card Doorstep Cash Clarity (Zero Driver Confusion):**
   - In `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Replaced legacy misleading boolean payment badge (`!(isCod && amountDue > 0)` defaulted to `Paid Online`) with typed `switch (resolveHandoverMode(stop))` pattern match.

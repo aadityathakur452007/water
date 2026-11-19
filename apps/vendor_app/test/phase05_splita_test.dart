@@ -12,10 +12,11 @@ import 'package:vendor_app/features/duty/duty_controller.dart';
 import 'package:vendor_app/features/route/route_controller.dart';
 
 class _FakeAuthApi implements AuthApi {
-  _FakeAuthApi({this.refreshed});
+  _FakeAuthApi({this.refreshed, this.networkError = false});
 
   /// Tokens the fake refresh endpoint rotates to (null → 401).
   final AuthSession? refreshed;
+  final bool networkError;
   int refreshCalls = 0;
 
   AuthSession _session() => AuthSession(
@@ -42,6 +43,9 @@ class _FakeAuthApi implements AuthApi {
     required String deviceId,
   }) async {
     refreshCalls += 1;
+    if (networkError) {
+      throw ApiException(code: 'NETWORK', message: 'network timeout', statusCode: 0);
+    }
     final s = refreshed;
     if (s == null) {
       throw ApiException(code: 'UNAUTH', message: 'expired', statusCode: 401);
@@ -85,6 +89,39 @@ void main() {
           api: api, store: InMemorySessionStore(), deviceId: 'd1');
       expect(await c.refreshSession(), isFalse);
       expect(c.session, isNull);
+    });
+
+    test('restoreSession with expired access token silently rotates and keeps vendor authenticated', () async {
+      final api = _FakeAuthApi(refreshed: _rotated());
+      final store = InMemorySessionStore();
+      // Seed store with an expired access token (e.g. from 24h ago)
+      await store.saveSession(
+        accessToken: 'expired_old_access',
+        refreshToken: 'valid_refresh_token',
+        expiresAtIso: DateTime.now().subtract(const Duration(hours: 24)).toIso8601String(),
+        role: 'vendor',
+      );
+      final c = AuthController(api: api, store: store, deviceId: 'd1');
+      await c.restoreSession();
+      expect(c.isAuthenticated, isTrue);
+      expect(c.session?.accessToken, 'a1');
+      expect(await store.readAccessToken(), 'a1');
+      expect(api.refreshCalls, 1);
+    });
+
+    test('restoreSession with network failure does not wipe the stored credentials', () async {
+      final api = _FakeAuthApi(networkError: true);
+      final store = InMemorySessionStore();
+      await store.saveSession(
+        accessToken: 'expired_old_access',
+        refreshToken: 'valid_refresh_token',
+        expiresAtIso: DateTime.now().subtract(const Duration(hours: 24)).toIso8601String(),
+        role: 'vendor',
+      );
+      final c = AuthController(api: api, store: store, deviceId: 'd1');
+      await c.restoreSession();
+      // Should not wipe credentials on network error
+      expect(await store.readRefreshToken(), 'valid_refresh_token');
     });
 
     test('cap banner only with known start', () async {

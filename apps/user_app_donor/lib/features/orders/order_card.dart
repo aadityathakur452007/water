@@ -189,7 +189,9 @@ class DonorOrderCard extends StatelessWidget {
                 text: order.addressLabel,
               ),
             ],
-            if (order.deliveryOtp != null && order.deliveryOtp!.isNotEmpty) ...[
+            if (!_isClosed &&
+                order.deliveryOtp != null &&
+                order.deliveryOtp!.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.sm),
               Container(
                 width: double.infinity,
@@ -243,6 +245,47 @@ class DonorOrderCard extends StatelessWidget {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (order.state == OrderState.failed) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.danger.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  border: Border.all(
+                    color: ShodashaTheme.danger.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: ShodashaTheme.danger,
+                      size: 16,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        (order.failureReason != null &&
+                                order.failureReason!.isNotEmpty)
+                            ? 'Delivery failed: ${formatFailureReason(order.failureReason)}'
+                            : 'Delivery could not be completed. Please contact support.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: ShodashaTheme.danger,
+                        ),
                       ),
                     ),
                   ],

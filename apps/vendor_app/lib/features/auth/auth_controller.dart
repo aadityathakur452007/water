@@ -297,7 +297,8 @@ class AuthController extends ChangeNotifier {
         refreshToken: refresh,
         deviceId: deviceId,
       );
-      final role = _session?.role ?? 'vendor';
+      final storedRole = await _store.readRole();
+      final role = _session?.role ?? storedRole ?? 'vendor';
       await _store.saveSession(
         accessToken: session.accessToken,
         refreshToken: session.refreshToken,
@@ -314,6 +315,18 @@ class AuthController extends ChangeNotifier {
       _status = AuthStatus.authenticated;
       _notify();
       return true;
+    } on ApiException catch (e) {
+      if (e.isNetwork) {
+        // Network problem: do not wipe store; vendor may be in a low-reception area.
+        return false;
+      }
+      // Server returned 401/403 (revoked / 30-day cap expired): wipe store.
+      await _store.clear();
+      _startedAt = null;
+      _session = null;
+      _status = AuthStatus.idle;
+      _notify();
+      return false;
     } catch (_) {
       return false;
     }
@@ -343,9 +356,16 @@ class AuthController extends ChangeNotifier {
     }
     final expiresAt = DateTime.tryParse(expiryIso);
     if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
-      await _store.clear(); // session expired → logged-out state (States.md)
-      _startedAt = null;
-      _status = AuthStatus.idle;
+      // Access token expired: attempt silent renew with stored refresh token
+      // before clearing. A working refresh saves the vendor from having to
+      // re-enter their code every morning.
+      final ok = await refreshSession();
+      if (!ok && _status != AuthStatus.authenticated) {
+        // If refresh was rejected (or refresh token missing), ensure status is idle
+        _status = AuthStatus.idle;
+        _notify();
+      }
+      return;
     } else {
       _session = AuthSession(
         accessToken: access,

@@ -74,6 +74,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   String _schedule = 'daily';
   String _billing = 'per_delivery';
   String _payment = 'cod';
+  bool _agreedToDamage = false;
 
   /// Regenerated whenever the payload changes so a retry of the same payload
   /// replays, and a changed payload never hits PAYLOAD_MISMATCH (legacy
@@ -298,7 +299,8 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         !_estimateLoading &&
         _estimateError == null &&
         _qty > 0 &&
-        _schedule.isNotEmpty;
+        _schedule.isNotEmpty &&
+        _agreedToDamage;
     return PopScope(
       canPop: !_submitting,
       child: Padding(
@@ -394,6 +396,8 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  _damageAgreementCard(),
                   const SizedBox(height: 16),
                   AppButton(
                     label: subStrings['startPlan']!,
@@ -850,6 +854,72 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
       ],
     ),
   );
+
+  Widget _damageAgreementCard() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _agreedToDamage
+            ? ShodashaTheme.tealTint
+            : ShodashaTheme.surface,
+        border: Border.all(
+          color: _agreedToDamage
+              ? ShodashaTheme.teal
+              : ShodashaTheme.border,
+          width: _agreedToDamage ? 1.5 : 1.0,
+        ),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+      ),
+      child: InkWell(
+        onTap: _submitting
+            ? null
+            : () => setState(() => _agreedToDamage = !_agreedToDamage),
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 24,
+              width: 24,
+              child: Checkbox(
+                value: _agreedToDamage,
+                activeColor: ShodashaTheme.teal,
+                onChanged: _submitting
+                    ? null
+                    : (val) => setState(() => _agreedToDamage = val ?? false),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'I agree to pay ₹650 if the jar is damaged or lost.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: ShodashaTheme.ink,
+                      height: 1.3,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    '20L water jars are reusable assets delivered without advance deposit. You agree to return jars in good condition.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ShodashaTheme.muted,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SignedOutNote extends StatelessWidget {

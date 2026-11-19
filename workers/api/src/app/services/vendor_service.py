@@ -719,8 +719,8 @@ class VendorService:
                 await OrderRepo(self._conn).transition(
                     stop["order_id"], "failed", {"id": vendor_id, "role": "vendor"}, f"RTO: {code}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.error("Failed to transition order %s to failed: %s", stop.get("order_id"), e)
 
         with WRITE_LOCK:
             try:

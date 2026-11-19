@@ -64,6 +64,7 @@ class OrderOut(BaseModel):
     delivery_otp: str | None = None
     delivery_otp_state: str = "none"
     delivery_otp_expires_at: str | None = None
+    failure_reason: str | None = None
 
 
 class OrderDetailOut(OrderOut):

@@ -163,7 +163,7 @@ class OrderRepo:
         """
         cols = await stop_columns(self._conn)
         selected = ["id", "status", "version"]
-        for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts", "triple"):
+        for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts", "triple", "failure_reason"):
             if name in cols:
                 selected.append(name)
         row = (
@@ -179,6 +179,7 @@ class OrderRepo:
         out.setdefault("pod_otp", None)
         out.setdefault("pod_otp_expires_at", None)
         out.setdefault("pod_attempts", 0)
+        out.setdefault("failure_reason", None)
         out["pod_otp"] = str(out["pod_otp"]) if out["pod_otp"] else None
         try:
             triple = json.loads(out.get("triple") or "{}")

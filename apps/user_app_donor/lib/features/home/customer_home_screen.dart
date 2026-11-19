@@ -171,6 +171,8 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                         listenable: widget.orders!,
                         builder: (context, _) {
                           Order? activeOrder;
+                          Order? recentFailedOrder;
+                          final now = DateTime.now();
                           for (final o in widget.orders!.allOrders) {
                             if (o.state == OrderState.dispatched ||
                                 o.state == OrderState.assigned ||
@@ -178,10 +180,21 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                               activeOrder = o;
                               break;
                             }
+                            if (recentFailedOrder == null &&
+                                o.state == OrderState.failed &&
+                                now.difference(o.windowStart).inHours.abs() < 24) {
+                              recentFailedOrder = o;
+                            }
                           }
                           if (activeOrder != null) {
                             return _ActiveDeliveryCard(
                               order: activeOrder,
+                              onTap: widget.onOpenOrders,
+                            );
+                          }
+                          if (recentFailedOrder != null) {
+                            return _FailedDeliveryNoticeCard(
+                              order: recentFailedOrder,
                               onTap: widget.onOpenOrders,
                             );
                           }
@@ -537,6 +550,109 @@ class _ActiveDeliveryCard extends StatelessWidget {
                 label: 'View details & tracking',
                 kind: AppButtonKind.secondary,
                 icon: Icons.track_changes_rounded,
+                onPressed: onTap,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FailedDeliveryNoticeCard extends StatelessWidget {
+  const _FailedDeliveryNoticeCard({
+    required this.order,
+    this.onTap,
+  });
+
+  final Order order;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final reasonText =
+        (order.failureReason != null && order.failureReason!.isNotEmpty)
+            ? formatFailureReason(order.failureReason)
+            : 'Delivery could not be completed';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.md,
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: ShodashaTheme.surface,
+          borderRadius: BorderRadius.circular(ShodashaTheme.radiusLg),
+          border: Border.all(
+            color: ShodashaTheme.danger.withValues(alpha: 0.35),
+            width: 1.2,
+          ),
+          boxShadow: ShodashaTheme.subtleCardShadow,
+        ),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.danger.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.error_outline_rounded,
+                    color: ShodashaTheme.danger,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'DELIVERY ATTEMPT FAILED',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: ShodashaTheme.danger,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      Text(
+                        reasonText,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: ShodashaTheme.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            const Text(
+              'Our delivery partner was unable to complete the delivery. Tap to view details or contact support.',
+              style: TextStyle(
+                fontSize: 12,
+                color: ShodashaTheme.muted,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (onTap != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              AppButton(
+                label: 'View order details',
+                kind: AppButtonKind.secondary,
+                icon: Icons.info_outline_rounded,
                 onPressed: onTap,
               ),
             ],

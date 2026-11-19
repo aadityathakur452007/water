@@ -191,6 +191,32 @@ void main() {
     expect(find.text('20L Jar Delivery'), findsOneWidget);
     expect(find.text('Water order'), findsNothing);
   });
+
+  testWidgets('failed order displays formatted failure reason and hides OTP', (
+    tester,
+  ) async {
+    final order = _order(
+      state: OrderState.failed,
+      deliveryOtp: '9999',
+    ).copyWith(
+      failureReason: 'DOOR_LOCKED',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DonorOrderCard(
+            order: order,
+            onTrack: () {},
+            onBill: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Delivery failed: Door was locked'), findsOneWidget);
+    expect(find.text('DELIVERY OTP (SHARE WITH RIDER)'), findsNothing);
+  });
 }
 
 Order _order({

@@ -108,6 +108,34 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('renders failure banner with formatted reason when failed', (
+    tester,
+  ) async {
+    final order = _buildOrder(
+      id: 'ord-failed',
+      state: OrderState.failed,
+      failureReason: 'DOOR_LOCKED',
+    );
+    final repo = StubOrdersRepository([order]);
+    final controller = OrdersController(repo: repo);
+    await controller.load();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildShodashaTheme(),
+        home: TrackingScreen(controller: controller, orderId: 'ord-failed'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Delivery could not be completed: Door was locked'),
+      findsOneWidget,
+    );
+    expect(find.text('Talk to support'), findsOneWidget);
+    expect(find.text('Call delivery partner'), findsNothing);
+  });
 }
 
 Order _buildOrder({
@@ -115,6 +143,7 @@ Order _buildOrder({
   required OrderState state,
   int stopsAhead = 0,
   String deliveryCodeState = 'active',
+  String? failureReason,
 }) {
   return Order(
     id: id,
@@ -129,5 +158,6 @@ Order _buildOrder({
     riderPhone: '+919876543210',
     deliveryOtp: '654321',
     deliveryCodeState: deliveryCodeState,
+    failureReason: failureReason,
   );
 }

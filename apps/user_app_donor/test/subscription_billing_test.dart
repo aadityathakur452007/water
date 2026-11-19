@@ -72,6 +72,10 @@ void main() {
       await tester.tap(find.text('Cash on delivery'));
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byType(Checkbox));
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+
       await tester.ensureVisible(find.text(subStrings['startPlan']!));
       await tester.tap(find.text(subStrings['startPlan']!));
       await tester.pumpAndSettle();

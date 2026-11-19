@@ -32,7 +32,7 @@ LEGAL_ORDER_TRANSITIONS: Final[dict[str, set[str]]] = {
     "accepted": {"picked", "cancelled"},
     "picked": {"packed", "cancelled"},
     "packed": {"assigned", "cancelled"},
-    "assigned": {"dispatched", "delivered", "cancelled"},
+    "assigned": {"dispatched", "delivered", "failed", "cancelled"},
     "dispatched": {"delivered", "failed", "cancelled"},
     "failed": {"dispatched", "cancelled"},
     "delivered": set(),

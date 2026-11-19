@@ -253,6 +253,7 @@ class Order {
     this.deliveryCodeState = 'none',
     this.deliveryCodeReissueAvailable = false,
     this.stopsAhead,
+    this.failureReason,
   });
 
   final String id;
@@ -262,6 +263,7 @@ class Order {
   final String? riderName;
   final String? riderPhone;
   final int? stopsAhead;
+  final String? failureReason;
   final String itemSummary;
   final String addressLabel;
   final int waterBillPaise;
@@ -343,6 +345,7 @@ class Order {
     int? stopsAhead,
     int? refillQty,
     int? containerQty,
+    String? failureReason,
   }) {
     return Order(
       id: id,
@@ -352,6 +355,7 @@ class Order {
       riderName: riderName ?? this.riderName,
       riderPhone: riderPhone ?? this.riderPhone,
       stopsAhead: stopsAhead ?? this.stopsAhead,
+      failureReason: failureReason ?? this.failureReason,
       paymentMode: paymentMode ?? this.paymentMode,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       deliveryOtp: deliveryOtp ?? this.deliveryOtp,
@@ -393,6 +397,7 @@ class Order {
       riderName: riderName,
       riderPhone: riderPhone,
       stopsAhead: stopsAhead,
+      failureReason: failureReason,
       itemSummary: itemSummary,
       addressLabel: addressLabel,
       waterBillPaise: waterBillPaise,
@@ -693,7 +698,30 @@ Order orderFromApi(Map<String, dynamic> json) {
     refillQty: refill,
     containerQty: container,
     createdAt: tryDate(json['created_at']),
+    failureReason: json['failure_reason']?.toString(),
   );
+}
+
+/// Translates raw failure/RTO reason codes from vendor/system into clear, calm Hindi/English copy.
+String formatFailureReason(String? raw) {
+  if (raw == null || raw.trim().isEmpty) {
+    return 'Delivery could not be completed';
+  }
+  final upper = raw.toUpperCase();
+  if (upper.contains('DOOR_LOCKED')) {
+    return 'Door was locked';
+  } else if (upper.contains('CUSTOMER_UNREACHABLE') ||
+      upper.contains('UNREACHABLE')) {
+    return 'Phone was unreachable';
+  } else if (upper.contains('CUSTOMER_REFUSED') || upper.contains('REFUSED')) {
+    return 'Customer refused delivery';
+  } else if (upper.contains('INCORRECT_ADDRESS') || upper.contains('ADDRESS')) {
+    return 'Address incomplete or unreachable';
+  } else if (upper.contains('RESCHEDULE_REQUESTED') ||
+      upper.contains('RESCHEDULE')) {
+    return 'Rescheduled on customer request';
+  }
+  return raw;
 }
 
 /// Live backend repository over [ApiClient.send] (no new deps).

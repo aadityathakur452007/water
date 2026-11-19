@@ -506,7 +506,10 @@ class _TrackingScreenState extends State<TrackingScreen>
                     _FlatBanner(text: ordersStringsHi['cancelledBanner']!)
                   else if (order.state == OrderState.failed)
                     _FlatBanner(
-                      text: ordersStringsHi['failedBanner']!,
+                      text: (order.failureReason != null &&
+                              order.failureReason!.isNotEmpty)
+                          ? 'Delivery could not be completed: ${formatFailureReason(order.failureReason)}'
+                          : ordersStringsHi['failedBanner']!,
                       isError: true,
                     )
                   else if (order.state == OrderState.rejected)
@@ -526,7 +529,10 @@ class _TrackingScreenState extends State<TrackingScreen>
                       order: order,
                     ),
                   ],
-                  if (order.riderName != null) ...[
+                  if (order.riderName != null &&
+                      order.state != OrderState.failed &&
+                      order.state != OrderState.cancelled &&
+                      order.state != OrderState.rejected) ...[
                     const SizedBox(height: AppSpacing.sm),
                     _RiderCard(order: order, onCall: () => _callRider(order)),
                   ],

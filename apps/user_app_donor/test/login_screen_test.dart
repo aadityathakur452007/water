@@ -5,7 +5,31 @@ import 'package:shodasha_donor/features/auth/auth_controller.dart';
 import 'package:shodasha_donor/features/auth/login_screen.dart';
 
 void main() {
-  testWidgets('sign-in is mobile + password and fits a 360dp phone', (
+  testWidgets(
+    'welcome screen renders delivery hero, doorstep water delivery branding, and action buttons',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final controller = _controller(_StubAuthApi());
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: DonorLoginScreen(controller: controller)),
+      );
+
+      expect(find.text('Doorstep Water Delivery'), findsOneWidget);
+      expect(find.textContaining('Pure 20L RO + UV water jars'), findsOneWidget);
+      expect(find.text('Login'), findsOneWidget);
+      expect(find.text('Create an Account'), findsOneWidget);
+      expect(find.textContaining('Terms & Privacy Policy'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('sign-in mode is mobile + password and fits a 360dp phone', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(360, 900);
@@ -20,7 +44,10 @@ void main() {
       MaterialApp(home: DonorLoginScreen(controller: controller)),
     );
 
-    expect(find.textContaining('Shodasha'), findsWidgets);
+    // Tap Login button to switch from Welcome to Sign In mode
+    await tester.tap(find.text('Login'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Mobile number'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
@@ -45,9 +72,8 @@ void main() {
         MaterialApp(home: DonorLoginScreen(controller: controller)),
       );
 
-      final createLink = find.text('New here? Create account');
-      await tester.ensureVisible(createLink);
-      await tester.tap(createLink);
+      // Tap Create an Account on welcome screen
+      await tester.tap(find.text('Create an Account'));
       await tester.pumpAndSettle();
 
       expect(find.text('Create your account'), findsOneWidget);
@@ -71,8 +97,14 @@ void main() {
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(home: DonorLoginScreen(controller: controller)),
+      MaterialApp(
+        home: DonorLoginScreen(
+          controller: controller,
+          initialMode: AuthMode.signIn,
+        ),
+      ),
     );
+    await tester.pumpAndSettle();
 
     final signIn = find.text('Sign in').last;
     await tester.ensureVisible(signIn);
@@ -100,8 +132,14 @@ void main() {
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(home: DonorLoginScreen(controller: controller)),
+      MaterialApp(
+        home: DonorLoginScreen(
+          controller: controller,
+          initialMode: AuthMode.signIn,
+        ),
+      ),
     );
+    await tester.pumpAndSettle();
 
     final fields = find.byType(TextFormField);
     expect(fields, findsNWidgets(2));
@@ -117,6 +155,7 @@ void main() {
     expect(api.loginPassword, 'water123');
     expect(controller.isAuthenticated, isTrue);
   });
+
   testWidgets(
     'registration 409 ACCOUNT_EXISTS pivots to sign-in and focuses password',
     (tester) async {
@@ -135,12 +174,13 @@ void main() {
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(
-        MaterialApp(home: DonorLoginScreen(controller: controller)),
+        MaterialApp(
+          home: DonorLoginScreen(
+            controller: controller,
+            initialMode: AuthMode.create,
+          ),
+        ),
       );
-
-      final createLink = find.text('New here? Create account');
-      await tester.ensureVisible(createLink);
-      await tester.tap(createLink);
       await tester.pumpAndSettle();
 
       final fields = find.byType(TextFormField);
@@ -171,7 +211,7 @@ void main() {
     },
   );
 
-  testWidgets('hero renders tactile 20L emblem and canonical tagline', (
+  testWidgets('hero renders 3D delivery hero asset and water delivery tagline', (
     tester,
   ) async {
     final controller = _controller(_StubAuthApi());
@@ -181,16 +221,9 @@ void main() {
       MaterialApp(home: DonorLoginScreen(controller: controller)),
     );
 
-    expect(
-      find.text('Pure 20L water delivered to your doorstep'),
-      findsOneWidget,
-    );
-    expect(find.text('RO+UV · Lab Tested'), findsOneWidget);
+    expect(find.text('Doorstep Water Delivery'), findsOneWidget);
+    expect(find.textContaining('Pure 20L RO + UV water jars'), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
-    expect(
-      find.text('Shodasha customer app · Password protected'),
-      findsNothing,
-    );
   });
 }
 
