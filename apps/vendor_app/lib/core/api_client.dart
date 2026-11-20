@@ -555,6 +555,11 @@ class ApiClient {
     return (raw as Map<String, dynamic>);
   }
 
+  Future<Map<String, dynamic>> reissueRiderCode(String riderId) async {
+    final raw = await send('POST', '/vendor/riders/$riderId/code');
+    return (raw as Map<String, dynamic>);
+  }
+
   Future<Map<String, dynamic>> assignStopRider({
     required String stopId,
     required String? riderId,

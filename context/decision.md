@@ -3435,3 +3435,56 @@
   - Positive: Customer and rider experience is seamless and zero-friction at the doorstep.
   - Positive: Complete auditability and cryptographic defense against unauthorized stop claims.
   - Verification: 502/502 backend tests pass, 122/122 donor app tests pass, 90/90 vendor app tests pass, 3/3 rider app tests pass. 0 lint/analyze issues.
+
+---
+
+## ADR-210 — Rider onboarding cannot rewrite account roles; cookie writes must be same-origin (2026-11-20)
+
+**Context:** An executed pentest (real ASGI requests, real session tokens) found two authorization defects in `workers/api`.
+
+1. `VendorService.create_rider` matched *any* user by phone and then wrote `role='rider'`, `assigned_vendor_id` and `suspended=0`. Chained with the phone-only rider login this is account takeover, and it could demote the platform admin or steal another vendor's rider.
+2. `auth_deps._bearer` accepted the `sh_session` cookie for every method with no CSRF defence; a foreign-`Origin` `POST /v1/admin/orders/{id}/cancel-override` returned 200 and cancelled the order.
+
+**Decision:**
+- `create_rider` accepts an existing phone only when it is already a rider owned by the calling vendor; everything else is `409 STATE_CONFLICT` before any write. Role/ownership are never mutated by onboarding; `suspended=0` applies only to the vendor's own rider (the intended reinstatement flow).
+- `get_current_user` rejects cookie-authenticated unsafe methods whose `Origin`/`Referer` host differs from the request `Host` (or is absent). Requests carrying an `Authorization` header bypass the gate, so Flutter apps, the admin BFF proxy and the vendor portal are unchanged.
+
+**Alternatives rejected:**
+- *Require a CSRF token* — new state, new endpoint, and both shipped web clients already use Bearer; the Origin check needs no client change.
+- *Remove cookie auth entirely* — would break any deployment that relies on the documented admin-web cookie path; the gate keeps it usable same-origin.
+- *Hard-require a rider code now* — correct end state, but it changes the rider/vendor app contract, so it is documented as VULN-002 and held for approval per the design-first gate.
+
+## ADR-211 — Rider sign-in requires a vendor-issued access code (2026-11-20)
+
+**Context:** VULN-002 from the executed pentest: `AuthService.rider_login` accepted a phone number and an optional, never-compared `name`. A rider's number is visible on delivery sheets and shared with customers, so anyone holding it could mint a rider session, read live routes (drop addresses, landmarks, cash due) and fail another rider's stops. ADR-210 deliberately held this fix behind the design gate because it changes the rider/vendor contract; the owner then asked for all phases to be run and fixed properly, which is the approval for this change.
+
+**Decision:**
+- Reuse the existing access-code door instead of inventing a second credential store: `access_codes` already stores hash-only, expiring, revocable codes with `expected_role`, and `code_login` already knows how to verify them.
+- `VendorService.create_rider` mints a 6-digit `secrets` code on every onboarding (90-day TTL, `created_by=<vendor id>`) and returns the plaintext exactly once in the response. Re-onboarding an existing rider is the reset path; a leaked code is deliberately not auto-revoked so a vendor can reissue without locking out a rider mid-shift.
+- `AuthService.rider_login` requires `code`, matches against `find_valid(user_id)` rows with `expected_role='rider'` via `hmac.compare_digest`, touches `last_used_at`, and rate-limits per phone and per device.
+- Every failure (unknown number, wrong/missing/expired/revoked code, foreign-role code, suspended rider) returns one generic `401 Invalid credentials.` — an auth door must not be an account oracle.
+- Clients follow the contract: `apps/rider_app` login gained the "Sign-in Code" field and sends it; `apps/vendor_app` shows the returned code in a once-only dialog after registering a rider.
+
+**Alternatives rejected:**
+- *SMS/Firebase OTP for riders* — correct security-wise but adds cost, an SMS provider and delivery failures at shift start; the vendor already has a trusted channel to hand over a code.
+- *Per-rider password* — riders reuse passwords, and resets would still need the vendor; the numeric code is the same trust model with less support load.
+- *Keep phone-only and restrict at the edge* — leaves the flaw in the application layer where it will resurface behind any new ingress.
+
+**Consequences:** rider login is now a two-factor-by-possession flow (phone + vendor code); `harness2.py` RIDER-01/02/03 flip to PASS, `tests/test_rider_login_code.py` (8 tests) guards the matrix, and the HTTP E2E run exercises onboarding → code → login → delivery (23/23). Unchanged: delivery completion still requires the customer's own delivery code, so a stolen rider session still cannot fake a doorstep handover.
+
+## ADR-212 — Rider codes rotate from the rider list; one live code per rider (2026-11-20)
+
+**Context:** ADR-211 made rider sign-in depend on a vendor-issued code, but the only way to replace a lost or leaked code was to re-onboard the rider (`POST /v1/vendor/riders` with the same phone), which reads like "add a new rider" and is not discoverable from the rider list. Re-issuing also left the previous code alive until it expired, so a leaked code stayed valid for up to 90 days.
+
+**Decision:**
+- One issuing path: `VendorService._issue_rider_code(vendor_id, rider_id)` revokes the rider's live `rider` codes (`AccessCodeRepo.revoke_all`) and then mints a fresh 6-digit code. Both onboarding and rotation use it, so "one live code per rider" is an invariant rather than a convention.
+- New endpoint `POST /v1/vendor/riders/{rider_id}/code` → `reissue_rider_code`: rider must be `role='rider'` and owned by the calling vendor, else `404` (no existence oracle); a rider token gets `403` from the `_vendor` dependency.
+- Vendor app: a key icon on each rider row calls the endpoint and shows the same once-only code dialog used after onboarding; the helper copy now describes the code instead of the old "no password needed" claim.
+- Re-issuing does **not** revoke sessions. The code is a door key; a rider already on shift keeps working, and only future logins need the new code.
+
+**Alternatives rejected:**
+- *Keep re-onboarding as the reset path* — works, but invisible in the UI and semantically wrong; a vendor clicking "Add rider" to fix a forgotten code is a support-ticket generator.
+- *Leave old codes valid alongside new ones* — keeps a leaked code alive for its whole TTL; rotation that does not revoke is not rotation.
+- *Revoke the rider's sessions on rotation* — punishes the rider mid-shift for a code the vendor just changed; session revocation already exists as `POST /v1/auth/logout` with `revoke_all`.
+
+**Consequences:** forgotten/leaked codes are fixed in one tap with immediate effect; `access_codes` holds at most one live rider code per rider (the admin access-code surface still shows history, since rows are timestamp-revoked, never deleted). Tests: 4 new cases in `tests/test_rider_login_code.py` (rotation, vendor scoping, rider `403`, re-onboarding rotation); E2E now proves old-code `401` / new-code `200` (26/26).

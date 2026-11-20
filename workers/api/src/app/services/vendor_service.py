@@ -23,6 +23,8 @@ import hashlib
 import hmac
 import json
 import math
+import secrets
+import uuid
 
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
@@ -35,6 +37,7 @@ from app.services import delivery_code
 Conn = D1Conn | AsyncSqliteConn
 
 GPS_FLAG_M = 200.0  # §12: drift beyond this soft-flags for admin, never blocks
+RIDER_CODE_TTL_DAYS = 90  # rider sign-in code lifetime; re-onboard to reissue
 
 TRIPLE_ENDPOINT = "POST /v1/vendor/stops/{id}/triple"
 CASH_ENDPOINT = "POST /v1/vendor/stops/{id}/cash"
@@ -1202,23 +1205,33 @@ class VendorService:
         self._conn.commit()
 
     async def create_rider(self, vendor_id: str, name: str, phone: str) -> dict:
-        import uuid
-        import datetime as _dt
-        from app.services.auth_service import normalize_phone
-        from app.db import WRITE_LOCK
+        from app.services.auth_service import normalize_phone  # noqa: PLC0415
 
         phone_n = normalize_phone(phone)
         now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
         with WRITE_LOCK:
             existing = (await self._conn.execute(
-                "SELECT id, phone, name, role FROM users WHERE phone = ?",
+                "SELECT id, phone, name, role, assigned_vendor_id FROM users WHERE phone = ?",
                 (phone_n,),
             )).fetchone()
             if existing is not None:
+                # Onboarding must never rewrite an existing account's role or
+                # owner: that let a vendor turn any customer/admin phone into
+                # their rider and then sign in as it (phone-only rider login).
+                if str(existing["role"]) != "rider":
+                    raise ConflictError(
+                        "This number already belongs to another account.",
+                        {"phone": phone_n},
+                    )
+                if str(existing["assigned_vendor_id"] or "") != str(vendor_id):
+                    raise ConflictError(
+                        "This rider belongs to another vendor.",
+                        {"phone": phone_n},
+                    )
                 rider_id = existing["id"]
                 await self._conn.execute(
-                    "UPDATE users SET name = ?, role = 'rider', assigned_vendor_id = ?, suspended = 0 WHERE id = ?",
-                    (name.strip(), vendor_id, rider_id),
+                    "UPDATE users SET name = ?, suspended = 0 WHERE id = ?",
+                    (name.strip(), rider_id),
                 )
             else:
                 rider_id = str(uuid.uuid4())
@@ -1228,7 +1241,46 @@ class VendorService:
                     (rider_id, phone_n, name.strip(), vendor_id, now_iso),
                 )
             self._conn.commit()
-        return {"id": rider_id, "name": name.strip(), "phone": phone_n, "vendor_id": vendor_id}
+        rider = {"id": rider_id, "name": name.strip(), "phone": phone_n,
+                 "vendor_id": vendor_id}
+        return {**rider, **await self._issue_rider_code(vendor_id, rider_id)}
+
+    async def _issue_rider_code(self, vendor_id: str, rider_id: str) -> dict:
+        """Mint the rider's sign-in code, replacing any live one.
+
+        Keeping exactly one live code per rider makes rotation honest: the old
+        code dies the moment a new one is issued. Open sessions are untouched —
+        the code is a door key, not the session itself.
+        """
+        from app.repositories.access_code_repo import AccessCodeRepo  # noqa: PLC0415
+
+        code = f"{secrets.randbelow(900000) + 100000}"
+        expires_at = (
+            _dt.datetime.now(_dt.timezone.utc)
+            + _dt.timedelta(days=RIDER_CODE_TTL_DAYS)
+        ).isoformat()
+        repo = AccessCodeRepo(self._conn)
+        await repo.revoke_all(rider_id, "rider")
+        await repo.issue(
+            code_id=uuid.uuid4().hex,
+            user_id=rider_id,
+            code_hash=hashlib.sha256(code.encode()).hexdigest(),
+            masked_hint=f"\u2022\u2022{code[-2:]}",
+            expected_role="rider",
+            expires_at=expires_at,
+            created_by=vendor_id,
+        )
+        return {"access_code": code, "access_code_expires_at": expires_at}
+
+    async def reissue_rider_code(self, vendor_id: str, rider_id: str) -> dict:
+        """Rotate a rider's sign-in code; the previous code stops working."""
+        owned = (await self._conn.execute(
+            "SELECT id FROM users WHERE id = ? AND role = 'rider' AND assigned_vendor_id = ?",
+            (rider_id, vendor_id),
+        )).fetchone()
+        if owned is None:
+            raise NotFoundError("Rider not found.", {"id": rider_id})
+        return {"id": rider_id, **await self._issue_rider_code(vendor_id, rider_id)}
 
     async def list_riders(self, vendor_id: str) -> list[dict]:
         rows = (await self._conn.execute(

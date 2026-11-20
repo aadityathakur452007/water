@@ -2321,3 +2321,41 @@ sequenceDiagram
     API-->>R: 200 OK {status: "delivered"}
     R->>R: Card marked Delivered & empties tracked
 ```
+
+---
+
+## Security gates (2026-11-20, ADR-210/211)
+
+### Vendor rider onboarding — `POST /v1/vendor/riders`
+`vendor.py:create_vendor_rider` → `VendorService.create_rider(vendor_id, name, phone)`
+→ look up `users` by normalized phone:
+- none → insert `role='rider'`, `assigned_vendor_id=<caller>`
+- existing **rider of the caller** → rename + `suspended=0`
+- existing anything else (customer, admin, another vendor's rider) → `409 STATE_CONFLICT`, zero writes
+- after the write: `_issue_rider_code` → revoke the rider's live codes → mint a 6-digit code → `access_codes(code_hash=sha256, expected_role='rider', expires_at=+90d, created_by=<vendor>)` → returned **once** as `access_code` + `access_code_expires_at`
+
+### Rider code rotation — `POST /v1/vendor/riders/{rider_id}/code`
+`vendor.py:reissue_vendor_rider_code` → `VendorService.reissue_rider_code(vendor_id, rider_id)`
+- guard: rider must be `role='rider'` **and** `assigned_vendor_id=<caller>` → else `404 Rider not found.` (no oracle); rider token → `403`
+- same `_issue_rider_code` as onboarding: old code dies immediately, new one is valid; open sessions are untouched
+- vendor app: key icon on each rider row → code dialog (same one shown after onboarding)
+
+### Cookie session writes — `app/api/auth_deps.py`
+`get_current_user` → `_reject_cross_site_cookie_write(request)`
+- `Authorization` header present → skip gate (Bearer is not CSRF-able)
+- token sourced from `sh_session` cookie + unsafe method (`POST/PATCH/DELETE`) → require `Origin` (or `Referer`) host == request `Host`, else `403 "Cross-origin request rejected."`
+- `GET/HEAD/OPTIONS` unaffected
+
+### Rider login — `POST /v1/auth/rider/login` (ADR-211)
+`auth.py:rider_login` → `AuthService.rider_login(phone, name, code, device_id)`
+- limit: 5/phone/15 min **and** 10/device/hr
+- phone → `users WHERE role='rider'` → `AccessCodeRepo.find_valid(user_id)` → sha256(`code`) compared with `hmac.compare_digest` against rows whose `expected_role='rider'`
+- user read through `UserRepo.find_by_phone` (normalized phone), not a raw SQL `OR` match; non-rider or suspended → treated as no match
+- match → `touch_last_used` → issue session; `name` still only fills a blank name, never an identity claim
+- no row, wrong/missing/expired/revoked code, code minted for another role, or `suspended=1` → one generic `401 Invalid credentials.` (no account oracle)
+- missing `code` field → `400` from the `RiderLoginIn` schema
+- clients: `apps/rider_app` login has the "Sign-in Code" field; `apps/vendor_app` shows the code once in a dialog after rider registration
+- acceptance tests: `harness2.py` RIDER-01/02/03 (all PASS) + `tests/test_rider_login_code.py` (8)
+
+### Full workflow check — `security-audit/pentest/e2e_http.py`
+Real `uvicorn` server over TCP, 23 assertions: register → address → quote → COD order → admin assign → vendor triple → customer code → vendor PoD → delivered/paid → admin view → rider onboarding (returns code) → rider login with code → rider route → rider completion → delivered → cancel refused → ledger `dues=0`.

@@ -24,3 +24,10 @@ pylock.toml
 .freebuff/
 .utim_tmp/
 scratch/
+
+# Isolated pentest tooling checkout (not part of the app)
+.pentest/
+
+# Pentest run artifacts (regenerable; raw results carry ephemeral session tokens)
+security-audit/pentest/results*.json
+security-audit/pentest/server.log

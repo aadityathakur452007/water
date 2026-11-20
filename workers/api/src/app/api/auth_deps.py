@@ -61,12 +61,59 @@ def invalidate_request_session(request: Request) -> None:
 def _bearer(request: Request) -> str | None:
     """Bearer token from the Authorization header, or the admin-web session
     cookie ``sh_session`` (contract §0: Flutter uses Bearer, admin web uses an
-    HttpOnly cookie against the same API). Cookie tokens are hashed the same way."""
+    HttpOnly cookie against the same API). Cookie tokens are hashed the same way.
+    """
     auth = request.headers.get("Authorization", "")
     scheme, _, token = auth.partition(" ")
     if scheme.lower() == "bearer" and token.strip():
         return token.strip()
     return request.cookies.get("sh_session") or None
+
+
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _same_origin(request: Request) -> bool:
+    """True when the request proves it came from this API's own origin.
+
+    Browsers attach ``Origin`` to every cross-origin unsafe request (and to
+    same-origin POSTs in current engines), so one comparison is enough to tell
+    a first-party form/fetch from a CSRF attempt. A cookie write with no
+    Origin/Referer at all is not a browser same-origin form: deny it.
+    """
+    candidate = (request.headers.get("origin") or "").strip()
+    if not candidate:
+        referer = (request.headers.get("referer") or "").strip()
+        if referer:
+            parts = referer.split("/")
+            candidate = "/".join(parts[:3]) if len(parts) >= 3 else ""
+    if not candidate or candidate == "null":
+        return False
+    host = (request.headers.get("host") or "").strip().lower()
+    if not host:
+        return False
+    scheme, _, netloc = candidate.partition("://")
+    netloc = netloc.split("/", 1)[0].lower()
+    return bool(netloc) and netloc == host and scheme in ("http", "https")
+
+
+def _reject_cross_site_cookie_write(request: Request) -> None:
+    """CSRF gate for cookie-authenticated unsafe methods.
+
+    Bearer tokens are immune (a browser never attaches them automatically).
+    Requests carrying an Authorization header skip this gate entirely, so
+    every app using Bearer is unaffected.
+    """
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth:
+        return
+    if not request.cookies.get("sh_session"):
+        return
+    if request.method.upper() in _SAFE_METHODS:
+        return
+    if _same_origin(request):
+        return
+    raise HTTPException(status_code=403, detail="Cross-origin request rejected.")
 
 
 def _expired(iso_ts: str) -> bool:
@@ -81,6 +128,7 @@ def _expired(iso_ts: str) -> bool:
 
 async def get_current_user(request: Request, conn=Depends(get_db_conn)) -> dict:
     """Bearer session -> user dict. Missing/bad/expired/revoked -> 401 UNAUTH."""
+    _reject_cross_site_cookie_write(request)
     token = _bearer(request)
     if token is None:
         raise HTTPException(status_code=401, detail="Unauthorized")

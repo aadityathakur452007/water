@@ -194,7 +194,7 @@ class _RidersScreenState extends State<RidersScreen> {
                               formError = null;
                             });
                             try {
-                              await widget.api!.createRider(
+                              final rider = await widget.api!.createRider(
                                 name: name,
                                 phone: phone,
                               );
@@ -202,15 +202,11 @@ class _RidersScreenState extends State<RidersScreen> {
                                 Navigator.of(ctx).pop();
                               }
                               if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Rider $name registered! Mobile: $phone',
-                                    ),
-                                    backgroundColor: ShodashaTheme.ink,
-                                  ),
-                                );
                                 _loadRiders();
+                                final code = rider['access_code'] as String?;
+                                if (code != null) {
+                                  await _showCodeDialog(name, phone, code);
+                                }
                               }
                             } catch (e) {
                               if (ctx.mounted) {
@@ -233,6 +229,68 @@ class _RidersScreenState extends State<RidersScreen> {
         ),
       ),
     );
+  }
+
+  /// Shows a freshly issued sign-in code. It is returned only once, so this
+  /// dialog is the only place the vendor can hand it to the rider.
+  Future<void> _showCodeDialog(String name, String phone, String code) {
+    return showDialog<void>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: Text(vtr('राइडर साइन-इन कोड', 'Rider sign-in code')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              vtr(
+                '$name की शिफ्ट $phone पर इस कोड से शुरू होगी। कोड केवल एक बार दिखता है।',
+                '$name starts their shift on $phone with this code. It is shown only once.',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            SelectableText(
+              code,
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 6,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: Text(vtr('ठीक है', 'Done')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _reissueCode(Map<String, dynamic> rider) async {
+    final name = rider['name']?.toString() ?? 'Rider';
+    final phone = rider['phone']?.toString() ?? '';
+    try {
+      final res = await widget.api!.reissueRiderCode(rider['id'].toString());
+      final code = res['access_code'] as String?;
+      if (code != null && mounted) await _showCodeDialog(name, phone, code);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            // Show the server's own words, not ApiException(code, status, …).
+            content: Text(
+              e is ApiException
+                  ? e.message
+                  : e.toString().replaceFirst('Exception: ', ''),
+            ),
+            backgroundColor: ShodashaTheme.danger,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -310,8 +368,8 @@ class _RidersScreenState extends State<RidersScreen> {
                             const SizedBox(height: 2),
                             Text(
                               vtr(
-                                'राइडर को कोई पासवर्ड नहीं चाहिए। वे शोडष राइडर ऐप में अपना नाम और रजिस्टर्ड मोबाइल नंबर डालकर सीधे लॉगिन कर सकते हैं।',
-                                'No password is required. Riders log in directly to the Shodasha Rider App using their registered mobile number and name.',
+                                'राइडर शोडष राइडर ऐप में अपना रजिस्टर्ड मोबाइल नंबर और साइन-इन कोड डालकर लॉगिन करते हैं। कोड भूल जाने पर यहाँ की चाबी (🔑) से नया कोड बनाएँ।',
+                                'Riders log in to the Shodasha Rider App with their registered mobile number and a sign-in code. Use the key icon to issue a new code if it is lost.',
                               ),
                               style: const TextStyle(
                                 fontSize: 11.5,
@@ -436,27 +494,42 @@ class _RidersScreenState extends State<RidersScreen> {
                             color: ShodashaTheme.muted,
                           ),
                         ),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isSuspended
-                                ? ShodashaTheme.border
-                                : ShodashaTheme.blueTint,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            isSuspended ? 'Suspended' : 'Active Rider',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: isSuspended
-                                  ? ShodashaTheme.muted
-                                  : ShodashaTheme.blue,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSuspended
+                                    ? ShodashaTheme.border
+                                    : ShodashaTheme.blueTint,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                isSuspended ? 'Suspended' : 'Active Rider',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSuspended
+                                      ? ShodashaTheme.muted
+                                      : ShodashaTheme.blue,
+                                ),
+                              ),
                             ),
-                          ),
+                            IconButton(
+                              tooltip: vtr(
+                                'नया साइन-इन कोड',
+                                'New sign-in code',
+                              ),
+                              icon: const Icon(Icons.key_rounded, size: 20),
+                              onPressed: () => _reissueCode(
+                                Map<String, dynamic>.from(r as Map),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     );

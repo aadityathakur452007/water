@@ -80,6 +80,17 @@ class AccessCodeRepo:
             self._conn.commit()
             return bool(cur.rowcount and cur.rowcount > 0)
 
+    async def revoke_all(self, user_id: str, expected_role: str) -> int:
+        """Timestamp-revoke every live code of one role (rotation)."""
+        with WRITE_LOCK:
+            cur = await self._conn.execute(
+                "UPDATE access_codes SET revoked_at = ?"
+                " WHERE user_id = ? AND expected_role = ? AND revoked_at IS NULL",
+                (_now(), user_id, expected_role),
+            )
+            self._conn.commit()
+            return int(cur.rowcount or 0)
+
     async def touch_last_used(self, code_id: str) -> None:
         with WRITE_LOCK:
             await self._conn.execute(

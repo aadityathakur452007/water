@@ -563,34 +563,45 @@ class AuthService:
         return out
 
     async def rider_login(
-        self, phone: str | None, name: str | None, device_id: str, device: dict | None = None
+        self, phone: str | None, name: str | None, code: str | None,
+        device_id: str, device: dict | None = None,
     ) -> dict:
-        """Lightweight Rider login: registered mobile number + name.
+        """Rider login: registered mobile number + vendor-issued access code.
 
-        Validates phone belongs to an active user with role == 'rider'.
-        No complex passwords or friction — the vendor registers the phone,
-        and the delivery worker logs straight in to start their route.
+        The vendor mints the code at onboarding (`POST /v1/vendor/riders`) and
+        rotates it with `POST /v1/vendor/riders/{id}/code`; only its sha256
+        lands in `access_codes` with ``expected_role='rider'``. A phone number
+        is public, so it can never be the only factor.
         """
+        from app.repositories.access_code_repo import AccessCodeRepo  # noqa: PLC0415
+
         if not (device_id or "").strip():
             raise ValidationError("Device id required.", {"device": "id"})
         phone_n = normalize_phone(phone or "")
-        raw_phone = (phone or "").strip()
-
         await self._limit_checks([
             (f"rider_login:phone:{phone_n}", *LOGIN_PHONE_LIMIT),
+            (f"rider_login:device:{device_id}", *ACCESS_CODE_DEVICE_LIMIT),
         ])
 
-        row = (await self._conn.execute(
-            "SELECT * FROM users WHERE (phone = ? OR phone = ?) AND role = 'rider' LIMIT 1",
-            (phone_n, raw_phone),
-        )).fetchone()
+        user = await self._users.find_by_phone(phone_n)
+        if user is not None and (user.get("role") != "rider" or user.get("suspended")):
+            user = None
 
-        if row is None:
-            raise UnauthError("Mobile number is not registered as an active rider. Please contact your vendor.", {})
+        want = hash_token((code or "").strip())
+        matched_id: str | None = None
+        if user is not None:
+            for cand in await AccessCodeRepo(self._conn).find_valid(user["id"]):
+                if (str(cand.get("expected_role") or "") == "rider"
+                        and hmac.compare_digest(str(cand["code_hash"]), want)):
+                    matched_id = str(cand["id"])
+                    break
 
-        user = dict(row)
-        if bool(user.get("suspended")):
-            raise UnauthError("Rider account is suspended.", {})
+        # One generic error for unknown numbers, wrong/missing/expired/revoked
+        # codes and suspended riders — this door is not an account oracle.
+        if user is None or matched_id is None:
+            raise UnauthError("Invalid credentials.", {})
+
+        await AccessCodeRepo(self._conn).touch_last_used(matched_id)
 
         if name and name.strip() and (not user.get("name") or user.get("name") == "Rider"):
             with WRITE_LOCK:

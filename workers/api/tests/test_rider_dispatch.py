@@ -85,6 +85,14 @@ def _seed_db():
         (POD_OTP, POD_EXPIRY),
     )
 
+    # Seed the vendor-issued rider sign-in code (plaintext 135790)
+    c.execute(
+        "INSERT INTO access_codes (id, user_id, code_hash, masked_hint, expected_role, "
+        "expires_at, revoked_at, last_used_at, created_by, created_at) "
+        "VALUES ('ac-r1', 'r1', ?, '••90', 'rider', ?, NULL, NULL, 'v1', ?)",
+        (_hash("135790"), POD_EXPIRY, NOW_ISO),
+    )
+
     # Seed auth sessions
     c.execute(
         "INSERT INTO sessions (id, user_id, role, device_fp, token_hash, refresh_hash, family_id, expires_at, refresh_expires_at, session_expires_at, created_at) "
@@ -108,10 +116,12 @@ def test_rider_login_unregistered():
     client = _client(conn)
     res = client.post(
         "/v1/auth/rider/login",
-        json={"phone": "9999999999", "name": "Unknown", "device": {"id": "device-1"}},
+        json={"phone": "9999999999", "name": "Unknown", "code": "135790",
+              "device": {"id": "device-1"}},
     )
     assert res.status_code == 401
-    assert "not registered" in res.json()["error"]["message"].lower()
+    # Generic message: the door must not reveal whether the number exists.
+    assert "invalid credentials" in res.json()["error"]["message"].lower()
 
 
 def test_rider_login_success():
@@ -119,7 +129,8 @@ def test_rider_login_success():
     client = _client(conn)
     res = client.post(
         "/v1/auth/rider/login",
-        json={"phone": "9876500003", "name": "Rider Shyam", "device": {"id": "device-1"}},
+        json={"phone": "9876500003", "name": "Rider Shyam", "code": "135790",
+              "device": {"id": "device-1"}},
     )
     assert res.status_code == 200
     data = res.json()

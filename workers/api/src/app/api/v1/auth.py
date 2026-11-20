@@ -56,6 +56,8 @@ class RiderLoginIn(BaseModel):
     phone: str = Field(min_length=10, max_length=16,
                        pattern=r"^(\+91|91|0)?[6-9]\d{9}$")
     name: str | None = Field(default=None, max_length=100)
+    # Vendor-issued sign-in code (returned once by POST /v1/vendor/riders).
+    code: str = Field(min_length=4, max_length=32)
     device: DeviceIn
 
 
@@ -155,10 +157,11 @@ async def admin_login(payload: AdminLoginIn, svc: AuthService = Depends(_service
 
 @ops_router.post("/auth/rider/login")
 async def rider_login(payload: RiderLoginIn, svc: AuthService = Depends(_service)):
-    """Rider quick login: registered phone + name → rider session."""
+    """Rider login: registered phone + vendor-issued code → rider session."""
     return await svc.rider_login(
         payload.phone,
         payload.name,
+        payload.code,
         payload.device.id,
         payload.device.model_dump(),
     )

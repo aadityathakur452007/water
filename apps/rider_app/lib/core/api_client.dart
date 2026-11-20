@@ -49,6 +49,7 @@ class ApiClient {
   Future<Map<String, dynamic>> loginRider({
     required String phone,
     required String name,
+    required String code,
     String deviceId = 'rider-device-default',
   }) async {
     final url = Uri.parse('$baseUrl/v1/auth/rider/login');
@@ -58,6 +59,8 @@ class ApiClient {
       body: jsonEncode({
         'phone': phone.trim(),
         'name': name.trim(),
+        // Vendor-issued sign-in code; the phone number alone is not enough.
+        'code': code.trim(),
         'device': {'id': deviceId},
       }),
     );

@@ -20,6 +20,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _codeController = TextEditingController();
   bool _busy = false;
   String? _errorMessage;
 
@@ -27,12 +28,14 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     final name = _nameController.text.trim();
     final rawPhone = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    final code = _codeController.text.trim();
 
     if (name.isEmpty) {
       setState(() => _errorMessage = 'Please enter your name');
@@ -40,6 +43,11 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     if (rawPhone.length < 10) {
       setState(() => _errorMessage = 'Enter a valid 10-digit mobile number');
+      return;
+    }
+    if (code.length < 4) {
+      setState(() => _errorMessage =
+          'Enter the sign-in code your vendor gave you');
       return;
     }
 
@@ -52,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await widget.api.loginRider(
         phone: rawPhone,
         name: name,
+        code: code,
       );
       if (mounted) {
         widget.onLoginSuccess();
@@ -179,6 +188,37 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderSide: const BorderSide(color: ShodashaTheme.border),
                     ),
                     prefixIcon: const Icon(Icons.phone_outlined, color: ShodashaTheme.muted),
+                  ),
+                ),
+
+                const SizedBox(height: AppSpacing.md),
+
+                // Vendor-issued sign-in code (password equivalent)
+                const Text(
+                  'Sign-in Code',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                TextField(
+                  controller: _codeController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 8,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 2),
+                  decoration: InputDecoration(
+                    hintText: '6-digit code from your vendor',
+                    counterText: '',
+                    filled: true,
+                    fillColor: ShodashaTheme.surface,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                      borderSide: const BorderSide(color: ShodashaTheme.border),
+                    ),
+                    prefixIcon: const Icon(Icons.password_rounded, color: ShodashaTheme.muted),
                   ),
                 ),
 

@@ -280,6 +280,12 @@ async def list_vendor_riders(conn=Depends(get_db_conn), user=Depends(_vendor)):
     return {"data": await _svc(conn).list_riders(_uid(user))}
 
 
+@router.post("/vendor/riders/{rider_id}/code")
+async def reissue_vendor_rider_code(rider_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Rotate a rider's sign-in code; the previous code stops working at once."""
+    return await _svc(conn).reissue_rider_code(_uid(user), rider_id)
+
+
 @router.post("/vendor/stops/{stop_id}/assign-rider")
 async def assign_stop_rider(stop_id: str, payload: AssignRiderIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
     """Assign a specific stop to a rider (or unassign with null)."""
