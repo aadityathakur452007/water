@@ -136,9 +136,11 @@ const Map<String, String> subStrings = {
   'billing': 'Billing',
   'payCod': 'Cash on delivery',
   'payUpi': 'UPI',
-  'billPerDelivery': 'Pay for each delivery',
-  'billPrepaid': 'Monthly prepaid',
+  'billPerDelivery': 'Each jar bill',
+  'billDaily': 'Daily bill',
+  'billWeekly': 'Weekly bill',
   'billPostpaid': 'Monthly bill',
+  'billPrepaid': 'Monthly prepaid',
   'billPerDeliveryNote':
       "No payment is collected now. You'll pay at each delivery.",
   'billPrepaidNote':

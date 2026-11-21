@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -16,25 +17,57 @@ class DeliveryScreen extends StatefulWidget {
   State<DeliveryScreen> createState() => _DeliveryScreenState();
 }
 
-class _DeliveryScreenState extends State<DeliveryScreen> {
+class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObserver {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _stops = [];
   Map<String, dynamic> _summary = {'total': 0, 'delivered': 0, 'pending': 0};
   String _dutyStatus = 'on_duty';
   String _filter = 'pending'; // 'pending' or 'delivered'
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadRoute();
+    _startPolling();
   }
 
-  Future<void> _loadRoute() async {
-    setState(() {
-      _loading = true;
-      _error = null;
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && _dutyStatus == 'on_duty' && !_loading) {
+        _loadRoute(silent: true);
+      }
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadRoute(silent: true);
+      _startPolling();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _pollTimer?.cancel();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadRoute({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final data = await widget.api.getTodayRoute();
@@ -53,7 +86,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _loading = false;
           _error = e.toString().replaceFirst('Exception: ', '');
@@ -114,6 +147,132 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           );
           _loadRoute();
         },
+      ),
+    );
+  }
+
+  Future<void> _openCancelDialog(Map<String, dynamic> stop) async {
+    final otpCtrl = TextEditingController();
+    String reason = 'CUSTOMER_UNREACHABLE';
+    String? error;
+    bool busy = false;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          title: const Text('Cancel Order (ऑर्डर रद्द करें)'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ऑर्डर रद्द करने के लिए पहले अपने वेंडर से 4-अंकीय कैंसिलेशन OTP प्राप्त करें:',
+                  style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: otpCtrl,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Cancellation OTP (4-digit)',
+                    hintText: 'Enter OTP from Vendor',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                DropdownButtonFormField<String>(
+                  initialValue: reason,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason (वजह)',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'CUSTOMER_UNREACHABLE',
+                      child: Text('Customer unreachable / fake'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'DOOR_LOCKED',
+                      child: Text('Door locked / no one home'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'CUSTOMER_REFUSED',
+                      child: Text('Customer refused order'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'INCORRECT_ADDRESS',
+                      child: Text('Incorrect address / not found'),
+                    ),
+                  ],
+                  onChanged: (v) => setDState(() => reason = v ?? 'CUSTOMER_UNREACHABLE'),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    error!,
+                    style: const TextStyle(
+                      color: ShodashaTheme.danger,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Back'),
+            ),
+            AppButton(
+              label: busy ? 'Cancelling…' : 'Confirm Cancel',
+              kind: AppButtonKind.danger,
+              onPressed: busy
+                  ? null
+                  : () async {
+                      final otp = otpCtrl.text.trim();
+                      if (otp.length < 4) {
+                        setDState(() => error = 'Enter valid 4-digit OTP from vendor');
+                        return;
+                      }
+                      setDState(() {
+                        busy = true;
+                        error = null;
+                      });
+                      try {
+                        await widget.api.cancelDelivery(
+                          stopId: stop['id'].toString(),
+                          cancelOtp: otp,
+                          reason: reason,
+                        );
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Order cancelled successfully!'),
+                              backgroundColor: ShodashaTheme.danger,
+                            ),
+                          );
+                          _loadRoute();
+                        }
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          setDState(() {
+                            busy = false;
+                            error = e is ApiException
+                                ? e.message
+                                : e.toString().replaceFirst('Exception: ', '');
+                          });
+                        }
+                      }
+                    },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -369,6 +528,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                       itemBuilder: (context, i) {
                         final stop = visibleStops[i];
                         final isDelivered = stop['status'] == 'done';
+                        final isCancelled = stop['status'] == 'cancelled' ||
+                            stop['order_state'] == 'cancelled';
+                        final isFailed = stop['status'] == 'failed';
                         final customerName =
                             stop['customer_name']?.toString() ?? 'Customer';
                         final phone = stop['customer_phone']?.toString() ?? '';
@@ -580,26 +742,117 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                                     ),
                                   ],
                                 )
-                              else
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: AppButton(
-                                        label: 'Navigate',
-                                        kind: AppButtonKind.secondary,
-                                        icon: Icons.navigation_rounded,
-                                        onPressed: () =>
-                                            _navigateToLocation(formatted),
-                                      ),
+                              else if (isCancelled)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: ShodashaTheme.danger
+                                        .withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(
+                                      ShodashaTheme.radiusSm,
                                     ),
-                                    const SizedBox(width: AppSpacing.sm),
-                                    Expanded(
-                                      flex: 2,
-                                      child: AppButton(
-                                        label: 'Mark Delivered (Enter OTP)',
-                                        kind: AppButtonKind.primary,
-                                        icon: Icons.key_rounded,
-                                        onPressed: () => _openPodSheet(stop),
+                                  ),
+                                  child: const Row(
+                                    children: [
+                                      Icon(
+                                        Icons.cancel_rounded,
+                                        color: ShodashaTheme.danger,
+                                        size: 16,
+                                      ),
+                                      SizedBox(width: AppSpacing.xs),
+                                      Text(
+                                        'Order Cancelled (ऑर्डर रद्द)',
+                                        style: TextStyle(
+                                          color: ShodashaTheme.danger,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else if (isFailed)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: ShodashaTheme.danger
+                                        .withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(
+                                      ShodashaTheme.radiusSm,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.error_outline_rounded,
+                                        color: ShodashaTheme.danger,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: AppSpacing.xs),
+                                      Expanded(
+                                        child: Text(
+                                          'Failed: ${stop['failure_reason'] ?? 'Not delivered'}',
+                                          style: const TextStyle(
+                                            color: ShodashaTheme.danger,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: AppButton(
+                                            label: 'Navigate',
+                                            kind: AppButtonKind.secondary,
+                                            icon: Icons.navigation_rounded,
+                                            onPressed: () =>
+                                                _navigateToLocation(formatted),
+                                          ),
+                                        ),
+                                        const SizedBox(width: AppSpacing.sm),
+                                        Expanded(
+                                          flex: 2,
+                                          child: AppButton(
+                                            label: 'Mark Delivered (Enter OTP)',
+                                            kind: AppButtonKind.primary,
+                                            icon: Icons.key_rounded,
+                                            onPressed: () => _openPodSheet(stop),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: AppSpacing.xs),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton.icon(
+                                        onPressed: () => _openCancelDialog(stop),
+                                        icon: const Icon(
+                                          Icons.cancel_outlined,
+                                          size: 16,
+                                          color: ShodashaTheme.danger,
+                                        ),
+                                        label: const Text(
+                                          'Cancel Order (ऑर्डर रद्द करें)',
+                                          style: TextStyle(
+                                            color: ShodashaTheme.danger,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],

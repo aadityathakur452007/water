@@ -86,14 +86,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (res == null || !mounted) return;
     await _controller.load();
     if (!mounted) return;
-    final id = (res['id'] ?? '').toString();
-    final prepaidPending =
-        (res['billing_mode'] ?? '') == 'monthly_prepaid' &&
-        (res['billing_status'] ?? '') == 'pending_payment';
-    if (prepaidPending && id.isNotEmpty) {
-      await _startTopUp(id);
-      return;
-    }
+    // Doorstep Cash on Delivery (COD) activation — bypass external gateway redirect (Point 4)
     final estimate = res['first_cycle_estimate'];
     final total = estimate is Map ? (estimate['total'] as num?)?.toInt() : null;
     _showMessage(

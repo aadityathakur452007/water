@@ -38,6 +38,7 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   String _initialEmail = '';
 
   bool get _dirty =>
+      _nameCtrl.text.trim() != _initialName ||
       _emailCtrl.text.trim() != _initialEmail;
 
   @override
@@ -94,6 +95,13 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
   }
 
   Future<void> _save() async {
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      setState(() {
+        _serverError = 'Name cannot be blank';
+      });
+      return;
+    }
     final email = _emailCtrl.text.trim();
     final emailError = email.isEmpty ? null : validateProfileEmail(email);
     setState(() {
@@ -106,7 +114,7 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
 
     setState(() => _saving = true);
     final error = await widget.controller.updateProfile(
-      name: _initialName,
+      name: name,
       phone: _initialPhone,
       email: _emailCtrl.text,
     );
@@ -153,13 +161,13 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
             TextField(
               key: const Key('profile-name'),
               controller: _nameCtrl,
-              enabled: false,
-              style: const TextStyle(fontSize: 16, color: ShodashaTheme.muted),
+              enabled: !_saving,
+              textCapitalization: TextCapitalization.words,
+              style: const TextStyle(fontSize: 16, color: ShodashaTheme.ink),
               decoration: const InputDecoration(
                 labelText: 'Your name',
-                helperText: 'Verified name cannot be changed',
+                helperText: 'Name for delivery orders',
                 prefixIcon: Icon(Icons.person_outline),
-                suffixIcon: Icon(Icons.lock_outline, size: 18, color: ShodashaTheme.muted),
               ),
             ),
             const SizedBox(height: AppSpacing.md),

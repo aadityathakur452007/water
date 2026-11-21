@@ -247,7 +247,7 @@ class RouteController extends ChangeNotifier {
   /// and on dispose — mobile-native rule). Push stays a documented gap.
   Timer? _discoveryTimer;
 
-  void startDiscovery({Duration interval = const Duration(seconds: 60)}) {
+  void startDiscovery({Duration interval = const Duration(seconds: 15)}) {
     stopDiscovery();
     _discoveryTimer = Timer.periodic(interval, (_) async {
       try {

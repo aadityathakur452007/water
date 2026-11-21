@@ -4,6 +4,27 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**ECOSYSTEM HARDENING — 14 CORE OPERATIONAL FIXES ACROSS CUSTOMER, VENDOR & RIDER APPS (2026-11-21, ADR-213):** on `main`
+- **1. Vendor Rider Deletion (`workers/api` & `apps/vendor_app`):** Added `DELETE /v1/vendor/riders/{rider_id}` dissociating riders from vendor agencies, revoking access codes/sessions, and unassigning pending stops. Added delete button with confirmation dialog in `riders_screen.dart`.
+- **2. Vendor Session Persistence (`apps/vendor_app`):** Fixed `isAuthenticated` in `auth_controller.dart` so valid 30-day refresh tokens prevent premature logouts when short-lived access tokens expire. `tryRefresh` silently renews tokens on demand.
+- **3. Order Cancellation State Machine (`workers/api`, `apps/vendor_app`, `apps/user_app_donor`):** Added `"vendor"` and `"rider"` to `OVERRIDE_ROLES` in `state_machines.py` to allow cancellation from `assigned` and `dispatched`. Added high-contrast "Order Cancelled" banners in `stop_detail_screen.dart`, rider `delivery_screen.dart`, and `order_card.dart`, suppressing delivery handover actions.
+- **4. Doorstep COD Subscriptions (`apps/user_app_donor` & `workers/api`):** Subscriptions bypass gateway top-ups and activate directly under Doorstep COD. Added `daily_bill` and `weekly_postpaid` to `BILLING_MODES`.
+- **5. Post-Cancellation Cash Collection (`workers/api`):** `routes_today()` only treats subscription stops as `is_sub = True` when subscription `status == 'active'`. If cancelled, `is_sub = False` and order dues are computed so rider app prompts for doorstep cash rather than displaying ₹0.
+- **6. Rider Name Visibility (`workers/api`):** `order_service.py` joins `ru.name` and `ru.phone` on `s.rider_id`, showing the assigned rider to the customer instead of the vendor agency name.
+- **7. Customer Profile Name Editing (`workers/api` & `apps/user_app_donor`):** `auth_service.py:update_me` permits updating name; strictly enforces phone number immutability. Customer `edit_profile_sheet.dart` enables name editing.
+- **8. Rider App Session Auto-Renewal (`apps/rider_app`):** Persisted `_refreshToken` in SharedPreferences, implemented `refreshSession()`, and added automatic 401 retry in `_sendAuthed`, eliminating 401 Unauthorized errors mid-shift.
+- **9. Rider Order Cancellation via Vendor OTP (`workers/api`, `apps/vendor_app`, `apps/rider_app`):** Added migration `034_stop_cancellation_otp.sql`, `POST /v1/vendor/stops/{stop_id}/cancel-otp` generating 4-digit OTP, and `POST /v1/rider/stops/{stop_id}/cancel` verifying OTP digest. Added "Issue Cancellation OTP" in vendor app and "Cancel Order" dialog in rider app.
+- **11 & 12. Zero Manual Reloads (`apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app`):** Added `WidgetsBindingObserver` lifecycle resumed listeners and periodic background polling (15–20s) across all 3 mobile apps.
+- **13. Subscription 4 Billing Options (`apps/user_app_donor`):** `plan_builder_sheet.dart` presents Each jar bill, Daily bill, Weekly bill, Monthly bill with Hindi/English microcopy.
+- **14. Real-Time In-App Alerts & Status Indicators:** Integrated live state sync and high-contrast alert containers across all apps.
+- **Verification Across Repositories:**
+  - `workers/api`: 560 passed pytest tests, 1 skipped (100% pass rate).
+  - `apps/user_app_donor`: 137 passed flutter tests, `flutter analyze` 0 issues.
+  - `apps/vendor_app`: 96 passed flutter tests, `flutter analyze` 0 issues.
+  - `apps/rider_app`: 9 passed flutter tests, `flutter analyze` 0 issues.
+
+## Previous Phases
+
 **SECURITY AUDIT — THREE FIXES CLOSED, FULL E2E WORKFLOW GREEN (2026-11-20):** on `main`
 - **PentestCode v0.2.7 installed (WSL2, isolated at `.pentest/pentestcode`):** cloned the official repo, native Windows install is broken (npm `pentestcode-windows-x64` 404), installed via `install.sh` in Ubuntu to `/home/aditya/.local/bin/pentestcode`. CLI, 13 agents, 18 tools and 19 skills verified. Agent orchestration is **blocked on a model-provider credential** (`providers` → 0 credentials) — see `security-audit/PENTEST-EXECUTION.md`.
 - **Dynamic probes executed against the real ASGI app** (`security-audit/pentest/harness*.py`, real `sessions` rows + Bearer tokens): 24 + 7 + 6 requests. 21/24 authorization probes denied by design; two real privilege flaws found.

@@ -102,6 +102,9 @@ class _VendorShellState extends State<VendorShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      widget.auth.refreshSession();
+      widget.duty.load();
+      widget.route.load();
       _syncDiscovery();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {

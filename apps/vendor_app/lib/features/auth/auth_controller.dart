@@ -180,7 +180,7 @@ class AuthController extends ChangeNotifier {
   bool get isAuthenticated =>
       _status == AuthStatus.authenticated &&
       _session != null &&
-      !_session!.isExpired;
+      (!_session!.isExpired || _session!.refreshToken.isNotEmpty);
 
   void consumeNewDeviceAlert() {
     _newDeviceAlert = false;

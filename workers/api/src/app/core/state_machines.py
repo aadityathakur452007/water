@@ -41,7 +41,7 @@ LEGAL_ORDER_TRANSITIONS: Final[dict[str, set[str]]] = {
 }
 
 OVERRIDE_FROM: Final[set[str]] = {"assigned", "dispatched"}
-OVERRIDE_ROLES: Final[set[str]] = {"dispatcher", "admin"}
+OVERRIDE_ROLES: Final[set[str]] = {"dispatcher", "admin", "vendor", "rider"}
 
 TERMINAL_ORDER_STATES: Final[set[str]] = {"delivered", "cancelled", "rejected"}
 DEAD_ORDER_STATES: Final[set[str]] = {"cancelled", "rejected"}

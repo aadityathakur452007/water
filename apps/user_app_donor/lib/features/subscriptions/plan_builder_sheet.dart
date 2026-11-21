@@ -521,6 +521,8 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
     children: [
       for (final entry in const [
         ('per_delivery', 'billPerDelivery'),
+        ('daily_bill', 'billDaily'),
+        ('weekly_postpaid', 'billWeekly'),
         ('monthly_postpaid', 'billPostpaid'),
       ])
         _choiceChip(
@@ -556,7 +558,11 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         padding: const EdgeInsets.only(top: 6),
         child: Text(
           _billing == 'monthly_postpaid'
-              ? 'Monthly dues collected via cash at your doorstep.'
+              ? 'Monthly dues collected via cash at your doorstep at month end.'
+              : _billing == 'weekly_postpaid'
+              ? 'Weekly dues collected via cash at your doorstep.'
+              : _billing == 'daily_bill'
+              ? 'Daily bill collected via cash at your doorstep.'
               : 'Pay cash to delivery partner at doorstep upon arrival.',
           style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted),
         ),

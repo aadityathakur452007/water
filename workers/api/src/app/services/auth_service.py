@@ -851,9 +851,6 @@ class AuthService:
                 curr_p = normalize_phone(user_row.get("phone") or "")
                 if norm_p != curr_p:
                     raise ValidationError("Phone number cannot be changed. Contact support.", {"phone": phone})
-            if name is not None and user_row.get("name"):
-                if name.strip() != str(user_row.get("name") or "").strip():
-                    raise ValidationError("Name cannot be changed once set. Contact support.", {"name": name})
         if name is not None:
             name = name.strip()[:80]
             if not name:

@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/api_client.dart';
 import '../../core/money.dart';
 import '../../core/theme.dart';
 import '../../core/vendor_locale.dart';
@@ -163,6 +164,83 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     );
   }
 
+  Future<void> _issueCancelOtp(BuildContext context, StopsController c) async {
+    try {
+      final res = await c.issueCancelOtp(widget.stopId);
+      final otp = res['cancel_otp']?.toString() ?? '';
+      if (!context.mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.security_rounded, color: ShodashaTheme.blue),
+              const SizedBox(width: AppSpacing.xs),
+              Text(vtr('राइडर कैंसिलेशन OTP', 'Rider Cancellation OTP')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                vtr(
+                  'राइडर को यह 4-अंकीय OTP दें। राइडर इस OTP को अपने ऐप में दर्ज करके ही ऑर्डर रद्द कर सकेगा।',
+                  'Share this 4-digit OTP with the rider. The rider must enter this code in their app to cancel this delivery.',
+                ),
+                style: const TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.blueTint,
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                    border: Border.all(color: ShodashaTheme.blue.withValues(alpha: 0.3)),
+                  ),
+                  child: SelectableText(
+                    otp,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 8,
+                      color: ShodashaTheme.blue,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Center(
+                child: Text(
+                  vtr('यह OTP 10 मिनट के लिए मान्य है', 'Valid for 10 minutes'),
+                  style: const TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(),
+              child: Text(vtr('समझ गया (Done)', 'Done')),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is ApiException ? e.message : e.toString().replaceFirst('Exception: ', ''),
+            ),
+            backgroundColor: ShodashaTheme.danger,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -254,6 +332,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     final tripleDone = s['triple'] is Map;
     final stopDone = (s['status'] ?? '') == 'done';
     final stopFailed = (s['status'] ?? '') == 'failed';
+    final isCancelled = (s['order_state'] ?? '') == 'cancelled' || (s['status'] ?? '') == 'cancelled';
     final orderLabel = orderStateLabelHi((s['order_state'] ?? '') as String);
     final held = (s['held'] as num?)?.toInt();
     final deposit = (s['deposit_balance'] as num?)?.toInt();
@@ -427,6 +506,38 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
         // Phase 5 §5.5: required-action ordering — Triple → PoD → Cash,
         // gated by state with "pehle X karein" hints instead of
         // all-rendered. A finished stop shows the done note only.
+        if (isCancelled)
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: ShodashaTheme.danger.withValues(alpha: 0.08),
+              border: Border.all(color: ShodashaTheme.danger.withValues(alpha: 0.3)),
+              borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.cancel_outlined, color: ShodashaTheme.danger, size: 28),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        vtr('ऑर्डर रद्द हो चुका है (Order Cancelled)', 'Order Cancelled'),
+                        style: const TextStyle(fontWeight: FontWeight.w700, color: ShodashaTheme.danger, fontSize: 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        vtr('यह ऑर्डर रद्द कर दिया गया है। कोई डिलीवरी या पेमेंट की आवश्यकता नहीं है।',
+                            'This order has been cancelled. No delivery or payment required.'),
+                        style: const TextStyle(fontSize: 12, color: ShodashaTheme.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (stopDone)
           Text(vtr('डिलीवरी पूरी हुई', 'Delivery completed'),
               style: TextStyle(fontWeight: FontWeight.w600)),
@@ -454,14 +565,14 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             ),
           ),
         // F8: pickup stops act on the return, not the triple/PoD flow.
-        if (!stopDone && !stopFailed && returnId.isNotEmpty)
+        if (!stopDone && !stopFailed && !isCancelled && returnId.isNotEmpty)
           _PickupCard(
             controller: c,
             stopId: widget.stopId,
             returnId: returnId,
             emptiesExp: emptiesExp,
           ),
-        if (!stopDone && !stopFailed && returnId.isEmpty) ...[
+        if (!stopDone && !stopFailed && !isCancelled && returnId.isEmpty) ...[
           AppButton(
             label: tripleDone
                 ? vtr('OTP दर्ज करें (PoD)', 'Enter Customer OTP')
@@ -499,6 +610,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
         // server OVERPAY guard still enforces races).
         if (!stopDone &&
             !stopFailed &&
+            !isCancelled &&
             returnId.isEmpty &&
             paymentMode != 'upi' &&
             !isLinkSent &&
@@ -513,11 +625,18 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                 : () => _postCash(c, remainingPaise),
           ),
         ],
-        if (!stopDone && !stopFailed && isLinkSent)
+        if (!stopDone && !stopFailed && !isCancelled && isLinkSent)
           const Text('UPI link bheja — cash na lein, payment verify karein',
               style: TextStyle(color: ShodashaTheme.muted)),
-        if (!stopDone && !stopFailed) ...[
-          const SizedBox(height: AppSpacing.lg),
+        if (!stopDone && !stopFailed && !isCancelled) ...[
+          const SizedBox(height: AppSpacing.md),
+          AppButton(
+            label: vtr('राइडर कैंसिलेशन OTP जारी करें', 'Issue Rider Cancellation OTP'),
+            kind: AppButtonKind.secondary,
+            icon: Icons.vpn_key_outlined,
+            onPressed: c.submitting ? null : () => _issueCancelOtp(context, c),
+          ),
+          const SizedBox(height: AppSpacing.md),
           AppButton(
             label: vtr('समस्या दर्ज करें (RTO)', 'Report Issue (RTO)'),
             kind: AppButtonKind.danger,

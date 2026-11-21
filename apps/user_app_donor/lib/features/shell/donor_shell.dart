@@ -56,7 +56,7 @@ class DonorShell extends StatefulWidget {
   State<DonorShell> createState() => _DonorShellState();
 }
 
-class _DonorShellState extends State<DonorShell> {
+class _DonorShellState extends State<DonorShell> with WidgetsBindingObserver {
   static const double _maxWidth = 560;
 
   DonorTab _tab = DonorTab.home;
@@ -68,11 +68,13 @@ class _DonorShellState extends State<DonorShell> {
   bool _retrying = false;
   bool _routeBusy = false;
   Timer? _restoredTimer;
+  Timer? _autoRefreshTimer;
   DateTime? _lastBackPressTime;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _wasOffline = widget.api.offline.value;
     widget.api.offline.addListener(_onOffline);
     if (widget.addresses.status == AddrStatus.initial) {
@@ -80,12 +82,28 @@ class _DonorShellState extends State<DonorShell> {
         if (mounted) widget.addresses.load();
       });
     }
+    // Auto-refresh orders every 20s in background to eliminate manual reload (Point 11 & 12)
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted && widget.auth.isAuthenticated) {
+        widget.orders.load(silent: true);
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.auth.isAuthenticated) {
+      widget.orders.load(silent: true);
+      _refreshLedger();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.api.offline.removeListener(_onOffline);
     _restoredTimer?.cancel();
+    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 

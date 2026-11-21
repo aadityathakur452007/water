@@ -1308,3 +1308,62 @@ class VendorService:
             )
             self._conn.commit()
         return {"stop_id": stop_id, "rider_id": rider_id}
+
+    async def delete_rider(self, vendor_id: str, rider_id: str) -> dict:
+        owned = (await self._conn.execute(
+            "SELECT id FROM users WHERE id = ? AND role = 'rider' AND assigned_vendor_id = ?",
+            (rider_id, vendor_id),
+        )).fetchone()
+        if owned is None:
+            raise NotFoundError("Rider not found.", {"id": rider_id})
+        now = _now()
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "UPDATE users SET assigned_vendor_id = NULL WHERE id = ?",
+                (rider_id,),
+            )
+            await self._conn.execute(
+                "UPDATE access_codes SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (now, rider_id),
+            )
+            await self._conn.execute(
+                "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (now, rider_id),
+            )
+            await self._conn.execute(
+                "UPDATE stops SET rider_id = NULL WHERE rider_id = ? AND status = 'pending'",
+                (rider_id,),
+            )
+            self._conn.commit()
+        return {"status": "removed", "rider_id": rider_id}
+
+    async def issue_stop_cancel_otp(self, vendor_id: str, stop_id: str) -> dict:
+        stop = await self._owned_stop(vendor_id, stop_id)
+        if stop["status"] == "done":
+            raise ConflictError(message="Completed stop cannot be cancelled.", details={"stop_id": stop_id})
+        await _ensure_stop_cancel_cols(self._conn)
+        otp = f"{secrets.randbelow(9000) + 1000}"
+        now = _now()
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "UPDATE stops SET cancel_otp = ?, cancel_otp_created_at = ? WHERE id = ?",
+                (otp, now, stop_id),
+            )
+            self._conn.commit()
+        return {"stop_id": stop_id, "cancel_otp": otp}
+
+
+async def _ensure_stop_cancel_cols(conn) -> None:
+    try:
+        cols = {r["name"] for r in (await conn.execute("SELECT name FROM pragma_table_info('stops')")).fetchall()}
+        if "cancel_otp" not in cols:
+            with WRITE_LOCK:
+                await conn.execute("ALTER TABLE stops ADD COLUMN cancel_otp TEXT")
+                conn.commit()
+        if "cancel_otp_created_at" not in cols:
+            with WRITE_LOCK:
+                await conn.execute("ALTER TABLE stops ADD COLUMN cancel_otp_created_at TEXT")
+                conn.commit()
+    except Exception:
+        pass
+

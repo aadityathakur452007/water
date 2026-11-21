@@ -148,25 +148,17 @@ class RiderService:
         stops: list[dict[str, Any]] = []
         for r in rows:
             d = dict(r)
-            # Check if order is a subscription delivery
-            idem_key = str(d.get("idempotency_key") or "")
-            is_sub = ":sub:" in idem_key or idem_key.startswith("sub:")
+            # Check if order is backed by an ACTIVE subscription
+            is_sub = False
             sub_billing_mode = None
             try:
-                if not is_sub and d.get("customer_id"):
+                if d.get("customer_id"):
                     sub_row = (await self._conn.execute(
-                        "SELECT billing_mode FROM subscriptions WHERE user_id = ? AND status IN ('active', 'paused') LIMIT 1",
+                        "SELECT billing_mode FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1",
                         (d["customer_id"],),
                     )).fetchone()
                     if sub_row:
                         is_sub = True
-                        sub_billing_mode = str(sub_row["billing_mode"] or "")
-                elif is_sub and d.get("customer_id"):
-                    sub_row = (await self._conn.execute(
-                        "SELECT billing_mode FROM subscriptions WHERE user_id = ? LIMIT 1",
-                        (d["customer_id"],),
-                    )).fetchone()
-                    if sub_row:
                         sub_billing_mode = str(sub_row["billing_mode"] or "")
             except Exception:
                 pass
@@ -188,16 +180,20 @@ class RiderService:
             is_paid = (d.get("payment_status") or "").lower() == "paid"
 
             # Payment calculation:
-            # - For subscription customers (monthly postpaid/prepaid):
-            #   Daily delivery is ₹0 cash.
-            #   If customer has pending monthly dues (>0), rider can collect the monthly bill.
+            # - For subscription customers on monthly/weekly postpaid plans:
+            #   Daily delivery is ₹0 cash, unless customer has pending ledger dues.
+            # - For per_delivery / daily_bill or cancelled subscription:
+            #   Collect cash on delivery.
             is_monthly_dues = False
             if is_sub:
-                if dues_paise > 0:
-                    amount_due = dues_paise
-                    is_monthly_dues = True
+                if sub_billing_mode in ("monthly_postpaid", "monthly_prepaid", "weekly_postpaid"):
+                    if dues_paise > 0:
+                        amount_due = dues_paise
+                        is_monthly_dues = True
+                    else:
+                        amount_due = 0
                 else:
-                    amount_due = 0
+                    amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
             else:
                 amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
 
@@ -339,3 +335,76 @@ class RiderService:
         except Exception:
             pass
         return out
+
+    async def cancel_stop(
+        self,
+        rider_id: str,
+        stop_id: str,
+        cancel_otp: str,
+        reason: str = "CUSTOMER_UNREACHABLE",
+    ) -> dict:
+        import hmac
+        from app.db import WRITE_LOCK
+        from app.core.errors import ConflictError, NotFoundError, ValidationError
+        from app.repositories.order_repo import OrderRepo
+        from app.services.dispatch_service import write_audit
+        from app.services.vendor_service import _ensure_stop_cancel_cols
+
+        rider = await self._get_rider(rider_id)
+        vendor_id = rider.get("assigned_vendor_id")
+        if not vendor_id:
+            raise ValidationError("Rider is not assigned to a vendor.", {})
+
+        await _ensure_stop_cancel_cols(self._conn)
+
+        stop = (await self._conn.execute(
+            "SELECT s.id, s.route_id, s.order_id, s.status, s.cancel_otp, s.rider_id, r.vendor_id "
+            "FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
+            (stop_id,),
+        )).fetchone()
+        if stop is None or stop["vendor_id"] != vendor_id:
+            raise NotFoundError("Stop not found.", {"stop_id": stop_id})
+        if stop["rider_id"] is not None and stop["rider_id"] != rider_id:
+            raise NotFoundError("Stop not found.", {"stop_id": stop_id})
+        if stop["status"] in ("done", "failed"):
+            raise ConflictError("Stop is already finalized.", {"status": stop["status"]})
+
+        expected_otp = str(stop["cancel_otp"] or "").strip()
+        provided_otp = str(cancel_otp or "").strip()
+        if not expected_otp or not hmac.compare_digest(expected_otp, provided_otp):
+            raise ValidationError("Invalid cancellation OTP. Ask vendor for OTP.", {"cancel_otp": cancel_otp})
+
+        order_id = stop["order_id"]
+        if order_id:
+            try:
+                await OrderRepo(self._conn).transition(
+                    order_id, "cancelled", {"id": rider_id, "role": "rider"}, f"Rider cancelled: {reason}"
+                )
+            except Exception:
+                try:
+                    await OrderRepo(self._conn).transition(
+                        order_id, "failed", {"id": rider_id, "role": "rider"}, f"Rider cancelled: {reason}"
+                    )
+                except Exception:
+                    pass
+
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with WRITE_LOCK:
+            await self._conn.execute(
+                "UPDATE stops SET status = 'failed', failure_reason = ?, cancel_otp = NULL, synced_at = ? WHERE id = ?",
+                (f"CANCELLED: {reason}", now, stop_id),
+            )
+            self._conn.commit()
+
+        try:
+            await write_audit(
+                self._conn,
+                actor=rider_id,
+                action="rider.cancel_stop",
+                entity="stops",
+                entity_id=stop_id,
+            )
+        except Exception:
+            pass
+
+        return {"stop_id": stop_id, "status": "cancelled", "reason": reason}

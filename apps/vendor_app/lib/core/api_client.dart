@@ -571,4 +571,16 @@ class ApiClient {
     );
     return (raw as Map<String, dynamic>);
   }
+
+  Future<Map<String, dynamic>> deleteRider(String riderId) async {
+    final raw = await send('DELETE', '/vendor/riders/$riderId');
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return {'ok': true};
+  }
+
+  Future<Map<String, dynamic>> issueCancelOtp(String stopId) async {
+    final raw = await send('POST', '/vendor/stops/$stopId/cancel-otp');
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return {'ok': true};
+  }
 }

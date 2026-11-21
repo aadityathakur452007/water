@@ -376,10 +376,10 @@ def test_router_verify_me_patch():
     me = client.get("/v1/auth/me", headers=_auth_headers(token))
     assert me.status_code == 200, me.text
     assert me.json()["user"]["phone"] == PHONE
-    # Name cannot be changed once set
+    # Name CAN be changed (Point 7)
     p = client.patch("/v1/auth/me", json={"name": "Asha"}, headers=_auth_headers(token))
-    assert p.status_code == 400
-    assert "Name cannot be changed" in p.json()["error"]["message"]
+    assert p.status_code == 200, p.text
+    assert p.json()["user"]["name"] == "Asha"
 
 
 def test_router_patch_me_phone_and_email():

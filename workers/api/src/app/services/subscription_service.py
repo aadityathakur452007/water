@@ -102,7 +102,7 @@ def _row(r: sqlite3.Row) -> dict:
     return dict(r)
 
 
-BILLING_MODES = ("per_delivery", "monthly_prepaid", "monthly_postpaid")
+BILLING_MODES = ("per_delivery", "monthly_prepaid", "monthly_postpaid", "daily_bill", "weekly_postpaid")
 PAYMENT_METHODS = ("upi", "cod")
 
 
@@ -250,7 +250,7 @@ class SubscriptionService:
         billing_mode = str(payload.get("billing_mode") or "per_delivery").strip().lower()
         if billing_mode not in BILLING_MODES:
             raise SubValidationError(
-                message="billing_mode must be per_delivery, monthly_prepaid or monthly_postpaid.",
+                message=f"billing_mode must be one of {', '.join(BILLING_MODES)}.",
                 details={"billing_mode": billing_mode})
         if billing_mode == "monthly_prepaid" and payment_method != "upi":
             raise SubValidationError(

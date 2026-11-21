@@ -931,13 +931,15 @@ class OrdersController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> load() async {
+  Future<void> load({bool silent = false}) async {
     if (_status == OrdersListStatus.loading) return;
-    _status = OrdersListStatus.loading;
-    _errorMessage = null;
-    _loadMoreFailed = false;
-    _loadMoreError = null;
-    _notify();
+    if (!silent) {
+      _status = OrdersListStatus.loading;
+      _errorMessage = null;
+      _loadMoreFailed = false;
+      _loadMoreError = null;
+      _notify();
+    }
     final gen = _generation;
     try {
       final page = await _repo.fetchOrders();
@@ -953,16 +955,16 @@ class OrdersController extends ChangeNotifier {
       _onPollSuccess();
     } catch (e) {
       if (gen != _generation) return;
-      _status = _all.isEmpty ? OrdersListStatus.error : OrdersListStatus.loaded;
-      _errorMessage = e is ApiException && e.isOffline
-          ? 'No internet — check your connection and retry.'
-          : e is ApiException && e.isServerError
-          ? 'Server problem — retry in a moment.'
-          : ordersStringsHi['errorTitle'];
-      // Cached rows stay visible, marked stale, for network/5xx failures —
-      // only a 4xx response (session/validation) is not "offline".
-      _isOffline = e is ApiException && e.isOffline;
-      _isServerError = e is ApiException && e.isServerError;
+      if (!silent) {
+        _status = _all.isEmpty ? OrdersListStatus.error : OrdersListStatus.loaded;
+        _errorMessage = e is ApiException && e.isOffline
+            ? 'No internet — check your connection and retry.'
+            : e is ApiException && e.isServerError
+            ? 'Server problem — retry in a moment.'
+            : ordersStringsHi['errorTitle'];
+        _isOffline = e is ApiException && e.isOffline;
+        _isServerError = e is ApiException && e.isServerError;
+      }
       _onPollError();
     }
     _notify();

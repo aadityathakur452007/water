@@ -353,22 +353,30 @@ class OrderService:
                 # One join replaces three sequential reads: the pending stop,
                 # its stops-ahead count, and the rider contact.
                 row = (await self.orders._conn.execute(
-                    "SELECT s.id, s.route_id, s.seq, r.vendor_id,"
+                    "SELECT s.id, s.route_id, s.seq, s.rider_id, r.vendor_id,"
                     " (SELECT COUNT(*) FROM stops x WHERE x.route_id = s.route_id"
                     "   AND x.status = 'pending' AND x.seq < s.seq) AS ahead,"
-                    " u.name, u.phone, p.name AS prof_name, p.phone AS prof_phone"
+                    " u.name AS vendor_name, u.phone AS vendor_phone,"
+                    " p.name AS prof_name, p.phone AS prof_phone,"
+                    " ru.name AS rider_name, ru.phone AS rider_phone"
                     " FROM stops s"
                     " JOIN routes r ON r.id = s.route_id"
                     " JOIN users u ON u.id = r.vendor_id"
                     " LEFT JOIN vendor_profile p ON p.user_id = r.vendor_id"
+                    " LEFT JOIN users ru ON ru.id = s.rider_id"
                     " WHERE s.order_id = ? AND s.status = 'pending'",
                     (order_id,)
                 )).fetchone()
                 if row is not None:
                     stops_ahead = int(row["ahead"] or 0)
+                    r_name = row["rider_name"]
+                    r_phone = row["rider_phone"]
+                    if not r_name or not str(r_name).strip():
+                        r_name = row["prof_name"] or row["vendor_name"] or "Water Delivery Partner"
+                        r_phone = row["prof_phone"] or row["vendor_phone"] or ""
                     rider_info = {
-                        "name": row["prof_name"] or row["name"] or "Water Delivery Partner",
-                        "phone": row["prof_phone"] or row["phone"] or "",
+                        "name": r_name,
+                        "phone": r_phone,
                         "stops_ahead": stops_ahead,
                     }
             except Exception:

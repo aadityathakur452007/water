@@ -293,6 +293,62 @@ class _RidersScreenState extends State<RidersScreen> {
     }
   }
 
+  Future<void> _deleteRider(Map<String, dynamic> rider) async {
+    final name = rider['name']?.toString() ?? 'Rider';
+    final riderId = rider['id']?.toString() ?? '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(vtr('राइडर हटाएं', 'Delete Rider')),
+        content: Text(
+          vtr(
+            'क्या आप $name को अपनी एजेंसी से हटाना चाहते हैं? उनका लॉगिन कोड रद्द हो जाएगा और उनके पेंडिंग ऑर्डर अनअसाइन हो जाएंगे।',
+            'Are you sure you want to remove $name? Their login access will be revoked and any pending orders will be unassigned.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(vtr('रद्द करें', 'Cancel')),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: ShodashaTheme.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(vtr('हटाएं', 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.api!.deleteRider(riderId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              vtr('$name को हटा दिया गया है', '$name has been removed'),
+            ),
+            backgroundColor: ShodashaTheme.success,
+          ),
+        );
+        _loadRiders();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is ApiException
+                  ? e.message
+                  : e.toString().replaceFirst('Exception: ', ''),
+            ),
+            backgroundColor: ShodashaTheme.danger,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -526,6 +582,17 @@ class _RidersScreenState extends State<RidersScreen> {
                               ),
                               icon: const Icon(Icons.key_rounded, size: 20),
                               onPressed: () => _reissueCode(
+                                Map<String, dynamic>.from(r as Map),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: vtr('राइडर हटाएं', 'Delete Rider'),
+                              icon: const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 20,
+                                color: ShodashaTheme.danger,
+                              ),
+                              onPressed: () => _deleteRider(
                                 Map<String, dynamic>.from(r as Map),
                               ),
                             ),

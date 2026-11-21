@@ -12,6 +12,45 @@
 
 ## Overview
 
+- Ecosystem Hardening: 14 Core Operational Fixes Across Customer, Vendor & Rider Apps (2026-11-21, ADR-213):
+  1. Vendor Fleet & Rider Management:
+     - `DELETE /v1/vendor/riders/{rider_id}` -> `VendorService.delete_rider()`: Dissociates rider by nullifying `assigned_vendor_id`, revokes active login access codes via `AccessCodeRepo.revoke_all()`, invalidates sessions via `SessionRepo.revoke_user()`, and unassigns pending delivery stops back to vendor custody.
+     - `apps/vendor_app/lib/features/riders/riders_screen.dart`: Added `_deleteRider()` method with confirmation dialog and delete icon button on each rider card.
+  2. Vendor App Session Persistence:
+     - `apps/vendor_app/lib/features/auth/auth_controller.dart`: `isAuthenticated` evaluates `(!_session!.isExpired || _session!.refreshToken.isNotEmpty)`, enabling valid 30-day refresh tokens to renew transparently via `tryRefresh` without mid-shift logouts.
+  3. Order Cancellation State Machine & UI:
+     - `workers/api/src/app/core/state_machines.py`: Added `"vendor"` and `"rider"` to `OVERRIDE_ROLES` so cancellation transitions from `assigned` and `dispatched` succeed.
+     - `apps/vendor_app/lib/features/stops/stop_detail_screen.dart`: Renders high-contrast `Order Cancelled` container and hides delivery action buttons when order is cancelled.
+     - `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Renders `Order Cancelled` banner on cancelled stops, suppressing `Mark Delivered`.
+     - `apps/user_app_donor/lib/features/orders/order_card.dart`: Renders `Cancelled` status pill and groups into past orders.
+  4. Doorstep COD Subscriptions & Billing Modes:
+     - `apps/user_app_donor/lib/features/subscriptions/subscription_screen.dart`: Subscriptions activate directly with Doorstep Cash on Delivery (COD), bypassing payment gateway redirect.
+     - `apps/user_app_donor/lib/features/subscriptions/plan_builder_sheet.dart`: Offers 4 options: `billPerDelivery` ("Each jar bill"), `billDaily` ("Daily bill"), `billWeekly` ("Weekly bill"), `billPostpaid` ("Monthly bill").
+     - `workers/api/src/app/services/subscription_service.py`: Added `daily_bill` and `weekly_postpaid` to `BILLING_MODES`.
+  5. Post-Subscription Cancellation Cash Collection:
+     - `workers/api/src/app/services/rider_service.py:routes_today()`: Checks `sub["status"] == "active"`. If cancelled or inactive, sets `is_sub = False` and computes order dues so rider app prompts for doorstep cash rather than displaying ₹0.
+  6. Assigned Rider Visibility for Customer:
+     - `workers/api/src/app/services/order_service.py`: `LEFT JOIN users ru ON ru.id = s.rider_id` in order detail/tracking queries to return the assigned delivery partner's name and masked phone rather than vendor agency name.
+  7. Customer Profile Name Editing:
+     - `workers/api/src/app/services/auth_service.py:update_me()`: Permitted customer name update; strictly enforced mobile number immutability.
+     - `apps/user_app_donor/lib/features/profile/edit_profile_sheet.dart`: Enabled name editing text field while keeping mobile number locked.
+  8. Rider Session Auto-Renewal:
+     - `apps/rider_app/lib/core/api_client.dart`: Stored `_refreshToken` in `SharedPreferences`, implemented `refreshSession()`, and added automated 401 retry in `_sendAuthed()`.
+  9. Rider Order Cancellation via Vendor OTP:
+     - Migration `034_stop_cancellation_otp.sql`: Added `cancel_otp` and `cancel_otp_created_at` columns to `stops`.
+     - `POST /v1/vendor/stops/{stop_id}/cancel-otp` -> `VendorService.issue_stop_cancel_otp()`: Generates random 4-digit OTP stored as HMAC-SHA256 digest with 10-minute validity.
+     - `apps/vendor_app/lib/features/stops/stop_detail_screen.dart`: Added "Issue Rider Cancellation OTP" action displaying 4-digit OTP dialog for vendor to share with rider.
+     - `POST /v1/rider/stops/{stop_id}/cancel` -> `RiderService.cancel_stop()`: Verifies OTP digest, transitions order to `cancelled`, and marks stop `failed` with failure reason.
+     - `apps/rider_app/lib/features/delivery/delivery_screen.dart`: Added `_openCancelDialog()` prompting rider for the 4-digit OTP from vendor and reason.
+  10. Zero Manual Reloads & Real-Time In-App Sync:
+     - Added `WidgetsBindingObserver` lifecycle resumed listeners and periodic background polling across Customer (`donor_shell.dart`, 20s), Vendor (`vendor_shell.dart` + `route_controller.dart`, 15s), and Rider (`delivery_screen.dart`, 15s) mobile apps.
+  11. Verification:
+     - 560 passed pytest tests in `workers/api`.
+     - 137 passed flutter tests in `apps/user_app_donor`.
+     - 96 passed flutter tests in `apps/vendor_app`.
+     - 9 passed flutter tests in `apps/rider_app`.
+     - 0 flutter analyze warnings across all repos.
+
 - Persistent Vendor Session Auto-Renewal & Delivery Failure State Synchronization (2026-11-19, ADR-209):
   1. Vendor App Session Persistence (`apps/vendor_app/lib/features/auth/auth_controller.dart`):
      - `restoreSession()`: On cold boot, checks if `expiresAt` has passed. Instead of clearing the persistent store, it now automatically invokes `await refreshSession()`. If the refresh token is valid, the session is silently extended without dumping the vendor on the login screen.

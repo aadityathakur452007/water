@@ -31,6 +31,11 @@ class RiderFailIn(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class RiderCancelIn(BaseModel):
+    cancel_otp: str = Field(min_length=4, max_length=8, pattern=r"^\d{4,8}$")
+    reason: str = Field(default="CUSTOMER_UNREACHABLE", max_length=200)
+
+
 class RiderDutyIn(BaseModel):
     status: str = Field(pattern=r"^(on_duty|off_duty|shift_ended)$")
 
@@ -82,4 +87,15 @@ async def rider_fail_stop(
     user=Depends(_rider),
 ):
     return await _svc(conn).fail_stop(_uid(user), stop_id, payload.reason_code, payload.note)
+
+
+@router.post("/rider/stops/{stop_id}/cancel")
+async def rider_cancel_stop(
+    stop_id: str,
+    payload: RiderCancelIn,
+    conn=Depends(get_db_conn),
+    user=Depends(_rider),
+):
+    return await _svc(conn).cancel_stop(_uid(user), stop_id, payload.cancel_otp, payload.reason)
+
 

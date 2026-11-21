@@ -91,6 +91,11 @@ class StopsController extends ChangeNotifier {
   StopsController({required ApiClient api}) : _api = api;
 
   final ApiClient _api;
+  ApiClient get api => _api;
+
+  Future<Map<String, dynamic>> issueCancelOtp(String stopId) async {
+    return _api.issueCancelOtp(stopId);
+  }
 
   StopDetailState _state = StopDetailState.loading;
   String? _error;

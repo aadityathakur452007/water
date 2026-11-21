@@ -286,6 +286,18 @@ async def reissue_vendor_rider_code(rider_id: str, conn=Depends(get_db_conn), us
     return await _svc(conn).reissue_rider_code(_uid(user), rider_id)
 
 
+@router.delete("/vendor/riders/{rider_id}")
+async def delete_vendor_rider(rider_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Vendor permanently removes a rider from their fleet."""
+    return await _svc(conn).delete_rider(_uid(user), rider_id)
+
+
+@router.post("/vendor/stops/{stop_id}/cancel-otp")
+async def issue_stop_cancel_otp(stop_id: str, conn=Depends(get_db_conn), user=Depends(_vendor)):
+    """Vendor issues a 4-digit cancellation OTP for a rider to cancel a stop."""
+    return await _svc(conn).issue_stop_cancel_otp(_uid(user), stop_id)
+
+
 @router.post("/vendor/stops/{stop_id}/assign-rider")
 async def assign_stop_rider(stop_id: str, payload: AssignRiderIn, conn=Depends(get_db_conn), user=Depends(_vendor)):
     """Assign a specific stop to a rider (or unassign with null)."""
