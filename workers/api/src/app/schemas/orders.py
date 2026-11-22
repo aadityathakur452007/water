@@ -115,3 +115,10 @@ class RescheduleIn(BaseModel):
         if not v:
             raise ValueError("must not be blank")
         return v
+
+
+class ConfirmDeliveryIn(BaseModel):
+    received: bool
+    cash_paid: bool = True
+    notes: str = ""
+    reschedule_today: bool = False

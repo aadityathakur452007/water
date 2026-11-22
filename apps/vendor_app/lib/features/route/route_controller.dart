@@ -86,6 +86,7 @@ class RouteStop {
 
   bool get isDone => status == 'done';
   bool get isFailed => status == 'failed';
+  bool get isCancelled => status == 'cancelled' || orderState == 'cancelled';
   bool get isPaid => paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
 
   /// Phase 5 §5.2: honest money predicates (copied to the web client —

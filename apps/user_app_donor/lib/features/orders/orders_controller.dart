@@ -434,12 +434,27 @@ extension OrderVisibility on Order {
       state == OrderState.packed ||
       state == OrderState.assigned;
 
-  bool get canCancel => isPreDispatch;
+  bool get canCancel => isPreDispatch || state == OrderState.dispatched;
   bool get canReschedule => isPreDispatch;
-  bool get showWhatsAppOnly => state == OrderState.dispatched;
+  bool get showWhatsAppOnly => false;
   bool get canRate => state == OrderState.delivered && !rated;
   bool get showHelpRow => state == OrderState.delivered;
   bool get showNoActions => state == OrderState.cancelled;
+
+  bool get isStaleDelivery {
+    if (state == OrderState.delivered ||
+        state == OrderState.cancelled ||
+        state == OrderState.failed ||
+        state == OrderState.rejected) {
+      return false;
+    }
+    final now = DateTime.now();
+    final todayMidnight = DateTime(now.year, now.month, now.day);
+    final windowDay =
+        DateTime(windowStart.year, windowStart.month, windowStart.day);
+    return windowDay.isBefore(todayMidnight) ||
+        windowStart.isBefore(now.subtract(const Duration(hours: 12)));
+  }
 }
 
 /// 4-step tracker index for the custom dot UI (flows flow-3):
@@ -481,6 +496,13 @@ abstract class OrdersRepository {
   Future<Order> fetchOrder(String id);
   Future<Order> cancelOrder(String id, String reasonCode);
   Future<Order> rescheduleOrder(String id, DateTime windowStart);
+  Future<Order> confirmDelivery(
+    String id, {
+    required bool received,
+    bool cashPaid,
+    String notes,
+    bool rescheduleToday,
+  });
   Future<Order> submitRating(String id, int stars);
 
   /// POST /orders/{id}/delivery-code/reissue → the four delivery fields.
@@ -541,6 +563,37 @@ class StubOrdersRepository implements OrdersRepository {
     );
     _orders[idx] = updated;
     return updated;
+  }
+
+  @override
+  Future<Order> confirmDelivery(
+    String id, {
+    required bool received,
+    bool cashPaid = true,
+    String notes = '',
+    bool rescheduleToday = false,
+  }) async {
+    final idx = _orders.indexWhere((o) => o.id == id);
+    if (idx < 0) throw StateError('not found: $id');
+    final current = _orders[idx];
+    if (received) {
+      final updated = current.copyWith(
+        state: OrderState.delivered,
+        paymentStatus: cashPaid ? 'paid_cash' : 'unpaid',
+      );
+      _orders[idx] = updated;
+      return updated;
+    } else {
+      if (rescheduleToday) {
+        final updated = current.copyWith(windowStart: DateTime.now());
+        _orders[idx] = updated;
+        return updated;
+      } else {
+        final updated = current.copyWith(state: OrderState.cancelled);
+        _orders[idx] = updated;
+        return updated;
+      }
+    }
   }
 
   @override
@@ -765,6 +818,24 @@ class ApiBackedOrdersRepository implements OrdersRepository {
           const Uuid().v4(),
         ),
       );
+
+  @override
+  Future<Order> confirmDelivery(
+    String id, {
+    required bool received,
+    bool cashPaid = true,
+    String notes = '',
+    bool rescheduleToday = false,
+  }) async {
+    final res = await _api.confirmDeliveryApi(
+      id,
+      received: received,
+      cashPaid: cashPaid,
+      notes: notes,
+      rescheduleToday: rescheduleToday,
+    );
+    return orderFromApi(res);
+  }
 
   @override
   Future<Order> submitRating(String id, int stars) async {
@@ -1055,13 +1126,50 @@ class OrdersController extends ChangeNotifier {
     }
   }
 
+  String? cancelErrorMessage;
+
   Future<bool> cancel(String id, String reasonCode) async {
     if (_actionBusy) return false;
     _actionBusy = true;
     _notify();
     final gen = _generation;
     try {
+      cancelErrorMessage = null;
       final updated = await _repo.cancelOrder(id, reasonCode);
+      if (gen != _generation) return true;
+      _replace(updated);
+      return true;
+    } on ApiException catch (e) {
+      cancelErrorMessage = e.message;
+      return false;
+    } catch (e) {
+      cancelErrorMessage = e.toString().replaceFirst('Exception: ', '');
+      return false;
+    } finally {
+      _actionBusy = false;
+      _notify();
+    }
+  }
+
+  Future<bool> confirmDelivery(
+    String id, {
+    required bool received,
+    bool cashPaid = true,
+    String notes = '',
+    bool rescheduleToday = false,
+  }) async {
+    if (_actionBusy) return false;
+    _actionBusy = true;
+    _notify();
+    final gen = _generation;
+    try {
+      final updated = await _repo.confirmDelivery(
+        id,
+        received: received,
+        cashPaid: cashPaid,
+        notes: notes,
+        rescheduleToday: rescheduleToday,
+      );
       if (gen != _generation) return true;
       _replace(updated);
       return true;

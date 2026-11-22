@@ -62,12 +62,9 @@ def test_cancellation_role_override_guard():
     # Placed order can be cancelled by user
     validate_order_transition("placed", "cancelled", "user")
 
-    # Assigned or Dispatched order cannot be self-cancelled by regular user
-    with pytest.raises(NeedDispatchOverrideError):
-        validate_order_transition("assigned", "cancelled", "user")
-
-    with pytest.raises(NeedDispatchOverrideError):
-        validate_order_transition("dispatched", "cancelled", "user")
+    # Assigned or Dispatched order can now also be self-cancelled by user (ADR-214)
+    validate_order_transition("assigned", "cancelled", "user")
+    validate_order_transition("dispatched", "cancelled", "user")
 
     # Assigned or Dispatched can be cancelled by dispatcher or admin
     validate_order_transition("assigned", "cancelled", "dispatcher")

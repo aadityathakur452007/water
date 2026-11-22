@@ -754,6 +754,26 @@ class ApiClient {
           ))
           as Map<String, dynamic>;
 
+  /// POST /orders/{id}/confirm-delivery {received, cash_paid, notes, reschedule_today} → OrderDetailOut.
+  Future<Map<String, dynamic>> confirmDeliveryApi(
+    String id, {
+    required bool received,
+    bool cashPaid = true,
+    String notes = '',
+    bool rescheduleToday = false,
+  }) async =>
+      (await send(
+            'POST',
+            '/orders/$id/confirm-delivery',
+            body: {
+              'received': received,
+              'cash_paid': cashPaid,
+              'notes': notes,
+              'reschedule_today': rescheduleToday,
+            },
+          ))
+          as Map<String, dynamic>;
+
   /// POST /orders/{id}/rating {stars} → {order_id, stars,
   /// complaint_shortcut}. Endpoint verified live in
   /// workers/api/src/app/api/v1/ratings.py (once per delivered order).

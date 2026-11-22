@@ -15,6 +15,7 @@ from app.repositories.order_repo import OrderRepo
 from app.schemas.orders import (
     CancelIn,
     CancelOut,
+    ConfirmDeliveryIn,
     OrderDetailOut,
     OrderIn,
     OrderListOut,
@@ -144,3 +145,20 @@ async def reschedule_order(
 ):
     return await _service(conn).reschedule(
         _uid(user), order_id, payload.window_start, (idem or "").strip())
+
+
+@router.post("/orders/{order_id}/confirm-delivery", response_model=OrderDetailOut)
+async def confirm_delivery(
+    order_id: str,
+    payload: ConfirmDeliveryIn,
+    conn=Depends(get_db_conn),
+    user=Depends(require_active_user),
+):
+    return await _service(conn).confirm_delivery(
+        _uid(user),
+        order_id,
+        received=payload.received,
+        cash_paid=payload.cash_paid,
+        notes=payload.notes,
+        reschedule_today=payload.reschedule_today,
+    )

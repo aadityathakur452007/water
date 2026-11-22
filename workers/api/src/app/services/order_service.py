@@ -561,11 +561,6 @@ class OrderService:
                 message="Delivered orders cannot be cancelled. Please raise a complaint.",
                 details={"from": state, "to": "cancelled"},
             )
-        if state in {"assigned", "dispatched"}:
-            raise NeedDispatchOverrideError(
-                message="Post-assign cancel needs the dispatcher. Call support to cancel.",
-                details={"from": state, "to": "cancelled"},
-            )
         outcome = await self.orders.cancel_settle(order_id, {"id": user_id, "role": "user"})
         await self._idem_put(user_id, scoped, order_id, phash, outcome)
         return outcome
@@ -586,6 +581,121 @@ class OrderService:
             "deposit_reversed": int(row["deposit_due"]) if row else 0,
             "refund": dict(refund) if refund is not None else None,
         }
+
+    async def confirm_delivery(
+        self,
+        user_id: str,
+        order_id: str,
+        received: bool,
+        cash_paid: bool = True,
+        notes: str = "",
+        reschedule_today: bool = False,
+    ) -> dict:
+        """Customer self-confirmation for deliveries (forgotten OTP fallback / stale recovery)."""
+        import uuid
+
+        order = await self.orders.find_owned(order_id, user_id)
+        if order is None:
+            raise NotFoundError(message="Order not found.", details={"id": order_id})
+
+        state = order["state"]
+        if state == "delivered":
+            return await self.detail(user_id, order_id)
+        if state == "cancelled":
+            raise ConflictError(message="Order is already cancelled.", details={"state": state})
+
+        if not received:
+            if reschedule_today:
+                now_dt = _dt.datetime.now(_dt.timezone.utc)
+                today_str = now_dt.strftime("%Y-%m-%d")
+                new_start = f"{today_str}T07:00:00+05:30"
+                with WRITE_LOCK:
+                    await self.orders._conn.execute(
+                        "UPDATE orders SET window_start = ? WHERE id = ?",
+                        (new_start, order_id),
+                    )
+                    await self.orders._event(
+                        order_id, state, state, user_id, "user",
+                        "stale order rescheduled to today morning by customer"
+                    )
+                    self.orders._conn.commit()
+                return await self.detail(user_id, order_id)
+            return await self.cancel(
+                user_id=user_id,
+                order_id=order_id,
+                reason="customer_reported_not_delivered",
+                idempotency_key=f"self_confirm_cancel:{order_id}",
+            )
+
+        # received is True: Customer self-confirms handover
+        raw_items = order.get("items")
+        try:
+            items = json.loads(raw_items) if isinstance(raw_items, str) else (raw_items or [])
+            refill_qty = sum(int(it.get("qty", 1)) for it in items if "container" not in str(it.get("sku", ""))) if items else 1
+        except Exception:
+            refill_qty = 1
+        total_amount = int(order.get("total") or 0)
+        now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+        with WRITE_LOCK:
+            # 1. Update order state to delivered
+            await self.orders._conn.execute(
+                "UPDATE orders SET state = 'delivered' WHERE id = ? AND state != 'delivered'",
+                (order_id,),
+            )
+            # 2. Update stops to done
+            await self.orders._conn.execute(
+                "UPDATE stops SET status = 'done', synced_at = ? WHERE order_id = ? AND status != 'done'",
+                (now_iso, order_id),
+            )
+            # 3. Update customer jar custody (+refill_qty)
+            await LedgerRepo(self.orders._conn).apply_event(
+                customer_id=user_id,
+                d_held=refill_qty,
+                ref=f"order:{order_id}",
+                actor=user_id,
+                reason="customer self-confirmed delivery (+jar custody)",
+                commit=False,
+            )
+            # 4. Cash handling
+            if (order.get("payment_mode") or "").lower() == "cod":
+                if cash_paid:
+                    await self.orders._conn.execute(
+                        "UPDATE orders SET payment_status = 'paid_cash' WHERE id = ?",
+                        (order_id,),
+                    )
+                    existing_p = (await self.orders._conn.execute(
+                        "SELECT id FROM payments WHERE order_id = ? AND status IN ('paid', 'paid_cash')",
+                        (order_id,),
+                    )).fetchone()
+                    if not existing_p:
+                        await self.orders._conn.execute(
+                            "INSERT INTO payments (id, order_id, user_id, amount, status, method, created_at) VALUES (?, ?, ?, ?, 'paid', 'cod', ?)",
+                            (uuid.uuid4().hex, order_id, user_id, total_amount, now_iso),
+                        )
+                else:
+                    await self.orders._conn.execute(
+                        "UPDATE orders SET payment_status = 'unpaid' WHERE id = ?",
+                        (order_id,),
+                    )
+                    if total_amount > 0:
+                        await LedgerRepo(self.orders._conn).apply_event(
+                            customer_id=user_id,
+                            d_dues=total_amount,
+                            ref=f"order:{order_id}",
+                            actor=user_id,
+                            reason="unpaid doorstep cash added to dues on self-confirmation",
+                            commit=False,
+                        )
+
+            # 5. Incident event log
+            await self.orders._event(
+                order_id, state, "delivered", user_id, "user",
+                f"delivered: customer self-attestation without rider OTP (cash_paid={cash_paid}, notes={notes})"
+            )
+            self.orders._conn.commit()
+
+        return await self.detail(user_id, order_id)
 
     # -- reschedule (pre-dispatch only) ------------------------------------
 

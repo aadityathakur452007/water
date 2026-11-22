@@ -546,14 +546,19 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
 
                         return Container(
                           decoration: BoxDecoration(
-                            color: ShodashaTheme.surface,
+                            color: isCancelled
+                                ? const Color(0xFFFFF5F5)
+                                : ShodashaTheme.surface,
                             borderRadius: BorderRadius.circular(
                               ShodashaTheme.radius,
                             ),
                             border: Border.all(
-                              color: isDelivered
-                                  ? ShodashaTheme.border
-                                  : ShodashaTheme.border,
+                              color: isCancelled
+                                  ? ShodashaTheme.danger.withValues(alpha: 0.5)
+                                  : isDelivered
+                                      ? ShodashaTheme.border
+                                      : ShodashaTheme.border,
+                              width: isCancelled ? 1.5 : 1.0,
                             ),
                             boxShadow: const [ShodashaTheme.subtleCardShadow],
                           ),
@@ -744,31 +749,45 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                                 )
                               else if (isCancelled)
                                 Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(AppSpacing.md),
                                   decoration: BoxDecoration(
-                                    color: ShodashaTheme.danger
-                                        .withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(
-                                      ShodashaTheme.radiusSm,
-                                    ),
+                                    color: ShodashaTheme.danger.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                                    border: Border.all(color: ShodashaTheme.danger, width: 1.5),
                                   ),
-                                  child: const Row(
+                                  child: const Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Icon(
-                                        Icons.cancel_rounded,
-                                        color: ShodashaTheme.danger,
-                                        size: 16,
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.block_rounded,
+                                            color: ShodashaTheme.danger,
+                                            size: 20,
+                                          ),
+                                          SizedBox(width: AppSpacing.xs),
+                                          Expanded(
+                                            child: Text(
+                                              'DO NOT DELIVER — ORDER CANCELLED',
+                                              style: TextStyle(
+                                                color: ShodashaTheme.danger,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 13,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      SizedBox(width: AppSpacing.xs),
+                                      SizedBox(height: 4),
                                       Text(
-                                        'Order Cancelled (ऑर्डर रद्द)',
+                                        'ग्राहक ने ऑर्डर रद्द कर दिया है। जार वापस वाहन स्टॉक में रखें।\n(Customer cancelled this order. Return jar to vehicle stock.)',
                                         style: TextStyle(
                                           color: ShodashaTheme.danger,
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                          height: 1.3,
                                         ),
                                       ),
                                     ],

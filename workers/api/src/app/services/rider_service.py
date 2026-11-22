@@ -129,10 +129,15 @@ class RiderService:
 
         route_id = route_row["id"]
 
+        cols = {r["name"] for r in (
+            await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
+        ).fetchall()}
+        fr_col = ", s.failure_reason" if "failure_reason" in cols else ""
+
         # Fetch stops for this route assigned to this rider OR unassigned (NULL rider_id)
         query = (
-            "SELECT s.id, s.route_id, s.order_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp, "
-            " s.status, s.triple, s.rider_id, "
+            f"SELECT s.id, s.route_id, s.order_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp, "
+            f" s.status, s.triple, s.rider_id{fr_col}, "
             " o.payment_mode, o.payment_status, o.total, o.state AS order_state, o.instructions, o.idempotency_key, "
             " a.formatted AS address_text, a.landmark, a.lift_flag, "
             " u.name AS customer_name, u.phone AS customer_phone "
@@ -197,10 +202,18 @@ class RiderService:
             else:
                 amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
 
+            stop_status = d["status"]
+            order_state = d.get("order_state") or ""
+            failure_reason = d.get("failure_reason") or ""
+            if order_state == "cancelled" or failure_reason.startswith("CANCELLED"):
+                stop_status = "cancelled"
+
             stops.append({
                 "id": d["id"],
                 "seq": d["seq"],
-                "status": d["status"],
+                "status": stop_status,
+                "order_state": order_state,
+                "failure_reason": failure_reason,
                 "order_id": d["order_id"],
                 "customer_name": d["customer_name"] or "Customer",
                 "customer_phone": mask_phone(d["customer_phone"]),

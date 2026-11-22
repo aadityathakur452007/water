@@ -448,7 +448,7 @@ class _RouteScreenState extends State<RouteScreen> {
         ),
       );
     }
-    final pending = c.stops.where((s) => !s.isDone && !s.isFailed).toList()
+    final pending = c.stops.where((s) => !s.isDone && !s.isFailed && !s.isCancelled).toList()
       ..sort((a, b) => a.seq.compareTo(b.seq));
     if (pending.isNotEmpty) {
       final first = pending.first;
@@ -537,8 +537,9 @@ class _RouteScreenState extends State<RouteScreen> {
 
   Widget _stopCard(RouteStop s, {bool greyed = false}) {
     final failed = s.isFailed;
+    final cancelled = s.isCancelled;
     return Opacity(
-      opacity: greyed || failed ? 0.55 : 1.0,
+      opacity: greyed || failed || cancelled ? 0.6 : 1.0,
       // Bordered fact-row shape (reference CustomCard rhythm): seq avatar
       // lead, name + facts, status/nav trailing. Hairline border, no shadow.
       child: Container(
@@ -547,10 +548,12 @@ class _RouteScreenState extends State<RouteScreen> {
           boxShadow: ShodashaTheme.subtleCardShadow,
         ),
         child: Material(
-          color: ShodashaTheme.bg,
+          color: cancelled ? const Color(0xFFFFF5F5) : ShodashaTheme.bg,
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: ShodashaTheme.border),
+            side: BorderSide(
+              color: cancelled ? ShodashaTheme.danger.withValues(alpha: 0.4) : ShodashaTheme.border,
+            ),
             borderRadius: BorderRadius.circular(ShodashaTheme.radius),
           ),
           child: ListTile(
@@ -558,11 +561,15 @@ class _RouteScreenState extends State<RouteScreen> {
           onTap: greyed ? null : () => widget.onOpenStop(s),
           leading: CircleAvatar(
             radius: 24,
-            backgroundColor: s.isDone
-                ? ShodashaTheme.success
-                : ShodashaTheme.ink,
+            backgroundColor: cancelled
+                ? ShodashaTheme.danger
+                : s.isDone
+                    ? ShodashaTheme.success
+                    : ShodashaTheme.ink,
             foregroundColor: ShodashaTheme.bg,
-            child: Text('${s.seq}'),
+            child: cancelled
+                ? const Icon(Icons.close, color: Colors.white, size: 20)
+                : Text('${s.seq}'),
           ),
           title: Text(s.customerName,
               maxLines: 1,
@@ -581,7 +588,7 @@ class _RouteScreenState extends State<RouteScreen> {
               // Phase 5 §5.2: honest money badge — partial shows the
               // remainder (never the full total again); a sent UPI link
               // asks for verification, never cash.
-              if (s.returnId.isEmpty)
+              if (s.returnId.isEmpty && !cancelled)
                 Text(
                   s.isPaid
                       ? '${s.paymentMode.toUpperCase()} • Paid'
@@ -598,7 +605,7 @@ class _RouteScreenState extends State<RouteScreen> {
               if (s.address.isNotEmpty)
                 Text(s.address,
                     maxLines: 1, overflow: TextOverflow.ellipsis),
-              if (!s.isDone && !failed && s.returnId.isEmpty)
+              if (!s.isDone && !failed && !cancelled && s.returnId.isEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Row(
@@ -623,7 +630,18 @@ class _RouteScreenState extends State<RouteScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: ShodashaTheme.danger),
                 ),
-              if (failed)
+              if (cancelled)
+                Text(
+                  vtr('ऑर्डर रद्द (Cancelled by Customer)', 'Order Cancelled by Customer'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: ShodashaTheme.danger,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                )
+              else if (failed)
                 const Text(
                   'Failed — admin dobara assign karega',
                   maxLines: 1,
@@ -640,10 +658,12 @@ class _RouteScreenState extends State<RouteScreen> {
               // unmounts this row, so a flip transition could never play;
               // the avatar + row flip plus the jama notice already
               // communicate the state (Operate density over decoration).
-              if (s.isDone)
+              if (cancelled)
+                const Icon(Icons.cancel_outlined, color: ShodashaTheme.danger)
+              else if (s.isDone)
                 const Icon(Icons.check_circle,
-                    color: ShodashaTheme.success),
-              if (failed)
+                    color: ShodashaTheme.success)
+              else if (failed)
                 const Icon(Icons.error_outline,
                     color: ShodashaTheme.danger),
               if (s.address.isNotEmpty)

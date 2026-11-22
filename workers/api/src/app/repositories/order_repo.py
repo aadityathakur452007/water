@@ -491,19 +491,19 @@ class OrderRepo:
     async def _stop_code_stmts(
         self, order_id: str, guard: tuple[str, tuple]
     ) -> list[tuple[str, tuple]]:
-        """Build the pending-stop code clear for the cancel batch."""
+        """Build the pending-stop code clear and cancellation for the cancel batch."""
         cols = {r["name"] for r in (
             await self._conn.execute("SELECT name FROM pragma_table_info('stops')")
         ).fetchall()}
-        sets = []
+        sets = ["status = 'failed'"]
+        if "failure_reason" in cols:
+            sets.append("failure_reason = 'CANCELLED_BY_CUSTOMER'")
         if "pod_otp" in cols:
             sets.append("pod_otp = NULL")
         if "pod_otp_expires_at" in cols:
             sets.append("pod_otp_expires_at = NULL")
         if "pod_attempts" in cols:
             sets.append("pod_attempts = 0")
-        if not sets:
-            return []
         return [(
             f"UPDATE stops SET {', '.join(sets)}"  # noqa: S608
             f" WHERE order_id = ? AND status = 'pending' AND {guard[0]}",

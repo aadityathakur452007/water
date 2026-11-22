@@ -234,17 +234,15 @@ async def test_double_cancel_new_key_already_cancelled_same_outcome():
     assert e.value.details["bill_total"] == 0  # same outcome, no new writes
 
 
-async def test_cancel_assigned_needs_dispatcher():
+async def test_cancel_assigned_succeeds_for_user():
     c = _conn()
     s = _svc(c)
     o = await s.create("u1", _payload(), "k1")
     r = OrderRepo(_w(c))
     for to in ("accepted", "picked", "packed", "assigned"):
         await r.transition(o["id"], to, {"id": "admin", "role": "admin"}, "ops")
-    with pytest.raises(NeedDispatchOverrideError) as e:
-        await s.cancel("u1", o["id"], "too late", "c1")
-    assert e.value.code == "NEED_DISPATCH_OVERRIDE"
-    assert (await r.transition(o["id"], "cancelled", {"id": "d1", "role": "dispatcher"}, "override"))["state"] == "cancelled"
+    res = await s.cancel("u1", o["id"], "customer cancelled post assign", "c1")
+    assert res["state"] == "cancelled"
 
 
 # -- machine + reschedule ---------------------------------------------------

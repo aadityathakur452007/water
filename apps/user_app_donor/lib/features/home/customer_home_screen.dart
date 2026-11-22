@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 // Donor customer home tab. Visual grammar follows the donor home (teal top
 // bar, mode cards, featured jars with real images, purity card); data is the
 // real catalog / address / subscription state owned by the 032 controllers.
@@ -172,19 +174,31 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                         builder: (context, _) {
                           Order? activeOrder;
                           Order? recentFailedOrder;
+                          Order? staleOrder;
                           final now = DateTime.now();
                           for (final o in widget.orders!.allOrders) {
                             if (o.state == OrderState.dispatched ||
                                 o.state == OrderState.assigned ||
-                                o.state == OrderState.placed) {
-                              activeOrder = o;
-                              break;
+                                o.state == OrderState.placed ||
+                                o.state == OrderState.packed) {
+                              if (o.isStaleDelivery) {
+                                staleOrder ??= o;
+                              } else {
+                                activeOrder ??= o;
+                              }
                             }
                             if (recentFailedOrder == null &&
                                 o.state == OrderState.failed &&
                                 now.difference(o.windowStart).inHours.abs() < 24) {
                               recentFailedOrder = o;
                             }
+                          }
+                          if (staleOrder != null) {
+                            return _StaleDeliveryReconciliationCard(
+                              order: staleOrder,
+                              controller: widget.orders!,
+                              onCompleted: () => widget.orders!.refreshOrder(staleOrder!.id),
+                            );
                           }
                           if (activeOrder != null) {
                             return _ActiveDeliveryCard(
@@ -658,6 +672,294 @@ class _FailedDeliveryNoticeCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StaleDeliveryReconciliationCard extends StatefulWidget {
+  const _StaleDeliveryReconciliationCard({
+    required this.order,
+    required this.controller,
+    required this.onCompleted,
+  });
+
+  final Order order;
+  final OrdersController controller;
+  final VoidCallback onCompleted;
+
+  @override
+  State<_StaleDeliveryReconciliationCard> createState() =>
+      _StaleDeliveryReconciliationCardState();
+}
+
+class _StaleDeliveryReconciliationCardState
+    extends State<_StaleDeliveryReconciliationCard> {
+  bool _busy = false;
+
+  Future<void> _handleYesReceived() async {
+    final isCod = widget.order.paymentMode.toLowerCase() == 'cod';
+    bool cashPaid = true;
+
+    if (isCod && widget.order.totalPaise > 0) {
+      final picked = await showModalBottomSheet<bool>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          bool paid = true;
+          return StatefulBuilder(
+            builder: (ctx, setS) => Container(
+              decoration: const BoxDecoration(
+                color: ShodashaTheme.surface,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Doorstep Payment (COD)',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: ShodashaTheme.ink,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Total amount: ₹${(widget.order.totalPaise / 100).toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: ShodashaTheme.teal,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  const Text(
+                    'Did you pay cash to the delivery partner?',
+                    style: TextStyle(fontSize: 14, color: ShodashaTheme.muted),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  RadioListTile<bool>(
+                    value: true,
+                    groupValue: paid,
+                    onChanged: (v) => setS(() => paid = v ?? true),
+                    title: const Text('Yes, I paid cash to delivery partner'),
+                  ),
+                  RadioListTile<bool>(
+                    value: false,
+                    groupValue: paid,
+                    onChanged: (v) => setS(() => paid = v ?? false),
+                    title: const Text('No, add to my next water bill'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    width: double.infinity,
+                    child: AppButton(
+                      label: 'Confirm & Complete',
+                      onPressed: () => Navigator.of(ctx).pop(paid),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      if (picked == null || !mounted) return;
+      cashPaid = picked;
+    }
+
+    setState(() => _busy = true);
+    final ok = await widget.controller.confirmDelivery(
+      widget.order.id,
+      received: true,
+      cashPaid: cashPaid,
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Delivery confirmed! 20L jar added to your account.'),
+          backgroundColor: ShodashaTheme.teal,
+        ),
+      );
+      widget.onCompleted();
+    }
+  }
+
+  Future<void> _handleNotReceived() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: ShodashaTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Water Jar Not Delivered',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: ShodashaTheme.ink,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            const Text(
+              'We apologize for the delay. How would you like us to proceed?',
+              style: TextStyle(fontSize: 13, color: ShodashaTheme.muted),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            ListTile(
+              leading: const Icon(Icons.wb_sunny_outlined, color: ShodashaTheme.teal),
+              title: const Text('Deliver Today Morning', style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: const Text('Reschedule to today morning route (7 AM - 12 PM)'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                side: const BorderSide(color: ShodashaTheme.border),
+              ),
+              onTap: () => Navigator.of(ctx).pop('reschedule'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ListTile(
+              leading: const Icon(Icons.cancel_outlined, color: ShodashaTheme.danger),
+              title: const Text('Cancel Order', style: TextStyle(fontWeight: FontWeight.w700, color: ShodashaTheme.danger)),
+              subtitle: const Text('Cancel this order with no cancellation fees'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                side: const BorderSide(color: ShodashaTheme.border),
+              ),
+              onTap: () => Navigator.of(ctx).pop('cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (action == null || !mounted) return;
+    setState(() => _busy = true);
+    final ok = await widget.controller.confirmDelivery(
+      widget.order.id,
+      received: false,
+      rescheduleToday: action == 'reschedule',
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(action == 'reschedule'
+              ? 'Order rescheduled for today morning route!'
+              : 'Order cancelled successfully.'),
+          backgroundColor: ShodashaTheme.ink,
+        ),
+      );
+      widget.onCompleted();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: ShodashaTheme.surface,
+        borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+        border: Border.all(color: ShodashaTheme.solarBorder, width: 1.5),
+        boxShadow: ShodashaTheme.subtleCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: ShodashaTheme.solarTint,
+                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.help_outline_rounded, size: 14, color: ShodashaTheme.warning),
+                    SizedBox(width: 4),
+                    Text(
+                      'DELIVERY CHECK',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: ShodashaTheme.warning,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'Order #${widget.order.id.length > 8 ? widget.order.id.substring(0, 8).toUpperCase() : widget.order.id}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: ShodashaTheme.muted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(
+            'Did you receive your 20L water jar?',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: ShodashaTheme.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Your delivery was scheduled for yesterday. Please confirm if the delivery partner handed over the jar.',
+            style: TextStyle(
+              fontSize: 12,
+              color: ShodashaTheme.muted,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (_busy)
+            const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator()))
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton(
+                    label: 'Yes, received',
+                    kind: AppButtonKind.primary,
+                    icon: Icons.check_circle_outline_rounded,
+                    onPressed: _handleYesReceived,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: AppButton(
+                    label: 'No, not yet',
+                    kind: AppButtonKind.secondary,
+                    icon: Icons.highlight_off_rounded,
+                    onPressed: _handleNotReceived,
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

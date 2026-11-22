@@ -4,6 +4,29 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**OPTION B CUSTOMER CANCELLATION OVERRIDE & NEXT-MORNING STALE DELIVERY RECONCILIATION PROTOCOL (2026-11-22, ADR-214):** on `main`
+- **1. Customer Cancellation Override (`workers/api`, `apps/user_app_donor`, `apps/rider_app`, `apps/vendor_app`):**
+  - Resolved `Could not cancel this order — try again` error. Added `"user"` to `OVERRIDE_ROLES` in `state_machines.py` and `order_service.py:cancel()`, enabling customers to self-cancel orders in `assigned` and `dispatched` states.
+  - In `order_repo.py:_stop_code_stmts`, updated stops to `status = 'failed'`, `failure_reason = 'CANCELLED_BY_CUSTOMER'`, clearing `pod_otp`.
+  - In `rider_app/delivery_screen.dart`, rendered high-contrast red alert box: `🛑 DO NOT DELIVER — ORDER CANCELLED BY CUSTOMER. Customer cancelled this order. Return jar to vehicle stock.` and suppressed delivery handover actions.
+  - In `vendor_app/route_screen.dart` and `stop_detail_screen.dart`, added `isCancelled` to `RouteStop`, displayed high-contrast red "Order Cancelled by Customer" badge, and suppressed handover/OTP CTAs.
+  - In `user_app_donor/orders_controller.dart` & `tracking_screen.dart`, enabled cancellation from `assigned`/`dispatched` with rider assignment warning dialog and accurate backend error messages.
+- **2. Next-Morning Stale Delivery Reconciliation (`workers/api` & `apps/user_app_donor`):**
+  - Added `POST /v1/orders/{order_id}/confirm-delivery` (`ConfirmDeliveryIn` schema in `orders.py`) in `order_service.py`.
+  - Customer confirms receipt without OTP (`received = true`): verifies COD cash payment (paid vs appended to dues), credits customer jar custody in `ledger` via `apply_event`, transitions order to `delivered`, marks stop `done`, and records security audit log (`STALE_ORDER_CUSTOMER_CONFIRMED_DELIVERY`) alerting admin, vendor, and rider.
+  - Customer reports non-receipt (`received = false`): offers 1-tap reschedule to today's morning route (07:00–12:00) or cancellation.
+  - In `user_app_donor/customer_home_screen.dart`, integrated `_StaleDeliveryReconciliationCard` prompting "Did you receive your 20L water jar?" with cash payment verification bottom sheet.
+- **3. Cloudflare Production Health Analysis:**
+  - Analyzed account `fc73d790fac8c0349ab6310682799ed2` GraphQL telemetry over the last 48 hours across workers (`water`, `water-ops`, `water-admin`, `shodasha-admin`).
+  - Confirmed 99.8% HTTP 200 health with zero fatal crashes (only 2 cold-start isolate timeouts and 3 client aborts).
+- **4. Verification Across Repositories:**
+  - `workers/api`: 564 passed pytest tests, 1 skipped (100% pass rate).
+  - `apps/user_app_donor`: 137 passed flutter tests, `flutter analyze` 0 issues.
+  - `apps/vendor_app`: 96 passed flutter tests, `flutter analyze` 0 issues.
+  - `apps/rider_app`: 9 passed flutter tests, `flutter analyze` 0 issues.
+
+## Previous Phases
+
 **ECOSYSTEM HARDENING — 14 CORE OPERATIONAL FIXES ACROSS CUSTOMER, VENDOR & RIDER APPS (2026-11-21, ADR-213):** on `main`
 - **1. Vendor Rider Deletion (`workers/api` & `apps/vendor_app`):** Added `DELETE /v1/vendor/riders/{rider_id}` dissociating riders from vendor agencies, revoking access codes/sessions, and unassigning pending stops. Added delete button with confirmation dialog in `riders_screen.dart`.
 - **2. Vendor Session Persistence (`apps/vendor_app`):** Fixed `isAuthenticated` in `auth_controller.dart` so valid 30-day refresh tokens prevent premature logouts when short-lived access tokens expire. `tryRefresh` silently renews tokens on demand.

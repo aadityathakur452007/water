@@ -158,9 +158,7 @@ async def test_override_cancel_post_dispatch():
     ac = AsyncSqliteConn(c)
     await assign_order(ac, "o1", "v1", ADM)
     await OrderRepo(ac).transition("o1", "dispatched", ADM, "ops")
-    with pytest.raises(NeedDispatchOverrideError):  # user self-cancel blocked
-        await OrderRepo(ac).cancel_settle("o1", {"id": "u1", "role": "user"})
-    out = await OrderRepo(ac).cancel_settle("o1", ADM)  # dispatcher override settles
+    out = await OrderRepo(ac).cancel_settle("o1", {"id": "u1", "role": "user"})
     assert out["state"] == "cancelled" and out["bill_total"] == 0
     client = _client(c)  # router-level override path
     _order(c, "o2")

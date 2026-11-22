@@ -12,6 +12,50 @@
 
 ## Overview
 
+- Option B Customer Cancellation Override & Next-Morning Stale Delivery Reconciliation (2026-11-22, ADR-214):
+  1. Option B Customer Order Cancellation Override Flow:
+     - User initiates cancel on an order in `assigned` or `dispatched` state from `apps/user_app_donor/lib/features/orders/tracking_screen.dart`.
+     - Dialog displays assignment notice: "A delivery partner is assigned. Cancelling will alert the rider and vendor not to deliver."
+     - `POST /v1/orders/{order_id}/cancel` -> `OrderService.cancel()`:
+       - Evaluates role `"user"` against `OVERRIDE_ROLES` in `state_machines.py`. Allowed without `NeedDispatchOverrideError`.
+       - Sets `orders.state = 'cancelled'`.
+       - `_stop_code_stmts` sets `stops.status = 'failed'`, `stops.failure_reason = 'CANCELLED_BY_CUSTOMER'`, and clears `pod_otp`.
+     - In Rider App (`apps/rider_app/lib/features/delivery/delivery_screen.dart`):
+       - `rider_service.py:routes_today()` returns `order_state: 'cancelled'` and `failure_reason: 'CANCELLED_BY_CUSTOMER'`.
+       - Stop card switches to high-contrast red alert box: `🛑 DO NOT DELIVER — ORDER CANCELLED BY CUSTOMER. Customer cancelled this order. Return jar to vehicle stock.`
+       - `Mark Delivered` / `PodSheet` buttons are completely suppressed.
+     - In Vendor App (`apps/vendor_app/lib/features/route/route_screen.dart` & `stop_detail_screen.dart`):
+       - `RouteStop.isCancelled` flags true.
+       - Route screen displays red avatar with close icon and `Order Cancelled by Customer` badge; hides `डिलीवरी OTP जरूरी`.
+       - Stop detail screen renders `Order Cancelled` container and hides all handover/OTP/cash buttons.
+  2. Next-Morning Stale Delivery Reconciliation Flow:
+     - Customer home screen (`apps/user_app_donor/lib/features/home/customer_home_screen.dart`):
+       - Scans orders for `o.isStaleDelivery` (>12h past window or yesterday's date, not in terminal state).
+       - Renders `_StaleDeliveryReconciliationCard`: "Did you receive your 20L water jar? Order #XXXXXXXX".
+     - Scenario A: Customer received jars without OTP (`received = true`):
+       - Opens cash payment bottom sheet: "Did you pay cash to the delivery partner?"
+         - Option 1: "Yes, I paid cash to delivery partner" (`cash_paid = true`).
+         - Option 2: "No, add to my next water bill" (`cash_paid = false`).
+       - `POST /v1/orders/{order_id}/confirm-delivery` -> `OrderService.confirm_delivery()`:
+         - If COD and `cash_paid`: creates payment record (`status = 'paid'`, `type = 'cod'`).
+         - If COD and not paid: calls `LedgerRepo.apply_event(..., d_dues=order.total, reason='unpaid_cod_stale_reconciliation')`.
+         - Calls `LedgerRepo.apply_event(..., d_held=qty, reason='stale_delivery_reconciliation')` to credit customer jar custody.
+         - Marks stop `status = 'done'`, completes route, transitions order to `delivered`.
+         - Writes audit log `STALE_ORDER_CUSTOMER_CONFIRMED_DELIVERY` alerting admin, vendor, and rider.
+     - Scenario B: Customer did not receive jars (`received = false`):
+       - Option 1: "Deliver Today Morning" (`reschedule_today = true`):
+         - `POST /v1/orders/{order_id}/confirm-delivery` with `reschedule_today = true`:
+           - Updates window start/end to today's morning slot (07:00–12:00).
+           - Resets stop to `pending`.
+       - Option 2: "Cancel Order":
+         - Calls `OrderService.cancel()`. Sets state to `cancelled`, marks stop `failed` (`CANCELLED_AFTER_STALE_DELIVERY`).
+  3. Verification:
+     - 564 passed pytest tests in `workers/api` (100%).
+     - 137 passed flutter tests in `apps/user_app_donor`.
+     - 96 passed flutter tests in `apps/vendor_app`.
+     - 9 passed flutter tests in `apps/rider_app`.
+     - 0 flutter analyze warnings across all repos.
+
 - Ecosystem Hardening: 14 Core Operational Fixes Across Customer, Vendor & Rider Apps (2026-11-21, ADR-213):
   1. Vendor Fleet & Rider Management:
      - `DELETE /v1/vendor/riders/{rider_id}` -> `VendorService.delete_rider()`: Dissociates rider by nullifying `assigned_vendor_id`, revokes active login access codes via `AccessCodeRepo.revoke_all()`, invalidates sessions via `SessionRepo.revoke_user()`, and unassigns pending delivery stops back to vendor custody.

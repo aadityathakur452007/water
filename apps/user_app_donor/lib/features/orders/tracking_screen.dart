@@ -203,21 +203,56 @@ class _TrackingScreenState extends State<TrackingScreen>
           ),
         ),
         content: StatefulBuilder(
-          builder: (ctx, setD) => DropdownButtonFormField<CancelReason>(
-            initialValue: _cancelReason,
-            decoration: InputDecoration(
-              labelText: ordersStringsHi['cancelReasonLabel'],
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+          builder: (ctx, setD) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (order.state == OrderState.assigned ||
+                  order.state == OrderState.dispatched) ...[
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.solarTint,
+                    borderRadius:
+                        BorderRadius.circular(ShodashaTheme.radiusSm),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 18, color: ShodashaTheme.warning),
+                      SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          'A delivery partner is assigned. Cancelling will alert the rider and vendor not to deliver.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: ShodashaTheme.warning,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              DropdownButtonFormField<CancelReason>(
+                initialValue: _cancelReason,
+                decoration: InputDecoration(
+                  labelText: ordersStringsHi['cancelReasonLabel'],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radius),
+                  ),
+                ),
+                items: [
+                  for (final r in CancelReason.values)
+                    DropdownMenuItem(value: r, child: Text(r.label)),
+                ],
+                onChanged: (v) {
+                  if (v != null) setD(() => _cancelReason = v);
+                },
               ),
-            ),
-            items: [
-              for (final r in CancelReason.values)
-                DropdownMenuItem(value: r, child: Text(r.label)),
             ],
-            onChanged: (v) {
-              if (v != null) setD(() => _cancelReason = v);
-            },
           ),
         ),
         actions: [
@@ -251,9 +286,12 @@ class _TrackingScreenState extends State<TrackingScreen>
       Navigator.of(context).pop(true);
       return;
     }
+    final errorMsg = widget.controller.cancelErrorMessage ??
+        ordersStrings['cancelFailed']!;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ordersStrings['cancelFailed']!),
+        content: Text(errorMsg),
+        backgroundColor: ShodashaTheme.danger,
       ),
     );
   }
