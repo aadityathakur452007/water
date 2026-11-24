@@ -136,14 +136,15 @@ class RiderService:
 
         # Fetch stops for this route assigned to this rider OR unassigned (NULL rider_id)
         query = (
-            f"SELECT s.id, s.route_id, s.order_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp, "
+            f"SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp, "
             f" s.status, s.triple, s.rider_id{fr_col}, "
             " o.payment_mode, o.payment_status, o.total, o.state AS order_state, o.instructions, o.idempotency_key, "
             " a.formatted AS address_text, a.landmark, a.lift_flag, "
             " u.name AS customer_name, u.phone AS customer_phone "
             " FROM stops s "
             " LEFT JOIN orders o ON o.id = s.order_id "
-            " LEFT JOIN addresses a ON a.id = o.address_id "
+            " LEFT JOIN returns ret ON ret.id = s.return_id "
+            " LEFT JOIN addresses a ON a.id = COALESCE(o.address_id, ret.address_id) "
             " LEFT JOIN users u ON u.id = s.customer_id "
             " WHERE s.route_id = ? AND (s.rider_id = ? OR s.rider_id IS NULL) "
             " ORDER BY s.seq ASC"
@@ -168,13 +169,14 @@ class RiderService:
             except Exception:
                 pass
 
-            # Check customer ledger dues (e.g. month-end unpaid bill)
+            # Check customer ledger dues (e.g. month-end unpaid bill or mid-cycle cancel dues)
             dues_paise = 0
             try:
-                if d.get("customer_id"):
+                cust_id = d.get("customer_id")
+                if cust_id:
                     led = (await self._conn.execute(
-                        "SELECT dues FROM ledger WHERE user_id = ?",
-                        (d["customer_id"],),
+                        "SELECT dues FROM ledger WHERE customer_id = ?",
+                        (cust_id,),
                     )).fetchone()
                     if led:
                         dues_paise = max(0, int(led["dues"] or 0))
@@ -199,8 +201,16 @@ class RiderService:
                         amount_due = 0
                 else:
                     amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
+                    if dues_paise > 0 and amount_due == 0:
+                        amount_due = dues_paise
+                        is_monthly_dues = True
             else:
-                amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
+                order_amt = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
+                if dues_paise > 0:
+                    amount_due = max(order_amt, dues_paise)
+                    is_monthly_dues = True
+                else:
+                    amount_due = order_amt
 
             stop_status = d["status"]
             order_state = d.get("order_state") or ""

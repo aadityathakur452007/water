@@ -291,6 +291,9 @@ async def _load(conn: Conn, vendor_id: str, date: str) -> tuple[int, int]:
 
 
 async def _check_capacity(conn: Conn, vendor_id: str, need_jars: int, date: str) -> dict:
+    u = (await conn.execute("SELECT suspended FROM users WHERE id = ?", (vendor_id,))).fetchone()
+    if u is not None and bool(u["suspended"]):
+        raise CapacityExceededError(message="Vendor is suspended.", details={"vendor_id": vendor_id})
     prof = await ensure_profile(conn, vendor_id)
     if not int(prof.get("active", 1)) or int(prof.get("review_hold", 0)):
         raise CapacityExceededError(message="Vendor is not available for new stops.",
@@ -387,7 +390,8 @@ async def least_loaded_vendor(conn: Conn, zone_id: str, date: str | None = None)
     cands = (await conn.execute(
         "SELECT vz.vendor_id AS vid, vz.priority AS pri FROM vendor_zones vz"
         " JOIN vendor_profile p ON p.user_id = vz.vendor_id"
-        " WHERE vz.zone_id = ? AND p.active = 1 AND COALESCE(p.review_hold, 0) = 0",
+        " JOIN users u ON u.id = vz.vendor_id"
+        " WHERE vz.zone_id = ? AND p.active = 1 AND COALESCE(p.review_hold, 0) = 0 AND COALESCE(u.suspended, 0) = 0",
         (zone_id,),
     )).fetchall()
     best: tuple | None = None
@@ -434,9 +438,11 @@ async def assign_order(conn: Conn, order_id: str, vendor_id: str, actor: object)
             else:
                 raise ConflictError(message=f"Only packed orders can be assigned (now {order['state']}).",
                                     details={"from": order["state"], "to": "assigned"})
-        vendor = (await conn.execute("SELECT id FROM users WHERE id = ?", (vendor_id,))).fetchone()
+        vendor = (await conn.execute("SELECT id, suspended FROM users WHERE id = ?", (vendor_id,))).fetchone()
         if vendor is None:
             raise NotFoundError(message="Vendor not found.", details={"id": vendor_id})
+        if bool(vendor["suspended"]):
+            raise ValidationError(message="Cannot assign order to a suspended vendor.", details={"vendor_id": vendor_id})
         is_assigned_vendor = False
         try:
             user_assigned = (await conn.execute("SELECT assigned_vendor_id FROM users WHERE id = ?", (order["user_id"],))).fetchone()
@@ -510,6 +516,9 @@ async def auto_assign_trusted_vendor(conn: Conn, order_id: str, user_id: str) ->
     if not urow or not urow["assigned_vendor_id"]:
         return None
     vendor_id = str(urow["assigned_vendor_id"])
+    vendor = (await conn.execute("SELECT id, suspended FROM users WHERE id = ?", (vendor_id,))).fetchone()
+    if not vendor or bool(vendor["suspended"]):
+        return None
     order = (await conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,))).fetchone()
     if not order or str(order["state"]) not in ("placed", "accepted", "picked", "packed"):
         return None

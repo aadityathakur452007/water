@@ -829,6 +829,40 @@ class SubscriptionService:
                 f" WHERE id = ? AND {guard[0]}",
                 (sub_id, *guard[1]),
             ))
+
+            # Mid-cycle cancellation: calculate all unpaid delivered jars under this subscription
+            # so customer owes the money and vendor/rider will collect at doorstep.
+            unpaid_orders = (await self._conn.execute(
+                "SELECT id, total FROM orders WHERE user_id = ? AND state = 'delivered'"
+                " AND payment_status NOT IN ('paid_upi', 'paid_cash')"
+                " AND (idempotency_key LIKE ? OR idempotency_key LIKE ?)",
+                (user_id, f"%:sub:{sub_id}:%", f"%sub_{sub_id}%"),
+            )).fetchall()
+
+            unpaid_dues_posted = 0
+            for uo in unpaid_orders:
+                posted = (await self._conn.execute(
+                    "SELECT 1 FROM ledger_events WHERE customer_id = ? AND ref_type = 'order' AND ref_id = ? AND kind = 'dues' AND d_dues > 0 LIMIT 1",
+                    (user_id, uo["id"]),
+                )).fetchone()
+                if posted is None:
+                    paid_res = (await self._conn.execute(
+                        "SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE order_id = ? AND status IN ('paid', 'partial')",
+                        (uo["id"],),
+                    )).fetchone()
+                    paid_val = int(paid_res["paid"]) if paid_res else 0
+                    due_val = max(0, int(uo["total"]) - paid_val)
+                    if due_val > 0:
+                        unpaid_dues_posted += due_val
+                        stmts.extend(LedgerRepo(self._conn).build_event_stmts(
+                            user_id,
+                            d_dues=due_val,
+                            ref=f"order:{uo['id']}",
+                            actor="system",
+                            reason=f"mid-cycle sub cancellation unpaid delivery for sub {sub_id}",
+                            guard=guard,
+                        ))
+
             rows = await self._conn.batch(stmts)
             self._conn.commit()
             if rows[0].rowcount == 0:
@@ -850,6 +884,7 @@ class SubscriptionService:
             "refund": refund,
             "return_id": return_id,
             "jars_to_return": jars_to_return,
+            "unpaid_dues_posted_paise": unpaid_dues_posted,
             "deposit_refund_expected_paise": jars_to_return * deposit_rate,
             "message": (
                 "Subscription canceled. Future deliveries are stopped. "

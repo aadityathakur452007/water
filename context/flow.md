@@ -12,6 +12,41 @@
 
 ## Overview
 
+- Vendor Suspension Cascade, 1-Click Customer Reassignment & Mid-Cycle Subscription Dues Recovery (2026-11-24, ADR-216):
+  1. Vendor Suspension Cascade Flow:
+     - Admin invokes `POST /v1/admin/users/{user_id}/suspend` with `is_suspended = true` on a vendor (`admin.py:admin_suspend_user`).
+     - Atomically sets `vendor_profile.active = 0` and `vendor_profile.review_hold = 1`.
+     - Calls `dispatch_service.auto_repool(db, vendor_id)`: moves pending stops (`placed`, `accepted`, `picked`) back to the zone unassigned pool.
+     - Disassociates all attached fleet riders: `UPDATE users SET assigned_vendor_id = NULL WHERE assigned_vendor_id = ? AND role = 'rider'`.
+     - Immediately revokes all active auth sessions for both the suspended vendor and all its detached riders (`DELETE FROM sessions WHERE user_id IN (...)`).
+     - Enforces suspension guards in `dispatch_service.py` across `_check_capacity()`, `_best_vendor()`, `assign_order()`, and `auto_assign_trusted_vendor()`, preventing suspended vendors from receiving new orders.
+  2. 1-Click Admin Customer Reassignment Flow:
+     - Admin queries `GET /v1/admin/vendors/{vendor_id}/orphan-customers`: returns total count and user list (`id`, `name`, `phone`, `email`, `created_at`) of customers mapped to that vendor.
+     - Admin issues `POST /v1/admin/vendors/{vendor_id}/reassign-customers` with `new_vendor_id`.
+     - Atomically updates customer assignments: `UPDATE users SET assigned_vendor_id = ? WHERE assigned_vendor_id = ?`.
+     - Auto-routes unfulfilled orders (`placed`, `accepted`, `picked`, `packed`) of those customers to the new vendor's route pool via `dispatch_service.assign_order()`.
+  3. Mid-Cycle Subscription Cancellation Dues Recovery Flow:
+     - Customer cancels subscription via `POST /v1/subscriptions/{sub_id}/cancel` -> `SubscriptionService.cancel()`.
+     - Queries all delivered orders under the subscription and calculates unpaid jar deliveries in paise (`d_dues`).
+     - Applies dues to customer ledger via `LedgerRepo.build_event_stmts`, ensuring no unpaid jars are lost.
+     - In `rider_service.py:routes_today()`, queries `SELECT dues FROM ledger WHERE customer_id = ?`; joins return pickup stops with addresses.
+     - When `dues_paise > 0`, flags `is_monthly_dues = True` and sets `amount_due = max(order_amt, dues_paise)` so rider collects outstanding cash at doorstep.
+     - In `vendor_service.py:today_route()`, queries `LedgerRepo.held_and_dues_for_customers()`, strictly preserving the 4-query limit budget while surfacing outstanding dues.
+
+- Cloudflare Multi-Worker Ecosystem Load Testing via k6 (2026-11-24, ADR-215):
+  1. Test Harness Architecture (`k6/`):
+     - `k6/config.js`: Centralized endpoint addresses and bearer tokens across the 3 Workers (`water`, `water-ops`, `water-admin`).
+     - `k6/scenarios/test_read_all_workers.js`: Ramped from 10 to 100 VUs evaluating read endpoints (`GET /v1/catalog`, `/v1/orders`, `/v1/vendor/placed`, `/v1/rider/routes/today`, `/v1/admin/users`, `/v1/admin/vendors`, `/v1/admin/zones`).
+     - `k6/scenarios/test_write_workers.js`: Ramped from 5 to 50 VUs evaluating real transactional writes (`POST /v1/quotes` -> `POST /v1/orders`, `POST /v1/vendor/duty`, `POST /v1/admin/users/{id}/access-codes`).
+     - `k6/scenarios/test_mixed_ecosystem.js`: Multi-scenario simultaneous execution with 50 customer VUs, 30 vendor/rider VUs, and 20 admin VUs (100 concurrent VUs total).
+  2. Load Capacity & Latency Findings:
+     - Read Throughput: Sustains 92.3 req/s with 99.14% success rate under 100 concurrent VUs. Median latency is 242ms (customer), 260ms (ops), 302ms (admin).
+     - Write Throughput: Sustains 20.5 writes/s with 98.41% success rate under 50 concurrent VUs. Placed 621 real orders (p95 894ms), 624 duty updates (p95 583ms), 620 access codes (p95 1.21s).
+     - Mixed Real-World Traffic: Sustains 103.53 req/s with 99.23% success rate under 100 concurrent VUs. Global median latency is 228ms (p90 356ms, p95 722ms).
+  3. D1 Data Cleanup Flow:
+     - Ingested `workers/api/scripts/reset_d1_keep_admin_only.sql` to remote D1 `shodasha` via Wrangler.
+     - Preserved exclusively the single admin record (`+917828442476` / `1a276f3033644bc496e31f115c5950f2`) and service zones.
+
 - Option B Customer Cancellation Override & Next-Morning Stale Delivery Reconciliation (2026-11-22, ADR-214):
   1. Option B Customer Order Cancellation Override Flow:
      - User initiates cancel on an order in `assigned` or `dispatched` state from `apps/user_app_donor/lib/features/orders/tracking_screen.dart`.

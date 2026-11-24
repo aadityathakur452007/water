@@ -4,6 +4,52 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**VENDOR SUSPENSION CASCADE, 1-CLICK REASSIGNMENT & MID-CYCLE SUBSCRIPTION DUES RECOVERY (2026-11-24, ADR-216):** on `main`
+- **1. Vendor Suspension Cascade (`workers/api/src/app/api/v1/admin.py`):**
+  - Enhanced `admin_suspend_user`: when `row["role"] == "vendor"`, automatically deactivates `vendor_profile` (`active=0, review_hold=1`).
+  - Auto-repools pending stops back to the zone pool via `dispatch_service.auto_repool()`, marking stops `failed` with clear repool audit trails.
+  - Disassociates all attached fleet riders (`assigned_vendor_id = NULL`) and revokes active sessions for both vendor and riders immediately.
+  - Enforced `users.suspended == 0` guards across `_check_capacity()`, `_best_vendor()`, `assign_order()`, and `auto_assign_trusted_vendor()`, preventing suspended vendors from receiving new orders.
+- **2. 1-Click Admin Customer Reassignment (`workers/api/src/app/api/v1/admin.py`):**
+  - Added `GET /v1/admin/vendors/{vendor_id}/orphan-customers` listing all customers assigned to a vendor.
+  - Added `POST /v1/admin/vendors/{vendor_id}/reassign-customers` enabling admin to atomically migrate customers to an active vendor in 1 click and auto-route unfulfilled orders.
+- **3. Mid-Cycle Subscription Cancellation Dues Recovery (`workers/api/src/app/services/subscription_service.py`):**
+  - In `cancel()`, queries delivered unpaid orders under the cancelled subscription, computes unpaid jar dues, and commits `d_dues` ledger events via `LedgerRepo.build_event_stmts`.
+  - In `rider_service.py:routes_today()`, fixed ledger query column (`customer_id` instead of `user_id`), joined return pickup stops with addresses, and computed `amount_due = max(order_amt, dues)` with `is_monthly_dues = True` so riders collect outstanding dues at doorstep.
+  - In `vendor_service.py`, added `held_and_dues_for_customers` batch query preserving the 4-query budget while surfacing customer dues.
+- **4. Verification & Production Deployment:**
+  - 566 unit tests passed in `workers/api` (100%).
+  - Deployed all 3 workers to live Cloudflare production (`water`, `water-ops`, `water-admin`).
+  - Executed automated scenario verification suite `k6/scenarios/test_live_scenarios.py` against live production endpoints, proving customer profile update rules, vendor suspension cascade, rider disassociation & session revocation, 1-click reassignment, and subscription cancellation dues recovery.
+
+## Previous Phases
+
+**CLOUDFLARE MULTI-WORKER K6 LOAD TESTING & CAPACITY BENCHMARK (2026-11-24, ADR-215):** on `main`
+- **1. k6 Tooling & Test Architecture (`k6/`):**
+  - Cloned `grafana/k6` repository locally into `.k6-repo`. Installed official `k6` v2.4.0 CLI runtime via `winget`.
+  - Created modular test suite (`k6/config.js`, `k6/scenarios/test_read_all_workers.js`, `k6/scenarios/test_write_workers.js`, `k6/scenarios/test_mixed_ecosystem.js`).
+  - Generated and validated live authentication credentials across all four roles and three workers: Admin (`water-admin`), Vendor & Rider (`water-ops`), Customer (`water`).
+- **2. Read Throughput Benchmark (100 VUs, 1m43s):**
+  - Completed **9,541 requests** at **92.3 requests/second** sustained throughput with **99.14% success rate**.
+  - Customer read median latency: 242ms (p95: 1.05s).
+  - Ops read median latency: 260ms (p95: 1.15s).
+  - Admin read median latency: 302ms (p95: 1.33s).
+- **3. Transactional Write Benchmark (50 VUs, 1m32s):**
+  - Completed **1,895 write transactions** at **20.5 writes/second** with **98.41% success rate**.
+  - Placed **621 live customer orders** (98.25% success, median 552ms, p95: 894ms).
+  - Executed **624 vendor duty state updates** (98.73% success, median 404ms, p95: 583ms).
+  - Executed **620 admin access code rotations** (98.10% success, median 567ms, p95: 1.21s).
+- **4. Mixed Real-World Ecosystem Benchmark (100 concurrent VUs, 1m00s):**
+  - Simulated simultaneous traffic: 50 Customer VUs + 30 Vendor/Rider VUs + 20 Admin VUs across all three separate Workers.
+  - Completed **6,296 requests** at **103.53 requests/second** sustained throughput with **99.23% success rate** (0.77% failure).
+  - Global latency: median **228ms**, p90 **356ms**, p95 **722ms**.
+  - Individual surface latency: Customer median 218ms (99.42% success), Vendor median 228ms (99.00% success), Admin median 237ms (99.05% success).
+- **5. Production Database Cleanup:**
+  - Ingested `workers/api/scripts/reset_d1_keep_admin_only.sql` against remote D1 `shodasha` via Wrangler, purging 4,667 rows of synthetic benchmark orders and users.
+  - Verified remote D1 database size reduced to 1.25 MB with only verified admin user (`+917828442476` / `1a276f3033644bc496e31f115c5950f2`) and service zones preserved.
+
+## Previous Phases
+
 **OPTION B CUSTOMER CANCELLATION OVERRIDE & NEXT-MORNING STALE DELIVERY RECONCILIATION PROTOCOL (2026-11-22, ADR-214):** on `main`
 - **1. Customer Cancellation Override (`workers/api`, `apps/user_app_donor`, `apps/rider_app`, `apps/vendor_app`):**
   - Resolved `Could not cancel this order — try again` error. Added `"user"` to `OVERRIDE_ROLES` in `state_machines.py` and `order_service.py:cancel()`, enabling customers to self-cancel orders in `assigned` and `dispatched` states.

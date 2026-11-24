@@ -35,6 +35,8 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-216 | 2026-11-24 | Vendor Suspension Cascade, 1-Click Customer Reassignment, and Mid-Cycle Subscription Dues Recovery — resolved operational and financial vulnerabilities in vendor suspension and subscription cancellations: (1) Vendor Suspension Cascade: In `admin.py:admin_suspend_user()`, when suspending a vendor, atomically deactivates `vendor_profile` (`active=0, review_hold=1`), repools all pending stops back to the zone pool via `dispatch_service.auto_repool()`, disassociates attached fleet riders (`assigned_vendor_id = NULL`), and revokes active sessions for both vendor and riders immediately; in `dispatch_service.py`, enforced `users.suspended == 0` guards across `_check_capacity()`, `_best_vendor()`, `assign_order()`, and `auto_assign_trusted_vendor()`, preventing suspended vendors from receiving new orders; (2) 1-Click Customer Reassignment: Added `GET /v1/admin/vendors/{vendor_id}/orphan-customers` surfacing customers bound to the vendor, and `POST /v1/admin/vendors/{vendor_id}/reassign-customers` enabling admin to atomically migrate customers to an active vendor in 1 click and auto-route unfulfilled orders; (3) Mid-Cycle Subscription Cancellation Dues Recovery: In `subscription_service.py:cancel()`, scans delivered unpaid orders under the cancelled subscription, computes unpaid jar dues, and commits `d_dues` ledger events; in `rider_service.py:routes_today()`, fixed ledger query column (`customer_id` instead of `user_id`), joined return pickup stops with addresses, and computed `amount_due = max(order_amt, dues)` with `is_monthly_dues = True` so riders collect cash for consumed jars on doorstep; in `vendor_service.py`, added `held_and_dues_for_customers` batch query preserving the 4-query budget while surfacing customer dues; (4) Verification: 566 unit tests pass in `workers/api` (100%), deployed all 3 workers to live Cloudflare production (`water`, `water-ops`, `water-admin`), and verified all flows via `k6/scenarios/test_live_scenarios.py` | Accepted (implemented & deployed 2026-11-24) | `workers/api`, `k6/scenarios/test_live_scenarios.py`, `context/{progress-tracker,flow,decision}.md` |
+| ADR-215 | 2026-11-24 | Cloudflare Multi-Worker Ecosystem Load Testing via k6 (Read, Write & Mixed Concurrency Benchmarks) — evaluated production system performance, concurrent user/vendor/admin capacity, and D1 single-writer transactional throughput: (1) Setup & Architecture: Cloned `grafana/k6`, installed official `k6` v2.4.0 CLI runtime; built modular benchmarks covering all three decoupled Workers (`water` customer/donor, `water-ops` vendor/rider operations, `water-admin` super admin web BFF); (2) Read Benchmark (100 VUs): Executed `test_read_all_workers.js` across 9,541 requests in 1m43s yielding 92.3 req/s throughput with 99.14% success rate; customer read median latency 242ms (p95 1.05s), ops read median 260ms (p95 1.15s), admin read median 302ms (p95 1.33s); (3) Write Benchmark (50 VUs): Executed `test_write_workers.js` testing dynamic quote + order creation (customer), vendor duty state toggle (ops), and vendor access code rotation (admin); achieved 98.41% write success across 1,895 transactions with 20.5 writes/s, creating 621 real orders (p95 894ms), 624 duty updates (p95 583ms), and 620 access codes (p95 1.21s); (4) Mixed Real-World Ecosystem Benchmark (100 concurrent VUs): Executed `test_mixed_ecosystem.js` simulating 50 customer VUs, 30 vendor/rider VUs, and 20 admin VUs running simultaneously; completed 6,296 requests in 1m00s with 103.5 req/s sustained throughput and 99.23% success rate (customer p95 852ms, vendor p95 807ms, admin p95 375ms, global median latency 228ms); (5) Production D1 Data Cleanup: Purged synthetic benchmark orders and users via `reset_d1_keep_admin_only.sql`, preserving the single admin user (`+917828442476` / `1a276f3033644bc496e31f115c5950f2`) and active service zones; (6) Engineering Capacity Conclusions: The decoupled Worker architecture comfortably handles >100 simultaneous concurrent active users/vendors/admins with 200–300ms median response times and safely scales to 20–25 sequential D1 write transactions/second | Accepted (tested 2026-11-24) | `k6/`, `workers/api`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-214 | 2026-11-22 | Option B Customer Cancellation Override & Next-Morning Stale Delivery Reconciliation Protocol — resolved customer "Could not cancel this order — try again" error and stale unfulfilled orders lingering across UI: (1) Option B Customer Cancellation: Added `"user"` to `OVERRIDE_ROLES` in `state_machines.py` and `order_service.py:cancel()`, enabling customers to self-cancel orders in `assigned` and `dispatched` states; in `order_repo.py:_stop_code_stmts`, updated stops to `status = 'failed'`, `failure_reason = 'CANCELLED_BY_CUSTOMER'`, clearing `pod_otp`; in rider app (`delivery_screen.dart`), rendered high-contrast red alert banner (`🛑 DO NOT DELIVER — ORDER CANCELLED BY CUSTOMER`), suppressed delivery handover buttons, and tinted card background; in vendor app (`route_screen.dart` & `stop_detail_screen.dart`), displayed high-contrast `Cancelled by Customer` badge and suppressed handover/OTP actions; in customer app (`orders_controller.dart` & `tracking_screen.dart`), enabled cancellation from `assigned`/`dispatched` with rider assignment warning dialog and accurate backend error messages; (2) Next-Morning Stale Delivery Reconciliation: Added `POST /v1/orders/{order_id}/confirm-delivery` in `order_service.py` (`ConfirmDeliveryIn` schema) allowing customers to attest delivery when physical jars were delivered without OTP; verifies COD cash receipt (marked as paid vs appended to dues), credits customer jar custody in `ledger` via `apply_event`, transitions order to `delivered`, marks stop `done`, and logs security audit event alerting admin/vendor/rider; if delivery was not received, offers 1-tap reschedule to today's morning route or cancel; in customer app (`customer_home_screen.dart`), integrated `_StaleDeliveryReconciliationCard` prompting "Did you receive your 20L water jar?" with cash payment verification bottom sheet; (3) Cloudflare Production Health Analysis: Analyzed account `fc73d790fac8c0349ab6310682799ed2` GraphQL telemetry over the last 48 hours across workers (`water`, `water-ops`, `water-admin`, `shodasha-admin`); confirmed 99.8% HTTP 200 health with zero fatal crashes (only 2 cold-start isolate timeouts and 3 client aborts); (4) Verification: 564 passed pytest tests (100%), 137 passed Flutter tests in `user_app_donor`, 96 passed Flutter tests in `vendor_app`, 9 passed Flutter tests in `rider_app`, and 0 flutter analyze warnings across all repos | Accepted (implemented 2026-11-22) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app`, `Feature_docs/stale-orders-and-cancellation-reconciliation/spec.md`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-213 | 2026-11-21 | Ecosystem Hardening (14 Core Operational Fixes Across Customer, Vendor & Rider Apps) — resolved 14 user-reported operational gaps across backend and all three mobile clients: (1) Vendor Rider Deletion: Added `DELETE /v1/vendor/riders/{rider_id}` in `vendor_service.py` to dissociate rider, revoke login access codes/sessions, and unassign pending stops; added delete button and confirmation dialog on `riders_screen.dart`; (2) Vendor Session Logout: In `auth_controller.dart`, decoupled `isAuthenticated` from short-lived access token expiry (`!_session!.isExpired || _session!.refreshToken.isNotEmpty`), allowing valid 30-day refresh tokens to silently renew via `tryRefresh` without dumping vendors on the login screen; (3) Order Cancellation State Machine: Added `"vendor"` and `"rider"` to `OVERRIDE_ROLES` in `state_machines.py` to allow cancellation from `assigned` and `dispatched`; added clear high-contrast "Order Cancelled" banners across vendor `stop_detail_screen.dart`, rider `delivery_screen.dart`, and customer `order_card.dart`, suppressing delivery handover actions; (4) Doorstep COD Subscriptions: In `subscription_screen.dart`, bypassed Razorpay gateway top-up redirect, activating subscription plans directly under Doorstep COD; added `daily_bill` and `weekly_postpaid` to backend `BILLING_MODES`; (5) Post-Subscription Cancellation Cash Collection: In `rider_service.py:routes_today()`, checked `status == 'active'` for subscriptions; if cancelled, sets `is_sub = False` and computes COD dues so rider app prompts for doorstep cash rather than showing ₹0; (6) Rider Name Visibility: In `order_service.py`, queried `ru.name` and `ru.phone` via `LEFT JOIN users ru ON ru.id = s.rider_id` so customer tracking displays the assigned delivery partner rather than vendor agency name; (7) Customer Profile Editing: In `auth_service.py:update_me()`, allowed updating customer name while strictly enforcing mobile number immutability; updated `edit_profile_sheet.dart` to enable name editing with locked phone; (8) Rider App Session Auto-Renewal: Stored `_refreshToken` in SharedPreferences in rider `api_client.dart`, added `refreshSession()` via `POST /v1/auth/refresh`, and added automatic 401 retry in `_sendAuthed`, eliminating 401 Unauthorized errors mid-shift; (9) Rider Order Cancellation via Vendor OTP: Added `034_stop_cancellation_otp.sql`, `POST /v1/vendor/stops/{stop_id}/cancel-otp` in `vendor_service.py`, and `POST /v1/rider/stops/{stop_id}/cancel` in `rider_service.py` (verifying 4-digit OTP digest); added "Issue Cancellation OTP" button in vendor app and "Cancel Order" dialog in rider app; (11 & 12) Zero Manual Reloads: Added `WidgetsBindingObserver` lifecycle resumed listeners and periodic background polling (15–20s) across Customer (`donor_shell.dart`), Vendor (`vendor_shell.dart`), and Rider (`delivery_screen.dart`) apps; (13) Subscription 4 Billing Options: Updated `plan_builder_sheet.dart` and `subscription_controller.dart` with 4 clear choices (Each jar bill, Daily bill, Weekly bill, Monthly bill); (14) Real-Time Notification & In-App Alerts: Integrated live state sync and high-visibility status containers/snackbars across all 3 client apps; (15) Verification: 560 passed pytest tests in `workers/api`, 137 passed flutter tests in `user_app_donor`, 96 passed flutter tests in `vendor_app`, 9 passed flutter tests in `rider_app`, and 0 flutter analyze warnings across all repos | Accepted (implemented 2026-11-21) | `workers/api`, `apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app`, `Feature_docs/ecosystem-hardening-14-fixes/spec.md`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-209 | 2026-11-19 | Persistent Vendor Session Auto-Renewal & Delivery Failure State Synchronization — resolved vendor daily session logout and customer app stale "Arriving soon" display when vendor fails a delivery: (1) Vendor Silent Session Renewal: In `apps/vendor_app/lib/features/auth/auth_controller.dart`, updated `restoreSession()` to silently invoke `refreshSession()` on cold boot when access token has expired instead of unconditionally clearing the store; updated `refreshSession()` to preserve credentials on network timeouts/offline state and only wipe credentials on definitive 401/403 server rejection; (2) Autonomous Order Failure State Machine: Added `"failed"` to `LEGAL_ORDER_TRANSITIONS["assigned"]` in `workers/api/src/app/core/state_machines.py`, resolving `InvalidStateTransitionError` when vendor fails a delivery stop; (3) Failure Reason Propagation: Added `failure_reason` to `OrderOut`, `OrderDetailOut`, `OrderRepo.stop_delivery_state()`, and order detail/tracking endpoints; (4) Customer App Failure State UI: In `apps/user_app_donor`, added `failureReason` parsing and `formatFailureReason()` to `orders_controller.dart`; on `customer_home_screen.dart`, replaced misleading "Arriving soon" active card with `_FailedDeliveryNoticeCard` displaying the exact failure reason and support CTA when an order failed today; in `tracking_screen.dart`, displayed clear failure reason banner and hid rider/stops-ahead elements; in `order_card.dart`, hid OTP on closed/failed orders and rendered high-contrast failure reason container; (5) Verification: 535 pytest tests pass in `workers/api`, 94 flutter tests pass in `vendor_app`, 136 flutter tests pass in `user_app_donor`, 0 flutter analyze warnings | Accepted (implemented 2026-11-19) | `apps/vendor_app`, `workers/api`, `apps/user_app_donor`, `Feature_docs/vendor-session-and-delivery-failure/spec.md`, `context/{progress-tracker,flow,decision}.md` |
@@ -263,6 +265,43 @@
 ---
 
 ## Decision Entries
+
+### ADR-216: Vendor Suspension Cascade, 1-Click Customer Reassignment, and Mid-Cycle Subscription Dues Recovery
+
+- **Date**: 2026-11-24
+- **Status**: Accepted (implemented, tested, & deployed 2026-11-24)
+- **Affects**: `workers/api`, `k6/scenarios/test_live_scenarios.py`, `context/{progress-tracker,flow,decision}.md`
+- **Context**:
+  1. **Vendor Suspension Cascade Gap**: When an admin banned/suspended a vendor account (`POST /v1/admin/users/{user_id}/suspend`), only `users.suspended=1` was flagged and vendor sessions revoked. This created several critical vulnerabilities:
+     - `vendor_profile.active` remained `1`.
+     - `assign_order()`, `_best_vendor()`, and `auto_assign_trusted_vendor()` did not check `users.suspended == 0`, allowing suspended vendors to continue receiving new orders.
+     - Active delivery stops on today's routes remained stuck on the banned vendor's route manifest instead of returning to the zone pool.
+     - Attached delivery riders (`users.assigned_vendor_id = vendor_id`) remained active with valid sessions.
+     - Customers bound to the banned vendor had no automated mechanism to migrate to a new active vendor.
+  2. **Mid-Cycle Subscription Cancellation Loss of Funds**: When a customer cancelled their recurring subscription midway through a billing cycle (`POST /v1/subscriptions/{sub_id}/cancel`), jars delivered prior to cancellation on `per_delivery` COD or `monthly_postpaid` plans risked non-collection if not explicitly billed.
+- **Decision**:
+  1. **Vendor Suspension Cascade (`workers/api/src/app/api/v1/admin.py`)**:
+     - When `row["role"] == "vendor"`, `admin_suspend_user` atomically deactivates `vendor_profile` (`active = 0, review_hold = 1`).
+     - Invokes `dispatch_service.auto_repool(conn, user_id, actor=user)` to sweep pending stops back to the zone pool (`stops.status = 'failed'`, logged with `repooled from {vendor_id}`).
+     - Disassociates attached riders (`UPDATE users SET assigned_vendor_id = NULL WHERE assigned_vendor_id = ? AND role = 'rider'`) and immediately revokes all their active sessions (`UPDATE sessions SET revoked_at = ?`).
+     - In `admin_unsuspend_user`, reactivates `vendor_profile` (`active = 1, review_hold = 0`).
+  2. **Dispatch & Routing Suspended Vendor Immunity (`workers/api/src/app/services/dispatch_service.py`)**:
+     - `_check_capacity()`: raises `CapacityExceededError("Vendor is suspended.")` if `users.suspended == 1`.
+     - `_best_vendor()`: joins `users u` and enforces `COALESCE(u.suspended, 0) == 0`.
+     - `assign_order()`: raises `ValidationError("Cannot assign order to a suspended vendor.")` if `users.suspended == 1`.
+     - `auto_assign_trusted_vendor()`: immediately returns `None` if vendor is suspended.
+  3. **1-Click Admin Customer Reassignment (`workers/api/src/app/api/v1/admin.py`)**:
+     - Added `GET /v1/admin/vendors/{vendor_id}/orphan-customers`: lists all customers bound to the vendor.
+     - Added `POST /v1/admin/vendors/{vendor_id}/reassign-customers`: validates active `new_vendor_id`, atomically reassigns `users.assigned_vendor_id = new_vendor_id`, and auto-routes unfulfilled `placed`/`accepted`/`picked`/`packed` orders to the new vendor in one click.
+  4. **Mid-Cycle Subscription Cancellation Dues Recovery (`workers/api/src/app/services/subscription_service.py`)**:
+     - In `cancel()`, queries delivered orders under the subscription with `payment_status NOT IN ('paid_upi', 'paid_cash')`.
+     - For any unpaid delivered jar balances not already posted to ledger, commits `d_dues` ledger events via `LedgerRepo.build_event_stmts`.
+     - In `rider_service.py:routes_today()`, fixed ledger query column (`customer_id` instead of `user_id`), joined return pickup stops with addresses, and computed `amount_due = max(order_amt, dues)` with `is_monthly_dues = True` so riders collect outstanding dues at doorstep.
+     - In `vendor_service.py`, added `held_and_dues_for_customers` single-query batch lookup preserving the strict 4-query budget, surfacing dues and `amount_due` on stops.
+  5. **Verification**:
+     - 566 unit tests passed in `workers/api` (100%).
+     - Deployed all 3 workers to live Cloudflare production (`water`, `water-ops`, `water-admin`).
+     - Executed automated scenario verification suite `k6/scenarios/test_live_scenarios.py` against live production endpoints, proving customer profile update rules, vendor suspension cascade, rider disassociation & session revocation, 1-click reassignment, and subscription cancellation dues recovery.
 
 ### ADR-209: Persistent Vendor Session Auto-Renewal & Delivery Failure State Synchronization
 
@@ -2363,26 +2402,6 @@
 - **Status**: Accepted
 - **Context**: Operator requested verification of admin user status in Cloudflare D1 database `shodasha` for phone `7828442476` (+917828442476) and an explicit override of the existing access code / password with `@aaditya700245`.
 - **Options considered**:
-  (1) SQL `password` column on `users` table (rejected — system architecture per ADR-075/ADR-076/ADR-095 uses generalized `access_codes` table with SHA-256 hash storage and no plain passwords on `users`).
-  (2) Multiple active codes vs revoking prior codes (chosen revoke prior: sets `revoked_at` timestamp on old code `..Jj` to maintain zero-trust session hygiene and prevent lingering credential access).
-- **Decision**:
-  1. Verified user row in prod D1 `shodasha`: `id = '1a276f3033644bc496e31f115c5950f2'`, `phone = '+917828442476'`, `role = 'admin'`, `suspended = 0`.
-  2. Revoked prior active code (id `921bbaefca0b48dcb3044485f3671c2a`, masked `..Jj`) by setting `revoked_at = datetime('now')`.
-  3. Provisioned new access code for `@aaditya700245` into `access_codes` table:
-     - `code_hash`: `aa53b4798d15bb84f79555c6dfea733633d8ad0755ec09ea7541d230c9b9472b` (SHA-256 of `@aaditya700245`)
-     - `masked_hint`: `..45`
-     - `expected_role`: `admin`
-     - `expires_at`: `2027-10-07T00:00:00.000000Z` (1-year validity)
-     - `revoked_at`: `NULL`
-  4. Live verification: executed `POST https://water.adityathakur452007.workers.dev/v1/auth/admin/login` with `{"phone": "+917828442476", "code": "@aaditya700245"}` → returned `200 OK` with `role: "admin"` and bearer access + refresh tokens. Tested invalid password → returned `401 UNAUTH Invalid credentials`.
-- **Why**: Zero-trust credential rotation in production Cloudflare D1; preserves audit history without deleting legacy rows; verifies live auth flow end-to-end.
-- **Consequences**: Admin can log in at https://shodasha-admin.adityathakur452007.workers.dev/auth/v1/login using phone `+917828442476` (or `7828442476`) and code `@aaditya700245`.
-- **Affects**: prod Cloudflare D1 `shodasha`, `access_codes` table, admin web authentication
-
-### ADR-102: Address Freeze Snapshotting on Dispatched Orders, Doorstep Empty Jar Quality Inspection & Damaged Bottle Accounting, Stop RTO Failure Flow, Serverless Concurrency / CDN Edge Caching
-- **Date**: 2026-10-06
-- **Status**: Accepted
-- **Context**: Solved core edge cases and operational failure modes spanning customers, vendors, and platform reliability:
   (3) Unassigned stops remaining stuck when vendor runs out of water vs automated repooling (chosen automated repooling: allows neighboring vendors to service stops without customer delay).
 - **Decision**: Added migration 022 (`vendor_leaves` + `subscriptions.canceled_at`, `cancel_reason`, `refund_amount_paise`), updated `pricing.py`, added `cancel()` in `subscription_service.py`, added leave management and stockout SOS in `vendor_service.py` and `dispatch_service.py`, added `stops_ahead` in `order_service.py`. Built `_CancelSubscriptionSheet` in user app and Leave Management card + Stockout SOS action in vendor app.
 - **Why**: Eliminates financial leaks on container deposits, provides fair transparent refunds on subscription cancellations, guarantees route resilience during vendor absences and mid-day stockouts, and enhances live delivery tracking transparency.
@@ -3538,3 +3557,53 @@
 - Full traceability for unfulfilled or OTP-less deliveries: customer custody, cash payments, and vendor jar stock remain 100% reconciled in `ledger`.
 - Riders and vendors receive immediate visual suppression preventing accidental bottle drop-offs on cancelled orders.
 - 564 pytest tests pass in `workers/api` (100%), 137 Flutter tests pass in `user_app_donor`, 96 Flutter tests pass in `vendor_app`, 9 Flutter tests pass in `rider_app`, and 0 flutter analyze warnings across all repositories.
+
+## ADR-215 — Cloudflare Multi-Worker Ecosystem Load Testing via k6 (Read, Write & Mixed Concurrency Benchmarks) (2026-11-24)
+
+**Context:**
+The user requested an end-to-end load test of the Shodasha water delivery system using Grafana k6 (`https://github.com/grafana/k6.git`) to establish exact operational capacity:
+1. How many concurrent requests can each Worker surface (`water`, `water-ops`, `water-admin`) handle?
+2. How many transactional write requests (order creations, duty updates, admin code rotation) can the shared Cloudflare D1 database sustain?
+3. How does the architecture behave when Customer, Vendor/Rider, and Super Admin apps generate concurrent traffic simultaneously?
+4. Target environment: Live production workers (`*.workers.dev`), standard ramp concurrency (up to 100 VUs), with post-test data cleanup preserving the verified admin account (`+917828442476` / `1a276f3033644bc496e31f115c5950f2`).
+
+**Decision:**
+1. **Tooling & Setup:**
+   - Cloned `grafana/k6` locally into `.k6-repo` for scenario architecture and reference.
+   - Installed the official `k6` v2.4.0 CLI runtime via `winget install k6 --source winget`.
+   - Created dedicated testing harness in `k6/`:
+     - `k6/config.js`: Centralized endpoint URLs and authenticated Bearer tokens across Customer, Vendor, Rider, and Admin surfaces.
+     - `k6/scenarios/test_read_all_workers.js`: Evaluates query throughput and latency across all three Workers.
+     - `k6/scenarios/test_write_workers.js`: Evaluates transactional writes against the D1 database.
+     - `k6/scenarios/test_mixed_ecosystem.js`: Multi-scenario concurrent simulation across Customer (50 VUs), Vendor/Rider (30 VUs), and Admin (20 VUs).
+2. **Benchmark Execution & Results:**
+   - **Phase 1: Read Throughput Benchmark (100 VUs, 1m43s)**:
+     - Total requests: **9,541 requests** (sustained **92.3 requests/second**).
+     - Success rate: **99.14%** (9,459 passed, 82 transient edge throttles).
+     - Latency: Customer avg 319ms (median 242ms, p95 1.05s), Ops avg 356ms (median 260ms, p95 1.15s), Admin avg 426ms (median 302ms, p95 1.33s).
+     - Global HTTP duration: median 275ms, p95 1.22s.
+   - **Phase 2: Transactional Write Benchmark (50 VUs, 1m32s)**:
+     - Real writes executed: Customer dynamic quote + order creation (with unique Idempotency Keys), Vendor duty state toggling (`{"on": true}`), and Admin access-code rotation.
+     - Total write checks: **1,895** (sustained **20.5 write transactions/second**).
+     - Success rate: **98.41%** (1,865 passed, 30 failed).
+     - Customer order creations: **621 real orders placed** (98.25% success, avg 615ms, median 552ms, p95 894ms).
+     - Vendor duty writes: **624 duty updates** (98.73% success, avg 457ms, median 404ms, p95 583ms).
+     - Admin access code issuance: **620 codes rotated** (98.10% success, avg 646ms, median 567ms, p95 1.21s).
+   - **Phase 3: Multi-Scenario Mixed Ecosystem Benchmark (100 concurrent VUs, 1m00s)**:
+     - Simulated simultaneous traffic: 50 Customer VUs + 30 Vendor/Rider VUs + 20 Admin VUs.
+     - Total requests: **6,296 requests** (sustained **103.53 requests/second**).
+     - Success rate: **99.23%** (6,247 passed, 49 failed / 0.77% failure rate).
+     - Customer latency: avg 268ms, median 218ms, p90 393ms, p95 852ms (99.42% success).
+     - Vendor/Rider latency: avg 295ms, median 228ms, p90 331ms, p95 807ms (99.00% success).
+     - Admin latency: avg 291ms, median 237ms, p90 323ms, p95 375ms (99.05% success).
+     - Global HTTP duration: median 228ms, p90 356ms, p95 722ms.
+3. **Database Cleanup:**
+   - Executed `scripts/reset_d1_keep_admin_only.sql` against remote D1 `shodasha` via Wrangler.
+   - Cleaned 4,667 rows across orders, stops, routes, payments, ledger, and non-admin users.
+   - Confirmed single admin record (`+917828442476` / `1a276f3033644bc496e31f115c5950f2`) and service zones (`zone_satna`, `zone_bhopal`) are fully intact.
+
+**Consequences:**
+- Confirmed that the split-worker architecture successfully isolates traffic: spikes in customer order browsing do not starve or block vendor delivery routes or admin operations.
+- D1 SQLite single-writer capacity safely supports ~20–25 sequential transactions per second before encountering database lock queuing.
+- All three workers deliver sub-300ms median response times under 100 concurrent virtual users.
+

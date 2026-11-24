@@ -311,7 +311,8 @@ class VendorService:
             " u.name AS customer_name, u.phone AS customer_phone"
             f"{ij}{ins}{fr}{asnap}"
             " FROM stops s LEFT JOIN orders o ON o.id = s.order_id"
-            " LEFT JOIN addresses a ON a.id = o.address_id"
+            " LEFT JOIN returns ret ON ret.id = s.return_id"
+            " LEFT JOIN addresses a ON a.id = COALESCE(o.address_id, ret.address_id)"
             " LEFT JOIN users u ON u.id = s.customer_id"
             " WHERE s.route_id = ? ORDER BY s.seq",
             (route["id"],),
@@ -322,8 +323,8 @@ class VendorService:
         from app.services.order_service import HOLD_BLOCK_LIMIT
         from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
 
-        held_by_customer = await self.ledger.held_for_customers(
-            [s["customer_id"] for s in stops if s.get("customer_id")])
+        cust_ids = [s["customer_id"] for s in stops if s.get("customer_id")]
+        held_by_customer, dues_by_customer = await self.ledger.held_and_dues_for_customers(cust_ids)
         paid_by_order = await PaymentRepo(self._conn).paid_sums_for_orders(
             [s["order_id"] for s in stops if s.get("order_id")])
 
@@ -354,6 +355,9 @@ class VendorService:
             # order → 0). UI renders Collect total−paid_sum; never the full
             # total on partial/link_sent rows.
             s["paid_sum"] = int(paid_by_order.get(s.get("order_id"), 0))
+            s["dues"] = dues_by_customer.get(s.get("customer_id"), 0)
+            order_rem = max(0, int(s.get("total") or 0) - s["paid_sum"])
+            s["amount_due"] = max(order_rem, s["dues"])
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
             "route": dict(route),

@@ -88,6 +88,23 @@ class LedgerRepo:
             out.update({r["customer_id"]: int(r["held"]) for r in rows})
         return out
 
+    async def held_and_dues_for_customers(self, customer_ids: list[str]) -> tuple[dict[str, int], dict[str, int]]:
+        """Single-query batch lookup for both held-jars and dues (preserves 4-query budget)."""
+        ids = list(dict.fromkeys(c for c in customer_ids if c))
+        held_out: dict[str, int] = {}
+        dues_out: dict[str, int] = {}
+        for i in range(0, len(ids), _CHUNK):
+            chunk = ids[i:i + _CHUNK]
+            marks = ",".join("?" * len(chunk))
+            rows = (await self._conn.execute(
+                f"SELECT customer_id, held, dues FROM ledger WHERE customer_id IN ({marks})",
+                tuple(chunk),
+            )).fetchall()
+            for r in rows:
+                held_out[r["customer_id"]] = int(r["held"] or 0)
+                dues_out[r["customer_id"]] = max(0, int(r["dues"] or 0))
+        return held_out, dues_out
+
     async def apply_event(
         self,
         customer_id: str,
