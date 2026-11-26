@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent / "tools" / "mobile-tester"
 
@@ -64,6 +66,16 @@ opencode/paid-model
         vision, text_only = verify.parse_verbose_free_vision_models(sample)
         self.assertEqual(vision, ["opencode/deepseek-v4.1-flash-free"])
         self.assertEqual(text_only, ["opencode/big-pickle"])
+
+    def test_probe_model_handles_timeout_gracefully(self) -> None:
+        with mock.patch.object(
+            verify.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(cmd="opencode", timeout=35),
+        ):
+            ok, detail = verify.probe_model("opencode/glm-5.3-flash-free", timeout_s=35)
+        self.assertFalse(ok)
+        self.assertIn("Timed out after 35s", detail)
 
 
 if __name__ == "__main__":

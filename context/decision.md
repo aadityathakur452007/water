@@ -35,6 +35,7 @@
 
 | ADR | Date | Decision | Status | Affects |
 |---|---|---|---|---|
+| ADR-222 | 2026-11-26 | AI Mobile Testing CI/CD Error Patches: (1) added `/dev/kvm` udev `0666` permission step and `disable-linux-hw-accel: false` in `.github/workflows/ai-mobile-test.yml` (resolving Emulator 37.3.10.0 `Software CPU emulation (-accel off) is not supported` / boot timeout) and upgraded `actions/setup-java@v4` → `@v5`; (2) added `xmlns:tools` and `tools:replace="android:usesCleartextTraffic"` to `apps/user_app_donor/android/app/src/debug/AndroidManifest.xml` (resolving debug Manifest Merger conflict against `main/AndroidManifest.xml` while preserving release HTTPS-only policy); (3) caught `subprocess.TimeoutExpired` and `OSError` in `tools/mobile-tester/verify_free_model.py:probe_model()` so a hanging candidate returns `(False, ...)` instead of crashing after earlier candidates passed | Accepted (implemented & unit/YAML verified 2026-11-26) | `.github/workflows/ai-mobile-test.yml`, `apps/user_app_donor/android/app/src/debug/AndroidManifest.xml`, `tools/mobile-tester/verify_free_model.py`, `tests/test_mobile_tester.py`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-221 | 2026-11-26 | OpenCode AI Mobile Testing CI/CD Pipeline (`tools/mobile-tester/`, `.github/workflows/ai-mobile-test.yml`): integrated headless OpenCode (`opencode run`) using dynamically discovered and probed free `opencode/` models only (zero paid API keys or fallbacks); tests all 3 Shodasha Flutter Android apps (`user_app_donor`, `vendor_app`, `rider_app`) in separate `workflow_dispatch` matrix jobs on `ubuntu-latest` with JDK 21, Flutter `3.44.9`, live Cloudflare Workers (`SHODASHA_API_BASE`), and Android API 34 emulator; preserves real emulator interaction via `screen.py` (PNG + `uiautomator` tree + `logcat` crash check) and `type.py` | Accepted (implemented, local unit/YAML verified; CI run pending push 2026-11-26) | `.github/workflows/ai-mobile-test.yml`, `tools/mobile-tester/`, `tests/test_mobile_tester.py`, `README.md`, `Feature_docs/opencode-mobile-tester/spec.md`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-220 | 2026-11-26 | Vendor & Rider Flutter Apps Untangling — Phases 4 & 5 `apps/vendor_app` & `apps/rider_app`: verified `water-ops` Worker API coupling across both `api_client.dart` files; decomposed `route_screen.dart` → `placed_sheet.dart`, `stop_detail_screen.dart` → `pickup_card.dart`, `delivery_screen.dart` → `widgets/delivery_badges.dart`, and `pod_sheet.dart` → `widgets/handover_mode.dart` using Dart `part` files with zero behavioral change; verified with `flutter analyze` and `flutter test` | Accepted (implemented 2026-11-26) | `apps/vendor_app`, `apps/rider_app`, `context/{progress-tracker,flow,decision}.md` |
 | ADR-219 | 2026-11-26 | Customer Flutter App Untangling — Phase 3 `apps/user_app_donor`: decomposed 5 oversized feature monoliths (`subscription_screen.dart`, `tracking_screen.dart`, `address_screen.dart`, `orders_controller.dart`, `booking_sheet.dart`) into cohesive Dart `part` files (`subscription_cards.dart`, `subscription_sheets.dart`, `tracking_cards.dart`, `address_controller.dart`, `address_form_sheet.dart`, `order_models.dart`, `orders_repositories.dart`, `booking_sheet_widgets.dart`), preserving all public symbols, routes, and `api_client.dart` Worker contracts; verified with `flutter analyze` and `flutter test` | Accepted (implemented 2026-11-26) | `apps/user_app_donor`, `context/{progress-tracker,flow,decision}.md` |
@@ -270,6 +271,21 @@
 ---
 
 ## Decision Entries
+
+### ADR-222: AI Mobile Testing CI/CD Error Patches (KVM Emulator Accel, Debug Manifest Merger, Probe Timeout)
+
+- **Date**: 2026-11-26
+- **Status**: Accepted (implemented & unit/YAML verified 2026-11-26)
+- **Affects**: `.github/workflows/ai-mobile-test.yml`, `apps/user_app_donor/android/app/src/debug/AndroidManifest.xml`, `tools/mobile-tester/verify_free_model.py`, `tests/test_mobile_tester.py`, `context/{progress-tracker,flow,decision}.md`
+- **Context**: The first `workflow_dispatch` run of `.github/workflows/ai-mobile-test.yml` failed across all 3 jobs (`donor`, `vendor`, `rider`) with three distinct errors logged in `context/errors.md`:
+  1. `rider`: `reactivecircus/android-emulator-runner@v2` fell back to `-accel off` because `/dev/kvm` lacked `runner` permissions, causing Emulator `37.3.10.0` to abort with `ERROR | Software CPU emulation (-accel off) is not supported`.
+  2. `donor`: `:app:processDebugMainManifest` failed because `main/AndroidManifest.xml` sets `android:usesCleartextTraffic="false"` (ADR-202) while `debug/AndroidManifest.xml` sets `android:usesCleartextTraffic="true"` without `tools:replace`.
+  3. `vendor`: `verify_free_model.py:probe_model()` crashed with an unhandled `subprocess.TimeoutExpired` when `opencode/glm-5.3-flash-free` timed out after 35s, even though `opencode/deepseek-v4.1-flash-free` had already passed.
+- **Decision**:
+  1. Added a `Enable KVM group perms` udev rule step (`MODE="0666"`) before `android-emulator-runner@v2` and set `disable-linux-hw-accel: false`; upgraded `actions/setup-java@v4` to `@v5`.
+  2. Added `xmlns:tools` and `tools:replace="android:usesCleartextTraffic"` to `apps/user_app_donor/android/app/src/debug/AndroidManifest.xml` so debug overrides `main` while release stays strictly HTTPS-only.
+  3. Wrapped `subprocess.run` in `probe_model()` with `try/except (subprocess.TimeoutExpired, OSError)` returning `(False, ...)` so probing continues cleanly to remaining candidates.
+- **Why**: Enables fast hardware-accelerated KVM emulation on `ubuntu-latest`, preserves release cleartext traffic protection, and makes free-model discovery resilient to individual model hangs.
 
 ### ADR-216: Vendor Suspension Cascade, 1-Click Customer Reassignment, and Mid-Cycle Subscription Dues Recovery
 

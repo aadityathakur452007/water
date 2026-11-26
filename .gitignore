@@ -23,6 +23,7 @@ pylock.toml
 # Scratch & Tool caches
 .freebuff/
 .utim_tmp/
+.mypy_cache/
 scratch/
 
 # Isolated pentest tooling checkout (not part of the app)

@@ -4,6 +4,19 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**AI MOBILE TESTING CI/CD ERROR PATCHES (2026-11-26, ADR-222):** on `main`
+- **1. Android Emulator KVM Hardware Acceleration (`.github/workflows/ai-mobile-test.yml`):**
+  - Added `Enable KVM group perms` udev rule step (`/dev/kvm` `0666`) and set `disable-linux-hw-accel: false` on `reactivecircus/android-emulator-runner@v2`, resolving `Software CPU emulation (-accel off) is not supported` / emulator boot timeout on `ubuntu-latest`.
+  - Upgraded `actions/setup-java@v4` to `actions/setup-java@v5` per deprecation warning.
+- **2. Customer App Debug Manifest Merger Fix (`apps/user_app_donor/android/app/src/debug/AndroidManifest.xml`):**
+  - Added `xmlns:tools` and `tools:replace="android:usesCleartextTraffic"` on `<application>` so debug builds override `main/AndroidManifest.xml`'s `usesCleartextTraffic="false"` cleanly while keeping release builds strictly HTTPS-only.
+- **3. OpenCode Model Probe Timeout Resilience (`tools/mobile-tester/verify_free_model.py`):**
+  - Caught `subprocess.TimeoutExpired` and `OSError` inside `probe_model()` so a hanging free model returns `(False, ...)` instead of crashing the CI step after earlier candidates already passed.
+- **4. Verification:**
+  - `python -m unittest tests/test_mobile_tester.py -v` (7/7 passed, including `test_probe_model_handles_timeout_gracefully`) and `yaml.safe_load` on `.github/workflows/ai-mobile-test.yml` (`YAML OK`).
+
+## Previous Phases
+
 **OPENCODE AI MOBILE TESTING CI/CD PIPELINE (2026-11-26, ADR-221):** on `main`
 - **1. OpenCode Headless QA Harness (`tools/mobile-tester/`):**
   - Created `opencode.json` (disabling paid providers, permitting `bash`/`read`/`write`/`edit`), `verify_free_model.py` (dynamic `opencode models` discovery + `opencode run` health probe + strict zero-paid-key gate), `screen.py`, `type.py`, `BRIEF.md`, and `run_android_agent.sh` (with primary→fallback free model retry).

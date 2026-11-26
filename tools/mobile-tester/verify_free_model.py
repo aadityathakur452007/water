@@ -163,15 +163,20 @@ def discover_models() -> list[str]:
 
 def probe_model(model_id: str, timeout_s: int = 35) -> tuple[bool, str]:
     """Execute a real headless `opencode run` prompt to verify the model is free & responsive."""
-    proc = subprocess.run(
-        [_opencode_exe(), "run", "--format", "json", "--model", model_id, "--", "Reply with exactly: OK"],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=timeout_s,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [_opencode_exe(), "run", "--format", "json", "--model", model_id, "--", "Reply with exactly: OK"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"Timed out after {timeout_s}s"
+    except OSError as exc:
+        return False, f"Execution error: {exc}"
     combined = f"{proc.stdout}\n{proc.stderr}".strip()
     if proc.returncode != 0:
         return False, combined[-400:]
