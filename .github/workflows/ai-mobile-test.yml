@@ -21,35 +21,65 @@ on:
       brief:
         description: "Path to QA brief"
         default: "tools/mobile-tester/BRIEF.md"
+  workflow_run:
+    workflows: ["ci", "release"]
+    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    name: Plan test matrix
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          APP_INPUT: ${{ inputs.app || 'all' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          app = os.environ["APP_INPUT"]
+          all_apps = [
+            {
+              "app": "donor",
+              "dir": "apps/user_app_donor",
+              "app_id": "com.shodasha.shodasha_donor",
+              "label": "Shodasha Customer App",
+              "dart_defines": "--dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF",
+            },
+            {
+              "app": "vendor",
+              "dir": "apps/vendor_app",
+              "app_id": "com.shodasha.vendor_app",
+              "label": "Shodasha Vendor App",
+              "dart_defines": "--dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev/v1",
+            },
+            {
+              "app": "rider",
+              "dir": "apps/rider_app",
+              "app_id": "com.shodasha.rider_app",
+              "label": "Shodasha Rider App",
+              "dart_defines": "--dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev",
+            },
+          ]
+          selected = all_apps if app == "all" else [a for a in all_apps if a["app"] == app]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("matrix=" + json.dumps(selected) + "\n")
+          PY
+
   test-android:
     name: AI Test — ${{ matrix.label }}
-    if: inputs.app == 'all' || inputs.app == matrix.app
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - app: donor
-            dir: apps/user_app_donor
-            app_id: com.shodasha.shodasha_donor
-            label: Shodasha Customer App
-            dart_defines: "--dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF"
-          - app: vendor
-            dir: apps/vendor_app
-            app_id: com.shodasha.vendor_app
-            label: Shodasha Vendor App
-            dart_defines: "--dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev/v1"
-          - app: rider
-            dir: apps/rider_app
-            app_id: com.shodasha.rider_app
-            label: Shodasha Rider App
-            dart_defines: "--dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev"
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -106,10 +136,42 @@ jobs:
           APK_PATH: ${{ matrix.dir }}/build/app/outputs/flutter-apk/app-debug.apk
           PRIMARY_MODEL: ${{ steps.models.outputs.primary_model }}
           FALLBACK_MODEL: ${{ steps.models.outputs.fallback_model }}
-          BRIEF_PATH: ${{ inputs.brief }}
+          BRIEF_PATH: ${{ inputs.brief || 'tools/mobile-tester/BRIEF.md' }}
           QA_PHONE: ${{ matrix.app == 'donor' && secrets.QA_CUSTOMER_PHONE || (matrix.app == 'rider' && secrets.QA_RIDER_PHONE || '') }}
           QA_PASSWORD: ${{ matrix.app == 'donor' && secrets.QA_CUSTOMER_PASSWORD || '' }}
           QA_ACCESS_CODE: ${{ matrix.app == 'vendor' && secrets.QA_VENDOR_CODE || (matrix.app == 'rider' && secrets.QA_RIDER_CODE || '') }}
+
+      - name: Publish findings to GitHub Actions Summary
+        if: always()
+        env:
+          APP_NAME: ${{ matrix.app }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          {
+            echo "## $LABEL (\`$APP_NAME\`)"
+            if [ -f "results/$APP_NAME/report.md" ]; then
+              cat "results/$APP_NAME/report.md"
+            else
+              echo "_No report.md was generated._"
+            fi
+            if [ -f "results/$APP_NAME/findings.json" ]; then
+              echo ""
+              echo "### Structured Findings (\`findings.json\`)"
+              echo '```json'
+              cat "results/$APP_NAME/findings.json"
+              echo '```'
+            fi
+            if [ -f "results/$APP_NAME/logcat.txt" ]; then
+              CRASHES=$(grep -E "FATAL EXCEPTION|AndroidRuntime|flutter.*Exception" "results/$APP_NAME/logcat.txt" | tail -n 20 || true)
+              if [ -n "$CRASHES" ]; then
+                echo ""
+                echo "### App Crash / Error Excerpt (\`logcat.txt\`)"
+                echo '```'
+                echo "$CRASHES"
+                echo '```'
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload AI QA screenshots, logs & reports
         if: always()
