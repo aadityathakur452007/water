@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from app.core.errors import ConflictError, NotFoundError, ValidationError
-from app.core.state_machines import validate_late_capture_action, validate_switch_to_cod
+from app.core.state_machines import validate_switch_to_cod
 from app.services.order_service import COD_MAX_PAISE, CodNotAllowedError
 
 log = logging.getLogger(__name__)

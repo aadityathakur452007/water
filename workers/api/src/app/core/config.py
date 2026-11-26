@@ -6,6 +6,8 @@ Firebase project activates RealVerifier; UPI keys activate the real provider
 path (webhook secret gates verify_webhook); agency VPA gates the payee lock.
 """
 
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,3 +41,9 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Cached Settings instance for core/service/api layers."""
+    return Settings()

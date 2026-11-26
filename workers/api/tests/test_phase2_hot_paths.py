@@ -257,22 +257,22 @@ def test_admin_overview_cached_within_ttl():
 
 
 async def test_metrics_cache_expires():
-    from app.api.v1 import admin as admin_mod
+    from app.api.v1.admin import system as admin_sys
 
-    admin_mod.reset_metrics_cache()
+    admin_sys.reset_metrics_cache()
     calls = {"n": 0}
 
     async def build():
         calls["n"] += 1
         return {"n": calls["n"]}
 
-    old = admin_mod._METRICS_TTL_S
-    admin_mod._METRICS_TTL_S = 0
+    old = admin_sys._METRICS_TTL_S
+    admin_sys._METRICS_TTL_S = 0
     try:
-        await admin_mod._metrics_cached("k", build)
-        await admin_mod._metrics_cached("k", build)
+        await admin_sys._metrics_cached("k", build)
+        await admin_sys._metrics_cached("k", build)
     finally:
-        admin_mod._METRICS_TTL_S = old
+        admin_sys._METRICS_TTL_S = old
     assert calls["n"] == 2
 
 

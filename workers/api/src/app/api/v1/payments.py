@@ -36,20 +36,11 @@ class SubscriptionIntentIn(BaseModel):
     subscription_id: str = Field(min_length=1)
 
 
+from app.core.http_utils import require_idempotency_key as _require_idem, user_id as _uid
+
+
 def _service(conn) -> PaymentService:
     return PaymentService(PaymentRepo(conn), OrderRepo(conn), LedgerRepo(conn), get_provider())
-
-
-def _uid(user: object) -> str:
-    return str(user["id"] if isinstance(user, dict) else getattr(user, "id"))
-
-
-def _require_idem(idem: str | None) -> str:
-    from app.core.errors import ValidationError
-
-    if not idem or not idem.strip():
-        raise ValidationError(message="Idempotency-Key header required.", details={})
-    return idem.strip()
 
 
 @router.post("/payments/upi-intent", status_code=201)

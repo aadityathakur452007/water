@@ -4,6 +4,27 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**BACKEND UNTANGLING — PHASE 1 `workers/api` STRUCTURAL REFACTOR (2026-11-26, ADR-217):** on `main`
+- **1. Shared Core Primitives (`workers/api/src/app/core/`):**
+  - Created `time_utils.py` (`utc_now`, `utc_now_iso`, `utc_today_iso`, `ist_today_iso`, `parse_utc_dt`, `is_expired`, `sla_due`), `db_utils.py` (`actor_id`, `get_actor_role`, `table_cols`, `table_exists`, `build_audit_stmt`, `write_audit`), and `http_utils.py` (`user_id`, `require_idempotency_key`), replacing duplicated helpers across routes, services, and repositories.
+  - Added `get_settings()` to `core/config.py` so repositories and services no longer import `app.api.deps`.
+- **2. Zero Layer Violations (`api → services → repositories → core/db`):**
+  - Removed `order_repo.py → subscription_service.py` by moving `build_restore_order_credit_stmts` to `repositories/order_repo.py` (`SubscriptionService` delegates to it).
+  - Removed `payment_repo.py → api.deps` & `dispatch_service.py` by using `core/config.py`, `core/worker_env.py`, and `core/db_utils.write_audit`.
+  - Removed `subscription_service.py → api.deps` & `api.v1.returns` by using `core/config.py` and `core/time_utils.sla_due`.
+- **3. Domain-Split Admin Router (`workers/api/src/app/api/v1/admin/`):**
+  - Split the 1,763-line `admin.py` monolith into `admin/{_common,orders,vendors,zones,finance,ops_support,system,users}.py` + `__init__.py` re-exporting `router` and public symbols.
+  - Split `@router.api_route("/admin/vendors/{vendor_id}/capacity", methods=["POST", "PATCH"])` into explicit `@router.post` and `@router.patch` handlers, eliminating FastAPI's `Duplicate Operation ID` warning.
+- **4. Decomposed Oversized Services & Repositories:**
+  - `vendor_service.py` (1,373L) → `vendor/{_common,duty,routes,fleet_and_profile}.py` + `VendorService` facade.
+  - `auth_service.py` (1,001L) → `auth_helpers.py` + `auth_staff.py` + `AuthService` facade.
+  - `subscription_service.py` (1,150L) → `subscription/{_common,billing,schedule}.py` + `SubscriptionService` facade.
+  - `payment_repo.py` (938L) → `payment/{_common,dues_and_refunds}.py` + `PaymentRepo` facade.
+- **5. Next:**
+  - Untangle `apps/admin_app` (Phase 2), then `apps/user_app_donor`, `apps/vendor_app`, and `apps/rider_app` one by one while preserving all Worker API contracts.
+
+## Previous Phases
+
 **VENDOR SUSPENSION CASCADE, 1-CLICK REASSIGNMENT & MID-CYCLE SUBSCRIPTION DUES RECOVERY (2026-11-24, ADR-216):** on `main`
 - **1. Vendor Suspension Cascade (`workers/api/src/app/api/v1/admin.py`):**
   - Enhanced `admin_suspend_user`: when `row["role"] == "vendor"`, automatically deactivates `vendor_profile` (`active=0, review_hold=1`).

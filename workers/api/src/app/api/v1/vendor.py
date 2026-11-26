@@ -11,7 +11,6 @@ from typing import Any
 
 from app.api.auth_deps import require_role
 from app.api.deps import get_db_conn
-from app.core.errors import ValidationError
 from app.services.vendor_service import VendorService
 
 router = APIRouter(tags=["vendor"])
@@ -19,16 +18,7 @@ router = APIRouter(tags=["vendor"])
 _vendor = require_role("vendor")  # module-level so tests can override this exact dep
 
 
-def _require_idem(idem: str | None) -> str:
-    if not idem or not idem.strip():
-        raise ValidationError(message="Idempotency-Key header required.", details={})
-    return idem.strip()
-
-
-def _uid(user: object) -> str:
-    if isinstance(user, dict):
-        return str(user.get("id"))
-    return str(getattr(user, "id"))
+from app.core.http_utils import require_idempotency_key as _require_idem, user_id as _uid
 
 
 def _svc(conn) -> VendorService:

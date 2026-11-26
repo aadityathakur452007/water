@@ -12,7 +12,6 @@ their profile (200 + restrictions); writes die in ``require_active_user``
 
 from __future__ import annotations
 
-import datetime as _dt
 import hashlib
 import time
 
@@ -116,14 +115,7 @@ def _reject_cross_site_cookie_write(request: Request) -> None:
     raise HTTPException(status_code=403, detail="Cross-origin request rejected.")
 
 
-def _expired(iso_ts: str) -> bool:
-    try:
-        dt = _dt.datetime.fromisoformat(iso_ts)
-    except ValueError:
-        return True
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=_dt.timezone.utc)
-    return dt <= _dt.datetime.now(_dt.timezone.utc)
+from app.core.time_utils import is_expired as _expired
 
 
 async def get_current_user(request: Request, conn=Depends(get_db_conn)) -> dict:

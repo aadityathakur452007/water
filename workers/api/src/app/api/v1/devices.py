@@ -12,7 +12,7 @@ import datetime as _dt
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.auth_deps import get_current_user, require_active_user
+from app.api.auth_deps import require_active_user
 from app.api.deps import get_db_conn
 from app.core.errors import NotFoundError
 from app.db import WRITE_LOCK

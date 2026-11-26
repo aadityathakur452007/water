@@ -23,7 +23,6 @@ from app.db import WRITE_LOCK
 from app.repositories.ledger_repo import LedgerRepo
 from app.repositories.order_repo import (
     AlreadyCancelledError,
-    NeedDispatchOverrideError,
     OrderRepo,
 )
 from app.services import delivery_code
@@ -432,7 +431,7 @@ class OrderService:
             )
         since = (delivery_code.now() - _dt.timedelta(
             hours=delivery_code.REISSUE_WINDOW_HOURS)).isoformat()
-        from app.services.dispatch_service import build_audit_stmt  # noqa: PLC0415
+        from app.core.db_utils import build_audit_stmt  # noqa: PLC0415
 
         with WRITE_LOCK:
             for attempt in range(3):

@@ -154,7 +154,6 @@ class RiderService:
         stops: list[dict[str, Any]] = []
         for r in rows:
             d = dict(r)
-            # Check if order is backed by an ACTIVE subscription
             is_sub = False
             sub_billing_mode = None
             try:

@@ -12,6 +12,18 @@
 
 ## Overview
 
+- Backend Untangling — Phase 1 `workers/api` Structural Refactor (2026-11-26, ADR-217):
+  1. Strict Downward Dependency Flow (`api → services → repositories → core/db`):
+     - `app/core/{time_utils,db_utils,http_utils,config}.py` own shared time, audit, table-introspection, actor, and idempotency primitives.
+     - `repositories/order_repo.py` owns `build_restore_order_credit_stmts()` (no repo→service imports).
+     - `repositories/payment/_common.py` reads `AGENCY_UPI_VPA` via `core/worker_env.py` + `core/config.Settings` (no repo→api imports).
+  2. Modular Domain Packages (100% `/v1/*` route & symbol parity):
+     - `app/api/v1/admin/` package (`orders`, `vendors`, `zones`, `finance`, `ops_support`, `users`, `system`, `_common`) re-exported via `__init__.py:router`.
+     - `app/services/vendor/` (`duty`, `routes`, `fleet_and_profile`, `_common`) composed in `VendorService`.
+     - `app/services/auth_helpers.py` + `auth_staff.py` composed in `AuthService`.
+     - `app/services/subscription/` (`billing`, `schedule`, `_common`) composed in `SubscriptionService`.
+     - `app/repositories/payment/` (`dues_and_refunds`, `_common`) composed in `PaymentRepo`.
+
 - Vendor Suspension Cascade, 1-Click Customer Reassignment & Mid-Cycle Subscription Dues Recovery (2026-11-24, ADR-216):
   1. Vendor Suspension Cascade Flow:
      - Admin invokes `POST /v1/admin/users/{user_id}/suspend` with `is_suspended = true` on a vendor (`admin.py:admin_suspend_user`).

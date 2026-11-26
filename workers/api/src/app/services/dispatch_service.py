@@ -20,7 +20,6 @@ from app.core.errors import AppError, ConflictError, NotFoundError, ValidationEr
 from app.core.state_machines import (
     DEFAULT_MAX_JARS_PER_SHIFT,
     DEFAULT_MAX_STOPS_PER_SHIFT,
-    calculate_vendor_capacity_headroom,
 )
 from app.db import WRITE_LOCK
 from app.db_d1 import AsyncSqliteConn, D1Conn
@@ -50,18 +49,13 @@ class CustodyBlockedError(AppError):
 Conn = D1Conn | AsyncSqliteConn
 
 
-def _now() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).isoformat()
-
-
-def _today() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).date().isoformat()
-
-
-def _role(actor: object) -> str:
-    if isinstance(actor, dict):
-        return str(actor.get("role") or "admin")
-    return str(getattr(actor, "role", None) or "admin")
+from app.core.db_utils import (
+    actor_id as _actor_id,
+    get_actor_role as _role,
+    table_cols as _cols,
+    write_audit,
+)
+from app.core.time_utils import utc_now_iso as _now, utc_today_iso as _today
 
 async def _mint_stop_pod_otp(conn: Conn) -> str | None:
     """Random PoD code for a new order stop, or None on pre-015 DBs.
@@ -141,62 +135,7 @@ async def _has_items_json_col(conn: Conn) -> bool:
     return "items_json" in names
 
 
-def _actor_id(actor: object) -> str:
-    if isinstance(actor, dict):
-        return str(actor.get("id") or "system")
-    return str(getattr(actor, "id", None) or "system")
-
-
-async def _cols(conn: Conn, table: str) -> set[str]:
-    try:
-        return {r["name"] for r in (await conn.execute(f"PRAGMA table_info({table})")).fetchall()}
-    except sqlite3.OperationalError:
-        return set()
-
-
-async def build_audit_stmt(conn: Conn, *, actor: str, action: str, entity: str,
-                           entity_id: str, before: str = "", after: str = "",
-                           trace_id: str = "", actor_role: str | None = None,
-                           guard: tuple[str, tuple] | None = None
-                           ) -> list[tuple[str, tuple]]:
-    """Build an audit INSERT for a batch; works on both audit_log shapes.
-
-    ``guard`` lets a money/limit batch write the audit row only when its CAS
-    or claim row exists.
-    """
-    cols = await _cols(conn, "audit_log")
-    if not cols:
-        return []
-    now = _now()
-    role = actor_role or _role(actor)
-    where, params = guard if guard else ("", ())
-    suffix = f" WHERE {where}" if where else ""
-    if {"actor_id", "before", "after"} <= cols:  # contract §2 shape
-        return [(
-            "INSERT INTO audit_log(id, actor_id, actor_role, action, entity, entity_id,"
-            " before, after, trace_id, created_at)"
-            f" SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?{suffix}",
-            (uuid.uuid4().hex, actor, role, action, entity, entity_id,
-             before, after, trace_id or uuid.uuid4().hex[:8], now, *params),
-        )]
-    return [(
-        "INSERT INTO audit_log(actor, action, entity, entity_id, trace_id, created_at)"
-        f" SELECT ?, ?, ?, ?, ?, ?{suffix}",
-        (actor, action, entity, entity_id, trace_id or uuid.uuid4().hex[:8], now, *params),
-    )]
-
-
-async def write_audit(conn: Conn, *, actor: str, action: str, entity: str,
-                entity_id: str, before: str = "", after: str = "",
-                trace_id: str = "", actor_role: str | None = None) -> None:
-    """Audit money/role/config writes. Works on both audit_log shapes: the
-    contract shape (actor_id/actor_role/before/after) and the landed slice-1
-    shape (actor/action/entity/entity_id/trace_id) — caller holds WRITE_LOCK."""
-    for sql, params in await build_audit_stmt(
-        conn, actor=actor, action=action, entity=entity, entity_id=entity_id,
-        before=before, after=after, trace_id=trace_id, actor_role=actor_role,
-    ):
-        await conn.execute(sql, params)
+# audit helpers live in app.core.db_utils (re-exported above for callers)
 
 
 async def ensure_profile(conn: Conn, vendor_id: str) -> dict:

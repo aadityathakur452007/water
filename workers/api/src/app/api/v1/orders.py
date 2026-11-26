@@ -52,10 +52,7 @@ router = APIRouter(tags=["orders"])
 _user = require_role("user")
 
 
-def _uid(user: object) -> str:
-    if isinstance(user, dict):
-        return str(user.get("id"))
-    return str(getattr(user, "id"))
+from app.core.http_utils import require_idempotency_key as _require_idem, user_id as _uid
 
 
 def _service(conn) -> OrderService:
@@ -66,14 +63,6 @@ def _service(conn) -> OrderService:
         "deposit": s.deposit_per_jar_paise,
     }
     return OrderService(OrderRepo(conn), LedgerRepo(conn), pricing, rates)
-
-
-def _require_idem(idem: str | None) -> str:
-    from app.core.errors import ValidationError
-
-    if not idem or not idem.strip():
-        raise ValidationError(message="Idempotency-Key header required.", details={})
-    return idem.strip()
 
 
 @router.post("/orders", response_model=OrderOut, status_code=201)

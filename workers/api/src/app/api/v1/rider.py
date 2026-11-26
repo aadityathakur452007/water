@@ -12,8 +12,7 @@ router = APIRouter(tags=["rider"])
 _rider = require_role("rider")
 
 
-def _uid(user: dict) -> str:
-    return str(user["id"])
+from app.core.http_utils import user_id as _uid
 
 
 def _svc(conn=Depends(get_db_conn)) -> RiderService:

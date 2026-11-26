@@ -9,7 +9,6 @@ POST /complaints {order_id, reason_code (11-code enum), text <=500}:
 from __future__ import annotations
 
 import datetime as _dt
-import sqlite3
 import uuid
 from typing import Literal
 

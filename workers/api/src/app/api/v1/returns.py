@@ -42,15 +42,9 @@ class ReturnIn(BaseModel):
 
 
 def _sla_due(from_day: _dt.date | None = None) -> str:
-    """Add 10 working days, skipping Sundays (holidays ride on windows API)."""
-    d = from_day or _dt.datetime.now(_dt.timezone.utc).date()
-    added = 0
-    while added < SLA_WORKING_DAYS:
-        d += _dt.timedelta(days=1)
-        if d.weekday() == 6:
-            continue
-        added += 1
-    return d.isoformat()
+    from app.core.time_utils import sla_due  # noqa: PLC0415
+
+    return sla_due(from_day=from_day, working_days=SLA_WORKING_DAYS)
 
 
 async def _owned_address(conn, user_id: str, address_id: str) -> bool:

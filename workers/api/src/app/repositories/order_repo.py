@@ -21,7 +21,6 @@ from app.core.state_machines import (
     LEGAL_ORDER_TRANSITIONS,
     OVERRIDE_FROM,
     OVERRIDE_ROLES,
-    PAID_STATUSES,
     NeedDispatchOverrideError,
     validate_order_transition,
 )
@@ -46,6 +45,43 @@ _ORDER_COLS = (
     " total, payment_mode, payment_status, state, window_start, window_end,"
     " idempotency_key, payload_hash, quote_hash, quote_rate_version, created_at"
 )
+
+
+def build_restore_order_credit_stmts(
+    order_id: str,
+    *,
+    sub_id: str,
+    total: int,
+    now: str,
+    guard: tuple[str, tuple] | None = None,
+) -> list[tuple[str, tuple]]:
+    """Build SQL statements to restore a canceled prepaid order's credit to a live plan."""
+    where, guard_params = guard if guard else ("", ())
+    suffix = f" AND {where}" if where else ""
+    active = "canceled_at IS NULL AND billing_status != 'canceled'"
+    return [
+        (
+            "INSERT OR IGNORE INTO subscription_credit_entries(id, subscription_id,"
+            " user_id, delta, kind, ref, created_at)"
+            " SELECT ?, id, user_id, ?, 'order_refund', ?, ? FROM subscriptions"
+            f" WHERE id=? AND {active}{suffix}",
+            (uuid.uuid4().hex, int(total), f"order:{order_id}", now, sub_id,
+             *guard_params),
+        ),
+        (
+            "UPDATE subscriptions SET credit_balance_paise = (SELECT COALESCE(SUM(delta), 0)"
+            " FROM subscription_credit_entries WHERE subscription_id = ?)"
+            f" WHERE id=? AND {active}{suffix}",
+            (sub_id, sub_id, *guard_params),
+        ),
+        (
+            "UPDATE payments SET status='failed' WHERE order_id=?"
+            " AND provider_ref LIKE 'subcredit:%'"
+            " AND EXISTS (SELECT 1 FROM subscriptions WHERE id=?"
+            f" AND {active}{suffix})",
+            (order_id, sub_id, *guard_params),
+        ),
+    ]
 
 
 def _now() -> str:
@@ -596,9 +632,7 @@ class OrderRepo:
                     reason="cancel void: deposit reversed", guard=guard,
                 ))
             if credit_total > 0 and sub_id:
-                from app.services.subscription_service import SubscriptionService  # noqa: PLC0415
-
-                stmts.extend(SubscriptionService(self._conn).build_restore_order_credit_stmts(
+                stmts.extend(build_restore_order_credit_stmts(
                     order_id, sub_id=sub_id, total=credit_total, now=now, guard=guard))
             stmts.append((
                 "INSERT OR IGNORE INTO refunds(id, order_id, payment_id, amount, method,"

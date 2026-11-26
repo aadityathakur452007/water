@@ -46,8 +46,7 @@ class SkipIn(BaseModel):
     date: str = Field(min_length=1, max_length=32)
 
 
-def _uid(user: dict) -> str:
-    return str(user.get("id"))
+from app.core.http_utils import user_id as _uid
 
 
 @router.post("/subscriptions", status_code=201)
