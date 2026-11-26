@@ -4,6 +4,14 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**REMOVED OPENCODE AI MOBILE TESTING PIPELINE (2026-11-26, ADR-223):** on `main`
+- **1. Removed CI/CD Workflow & Harness:**
+  - Deleted `.github/workflows/ai-mobile-test.yml`, `tools/mobile-tester/`, `tests/test_mobile_tester.py`, `Feature_docs/opencode-mobile-tester/`, and the AI Mobile Testing section from `README.md`.
+  - Reason: Free-model headless agent runs timed out (`exit code 124` at 900s with 0 screenshots captured), consuming CI minutes and tokens without useful QA output.
+  - Note: Kept the `apps/user_app_donor/android/app/src/debug/AndroidManifest.xml` `tools:replace="android:usesCleartextTraffic"` fix (still needed for `flutter build apk --debug`).
+
+## Previous Phases
+
 **AI MOBILE TESTING CI/CD ERROR PATCHES (2026-11-26, ADR-222):** on `main`
 - **1. Android Emulator KVM Hardware Acceleration (`.github/workflows/ai-mobile-test.yml`):**
   - Added `Enable KVM group perms` udev rule step (`/dev/kvm` `0666`) and set `disable-linux-hw-accel: false` on `reactivecircus/android-emulator-runner@v2`, resolving `Software CPU emulation (-accel off) is not supported` / emulator boot timeout on `ubuntu-latest`.

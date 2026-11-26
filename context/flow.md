@@ -12,13 +12,6 @@
 
 ## Overview
 
-- OpenCode AI Mobile Testing CI/CD Pipeline (2026-11-26, ADR-221, patched ADR-222):
-  1. `.github/workflows/ai-mobile-test.yml` (`workflow_dispatch`, matrix `donor` | `vendor` | `rider`):
-     - Builds debug APK with JDK 21 (`actions/setup-java@v5`) + Flutter `3.44.9` and live `SHODASHA_API_BASE` (`water` / `water-ops`); `apps/user_app_donor/android/app/src/debug/AndroidManifest.xml` uses `tools:replace="android:usesCleartextTraffic"` to override `main/AndroidManifest.xml` in debug builds only.
-     - Installs OpenCode CLI -> runs `tools/mobile-tester/verify_free_model.py` (parses `opencode models`, rejects paid keys/non-`opencode/` models, probes with `opencode run`, catching `TimeoutExpired`/`OSError` per candidate so one slow model does not abort discovery).
-     - Enables `/dev/kvm` (`0666` udev rule) -> boots Android API 34 emulator with hardware acceleration (`disable-linux-hw-accel: false`) -> runs `tools/mobile-tester/run_android_agent.sh` (`adb install` -> `opencode run --format json --model $PRIMARY_MODEL` with fallback to `$FALLBACK_MODEL`).
-     - Agent uses `tools/mobile-tester/screen.py` (PNG + `uiautomator` XML + `logcat` crash check) and `type.py`, writing `results/<app>/{report.md,findings.json,*.png}`.
-
 - Vendor & Rider Flutter Apps Untangling — Phases 4 & 5 `apps/vendor_app` & `apps/rider_app` (2026-11-26, ADR-220):
   1. `apps/vendor_app`:
      - `route_screen.dart` → `placed_sheet.dart` (`_PlacedSheet`).
