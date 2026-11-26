@@ -305,6 +305,7 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
             'any dues will appear here.',
       );
     }
+    final hasDeposit = ledger.depositPaidPaise > 0 || ledger.depositHeldPaise > 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -321,7 +322,7 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Refundable deposit',
+                      hasDeposit ? 'Refundable deposit' : 'Empty jars with you',
                       style: TextStyle(
                         color: ShodashaTheme.surface,
                         fontSize: 13,
@@ -330,7 +331,9 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                     ),
                   ),
                   Icon(
-                    Icons.account_balance_wallet_outlined,
+                    hasDeposit
+                        ? Icons.account_balance_wallet_outlined
+                        : Icons.water_drop_outlined,
                     color: Colors.white.withValues(alpha: 0.85),
                     size: 22,
                   ),
@@ -338,7 +341,9 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                formatInr(ledger.depositHeldPaise),
+                hasDeposit
+                    ? formatInr(ledger.depositHeldPaise)
+                    : '${ledger.heldJars} ${ledger.heldJars == 1 ? 'jar' : 'jars'}',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 32,
@@ -348,60 +353,66 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                'Refunded after your jars are collected.',
+                hasDeposit
+                    ? 'Refunded after your jars are collected.'
+                    : '20L reusable jars currently at your doorstep.',
                 style: TextStyle(color: ShodashaTheme.surface, fontSize: 12),
               ),
-              const SizedBox(height: AppSpacing.md),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
-                ),
-                child: Text(
-                  '${ledger.heldJars} '
-                  '${ledger.heldJars == 1 ? 'jar' : 'jars'} with you',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+              if (hasDeposit) ...[
+                const SizedBox(height: AppSpacing.md),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                  ),
+                  child: Text(
+                    '${ledger.heldJars} '
+                    '${ledger.heldJars == 1 ? 'jar' : 'jars'} with you',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.md),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Deposit details',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: ShodashaTheme.ink,
+        if (hasDeposit || ledger.duesPaise > 0) ...[
+          const SizedBox(height: AppSpacing.md),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasDeposit ? 'Deposit details' : 'Account summary',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ShodashaTheme.ink,
+                  ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              _row('Deposit paid', formatInr(ledger.depositPaidPaise)),
-              if (ledger.depositRefundedPaise > 0)
+                const SizedBox(height: AppSpacing.sm),
+                if (hasDeposit) _row('Deposit paid', formatInr(ledger.depositPaidPaise)),
+                if (ledger.depositRefundedPaise > 0)
+                  _row(
+                    'Deposit refunded',
+                    formatInr(ledger.depositRefundedPaise),
+                  ),
                 _row(
-                  'Deposit refunded',
-                  formatInr(ledger.depositRefundedPaise),
+                  'Outstanding dues',
+                  formatInr(ledger.duesPaise),
+                  emphasis: ledger.duesPaise > 0,
                 ),
-              _row(
-                'Outstanding dues',
-                formatInr(ledger.duesPaise),
-                emphasis: ledger.duesPaise > 0,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }

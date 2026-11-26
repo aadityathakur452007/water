@@ -12,6 +12,11 @@
 
 ## Overview
 
+- Wallet Empty-Jar Ledger Sync & Vendor Inventory Implicit States (2026-11-26, ADR-226):
+  1. `VendorService.pod_complete()` applies `d_held = fulls_exp - empties_count` to `ledger.held` (unless `triple_commit` already applied it).
+  2. `VendorService.today_route()` excludes `cancelled`/`failed` stops from `loading`; `InventoryScreen` excludes them from `Stop baki`.
+  3. `DonorWalletScreen` leads with `Empty jars with you` when `depositPaidPaise == 0 && depositHeldPaise == 0`.
+
 - Flutter UI State & Today-Only Delivery Cleanup (2026-11-26, ADR-225):
   1. `RiderService.routes_today()` filters `o.window_start IS NULL OR substr(o.window_start, 1, 10) >= day`.
   2. `delivery_screen.dart`: `Pending` tab = `status == 'pending'`, `Completed` tab = `status != 'pending'`, tappable duty pill calls `setDuty()`.

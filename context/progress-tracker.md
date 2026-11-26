@@ -4,6 +4,17 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**WALLET EMPTY-JAR LEDGER SYNC & VENDOR INVENTORY IMPLICIT STATES (2026-11-26, ADR-226):** on `main`
+- **1. PoD Jar Custody Sync (`workers/api/src/app/services/vendor/routes.py`):**
+  - Updated `pod_complete()` to apply `d_held = fulls_exp - empties_count` (clamped `>= -cur_held`, skipped if `triple_commit` already ran) to `ledger.held`, ensuring Customer Wallet and Rider empty-jar limits reflect OTP deliveries.
+  - Excluded `cancelled` and `failed` stops from `today_route()` `loading` (`take_fulls`, `expect_empties`).
+- **2. Customer Wallet UI (`apps/user_app_donor/lib/features/wallet/donor_wallet_screen.dart`):**
+  - Leads with `"Empty jars with you"` when security deposit is `₹0` (hiding confusing `"Refundable deposit ₹0"` hero and empty deposit card).
+- **3. Vendor Inventory UI (`apps/vendor_app/lib/features/inventory/inventory_screen.dart`):**
+  - Excluded `isCancelled` and `isFailed` stops from `activeStops`, `done`, and `pending` (`Stop baki`).
+
+## Previous Phases
+
 **FLUTTER UI STATE & TODAY-ONLY DELIVERY CLEANUP (2026-11-26, ADR-225):** on `main`
 - **1. Rider App & Today-Only Filter (`workers/api`, `apps/rider_app`):**
   - `RiderService.routes_today()` filters out stops whose order `window_start` is before today's IST date.

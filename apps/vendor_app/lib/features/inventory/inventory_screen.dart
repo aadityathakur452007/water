@@ -62,9 +62,11 @@ class InventoryScreen extends StatelessWidget {
             case RouteState.loaded:
               break;
           }
-          final stops = route.stops;
-          final done = route.doneCount;
-          final pending = stops.length - done;
+          final activeStops = route.stops
+              .where((s) => !s.isCancelled && !s.isFailed)
+              .toList();
+          final done = activeStops.where((s) => s.isDone).length;
+          final pending = activeStops.length - done;
           return RefreshIndicator(
             onRefresh: route.load,
             child: ListView(
@@ -80,7 +82,7 @@ class InventoryScreen extends StatelessWidget {
                           fontWeight: FontWeight.w700, fontSize: 16),
                     ),
                     Text(
-                      '$done/${stops.length} done',
+                      '$done/${activeStops.length} done',
                       style: const TextStyle(
                           color: ShodashaTheme.muted, fontSize: 12),
                     ),
@@ -89,7 +91,7 @@ class InventoryScreen extends StatelessWidget {
                 const SizedBox(height: AppSpacing.sm),
                 _tile('Lene hain (fulls)', '${route.takeFulls} jar'),
                 _tile('Wapas aane hain (empties)', '${route.expectEmpties} jar'),
-                _tile('Stop done', '$done / ${stops.length}'),
+                _tile('Stop done', '$done / ${activeStops.length}'),
                 _tile('Stop baki', '$pending'),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(

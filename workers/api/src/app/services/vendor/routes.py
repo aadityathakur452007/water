@@ -108,12 +108,17 @@ class VendorRoutesMixin:
             pod_obj = triple_obj.get("pod") if isinstance(triple_obj.get("pod"), dict) else {}
             s["cash_collected"] = int(pod_obj.get("cash") or triple_obj.get("cash") or 0)
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
+        active_stops = [
+            s for s in stops
+            if s.get("status") not in ("cancelled", "failed")
+            and s.get("order_state") != "cancelled"
+        ]
         return {
             "route": dict(route),
             "stops": stops,
             "loading": {
-                "take_fulls": sum(s["fulls_exp"] for s in stops),
-                "expect_empties": sum(s["empties_exp"] for s in stops),
+                "take_fulls": sum(s["fulls_exp"] for s in active_stops),
+                "expect_empties": sum(s["empties_exp"] for s in active_stops),
             },
             "skip": [s for s in stops if s["status"] == "skipped"],
         }
@@ -445,6 +450,31 @@ class VendorRoutesMixin:
                             (cash_paise, vendor_id),
                         )
                     except (ConflictError, OverpayError):
+                        pass
+                # Sync customer jar custody (held) on PoD completion if triple_commit
+                # did not already apply it for this stop.
+                cust_id = fresh.get("customer_id")
+                if cust_id and "fulls_given" not in current:
+                    try:
+                        fulls_deliv = max(0, int(fresh.get("fulls_exp") or 1))
+                        empties_ret = max(0, int(payload.get("empties_count") or 0))
+                        d_held = fulls_deliv - empties_ret
+                        led_row = (await self._conn.execute(
+                            "SELECT held FROM ledger WHERE customer_id = ?",
+                            (cust_id,),
+                        )).fetchone()
+                        cur_held = max(0, int(led_row["held"] or 0)) if led_row else 0
+                        d_held = max(-cur_held, d_held)
+                        if d_held != 0:
+                            await self.ledger.apply_event(
+                                cust_id,
+                                d_held=d_held,
+                                ref=f"stop:{stop_id}",
+                                actor=vendor_id,
+                                reason="pod delivery",
+                                commit=False,
+                            )
+                    except Exception:
                         pass
                 await write_audit(self._conn, actor=vendor_id, action="vendor.pod",
                                   entity="stops", entity_id=stop_id)
