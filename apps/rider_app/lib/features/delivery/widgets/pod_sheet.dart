@@ -27,6 +27,7 @@ class PodSheet extends StatefulWidget {
 class _PodSheetState extends State<PodSheet> {
   final _otpController = TextEditingController();
   late int _emptiesCount;
+  late final int _maxEmpties;
   bool _cashReceived = false;
   bool _busy = false;
   String? _errorMessage;
@@ -34,10 +35,19 @@ class _PodSheetState extends State<PodSheet> {
   @override
   void initState() {
     super.initState();
-    // Default empties to fulls expected for quick 1-tap confirmation
-    _emptiesCount = widget.stop['empties_expected'] is int
-        ? widget.stop['empties_expected'] as int
-        : (widget.stop['quantity'] is int ? widget.stop['quantity'] as int : 1);
+    final qty = widget.stop['quantity'] is int ? widget.stop['quantity'] as int : 1;
+    final jarsHeld = widget.stop['jars_held'] as int?;
+    final serverMax = widget.stop['max_empties'] as int?;
+    if (serverMax != null) {
+      _maxEmpties = serverMax < 0 ? 0 : serverMax;
+    } else if (jarsHeld != null) {
+      _maxEmpties = (jarsHeld < qty ? jarsHeld : qty).clamp(0, qty);
+    } else {
+      final exp = widget.stop['empties_expected'] as int? ?? qty;
+      _maxEmpties = exp < 0 ? 0 : exp;
+    }
+    final expected = widget.stop['empties_expected'] as int? ?? _maxEmpties;
+    _emptiesCount = expected.clamp(0, _maxEmpties);
   }
 
   @override
@@ -47,10 +57,9 @@ class _PodSheetState extends State<PodSheet> {
   }
 
   Future<void> _makeCall(String phone) async {
-    final cleaned = phone.replaceAll(RegExp(r'\D'), '');
-    final dialTarget = (cleaned.length >= 10 && !phone.contains('*'))
-        ? cleaned
-        : '07554300000';
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return;
+    final dialTarget = digits.length == 10 ? '+91$digits' : '+$digits';
     final uri = Uri.parse('tel:$dialTarget');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
@@ -354,10 +363,10 @@ class _PodSheetState extends State<PodSheet> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Empty Canes Collected',
                           style: TextStyle(
                             fontSize: 13,
@@ -366,8 +375,10 @@ class _PodSheetState extends State<PodSheet> {
                           ),
                         ),
                         Text(
-                          'Doorstep bottle return',
-                          style: TextStyle(
+                          _maxEmpties == 0
+                              ? 'No empty jars to collect'
+                              : 'Doorstep bottle return (max $_maxEmpties)',
+                          style: const TextStyle(
                             fontSize: 11,
                             color: ShodashaTheme.muted,
                           ),
@@ -392,7 +403,9 @@ class _PodSheetState extends State<PodSheet> {
                           ),
                         ),
                         IconButton(
-                          onPressed: () => setState(() => _emptiesCount++),
+                          onPressed: _emptiesCount < _maxEmpties
+                              ? () => setState(() => _emptiesCount++)
+                              : null,
                           icon: const Icon(Icons.add_circle_outline_rounded),
                           color: ShodashaTheme.teal,
                         ),
@@ -401,6 +414,41 @@ class _PodSheetState extends State<PodSheet> {
                   ],
                 ),
               ),
+
+              // Prepaid Online Notice (if prepaid and ₹0 due)
+              if (mode == HandoverMode.prepaid) ...[
+                const SizedBox(height: AppSpacing.md),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: ShodashaTheme.successTint,
+                    borderRadius: BorderRadius.circular(ShodashaTheme.radiusSm),
+                    border: Border.all(
+                      color: ShodashaTheme.success.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.check_circle_outline_rounded,
+                        color: ShodashaTheme.successDark,
+                        size: 20,
+                      ),
+                      SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Paid Online (₹0 Cash) — Verify OTP only',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: ShodashaTheme.successDark,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // Subscription Notice (if daily subscription delivery with ₹0 due)
               if (isSubscription && !isMonthlyDues) ...[

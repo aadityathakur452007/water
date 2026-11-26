@@ -4,6 +4,37 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**FLUTTER UI STATE & TODAY-ONLY DELIVERY CLEANUP (2026-11-26, ADR-225):** on `main`
+- **1. Rider App & Today-Only Filter (`workers/api`, `apps/rider_app`):**
+  - `RiderService.routes_today()` filters out stops whose order `window_start` is before today's IST date.
+  - `delivery_screen.dart` `Pending` tab shows only `status == 'pending'` (matching `Pending (N)` count 1:1), while `Completed` shows `done`, `cancelled`, and `failed`.
+  - Made `ON DUTY` / `OFF DUTY` badge tappable to toggle duty via `ApiClient.setDuty()` (resolving off-duty deadlock).
+  - Added `Paid Online (₹0 Cash)` notice in `pod_sheet.dart` for `HandoverMode.prepaid`.
+- **2. Vendor App (`apps/vendor_app`):**
+  - `summarizeToday()` in `route_controller.dart` excludes `isCancelled` and `isFailed` stops from active `total`, `jars`, and `collect` sums.
+  - `route_screen.dart` displays `Monthly Plan • ₹0 Cash` instead of `COD • Collect ₹0` on zero-due stops.
+- **3. Customer App (`apps/user_app_donor`):**
+  - Fixed `Order.isStaleDelivery` in `order_models.dart` to only trigger for `assigned`/`dispatched` orders from yesterday or earlier (preventing same-evening false positives and `placed` order prompts).
+  - Fixed `recentFailedOrder` in `customer_home_screen.dart` to only match past 24h failures (`o.windowStart.isBefore(now)`).
+
+## Previous Phases
+
+**RIDER/VENDOR OPERATIONS, APK RELEASE RULES & RATE-LIMIT LOCKOUT (2026-11-26, ADR-224):** on `main`
+- **1. Android APK Release Rules (`apps/*/android/app/`, `.github/workflows/release.yml`):**
+  - Added `proguard-rules.pro` and `proguardFiles` in `build.gradle.kts` across `vendor_app`, `rider_app`, and `user_app_donor`, and disabled `isShrinkResources` (`false`) to prevent R8 from stripping manifest/plugin resources (`App not installed as package appears to be invalid`).
+  - Cached `~/.android/debug.keystore` in `.github/workflows/release.yml` so CI-built APKs share a consistent signing certificate across releases.
+- **2. Gradual Rate-Limit Countdown Timer (`apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app`):**
+  - On `429 RATE_LIMITED`, starts at 60s (1 min) and increases gradually on consecutive 429s (`60s -> 120s -> 240s ...`), disabling all login/password/code input fields and submit buttons until the timer finishes.
+- **3. Unmasked Customer Phone & Empty Jar Cap (`workers/api`, `apps/rider_app`):**
+  - Removed phone masking in `RiderService.routes_today()` and updated `delivery_screen.dart` / `pod_sheet.dart` `_makeCall` to dial the real customer phone.
+  - Capped empty jar collection at `max_empties = min(quantity, jars_held)` in both `routes_today()`/`complete_stop()` and `PodSheet` UI.
+- **4. Simplified Rider Dues & Vendor Cash Sync (`workers/api`, `apps/vendor_app`):**
+  - Replaced N+1 queries in `RiderService.routes_today()` with 2 batch queries (`subscriptions`, `ledger`).
+  - Enforced 3-case logic: active subscription (`₹0` daily cash), cancelled subscription dues (shown once per customer on first pending stop, cleared on collection), and regular COD.
+  - Surfaced `cash_collected` and `rider_name` in `VendorService.today_route()`, `route_screen.dart`, and `stop_detail_screen.dart`.
+
+## Previous Phases
+
 **REMOVED OPENCODE AI MOBILE TESTING PIPELINE (2026-11-26, ADR-223):** on `main`
 - **1. Removed CI/CD Workflow & Harness:**
   - Deleted `.github/workflows/ai-mobile-test.yml`, `tools/mobile-tester/`, `tests/test_mobile_tester.py`, `Feature_docs/opencode-mobile-tester/`, and the AI Mobile Testing section from `README.md`.

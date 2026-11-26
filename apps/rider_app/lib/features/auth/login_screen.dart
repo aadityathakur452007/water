@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -23,9 +25,34 @@ class _LoginScreenState extends State<LoginScreen> {
   final _codeController = TextEditingController();
   bool _busy = false;
   String? _errorMessage;
+  DateTime? _rateLimitUntil;
+  int _rateLimitStrikes = 0;
+  Timer? _rateTimer;
+
+  int get _rateLimitSecondsRemaining {
+    final until = _rateLimitUntil;
+    if (until == null) return 0;
+    final ms = until.difference(DateTime.now()).inMilliseconds;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
+
+  void _startRateTimer() {
+    _rateTimer?.cancel();
+    _rateTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (_rateLimitSecondsRemaining <= 0) {
+        t.cancel();
+      }
+      setState(() {});
+    });
+  }
 
   @override
   void dispose() {
+    _rateTimer?.cancel();
     _nameController.dispose();
     _phoneController.dispose();
     _codeController.dispose();
@@ -33,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
+    if (_busy || _rateLimitSecondsRemaining > 0) return;
     final name = _nameController.text.trim();
     final rawPhone = _phoneController.text.replaceAll(RegExp(r'\D'), '');
     final code = _codeController.text.trim();
@@ -62,6 +90,8 @@ class _LoginScreenState extends State<LoginScreen> {
         name: name,
         code: code,
       );
+      _rateLimitStrikes = 0;
+      _rateLimitUntil = null;
       if (mounted) {
         widget.onLoginSuccess();
       }
@@ -69,7 +99,17 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          if (e is ApiException && e.statusCode == 429) {
+            _rateLimitStrikes++;
+            final gradual = 60 * (1 << (_rateLimitStrikes - 1).clamp(0, 5));
+            final serverWait = e.retryAfterSeconds ?? 60;
+            final wait = (serverWait > gradual ? serverWait : gradual).clamp(60, 1800);
+            _rateLimitUntil = DateTime.now().add(Duration(seconds: wait));
+            _startRateTimer();
+            _errorMessage = 'Too many attempts — please wait before trying again.';
+          } else {
+            _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          }
         });
       }
     }
@@ -77,6 +117,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wait = _rateLimitSecondsRemaining;
+    final rateLocked = wait > 0;
     return Scaffold(
       backgroundColor: ShodashaTheme.bg,
       body: SafeArea(
@@ -141,6 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: AppSpacing.xs),
                 TextField(
                   controller: _nameController,
+                  enabled: !_busy && !rateLocked,
                   textCapitalization: TextCapitalization.words,
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   decoration: InputDecoration(
@@ -169,6 +212,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: AppSpacing.xs),
                 TextField(
                   controller: _phoneController,
+                  enabled: !_busy && !rateLocked,
                   keyboardType: TextInputType.phone,
                   maxLength: 10,
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -205,6 +249,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: AppSpacing.xs),
                 TextField(
                   controller: _codeController,
+                  enabled: !_busy && !rateLocked,
                   keyboardType: TextInputType.number,
                   maxLength: 8,
                   style: const TextStyle(
@@ -238,13 +283,31 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: ShodashaTheme.danger, size: 20),
                         const SizedBox(width: AppSpacing.sm),
                         Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(
-                              color: ShodashaTheme.dangerDark,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _errorMessage!,
+                                style: const TextStyle(
+                                  color: ShodashaTheme.dangerDark,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (rateLocked) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  wait >= 60
+                                      ? 'Try again in ${(wait ~/ 60).toString().padLeft(2, '0')}:${(wait % 60).toString().padLeft(2, '0')}'
+                                      : 'Try again in $wait seconds',
+                                  style: const TextStyle(
+                                    color: ShodashaTheme.dangerDark,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ],
@@ -256,10 +319,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Submit CTA
                 AppButton(
-                  label: 'Start Delivery Shift',
+                  label: rateLocked
+                      ? 'Wait ${(wait ~/ 60).toString().padLeft(2, '0')}:${(wait % 60).toString().padLeft(2, '0')}'
+                      : 'Start Delivery Shift',
                   icon: Icons.two_wheeler_rounded,
                   busy: _busy,
-                  onPressed: _submit,
+                  onPressed: (_busy || rateLocked) ? null : _submit,
                 ),
               ],
             ),

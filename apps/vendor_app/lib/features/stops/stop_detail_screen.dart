@@ -331,6 +331,10 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
     final remainingPaise = remaining();
     // Phase 5 §5.5: required-action gating — PoD needs a saved triple;
     // a finished stop shows the done note, never action buttons.
+    final tripleMap = s['triple'] is Map ? (s['triple'] as Map) : const {};
+    final podMap = tripleMap['pod'] is Map ? (tripleMap['pod'] as Map) : const {};
+    final cashCollectedPaise = ((podMap['cash'] ?? tripleMap['cash'] ?? s['cash_collected']) as num?)?.toInt() ?? 0;
+    final riderName = (s['rider_name'] ?? '').toString();
     final tripleDone = s['triple'] is Map;
     final stopDone = (s['status'] ?? '') == 'done';
     final stopFailed = (s['status'] ?? '') == 'failed';
@@ -377,21 +381,27 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                 // Phase 5 §5.2: partial shows the remainder; a sent UPI
                 // link asks for verification, never cash.
                 Text(
-                  isPaid
-                      ? (totalPaise > 0
-                          ? '${paymentMode.toUpperCase()} • Paid ${rupees(totalPaise)}'
-                          : '${paymentMode.toUpperCase()} • Paid')
-                      : isLinkSent
-                          ? '${paymentMode.toUpperCase()} • UPI link bheja, verify karein'
-                          : isPartial
-                              ? '${paymentMode.toUpperCase()} • Collect ${rupees(remainingPaise)} (baaki)'
-                              : (totalPaise > 0
-                                  ? '${paymentMode.toUpperCase()} • Collect ${rupees(totalPaise)}'
-                                  : paymentMode.toUpperCase()),
+                  stopDone && cashCollectedPaise > 0
+                      ? (riderName.isNotEmpty
+                          ? 'Rider ($riderName) collected ${rupees(cashCollectedPaise)}'
+                          : 'Rider collected ${rupees(cashCollectedPaise)}')
+                      : isPaid
+                          ? (totalPaise > 0
+                              ? '${paymentMode.toUpperCase()} • Paid ${rupees(totalPaise)}'
+                              : '${paymentMode.toUpperCase()} • Paid')
+                          : isLinkSent
+                              ? '${paymentMode.toUpperCase()} • UPI link bheja, verify karein'
+                              : isPartial
+                                  ? '${paymentMode.toUpperCase()} • Collect ${rupees(remainingPaise)} (baaki)'
+                                  : (totalPaise > 0
+                                      ? '${paymentMode.toUpperCase()} • Collect ${rupees(totalPaise)}'
+                                      : paymentMode.toUpperCase()),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: ShodashaTheme.blue,
+                  style: TextStyle(
+                      color: (stopDone && cashCollectedPaise > 0)
+                          ? ShodashaTheme.success
+                          : ShodashaTheme.blue,
                       fontWeight: FontWeight.w700,
                       fontSize: 13),
                 ),

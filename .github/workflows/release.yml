@@ -130,6 +130,23 @@ jobs:
       # com.shodasha.vendor_app, com.shodasha.rider_app) mean identical
       # versionCodes never collide on-device — all three install side-by-side.
       # No pubspec commit (avoids a push-loop back into this workflow).
+      - name: Cache CI debug keystore (consistent APK upgrade signature)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: shodasha-ci-debug-keystore-v1
+
+      - name: Ensure CI debug keystore exists
+        run: |
+          if [ ! -f ~/.android/debug.keystore ]; then
+            mkdir -p ~/.android
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Build release APK
         working-directory: ${{ matrix.dir }}
         run: flutter build apk --release --build-name=${{ needs.version.outputs.build_name }} --build-number=${{ github.run_number }} ${{ matrix.defines }} ${{ matrix.target_platform }}

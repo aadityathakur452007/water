@@ -98,10 +98,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
   }
 
   Future<void> _makeCall(String phone) async {
-    final cleaned = phone.replaceAll(RegExp(r'\D'), '');
-    final dialTarget = (cleaned.length >= 10 && !phone.contains('*'))
-        ? cleaned
-        : '07554300000';
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return;
+    final dialTarget = digits.length == 10 ? '+91$digits' : '+$digits';
     final uri = Uri.parse('tel:$dialTarget');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
@@ -279,16 +278,45 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
     );
   }
 
+  bool _dutyBusy = false;
+
+  Future<void> _toggleDuty() async {
+    if (_dutyBusy) return;
+    final next = _dutyStatus == 'on_duty' ? 'off_duty' : 'on_duty';
+    setState(() => _dutyBusy = true);
+    try {
+      final res = await widget.api.setDuty(next);
+      if (mounted) {
+        setState(() {
+          _dutyStatus = (res['duty_status'] as String?) ?? next;
+          _dutyBusy = false;
+        });
+        if (_dutyStatus == 'on_duty') {
+          _startPolling();
+          _loadRoute(silent: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _dutyBusy = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final riderName = widget.api.riderUser?['name']?.toString() ?? 'Rider';
     final total = _summary['total'] as int? ?? 0;
     final delivered = _summary['delivered'] as int? ?? 0;
     final pending = _summary['pending'] as int? ?? 0;
+    final closedCount = _stops.where((s) => s['status'] != 'pending').length;
 
     final visibleStops = _stops.where((s) {
-      if (_filter == 'pending') return s['status'] != 'done';
-      return s['status'] == 'done';
+      if (_filter == 'pending') return s['status'] == 'pending';
+      return s['status'] != 'pending';
     }).toList();
 
     return Scaffold(
@@ -383,27 +411,38 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                           ),
                         ),
                         const SizedBox(width: AppSpacing.sm),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+                        InkWell(
+                          onTap: _dutyBusy ? null : _toggleDuty,
+                          borderRadius: BorderRadius.circular(
+                            ShodashaTheme.radiusSm,
                           ),
-                          decoration: BoxDecoration(
-                            color: _dutyStatus == 'on_duty'
-                                ? ShodashaTheme.tealTint
-                                : ShodashaTheme.warningTint,
-                            borderRadius: BorderRadius.circular(
-                              ShodashaTheme.radiusSm,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
                             ),
-                          ),
-                          child: Text(
-                            _dutyStatus == 'on_duty' ? 'ON DUTY' : 'OFF DUTY',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
+                            decoration: BoxDecoration(
                               color: _dutyStatus == 'on_duty'
-                                  ? ShodashaTheme.teal
-                                  : ShodashaTheme.warningDark,
+                                  ? ShodashaTheme.tealTint
+                                  : ShodashaTheme.warningTint,
+                              borderRadius: BorderRadius.circular(
+                                ShodashaTheme.radiusSm,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _dutyStatus == 'on_duty' ? 'ON DUTY' : 'OFF DUTY · Tap to start',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: _dutyStatus == 'on_duty'
+                                        ? ShodashaTheme.teal
+                                        : ShodashaTheme.warningDark,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -456,7 +495,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: _FilterTab(
-                    label: 'Delivered ($delivered)',
+                    label: 'Completed ($closedCount)',
                     active: _filter == 'delivered',
                     onTap: () => setState(() => _filter = 'delivered'),
                   ),

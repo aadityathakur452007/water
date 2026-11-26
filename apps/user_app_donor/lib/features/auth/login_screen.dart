@@ -500,7 +500,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           _label(authStrings['nameLabel']!),
           TextFormField(
             controller: _name,
-            enabled: !_submitting,
+            enabled: !_submitting && _auth.rateLimitSecondsRemaining <= 0,
             textCapitalization: TextCapitalization.words,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.name],
@@ -516,7 +516,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           _label(authStrings['emailLabel']!),
           TextFormField(
             controller: _email,
-            enabled: !_submitting,
+            enabled: !_submitting && _auth.rateLimitSecondsRemaining <= 0,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.email],
@@ -536,7 +536,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         _label(authStrings['phoneLabel']!),
         TextFormField(
           controller: _phone,
-          enabled: !_submitting,
+          enabled: !_submitting && _auth.rateLimitSecondsRemaining <= 0,
           keyboardType: TextInputType.phone,
           textInputAction: TextInputAction.next,
           autofillHints: const [AutofillHints.telephoneNumber],
@@ -567,7 +567,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
         TextFormField(
           controller: _password,
           focusNode: _passwordFocus,
-          enabled: !_submitting,
+          enabled: !_submitting && _auth.rateLimitSecondsRemaining <= 0,
           obscureText: !_showPassword,
           textInputAction: create ? TextInputAction.next : TextInputAction.done,
           autofillHints: [
@@ -606,7 +606,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           TextFormField(
             controller: _confirm,
             focusNode: _confirmFocus,
-            enabled: !_submitting,
+            enabled: !_submitting && _auth.rateLimitSecondsRemaining <= 0,
             obscureText: !_showConfirm,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.newPassword],
@@ -850,7 +850,9 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        'Try again in $wait seconds',
+                        wait >= 60
+                            ? 'Try again in ${(wait ~/ 60).toString().padLeft(2, '0')}:${(wait % 60).toString().padLeft(2, '0')}'
+                            : 'Try again in $wait seconds',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,

@@ -265,6 +265,7 @@ class AuthController extends ChangeNotifier {
   bool _loggingOut = false;
   Future<bool>? _recovering;
   DateTime? _rateLimitUntil;
+  int _rateLimitStrikes = 0;
 
   AuthStatus get status => _status;
   String? get errorMessage => _errorMessage;
@@ -599,6 +600,8 @@ class AuthController extends ChangeNotifier {
       expiresAt: expiresAt,
       role: role ?? 'user',
     );
+    _rateLimitStrikes = 0;
+    _rateLimitUntil = null;
     _status = AuthStatus.authenticated;
     _notify();
   }
@@ -608,20 +611,29 @@ class AuthController extends ChangeNotifier {
     if (_errorMessage == null && _lastErrorCode == null) return;
     _errorMessage = null;
     _lastErrorCode = null;
-    _rateLimitUntil = null;
+    if (rateLimitSecondsRemaining <= 0) {
+      _rateLimitUntil = null;
+    }
     _notify();
   }
 
   void _beginAttempt() {
     _errorMessage = null;
     _lastErrorCode = null;
-    _rateLimitUntil = null;
+    if (rateLimitSecondsRemaining <= 0) {
+      _rateLimitUntil = null;
+    }
   }
 
   void _handleApiError(ApiException e, {required bool isRegister}) {
     _lastErrorCode = e.code;
     if (e.statusCode == 429) {
-      final wait = (e.retryAfterSeconds ?? 60).clamp(1, 3600);
+      _rateLimitStrikes++;
+      final base = e.retryAfterSeconds ?? 60;
+      final gradual = _rateLimitStrikes == 1
+          ? base
+          : (60 * (1 << (_rateLimitStrikes - 1).clamp(0, 5)));
+      final wait = (base > gradual ? base : gradual).clamp(1, 3600);
       _rateLimitUntil = DateTime.now().add(Duration(seconds: wait));
       _fail(authStringsHi['rateLimited']!, AuthStatus.error);
       return;

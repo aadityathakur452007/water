@@ -45,6 +45,8 @@ class VendorRoutesMixin:
         ins = ", o.instructions" if extra["instructions"] else ""
         fr = ", s.failure_reason" if extra["failure_reason"] else ""
         asnap = ", o.address_snapshot_json" if extra["address_snapshot_json"] else ""
+        rid_col = ", s.rider_id, ru.name AS rider_name" if extra["rider_id"] else ""
+        rid_join = " LEFT JOIN users ru ON ru.id = s.rider_id" if extra["rider_id"] else ""
         rows = (await self._conn.execute(
             "SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq,"
             " s.fulls_exp, s.empties_exp, s.version, s.triple, s.status, s.synced_at,"
@@ -52,11 +54,12 @@ class VendorRoutesMixin:
             " o.window_start, o.items AS order_items,"
             " a.label AS address_label, a.formatted AS address_text, a.pincode,"
             " u.name AS customer_name, u.phone AS customer_phone"
-            f"{ij}{ins}{fr}{asnap}"
+            f"{rid_col}{ij}{ins}{fr}{asnap}"
             " FROM stops s LEFT JOIN orders o ON o.id = s.order_id"
             " LEFT JOIN returns ret ON ret.id = s.return_id"
             " LEFT JOIN addresses a ON a.id = COALESCE(o.address_id, ret.address_id)"
             " LEFT JOIN users u ON u.id = s.customer_id"
+            f"{rid_join}"
             " WHERE s.route_id = ? ORDER BY s.seq",
             (route["id"],),
         )).fetchall()
@@ -101,6 +104,9 @@ class VendorRoutesMixin:
             s["dues"] = dues_by_customer.get(s.get("customer_id"), 0)
             order_rem = max(0, int(s.get("total") or 0) - s["paid_sum"])
             s["amount_due"] = max(order_rem, s["dues"])
+            triple_obj = s.get("triple") if isinstance(s.get("triple"), dict) else {}
+            pod_obj = triple_obj.get("pod") if isinstance(triple_obj.get("pod"), dict) else {}
+            s["cash_collected"] = int(pod_obj.get("cash") or triple_obj.get("cash") or 0)
         # TODO: SKIP list also covers paused subs / late skips once scheduler lands.
         return {
             "route": dict(route),

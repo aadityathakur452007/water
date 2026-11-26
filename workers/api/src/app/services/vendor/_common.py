@@ -132,6 +132,7 @@ async def _stop_field_cols(conn: Conn) -> dict[str, bool]:
     return {
         "items_json": "items_json" in stops_cols,
         "failure_reason": "failure_reason" in stops_cols,
+        "rider_id": "rider_id" in stops_cols,
         "instructions": "instructions" in order_cols,
         "address_snapshot_json": "address_snapshot_json" in order_cols,
     }

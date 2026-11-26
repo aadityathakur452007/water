@@ -61,7 +61,11 @@ extensions.configure<ApplicationExtension> {
                 signingConfigs.getByName("debug")
             }
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

@@ -40,6 +40,8 @@ class RouteStop {
     this.instructions = '',
     this.lat,
     this.lng,
+    this.cashCollectedPaise = 0,
+    this.riderName = '',
   });
 
   final String id;
@@ -83,6 +85,8 @@ class RouteStop {
   final String instructions;
   final double? lat;
   final double? lng;
+  final int cashCollectedPaise;
+  final String riderName;
 
   bool get isDone => status == 'done';
   bool get isFailed => status == 'failed';
@@ -138,6 +142,8 @@ class RouteStop {
         instructions: (j['instructions'] ?? '') as String,
         lat: (j['lat'] as num?)?.toDouble(),
         lng: (j['lng'] as num?)?.toDouble(),
+        cashCollectedPaise: (j['cash_collected'] as num?)?.toInt() ?? 0,
+        riderName: (j['rider_name'] ?? '') as String,
       );
 }
 
@@ -298,8 +304,10 @@ class TodaySummary {
 
 TodaySummary summarizeToday(List<RouteStop> stops) {
   final ids = <String>{};
-  var jars = 0, upi = 0, cod = 0, done = 0;
+  var jars = 0, upi = 0, cod = 0, done = 0, total = 0;
   for (final s in stops) {
+    if (s.isCancelled || s.isFailed) continue;
+    total++;
     ids.add(s.customerId.isNotEmpty ? s.customerId : s.customerName);
     jars += s.fullsExpected;
     if (s.isDone) {
@@ -323,6 +331,6 @@ TodaySummary summarizeToday(List<RouteStop> stops) {
     upiCollect: upi,
     codCollect: cod,
     done: done,
-    total: stops.length,
+    total: total,
   );
 }

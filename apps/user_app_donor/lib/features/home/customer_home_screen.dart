@@ -189,7 +189,8 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                             }
                             if (recentFailedOrder == null &&
                                 o.state == OrderState.failed &&
-                                now.difference(o.windowStart).inHours.abs() < 24) {
+                                o.windowStart.isBefore(now) &&
+                                now.difference(o.windowStart).inHours < 24) {
                               recentFailedOrder = o;
                             }
                           }

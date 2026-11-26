@@ -156,11 +156,20 @@ class AuthController extends ChangeNotifier {
   bool _newDeviceAlert = false;
   AuthSession? _session;
   bool _disposed = false;
+  DateTime? _rateLimitUntil;
+  int _rateLimitStrikes = 0;
 
   AuthStatus get status => _status;
   String? get errorMessage => _errorMessage;
   int get errorSeq => _errorSeq;
   bool get newDeviceAlert => _newDeviceAlert;
+
+  int get rateLimitSecondsRemaining {
+    final until = _rateLimitUntil;
+    if (until == null) return 0;
+    final ms = until.difference(DateTime.now()).inMilliseconds;
+    return ms <= 0 ? 0 : (ms / 1000).ceil();
+  }
 
   /// Phase 5 §5.1: login instant (UTC) for the 30-day cap banner. Null on
   /// pre-Phase-5 sessions (no banner — never guess).
@@ -225,6 +234,8 @@ class AuthController extends ChangeNotifier {
       await _stampStarted();
       _session = session;
       _newDeviceAlert = session.newDeviceAlert;
+      _rateLimitStrikes = 0;
+      _rateLimitUntil = null;
       _status = AuthStatus.authenticated;
       _notify();
       return true;
@@ -234,6 +245,11 @@ class AuthController extends ChangeNotifier {
       } else if (e.statusCode == 401) {
         _fail(vendorStringsHi['invalidCredentials']!, AuthStatus.error);
       } else if (e.statusCode == 429) {
+        _rateLimitStrikes++;
+        final gradual = 60 * (1 << (_rateLimitStrikes - 1).clamp(0, 5));
+        final serverWait = e.retryAfterSeconds ?? 60;
+        final wait = (serverWait > gradual ? serverWait : gradual).clamp(60, 1800);
+        _rateLimitUntil = DateTime.now().add(Duration(seconds: wait));
         _fail(vendorStringsHi['rateLimited']!, AuthStatus.error);
       } else if (e.statusCode == 409) {
         _fail(vendorStringsHi['deviceLimit']!, AuthStatus.error);

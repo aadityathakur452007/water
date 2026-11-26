@@ -592,17 +592,27 @@ class _RouteScreenState extends State<RouteScreen> {
               // asks for verification, never cash.
               if (s.returnId.isEmpty && !cancelled)
                 Text(
-                  s.isPaid
-                      ? '${s.paymentMode.toUpperCase()} • Paid'
-                      : s.isLinkSent
-                          ? '${s.paymentMode.toUpperCase()} • UPI link bheja, verify karein'
-                          : s.isPartial
-                              ? '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.remainingPaise)} (baaki)'
-                              : '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}',
+                  s.isDone && s.cashCollectedPaise > 0
+                      ? (s.riderName.isNotEmpty
+                          ? 'Rider (${s.riderName}) collected ${rupees(s.cashCollectedPaise)}'
+                          : 'Rider collected ${rupees(s.cashCollectedPaise)}')
+                      : s.isPaid
+                          ? '${s.paymentMode.toUpperCase()} • Paid'
+                          : s.isLinkSent
+                              ? '${s.paymentMode.toUpperCase()} • UPI link bheja, verify karein'
+                              : s.isPartial
+                                  ? '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.remainingPaise)} (baaki)'
+                                  : (s.totalPaise > 0 || s.cashDuePaise > 0)
+                                      ? '${s.paymentMode.toUpperCase()} • Collect ${rupees(s.totalPaise > 0 ? s.totalPaise : s.cashDuePaise)}'
+                                      : 'Monthly Plan • ₹0 Cash',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: ShodashaTheme.blue, fontWeight: FontWeight.w700, fontSize: 12),
+                  style: TextStyle(
+                      color: (s.isDone && s.cashCollectedPaise > 0)
+                          ? ShodashaTheme.success
+                          : ShodashaTheme.blue,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12),
                 ),
               if (s.address.isNotEmpty)
                 Text(s.address,

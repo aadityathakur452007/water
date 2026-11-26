@@ -267,3 +267,63 @@ def test_rider_completes_unassigned_links_rider():
     # Verify stop is now linked to rider-1
     row = conn.execute("SELECT rider_id FROM stops WHERE id = 'stop-1'").fetchone()
     assert row["rider_id"] == "r1"
+
+
+def test_rider_unmasked_phone_and_empties_cap():
+    conn = _seed_db()
+    # Customer u1 holds 1 jar, orders 10 jars -> max_empties must be 1
+    conn.execute(
+        "INSERT OR REPLACE INTO ledger (customer_id, held, dues) "
+        "VALUES ('u1', 1, 0)"
+    )
+    conn.execute("UPDATE stops SET fulls_exp = 10 WHERE id = 'stop-1'")
+    conn.commit()
+    client = _client(conn)
+    res = client.get("/v1/rider/routes/today", headers={"Authorization": "Bearer token-rider"})
+    assert res.status_code == 200
+    stop = res.json()["stops"][0]
+    assert stop["customer_phone"] == "+919876500002"
+    assert stop["jars_held"] == 1
+    assert stop["max_empties"] == 1
+
+
+def test_rider_active_sub_zero_cash_and_deduped_cancelled_dues():
+    conn = _seed_db()
+    # Seed ledger dues = 9000 (Rs 90) and a second stop for the same customer u1
+    conn.execute(
+        "INSERT OR REPLACE INTO ledger (customer_id, held, dues) "
+        "VALUES ('u1', 2, 9000)"
+    )
+    conn.execute(
+        "INSERT INTO orders (id, user_id, address_id, items, n, water_bill, deposit_due, total, "
+        "payment_mode, payment_status, state, window_start, window_end, idempotency_key, created_at) "
+        "VALUES ('ord-2', 'u1', 'addr-1', '[{\"sku\":\"refill\",\"qty\":1}]', 1, 7000, 0, 7000, 'cod', 'unpaid', 'assigned', "
+        f"'{DAY}T07:00:00+00:00', '{DAY}T12:00:00+00:00', 'idem-ord-2', '{NOW_ISO}')"
+    )
+    conn.execute(
+        "INSERT INTO stops (id, route_id, order_id, customer_id, seq, fulls_exp, empties_exp, "
+        "status, pod_otp, pod_otp_expires_at, pod_attempts, rider_id) "
+        "VALUES ('stop-2', 'route-1', 'ord-2', 'u1', 2, 1, 1, 'pending', '1234', '2099-01-01T00:00:00+00:00', 0, 'r1')"
+    )
+    # Case 1: Active monthly subscription -> ₹0 due on both stops
+    conn.execute(
+        "INSERT INTO subscriptions (id, user_id, address_id, qty, status) "
+        "VALUES ('sub-1', 'u1', 'addr-1', 1, 'active')"
+    )
+    conn.commit()
+    client = _client(conn)
+    res1 = client.get("/v1/rider/routes/today", headers={"Authorization": "Bearer token-rider"})
+    assert res1.status_code == 200
+    stops1 = res1.json()["stops"]
+    assert all(s["amount_due"] == 0 and not s["is_monthly_dues"] for s in stops1)
+
+    # Case 2: Inactive/paused/cancelled subscription -> dues shown ONLY on first pending stop, not duplicated
+    conn.execute("UPDATE subscriptions SET status = 'paused' WHERE id = 'sub-1'")
+    conn.commit()
+    res2 = client.get("/v1/rider/routes/today", headers={"Authorization": "Bearer token-rider"})
+    assert res2.status_code == 200
+    stops2 = res2.json()["stops"]
+    assert stops2[0]["is_monthly_dues"] is True
+    assert stops2[0]["amount_due"] == 14000  # max(14000 order, 9000 dues)
+    assert stops2[1]["is_monthly_dues"] is False
+    assert stops2[1]["amount_due"] == 7000  # only order_amt, NOT duplicated 9000 dues!

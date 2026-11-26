@@ -135,6 +135,7 @@ class RiderService:
         fr_col = ", s.failure_reason" if "failure_reason" in cols else ""
 
         # Fetch stops for this route assigned to this rider OR unassigned (NULL rider_id)
+        # Only include today's deliveries (exclude previous-day orders that lingered on route)
         query = (
             f"SELECT s.id, s.route_id, s.order_id, s.return_id, s.customer_id, s.seq, s.fulls_exp, s.empties_exp, "
             f" s.status, s.triple, s.rider_id{fr_col}, "
@@ -147,75 +148,91 @@ class RiderService:
             " LEFT JOIN addresses a ON a.id = COALESCE(o.address_id, ret.address_id) "
             " LEFT JOIN users u ON u.id = s.customer_id "
             " WHERE s.route_id = ? AND (s.rider_id = ? OR s.rider_id IS NULL) "
+            " AND (o.window_start IS NULL OR length(o.window_start) < 10 "
+            "      OR substr(o.window_start, 5, 1) != '-' "
+            "      OR substr(o.window_start, 1, 10) >= ?) "
             " ORDER BY s.seq ASC"
         )
-        rows = (await self._conn.execute(query, (route_id, rider_id))).fetchall()
+        rows = (await self._conn.execute(query, (route_id, rider_id, day))).fetchall()
 
+        # Batch-load subscriptions and ledger (held + dues) in 2 queries total (zero N+1)
+        cust_ids = list({r["customer_id"] for r in rows if r["customer_id"]})
+        subs_by_customer: dict[str, tuple[str, str]] = {}
+        held_by_customer: dict[str, int] = {}
+        dues_by_customer: dict[str, int] = {}
+        if cust_ids:
+            ph = ",".join("?" for _ in cust_ids)
+            try:
+                sub_cols = {
+                    r["name"]
+                    for r in (
+                        await self._conn.execute("SELECT name FROM pragma_table_info('subscriptions')")
+                    ).fetchall()
+                }
+                bm_sel = "billing_mode" if "billing_mode" in sub_cols else "'monthly_postpaid' AS billing_mode"
+                sub_rows = (await self._conn.execute(
+                    f"SELECT user_id, {bm_sel}, status FROM subscriptions"  # noqa: S608
+                    f" WHERE user_id IN ({ph})",
+                    tuple(cust_ids),
+                )).fetchall()
+                for sr in sub_rows:
+                    uid = str(sr["user_id"])
+                    st = str(sr["status"] or "")
+                    bm = str(sr["billing_mode"] or "")
+                    # Active subscription always takes precedence over cancelled/paused
+                    if uid not in subs_by_customer or st == "active":
+                        subs_by_customer[uid] = (st, bm)
+            except Exception:
+                pass
+            try:
+                led_rows = (await self._conn.execute(
+                    f"SELECT customer_id, held, dues FROM ledger WHERE customer_id IN ({ph})",  # noqa: S608
+                    tuple(cust_ids),
+                )).fetchall()
+                for lr in led_rows:
+                    cid = str(lr["customer_id"])
+                    held_by_customer[cid] = max(0, int(lr["held"] or 0))
+                    dues_by_customer[cid] = max(0, int(lr["dues"] or 0))
+            except Exception:
+                pass
+
+        seen_dues_customers: set[str] = set()
         stops: list[dict[str, Any]] = []
         for r in rows:
             d = dict(r)
-            is_sub = False
-            sub_billing_mode = None
-            try:
-                if d.get("customer_id"):
-                    sub_row = (await self._conn.execute(
-                        "SELECT billing_mode FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1",
-                        (d["customer_id"],),
-                    )).fetchone()
-                    if sub_row:
-                        is_sub = True
-                        sub_billing_mode = str(sub_row["billing_mode"] or "")
-            except Exception:
-                pass
-
-            # Check customer ledger dues (e.g. month-end unpaid bill or mid-cycle cancel dues)
-            dues_paise = 0
-            try:
-                cust_id = d.get("customer_id")
-                if cust_id:
-                    led = (await self._conn.execute(
-                        "SELECT dues FROM ledger WHERE customer_id = ?",
-                        (cust_id,),
-                    )).fetchone()
-                    if led:
-                        dues_paise = max(0, int(led["dues"] or 0))
-            except Exception:
-                pass
+            cust_id = d.get("customer_id")
+            sub_info = subs_by_customer.get(cust_id) if cust_id else None
+            is_sub = sub_info is not None and sub_info[0] == "active"
+            sub_billing_mode = sub_info[1] if is_sub else None
+            dues_paise = dues_by_customer.get(cust_id, 0) if cust_id else 0
+            jars_held = held_by_customer.get(cust_id, 0) if cust_id else 0
 
             is_cod = (d.get("payment_mode") or "").lower() == "cod"
             is_paid = (d.get("payment_status") or "").lower() == "paid"
-
-            # Payment calculation:
-            # - For subscription customers on monthly/weekly postpaid plans:
-            #   Daily delivery is ₹0 cash, unless customer has pending ledger dues.
-            # - For per_delivery / daily_bill or cancelled subscription:
-            #   Collect cash on delivery.
-            is_monthly_dues = False
-            if is_sub:
-                if sub_billing_mode in ("monthly_postpaid", "monthly_prepaid", "weekly_postpaid"):
-                    if dues_paise > 0:
-                        amount_due = dues_paise
-                        is_monthly_dues = True
-                    else:
-                        amount_due = 0
-                else:
-                    amount_due = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
-                    if dues_paise > 0 and amount_due == 0:
-                        amount_due = dues_paise
-                        is_monthly_dues = True
-            else:
-                order_amt = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
-                if dues_paise > 0:
-                    amount_due = max(order_amt, dues_paise)
-                    is_monthly_dues = True
-                else:
-                    amount_due = order_amt
+            order_amt = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
 
             stop_status = d["status"]
             order_state = d.get("order_state") or ""
             failure_reason = d.get("failure_reason") or ""
             if order_state == "cancelled" or failure_reason.startswith("CANCELLED"):
                 stop_status = "cancelled"
+
+            # Simplified 3-case payment calculation:
+            # 1. Active monthly/weekly subscription: ₹0 cash (never collect daily)
+            # 2. Cancelled subscription with pending dues: collect once on first pending stop
+            # 3. Regular one-time user: collect order COD total (or ₹0 if prepaid)
+            is_monthly_dues = False
+            if is_sub and sub_billing_mode in ("monthly_postpaid", "monthly_prepaid", "weekly_postpaid"):
+                amount_due = 0
+            elif not is_sub and dues_paise > 0 and stop_status == "pending" and cust_id and cust_id not in seen_dues_customers:
+                amount_due = max(order_amt, dues_paise)
+                is_monthly_dues = True
+                seen_dues_customers.add(cust_id)
+            else:
+                amount_due = order_amt
+
+            qty = int(d["fulls_exp"] or 1)
+            max_empties = min(qty, jars_held)
 
             stops.append({
                 "id": d["id"],
@@ -225,15 +242,17 @@ class RiderService:
                 "failure_reason": failure_reason,
                 "order_id": d["order_id"],
                 "customer_name": d["customer_name"] or "Customer",
-                "customer_phone": mask_phone(d["customer_phone"]),
-                "quantity": int(d["fulls_exp"] or 1),
-                "empties_expected": int(d["empties_exp"] or 0),
+                "customer_phone": (d["customer_phone"] or "").strip(),
+                "quantity": qty,
+                "jars_held": jars_held,
+                "max_empties": max_empties,
+                "empties_expected": max_empties,
                 "payment_mode": "cod" if is_cod else "prepaid",
                 "is_paid": is_paid,
                 "amount_due": amount_due,
                 "is_subscription": is_sub,
                 "is_monthly_dues": is_monthly_dues,
-                "monthly_dues": dues_paise,
+                "monthly_dues": dues_paise if is_monthly_dues else 0,
                 "billing_mode": sub_billing_mode or ("monthly_postpaid" if is_sub else "per_delivery"),
                 "address": {
                     "formatted": d["address_text"] or "Delivery address",
@@ -276,7 +295,7 @@ class RiderService:
 
         # Verify stop belongs to a route owned by the rider's vendor
         stop = (await self._conn.execute(
-            "SELECT s.id, r.vendor_id, s.rider_id FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
+            "SELECT s.id, r.vendor_id, s.rider_id, s.customer_id, s.fulls_exp FROM stops s JOIN routes r ON s.route_id = r.id WHERE s.id = ?",
             (stop_id,),
         )).fetchone()
         if stop is None or stop["vendor_id"] != vendor_id:
@@ -286,10 +305,25 @@ class RiderService:
         if stop["rider_id"] is not None and stop["rider_id"] != rider_id:
             raise NotFoundError("Stop not found.", {"stop_id": stop_id})
 
-        # Delegate to proven, hardened VendorService.pod_complete
-        result = await self._vendor_svc.pod_complete(vendor_id, stop_id, payload)
+        # Enforce empty jar limit: cap at min(quantity, customer's held jars) when ledger exists
+        sanitized_payload = dict(payload)
+        cust_id = stop["customer_id"]
+        if cust_id and "empties_count" in sanitized_payload:
+            try:
+                led = (await self._conn.execute(
+                    "SELECT held, dues FROM ledger WHERE customer_id = ?",
+                    (cust_id,),
+                )).fetchone()
+                if led is not None:
+                    jars_held = max(0, int(led["held"] or 0))
+                    qty = max(1, int(stop["fulls_exp"] or 1))
+                    max_empties = min(qty, jars_held)
+                    req_empties = max(0, int(sanitized_payload.get("empties_count") or 0))
+                    sanitized_payload["empties_count"] = min(req_empties, max_empties)
+            except Exception:
+                pass
 
-        # Audit trail: If stop was unassigned, link rider_id to this rider
+        # Link rider_id before pod_complete so vendor route/stop reflects the rider
         if stop["rider_id"] is None:
             with WRITE_LOCK:
                 await self._conn.execute(
@@ -297,6 +331,9 @@ class RiderService:
                     (rider_id, stop_id),
                 )
                 self._conn.commit()
+
+        # Delegate to proven, hardened VendorService.pod_complete
+        result = await self._vendor_svc.pod_complete(vendor_id, stop_id, sanitized_payload)
 
         try:
             await write_audit(
@@ -309,9 +346,28 @@ class RiderService:
         except Exception:
             pass
 
-        # If cash was collected and amount > 0, post cash automatically
-        cash_amt = int(payload.get("cash") or 0)
-        if cash_amt > 0:
+        # If cash was collected (> 0), ensure ledger dues are cleared and vendor in_hand reflects it
+        cash_amt = int(sanitized_payload.get("cash") or 0)
+        if cash_amt > 0 and cust_id and not result.get("replay"):
+            try:
+                from app.repositories.ledger_repo import LedgerRepo
+                led = (await self._conn.execute(
+                    "SELECT dues FROM ledger WHERE customer_id = ?",
+                    (cust_id,),
+                )).fetchone()
+                dues_now = max(0, int(led["dues"] or 0)) if led else 0
+                if dues_now > 0:
+                    clear_amt = min(cash_amt, dues_now)
+                    await LedgerRepo(self._conn).apply_event(
+                        cust_id,
+                        d_dues=-clear_amt,
+                        ref=f"stop:{stop_id}",
+                        actor=rider_id,
+                        reason="rider cash dues collected",
+                    )
+            except Exception:
+                pass
+            # If pod_complete couldn't post cash (e.g. order total was 0 on dues stop), ensure vendor_profile.in_hand is credited
             try:
                 await self._vendor_svc.cash_post(vendor_id, stop_id, cash_amt)
             except Exception:

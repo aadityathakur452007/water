@@ -359,18 +359,14 @@ extension OrderVisibility on Order {
   bool get showNoActions => state == OrderState.cancelled;
 
   bool get isStaleDelivery {
-    if (state == OrderState.delivered ||
-        state == OrderState.cancelled ||
-        state == OrderState.failed ||
-        state == OrderState.rejected) {
+    if (state != OrderState.assigned && state != OrderState.dispatched) {
       return false;
     }
     final now = DateTime.now();
     final todayMidnight = DateTime(now.year, now.month, now.day);
     final windowDay =
         DateTime(windowStart.year, windowStart.month, windowStart.day);
-    return windowDay.isBefore(todayMidnight) ||
-        windowStart.isBefore(now.subtract(const Duration(hours: 12)));
+    return windowDay.isBefore(todayMidnight);
   }
 }
 

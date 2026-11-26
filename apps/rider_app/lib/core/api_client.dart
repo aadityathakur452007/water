@@ -3,9 +3,10 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode});
+  ApiException(this.message, {this.statusCode, this.retryAfterSeconds});
   final String message;
   final int? statusCode;
+  final int? retryAfterSeconds;
 
   @override
   String toString() => message;
@@ -249,7 +250,12 @@ class ApiClient {
       message = 'Incorrect delivery OTP. Please verify the code with the customer.';
     }
 
-    throw ApiException(message, statusCode: res.statusCode);
+    int? retryAfter;
+    final ra = res.headers['retry-after'];
+    if (ra != null) {
+      retryAfter = int.tryParse(ra.trim());
+    }
+    throw ApiException(message, statusCode: res.statusCode, retryAfterSeconds: retryAfter);
   }
 }
 

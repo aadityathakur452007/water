@@ -12,6 +12,24 @@
 
 ## Overview
 
+- Flutter UI State & Today-Only Delivery Cleanup (2026-11-26, ADR-225):
+  1. `RiderService.routes_today()` filters `o.window_start IS NULL OR substr(o.window_start, 1, 10) >= day`.
+  2. `delivery_screen.dart`: `Pending` tab = `status == 'pending'`, `Completed` tab = `status != 'pending'`, tappable duty pill calls `setDuty()`.
+  3. `route_controller.dart:summarizeToday()` skips `isCancelled || isFailed`; `route_screen.dart` shows `Monthly Plan • ₹0 Cash` when zero due.
+  4. `order_models.dart:isStaleDelivery` requires `assigned`/`dispatched` and `windowDay.isBefore(todayMidnight)`.
+
+- Rider/Vendor Operations, APK Release Rules & Rate-Limit Lockout (2026-11-26, ADR-224):
+  1. `RiderService.routes_today()` (`workers/api/src/app/services/rider_service.py`):
+     - Batch-loads `subscriptions` and `ledger` (`held`, `dues`) in 2 queries (zero N+1).
+     - Returns unmasked `customer_phone`, `jars_held`, and `max_empties = min(quantity, jars_held)`.
+     - 3-case payment resolution: active subscription (`amount_due = 0`), cancelled subscription dues (once per customer via `seen_dues_customers`), regular COD (`order_amt`).
+  2. `RiderService.complete_stop()`:
+     - Links `rider_id` before `pod_complete()`, clamps `empties_count` to `max_empties`, clears `ledger.dues` when dues cash is collected, and credits `vendor_profile.in_hand`.
+  3. `VendorService.today_route()` + `apps/vendor_app`:
+     - Returns `cash_collected` and `rider_name`; `route_screen.dart` & `stop_detail_screen.dart` display `Rider collected ₹X`.
+  4. Rate-Limit Lockout (`user_app_donor`, `vendor_app`, `rider_app`):
+     - Gradual countdown (`60s -> 120s -> 240s ...`) disables all text inputs and submit CTA until timer finishes.
+
 - Vendor & Rider Flutter Apps Untangling — Phases 4 & 5 `apps/vendor_app` & `apps/rider_app` (2026-11-26, ADR-220):
   1. `apps/vendor_app`:
      - `route_screen.dart` → `placed_sheet.dart` (`_PlacedSheet`).

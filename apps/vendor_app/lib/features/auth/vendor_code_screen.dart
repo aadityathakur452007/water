@@ -1,6 +1,8 @@
 // Vendor access-code screen: +91 number + admin-issued code → codeLogin.
 // All CTAs ≥48dp.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -27,16 +29,37 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
   String? _codeError;
   bool _touchedPhone = false;
   bool _obscure = true;
+  Timer? _rateTimer;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onAuth);
     _phoneFocus.addListener(_onPhoneFocus);
+    if (widget.controller.rateLimitSecondsRemaining > 0) _startRateTimer();
   }
 
   void _onAuth() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (widget.controller.rateLimitSecondsRemaining > 0 &&
+        (_rateTimer == null || !_rateTimer!.isActive)) {
+      _startRateTimer();
+    }
+    setState(() {});
+  }
+
+  void _startRateTimer() {
+    _rateTimer?.cancel();
+    _rateTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (widget.controller.rateLimitSecondsRemaining <= 0) {
+        t.cancel();
+      }
+      setState(() {});
+    });
   }
 
   void _onPhoneFocus() {
@@ -61,6 +84,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
 
   @override
   void dispose() {
+    _rateTimer?.cancel();
     widget.controller.removeListener(_onAuth);
     _phoneFocus.removeListener(_onPhoneFocus);
     _phone.dispose();
@@ -73,6 +97,8 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     final busy = c.status == AuthStatus.verifying;
+    final wait = c.rateLimitSecondsRemaining;
+    final rateLocked = wait > 0;
     final valid =
         isValidIndianPhone(_phone.text) && isValidAccessCode(_code.text);
     return Scaffold(
@@ -121,6 +147,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
               TextField(
                 controller: _phone,
                 focusNode: _phoneFocus,
+                enabled: !busy && !rateLocked,
                 keyboardType: TextInputType.phone,
                 maxLength: 10,
                 inputFormatters: [
@@ -143,6 +170,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _code,
+                enabled: !busy && !rateLocked,
                 keyboardType: TextInputType.visiblePassword,
                 maxLength: 32,
                 obscureText: _obscure,
@@ -196,6 +224,19 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                         ],
                       ),
                       const SizedBox(height: 8),
+                      if (rateLocked) ...[
+                        Text(
+                          wait >= 60
+                              ? 'Try again in ${(wait ~/ 60).toString().padLeft(2, '0')}:${(wait % 60).toString().padLeft(2, '0')}'
+                              : 'Try again in $wait seconds',
+                          style: const TextStyle(
+                            color: ShodashaTheme.danger,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       InkWell(
                         onTap: () {
                           launchUrlString(
@@ -229,7 +270,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                     : vendorStringsHi['loginGo']!,
                 kind: AppButtonKind.primary,
                 busy: busy,
-                onPressed: (!valid || busy)
+                onPressed: (!valid || busy || rateLocked)
                     ? null
                     : () {
                         _validatePhone();
