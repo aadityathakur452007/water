@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
+import { num } from "@/lib/money";
 import type { TodayRoute, VendorStop } from "@/lib/vendor-types";
 import { vendorOrderStateLabel } from "@/lib/vendor-types";
-import { num } from "@/lib/money";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
 

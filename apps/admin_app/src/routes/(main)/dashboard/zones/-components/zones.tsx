@@ -1,4 +1,5 @@
 import * as React from "react";
+
 import { Building2, CheckCircle2, Hash, MapPin, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { Page, ZoneRow } from "@/lib/admin-types";
 import { adminPostServer } from "@/server/admin-api";
+
 import { AddZoneDialog } from "./add-zone-dialog";
 
 export function Zones() {
@@ -43,10 +45,7 @@ export function Zones() {
     }
     return set.size;
   }, [zones]);
-  const totalVendors = React.useMemo(
-    () => zones.reduce((acc, z) => acc + (z.vendor_count ?? 0), 0),
-    [zones],
-  );
+  const totalVendors = React.useMemo(() => zones.reduce((acc, z) => acc + (z.vendor_count ?? 0), 0), [zones]);
 
   async function toggleZoneActive(zone: ZoneRow) {
     setBusyId(zone.id);
@@ -167,7 +166,12 @@ export function Zones() {
                 </TableRow>
               ) : filtered.length > 0 ? (
                 filtered.map((z) => {
-                  const pinsList = z.pincodes ? z.pincodes.split(",").map((p) => p.trim()).filter(Boolean) : [];
+                  const pinsList = z.pincodes
+                    ? z.pincodes
+                        .split(",")
+                        .map((p) => p.trim())
+                        .filter(Boolean)
+                    : [];
                   return (
                     <TableRow key={z.id} className="border-border/60 hover:bg-white/2.5">
                       <TableCell className="px-4 py-3 font-medium">
@@ -225,7 +229,9 @@ export function Zones() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                    {search ? "No operating zones match your search." : "No operating zones created yet. Click 'Add Zone' above to get started."}
+                    {search
+                      ? "No operating zones match your search."
+                      : "No operating zones created yet. Click 'Add Zone' above to get started."}
                   </TableCell>
                 </TableRow>
               )}

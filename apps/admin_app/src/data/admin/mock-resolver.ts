@@ -30,11 +30,7 @@ import {
   vendorTodayFixture,
 } from "./fixtures";
 
-export function resolveFixture(
-  path: string,
-  method: "GET" | "POST" | "PATCH",
-  _body?: unknown,
-): unknown {
+export function resolveFixture(path: string, method: "GET" | "POST" | "PATCH", _body?: unknown): unknown {
   if (method === "POST" || method === "PATCH") {
     // Writes succeed in mock mode (optionally echoing affected ids).
     // Phase 5 S5.5: placed accept echoes the live accept shape.

@@ -5,8 +5,6 @@ import hmac
 import json
 import logging
 
-log = logging.getLogger(__name__)
-
 from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.db import WRITE_LOCK
 from app.db_schema import stop_columns
@@ -30,6 +28,8 @@ from app.services.vendor._common import (
     _today,
     _triple_core,
 )
+
+log = logging.getLogger(__name__)
 
 class VendorRoutesMixin:
     async def today_route(self, vendor_id: str, date: str | None = None) -> dict:

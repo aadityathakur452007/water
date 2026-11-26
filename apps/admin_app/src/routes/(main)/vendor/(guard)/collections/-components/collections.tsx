@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
-import type { Earnings, VendorCustomer } from "@/lib/vendor-types";
 import { phoneMasked, rupees } from "@/lib/money";
+import type { Earnings, VendorCustomer } from "@/lib/vendor-types";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
 
@@ -67,11 +67,7 @@ export function Collections() {
                     size="sm"
                     variant="outline"
                     render={
-                      <a
-                        href={waLink(r.customer_name, r.customer_phone, r.dues)}
-                        target="_blank"
-                        rel="noreferrer"
-                      />
+                      <a href={waLink(r.customer_name, r.customer_phone, r.dues)} target="_blank" rel="noreferrer" />
                     }
                   >
                     <MessageCircle aria-hidden /> WhatsApp

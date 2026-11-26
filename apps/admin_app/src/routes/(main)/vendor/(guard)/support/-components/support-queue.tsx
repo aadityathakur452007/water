@@ -15,8 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast, useInvalidateVendor, useVendorQuery, vendorErrorMessage } from "@/hooks/use-vendor-api";
-import type { VendorComplaint } from "@/lib/vendor-types";
 import { dateTime } from "@/lib/money";
+import type { VendorComplaint } from "@/lib/vendor-types";
 import { vendorPostServer } from "@/server/vendor-api";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
@@ -41,7 +41,7 @@ export function SupportQueue() {
     setBusy(true);
     try {
       await vendorPostServer({
-        data: { path: `/complaints/${target.id}/verify`, body: { agree, note: note.trim() } },
+        data: { path: `/v1/complaints/${target.id}/verify`, body: { agree, note: note.trim() } },
       });
       toast.add({
         title: agree ? "Sahi maana — resolved" : "Disagree — admin dekhega",

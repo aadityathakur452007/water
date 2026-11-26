@@ -3,9 +3,9 @@ import { createFileRoute, useParams } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
+import { num } from "@/lib/money";
 import type { VendorStop } from "@/lib/vendor-types";
 import { vendorOrderStateLabel, vendorPaymentLabel, vendorStopStatusLabel } from "@/lib/vendor-types";
-import { num } from "@/lib/money";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
 import { StopActions } from "./-components/stop-actions";

@@ -33,6 +33,7 @@ import type { UserRow as ApiUserRow } from "@/lib/admin-types";
 import { dataTableFeatures } from "@/lib/data-table-features";
 import { adminPostServer } from "@/server/admin-api";
 
+import { AssignVendorDialog } from "./assign-vendor-dialog";
 import { filters, type UserRow, type UserStatus } from "./data";
 import { usersColumns } from "./users-columns";
 import { UsersTable } from "./users-table";
@@ -322,41 +323,16 @@ export function Users() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={assignTarget !== null} onOpenChange={(open) => (!open ? setAssignTarget(null) : undefined)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Assign Vendor Partner</DialogTitle>
-            <DialogDescription>
-              Assign <strong>{assignTarget?.name}</strong> to a delivery partner. Subsequent orders will auto-route to
-              this vendor.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 py-2">
-            <Label htmlFor="vendor-select">Delivery Partner (Vendor)</Label>
-            <Select value={selectedVendor} onValueChange={(val) => setSelectedVendor(val ?? "none")}>
-              <SelectTrigger id="vendor-select">
-                <SelectValue placeholder="Choose a vendor..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None (Unassigned / Open Pool)</SelectItem>
-                {(vendorsData?.data ?? []).map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.name ?? v.phone ?? v.id} ({v.phone ?? "no phone"})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignTarget(null)} disabled={assignBusy}>
-              Cancel
-            </Button>
-            <Button onClick={() => void submitAssignVendor()} disabled={assignBusy}>
-              {assignBusy ? "Saving…" : "Save Assignment"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AssignVendorDialog
+        open={assignTarget !== null}
+        userLabel={assignTarget?.name ?? ""}
+        selectedVendor={selectedVendor}
+        vendors={vendorsData?.data ?? []}
+        busy={assignBusy}
+        onOpenChange={(open) => (!open ? setAssignTarget(null) : undefined)}
+        onSelectVendor={setSelectedVendor}
+        onSubmit={() => void submitAssignVendor()}
+      />
     </Card>
   );
 }

@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+
 import { EllipsisVertical, LogOut, MessageCircle } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,11 +17,7 @@ import { getInitials } from "@/lib/utils";
 import type { CurrentAdminUser } from "@/server/admin-api";
 import { logoutServer } from "@/server/admin-session";
 
-export function NavUser({
-  user,
-}: {
-  readonly user: CurrentAdminUser;
-}) {
+export function NavUser({ user }: { readonly user: CurrentAdminUser }) {
   const { isMobile } = useSidebar();
   const navigate = useNavigate();
 

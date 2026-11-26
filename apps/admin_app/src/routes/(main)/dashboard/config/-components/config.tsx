@@ -45,14 +45,14 @@ export function Config() {
       <CardContent className="px-0 pb-4">
         <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
           <TableHeader className="[&_tr]:border-t">
-              <TableRow>
-                <TableHead className="py-3">Key</TableHead>
-                <TableHead className="py-3">Value</TableHead>
-                <TableHead className="py-3">Unit</TableHead>
-                <TableHead className="py-3">Effective</TableHead>
-                <TableHead className="py-3">Updated</TableHead>
-                <TableHead className="py-3 text-right">Save</TableHead>
-              </TableRow>
+            <TableRow>
+              <TableHead className="py-3">Key</TableHead>
+              <TableHead className="py-3">Value</TableHead>
+              <TableHead className="py-3">Unit</TableHead>
+              <TableHead className="py-3">Effective</TableHead>
+              <TableHead className="py-3">Updated</TableHead>
+              <TableHead className="py-3 text-right">Save</TableHead>
+            </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((r) => (

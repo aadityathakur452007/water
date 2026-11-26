@@ -15,11 +15,12 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
-import type { CustodyRow, UserRow as ApiUserRow, Page, VendorDetail } from "@/lib/admin-types";
+import type { UserRow as ApiUserRow, CustodyRow, Page, VendorDetail } from "@/lib/admin-types";
 import { dataTableFeatures } from "@/lib/data-table-features";
 import { num, phoneMasked } from "@/lib/money";
 import { getInitials } from "@/lib/utils";
 import { adminPostServer } from "@/server/admin-api";
+
 import { AddVendorDialog } from "./add-vendor-dialog";
 
 type VendorView = {

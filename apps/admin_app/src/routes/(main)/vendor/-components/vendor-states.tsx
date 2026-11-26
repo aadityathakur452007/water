@@ -3,9 +3,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VendorApiError } from "@/server/vendor-api";
-
 import { vendorErrorMessage } from "@/hooks/use-vendor-api";
+import { VendorApiError } from "@/server/vendor-api";
 
 /** Loading skeleton — every vendor screen renders this while its query is in flight. */
 export function VendorLoading({ lines = 4 }: { lines?: number }) {

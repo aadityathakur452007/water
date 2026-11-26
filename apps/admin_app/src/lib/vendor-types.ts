@@ -163,11 +163,7 @@ export function vendorIsLinkSent(status: string | null): boolean {
   return status === "link_sent";
 }
 
-export function vendorRemaining(stop: {
-  payment_status: string | null;
-  total: number;
-  paid_sum?: number;
-}): number {
+export function vendorRemaining(stop: { payment_status: string | null; total: number; paid_sum?: number }): number {
   if (vendorIsPaid(stop.payment_status) || vendorIsLinkSent(stop.payment_status)) return 0;
   const due = stop.total > 0 ? stop.total : 0;
   if (!vendorIsPartial(stop.payment_status)) return due;

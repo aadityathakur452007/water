@@ -34,7 +34,7 @@ export function QualityCheck() {
     try {
       await vendorPostServer({
         data: {
-          path: `/quality/${incidentId.trim()}/vendor-check`,
+          path: `/v1/quality/${incidentId.trim()}/vendor-check`,
           body: { agree, check: check.trim(), note: note.trim() },
         },
       });

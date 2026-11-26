@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast, useInvalidateVendor, useVendorQuery, vendorErrorMessage } from "@/hooks/use-vendor-api";
-import type { PlacedOrder } from "@/lib/vendor-types";
 import { num, rupees } from "@/lib/money";
+import type { PlacedOrder } from "@/lib/vendor-types";
 import { vendorPostServer } from "@/server/vendor-api";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
@@ -47,7 +47,12 @@ export function PlacedPool() {
   if (!data) return <VendorLoading lines={2} />;
   const rows = data.data ?? [];
   if (!rows.length) {
-    return <VendorEmpty title="Koi naya placed order nahi" hint="Naye orders yahan dikhenge — accept karte hi stop route me jud jayega." />;
+    return (
+      <VendorEmpty
+        title="Koi naya placed order nahi"
+        hint="Naye orders yahan dikhenge — accept karte hi stop route me jud jayega."
+      />
+    );
   }
 
   return (

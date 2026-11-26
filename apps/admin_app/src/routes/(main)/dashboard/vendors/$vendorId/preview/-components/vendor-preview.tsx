@@ -19,9 +19,7 @@ export function VendorPreview() {
   const { vendorId } = useParams({ strict: false }) as { vendorId: string };
   const { data, isError, error, refetch } = useAdminQuery<VendorPreview>(`/v1/admin/vendors/${vendorId}/preview`);
   // Secondary query: errors surface inline (never silent undefined).
-  const { data: audit, isError: auditError } = useAdminQuery<Page<AuditRow>>(
-    `/v1/admin/audit?actor_id=${vendorId}`,
-  );
+  const { data: audit, isError: auditError } = useAdminQuery<Page<AuditRow>>(`/v1/admin/audit?actor_id=${vendorId}`);
 
   if (isError) {
     return (

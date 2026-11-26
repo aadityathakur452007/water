@@ -8,7 +8,18 @@ import { Badge } from "@/components/ui/badge";
 const GROUPS: Array<{ title: string; items: string[] }> = [
   {
     title: "Orders",
-    items: ["placed", "accepted", "picked", "packed", "assigned", "dispatched", "delivered", "failed", "cancelled", "rejected"],
+    items: [
+      "placed",
+      "accepted",
+      "picked",
+      "packed",
+      "assigned",
+      "dispatched",
+      "delivered",
+      "failed",
+      "cancelled",
+      "rejected",
+    ],
   },
   {
     title: "Payments",

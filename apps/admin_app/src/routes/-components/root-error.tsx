@@ -10,9 +10,7 @@ export function RootError({ error, reset }: ErrorComponentProps) {
         <p className="text-muted-foreground">
           An unexpected error occurred while loading this page. Try again or return to the dashboard.
         </p>
-        {error instanceof Error ? (
-          <p className="break-words text-destructive text-sm">{error.message}</p>
-        ) : null}
+        {error instanceof Error ? <p className="break-words text-destructive text-sm">{error.message}</p> : null}
       </div>
       <div className="flex flex-wrap justify-center gap-2">
         <Button onClick={reset}>Try again</Button>

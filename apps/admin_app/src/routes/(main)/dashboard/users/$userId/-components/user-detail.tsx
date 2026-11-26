@@ -27,6 +27,7 @@ import type { UserDetail as ApiUserDetail, UserRow as ApiUserRow } from "@/lib/a
 import { dateTime, phoneMasked, rupees } from "@/lib/money";
 import { adminPostServer } from "@/server/admin-api";
 
+import { AssignVendorDialog } from "../../-components/assign-vendor-dialog";
 import { statusMeta, type UserStatus } from "../../-components/data";
 
 function confirmLabel(busy: boolean, blocked: boolean): string {
@@ -319,40 +320,16 @@ export function UserDetail() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={vendorOpen} onOpenChange={(open) => (!open ? setVendorOpen(false) : undefined)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Assign Delivery Vendor</DialogTitle>
-            <DialogDescription>
-              Assign <strong>{u.name ?? u.phone ?? u.id}</strong> to a preferred delivery vendor partner.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 py-2">
-            <Label htmlFor="ud-vendor-select">Select Vendor Partner</Label>
-            <Select value={selectedVendor} onValueChange={(val) => setSelectedVendor(val ?? "none")}>
-              <SelectTrigger id="ud-vendor-select">
-                <SelectValue placeholder="Choose vendor partner..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None (Unassigned / General Pool)</SelectItem>
-                {(vendorsData?.data ?? []).map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.name ?? v.phone ?? v.id} ({v.phone ?? "no phone"})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setVendorOpen(false)} disabled={assignBusy}>
-              Cancel
-            </Button>
-            <Button onClick={() => void submitAssignVendor()} disabled={assignBusy}>
-              {assignBusy ? "Saving…" : "Save Assignment"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AssignVendorDialog
+        open={vendorOpen}
+        userLabel={u.name ?? u.phone ?? u.id}
+        selectedVendor={selectedVendor}
+        vendors={vendorsData?.data ?? []}
+        busy={assignBusy}
+        onOpenChange={(open) => (!open ? setVendorOpen(false) : undefined)}
+        onSelectVendor={setSelectedVendor}
+        onSubmit={() => void submitAssignVendor()}
+      />
     </div>
   );
 }

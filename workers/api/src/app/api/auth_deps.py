@@ -18,6 +18,7 @@ import time
 from fastapi import Depends, HTTPException, Request
 
 from app.api.deps import get_db_conn
+from app.core.time_utils import is_expired as _expired
 from app.repositories.session_repo import SessionRepo
 
 # 045: per-isolate session memo. One `sessions JOIN users` read currently runs
@@ -115,7 +116,7 @@ def _reject_cross_site_cookie_write(request: Request) -> None:
     raise HTTPException(status_code=403, detail="Cross-origin request rejected.")
 
 
-from app.core.time_utils import is_expired as _expired
+# _expired imported from app.core.time_utils above
 
 
 async def get_current_user(request: Request, conn=Depends(get_db_conn)) -> dict:

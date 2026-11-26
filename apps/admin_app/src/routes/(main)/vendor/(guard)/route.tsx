@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, redirect, useRouter, useRouterState } from "@tanstack/react-router";
-import { LogOut, MessageCircle } from "lucide-react";
 
 import { cn } from "cn";
+import { LogOut, MessageCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { hasVendorSessionServer, logoutVendorServer, refreshVendorSessionServer } from "@/server/vendor-session";

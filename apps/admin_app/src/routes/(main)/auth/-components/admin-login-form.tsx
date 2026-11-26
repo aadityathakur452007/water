@@ -80,11 +80,7 @@ export function AdminLoginForm() {
   }
 
   return (
-    <form
-      noValidate
-      onSubmit={(e) => void onSubmit(e)}
-      className="flex flex-col gap-4"
-    >
+    <form noValidate onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-4">
       <FieldGroup className="gap-4">
         <Field className="gap-1.5">
           <FieldLabel htmlFor="admin-phone">Phone number</FieldLabel>

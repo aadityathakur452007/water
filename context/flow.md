@@ -12,6 +12,13 @@
 
 ## Overview
 
+- Admin Dashboard & Vendor Portal Untangling — Phase 2 `apps/admin_app` (2026-11-26, ADR-218):
+  1. Shared BFF Worker Proxy (`apps/admin_app/src/server/worker-client.ts` & `session-core.ts`):
+     - `admin-api.ts` (`WATER_API` / `API_URL`) and `vendor-api.ts` (`OPS_API` / `OPS_API_URL`) route all authenticated requests through `fetchEnvelopeWithRefresh` (cookie bearer → 401 → deduplicated silent refresh → single retry → `AdminApiError`/`VendorApiError`).
+     - `admin-session.ts` (`sh_admin_*`, `admin-web`) and `vendor-session.ts` (`sh_vendor_*`, `vendor-web`) share `loginWithAccessCode` and `createDeduplicatedRefresher`.
+  2. Fixed Worker Coupling:
+     - `support-queue.tsx` → `/v1/complaints/{id}/verify` and `quality-check.tsx` → `/v1/quality/{id}/vendor-check` now include the `/v1` prefix expected by `water-ops` (`vendor.py`).
+
 - Backend Untangling — Phase 1 `workers/api` Structural Refactor (2026-11-26, ADR-217):
   1. Strict Downward Dependency Flow (`api → services → repositories → core/db`):
      - `app/core/{time_utils,db_utils,http_utils,config}.py` own shared time, audit, table-introspection, actor, and idempotency primitives.

@@ -76,14 +76,12 @@ export function Dispatch() {
   // (reco orders_by_state {state, c, t}) — page-1 rows under-reported
   // past the first page with no scope note.
   const byState = new Map(
-    (reco?.orders_by_state ?? []).map((r) => [
-      String(r.state),
-      { c: Number(r.c ?? 0), t: Number(r.t ?? 0) },
-    ]),
+    (reco?.orders_by_state ?? []).map((r) => [String(r.state), { c: Number(r.c ?? 0), t: Number(r.t ?? 0) }]),
   );
-  const counts = Object.fromEntries(
-    FUNNEL.map(({ state }) => [state, byState.get(state)?.c ?? 0]),
-  ) as Record<string, number>;
+  const counts = Object.fromEntries(FUNNEL.map(({ state }) => [state, byState.get(state)?.c ?? 0])) as Record<
+    string,
+    number
+  >;
   const unassignedCount = byState.get("placed")?.c ?? 0;
   const poolGmv = byState.get("placed")?.t ?? 0;
   const unassigned = placedPage?.data ?? [];
@@ -287,7 +285,9 @@ export function Dispatch() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm cash handover</DialogTitle>
-            <DialogDescription>Cash received from the vendor decrements agency money in hand. Audited.</DialogDescription>
+            <DialogDescription>
+              Cash received from the vendor decrements agency money in hand. Audited.
+            </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="dispatch-handover">Amount (Rs)</Label>

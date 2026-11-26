@@ -5,13 +5,7 @@ import { useEffect, useRef, useState } from "react";
  * immediately (SSR-safe, no hydration flash). Collapses to instant under
  * `prefers-reduced-motion`. Numbers only: pass raw paise/counts + the same
  * `rupees`/`num` formatter the static render used. */
-export function CountUp({
-  value,
-  format,
-}: {
-  value: number;
-  format: (n: number) => string;
-}) {
+export function CountUp({ value, format }: { value: number; format: (n: number) => string }) {
   const [display, setDisplay] = useState(value);
   const prev = useRef(value);
 
@@ -19,10 +13,7 @@ export function CountUp({
     const from = prev.current;
     prev.current = value;
     if (from === value) return;
-    if (
-      typeof window === "undefined" ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-    ) {
+    if (typeof window === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
       setDisplay(value);
       return;
     }

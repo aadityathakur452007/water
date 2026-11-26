@@ -1,7 +1,7 @@
 import * as React from "react";
-import { Check, Copy, ExternalLink, KeyRound, Loader2, Plus, ShieldCheck, UserPlus } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { Loader2, Plus, UserPlus } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,7 +19,9 @@ import { toast } from "@/components/ui/toast";
 import { errorMessage, useAdminQuery, useInvalidateAdmin } from "@/hooks/use-admin-api";
 import type { Page, ZoneRow } from "@/lib/admin-types";
 import { adminPostServer } from "@/server/admin-api";
+
 import { AddZoneDialog } from "../../zones/-components/add-zone-dialog";
+import { AddVendorSuccess } from "./add-vendor-success";
 
 type CreatedResult = {
   vendorId: string;
@@ -327,57 +329,15 @@ export function AddVendorDialog() {
             </DialogFooter>
           </form>
         ) : (
-          <div className="flex flex-col gap-4 py-2">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                <ShieldCheck className="size-5" />
-                Vendor Successfully Registered
-              </DialogTitle>
-              <DialogDescription>
-                {createdResult.name} (+91 {createdResult.phone}) is verified and ready to sign in.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="rounded-xl border bg-muted/30 p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">
-                  One-Time Access Code
-                </div>
-                <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
-                  Valid 90 Days
-                </Badge>
-              </div>
-
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border bg-background p-3 font-mono text-xl tracking-widest font-bold">
-                <span className="flex items-center gap-2 select-all">
-                  <KeyRound className="size-5 text-muted-foreground" />
-                  {createdResult.code}
-                </span>
-                <Button size="sm" variant="ghost" onClick={handleCopy} className="size-8 p-0">
-                  {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
-                </Button>
-              </div>
-              <p className="mt-2 text-muted-foreground text-xs">
-                This plaintext code is only displayed once. Please share it with the partner immediately.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <a
-                href={getWhatsAppUrl()}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 font-medium text-sm text-white transition hover:bg-emerald-700"
-              >
-                <ExternalLink className="size-4" />
-                Send Credentials via WhatsApp
-              </a>
-
-              <Button variant="outline" onClick={() => setOpen(false)} className="w-full">
-                Done
-              </Button>
-            </div>
-          </div>
+          <AddVendorSuccess
+            name={createdResult.name}
+            phone={createdResult.phone}
+            code={createdResult.code}
+            copied={copied}
+            whatsAppUrl={getWhatsAppUrl()}
+            onCopy={handleCopy}
+            onDone={() => setOpen(false)}
+          />
         )}
       </DialogContent>
     </Dialog>

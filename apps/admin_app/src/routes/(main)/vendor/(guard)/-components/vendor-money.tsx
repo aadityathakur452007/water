@@ -1,18 +1,13 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
-import type { Earnings, VendorCustomer } from "@/lib/vendor-types";
 import { rupees } from "@/lib/money";
+import type { Earnings, VendorCustomer } from "@/lib/vendor-types";
 
 import { VendorError, VendorLoading } from "../../-components/vendor-states";
 
 /** Money row — jama (collected), baaki (dues), hold (GPS-flagged, admin clears). */
 export function VendorMoney() {
-  const {
-    data: earnings,
-    isError,
-    error,
-    refetch,
-  } = useVendorQuery<Earnings>("/v1/vendor/earnings");
+  const { data: earnings, isError, error, refetch } = useVendorQuery<Earnings>("/v1/vendor/earnings");
   const { data: customers } = useVendorQuery<{ customers: VendorCustomer[] }>("/v1/vendor/customers");
 
   if (isError) return <VendorError error={error} onRetry={() => void refetch()} />;

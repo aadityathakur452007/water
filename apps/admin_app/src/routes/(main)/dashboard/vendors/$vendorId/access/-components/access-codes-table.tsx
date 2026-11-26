@@ -107,8 +107,8 @@ export function AccessCodesTable() {
                         aria-describedby={`revoke-help-${c.id}`}
                       >
                         <span id={`revoke-help-${c.id}`} className="sr-only">
-                          Revoking stops this code working for new logins immediately. Live
-                          sessions run to expiry — this cannot be undone.
+                          Revoking stops this code working for new logins immediately. Live sessions run to expiry —
+                          this cannot be undone.
                         </span>
                         <Button variant="ghost" size="sm" className="h-7" onClick={() => setConfirmId(null)}>
                           Keep

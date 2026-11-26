@@ -1,7 +1,8 @@
 import * as React from "react";
 
-import { useAdminQuery } from "./use-admin-api";
 import type { Page } from "@/lib/admin-types";
+
+import { useAdminQuery } from "./use-admin-api";
 
 /**
  * Cursor-follow paging over a server-paginated admin list: page 1 loads,

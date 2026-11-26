@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
-import type { TodayRoute } from "@/lib/vendor-types";
 import { num } from "@/lib/money";
+import type { TodayRoute } from "@/lib/vendor-types";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../-components/vendor-states";
 

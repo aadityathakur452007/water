@@ -15,8 +15,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast, useInvalidateVendor, vendorErrorMessage } from "@/hooks/use-vendor-api";
-import type { VendorStop } from "@/lib/vendor-types";
 import { num, rupees } from "@/lib/money";
+import type { VendorStop } from "@/lib/vendor-types";
 import { vendorPostServer } from "@/server/vendor-api";
 
 function Stepper({

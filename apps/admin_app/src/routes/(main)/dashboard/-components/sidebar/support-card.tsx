@@ -4,7 +4,10 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 
 export function SupportCard() {
   return (
-    <Card size="sm" className="overflow-hidden shadow-none group-data-[collapsible=icon]:hidden border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20">
+    <Card
+      size="sm"
+      className="overflow-hidden shadow-none group-data-[collapsible=icon]:hidden border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20"
+    >
       <CardHeader className="min-w-0 px-4 py-3">
         <CardTitle className="truncate text-xs font-semibold flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300">
           <MessageCircle className="size-3.5 text-emerald-600 dark:text-emerald-400" />

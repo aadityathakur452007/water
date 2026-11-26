@@ -4,6 +4,19 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**ADMIN DASHBOARD & VENDOR PORTAL UNTANGLING — PHASE 2 `apps/admin_app` (2026-11-26, ADR-218):** on `main`
+- **1. Unified BFF Worker Client & Session Core (`apps/admin_app/src/server/`):**
+  - Created `worker-client.ts` (`bindingFetch`, `parseEnvelope`, `callPublicEndpoint`, `executeAuthedFetch`, `fetchEnvelopeWithRefresh`, `WorkerApiError`) and `session-core.ts` (`loginWithAccessCode`, `createDeduplicatedRefresher`, `setSessionCookies`, `normalizeOrigin`).
+  - Refactored `admin-api.ts`, `vendor-api.ts`, `admin-session.ts`, and `vendor-session.ts` to share these primitives while preserving 100% of public server-function exports, cookie names (`sh_admin_*`, `sh_vendor_*`), and `WATER_API` / `OPS_API` service bindings.
+- **2. Fixed Vendor Support Path Coupling Bug:**
+  - Updated `vendor-api.ts:vendorWriteAllowed` and callers (`quality-check.tsx`, `support-queue.tsx`) to use `/v1/quality/{id}/vendor-check` and `/v1/complaints/{id}/verify`, matching `workers/api/src/app/api/v1/vendor.py`.
+- **3. Component Decomposition:**
+  - Extracted `add-vendor-success.tsx` from `add-vendor-dialog.tsx`, `vendor-detail-panels.tsx` from `vendor-detail.tsx`, and shared `assign-vendor-dialog.tsx` across both `users.tsx` and `user-detail.tsx`.
+- **4. Next:**
+  - Commit Phase 2 (`apps/admin_app`) and proceed to Phase 3 (`apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app` one by one).
+
+## Previous Phases
+
 **BACKEND UNTANGLING — PHASE 1 `workers/api` STRUCTURAL REFACTOR (2026-11-26, ADR-217):** on `main`
 - **1. Shared Core Primitives (`workers/api/src/app/core/`):**
   - Created `time_utils.py` (`utc_now`, `utc_now_iso`, `utc_today_iso`, `ist_today_iso`, `parse_utc_dt`, `is_expired`, `sla_due`), `db_utils.py` (`actor_id`, `get_actor_role`, `table_cols`, `table_exists`, `build_audit_stmt`, `write_audit`), and `http_utils.py` (`user_id`, `require_idempotency_key`), replacing duplicated helpers across routes, services, and repositories.

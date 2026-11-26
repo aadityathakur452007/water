@@ -1,8 +1,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useVendorQuery } from "@/hooks/use-vendor-api";
-import type { VendorCustomer } from "@/lib/vendor-types";
 import { num, phoneMasked, rupees } from "@/lib/money";
+import type { VendorCustomer } from "@/lib/vendor-types";
 
 import { VendorEmpty, VendorError, VendorLoading } from "../../../-components/vendor-states";
 

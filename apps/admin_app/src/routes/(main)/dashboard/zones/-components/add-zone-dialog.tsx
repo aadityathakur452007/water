@@ -1,4 +1,5 @@
 import * as React from "react";
+
 import { Loader2, MapPin, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -96,9 +97,7 @@ export function AddZoneDialog({ trigger, onCreated }: AddZoneDialogProps) {
               <MapPin className="size-5 text-primary" />
               Add Operating Zone
             </DialogTitle>
-            <DialogDescription>
-              Define a delivery cluster and assign serviced 6-digit postal codes.
-            </DialogDescription>
+            <DialogDescription>Define a delivery cluster and assign serviced 6-digit postal codes.</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3 py-2">

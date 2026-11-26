@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useNavigate } from "@tanstack/react-router";
+
 import { LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -18,12 +19,7 @@ import { VendorError, VendorLoading } from "../../../-components/vendor-states";
 export function Profile() {
   const navigate = useNavigate();
   const invalidate = useInvalidateVendor();
-  const {
-    data: profile,
-    isError,
-    error,
-    refetch,
-  } = useVendorQuery<VendorProfile>("/v1/vendor/profile");
+  const { data: profile, isError, error, refetch } = useVendorQuery<VendorProfile>("/v1/vendor/profile");
   const { data: slots } = useVendorQuery<VendorSlots>("/v1/vendor/slots");
 
   const [name, setName] = React.useState("");
@@ -121,7 +117,10 @@ export function Profile() {
               maxLength={500}
               inputMode="tel"
               value={phone}
-              onChange={(e) => { setPhone(e.target.value); setDirty(true); }}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setDirty(true);
+              }}
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -130,7 +129,10 @@ export function Profile() {
               id="pf-address"
               maxLength={500}
               value={address}
-              onChange={(e) => { setAddress(e.target.value); setDirty(true); }}
+              onChange={(e) => {
+                setAddress(e.target.value);
+                setDirty(true);
+              }}
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -139,7 +141,10 @@ export function Profile() {
               id="pf-hours"
               maxLength={500}
               value={hours}
-              onChange={(e) => { setHours(e.target.value); setDirty(true); }}
+              onChange={(e) => {
+                setHours(e.target.value);
+                setDirty(true);
+              }}
               placeholder="e.g. 8am–8pm, Sun closed"
             />
           </div>

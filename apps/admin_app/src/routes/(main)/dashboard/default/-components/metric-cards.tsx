@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { num, rupees } from "@/lib/money";
 
-import { useOverview } from "./overview-data";
 import { CountUp } from "./count-up";
+import { useOverview } from "./overview-data";
 
 export function MetricCards() {
   const { data, isError } = useOverview();

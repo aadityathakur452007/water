@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useParams } from "@tanstack/react-router";
+
 import { Check, Copy, KeyRound, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -109,7 +110,12 @@ export function IssueCodeDialog() {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="ac-code">One-Time Plaintext Access Code</Label>
                 <div className="flex items-center gap-2">
-                  <Input id="ac-code" readOnly value={issued.code} className="font-mono text-base font-bold tabular-nums select-all" />
+                  <Input
+                    id="ac-code"
+                    readOnly
+                    value={issued.code}
+                    className="font-mono text-base font-bold tabular-nums select-all"
+                  />
                   <Button variant="outline" size="sm" onClick={() => void copy()} className="gap-1.5 shrink-0">
                     {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
                     {copied ? "Copied" : "Copy"}
@@ -117,7 +123,8 @@ export function IssueCodeDialog() {
                 </div>
               </div>
               <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-amber-700 dark:text-amber-400 text-xs">
-                Share this code with the partner directly. Once you close this window, the plaintext cannot be recovered.
+                Share this code with the partner directly. Once you close this window, the plaintext cannot be
+                recovered.
               </p>
             </div>
           ) : (
@@ -161,7 +168,11 @@ export function IssueCodeDialog() {
               {issued ? "Done" : "Cancel"}
             </Button>
             {issued ? null : (
-              <Button disabled={busy || (durationPreset === "custom" && !customDate)} onClick={() => void issue()} className="gap-2">
+              <Button
+                disabled={busy || (durationPreset === "custom" && !customDate)}
+                onClick={() => void issue()}
+                className="gap-2"
+              >
                 {busy ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
