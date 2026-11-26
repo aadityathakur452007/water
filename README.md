@@ -110,6 +110,40 @@ actually needs; let the feature-first pattern grow the tree.
 - Follow feature-first folder structure (Agent.md)
 - Never use `npx install --force` or `npm install --force`
 
+## AI Mobile Testing (OpenCode + Free Models)
+
+Automated exploratory QA for all three Shodasha Flutter Android apps (`user_app_donor`, `vendor_app`, `rider_app`) runs on GitHub Actions using **OpenCode CLI** (`opencode run`) and **free `opencode/` models only** (no Anthropic/OpenAI keys or paid fallbacks).
+
+- **Workflow:** `.github/workflows/ai-mobile-test.yml` (`workflow_dispatch`)
+- **Scripts:** `tools/mobile-tester/` (`verify_free_model.py`, `run_android_agent.sh`, `screen.py`, `type.py`, `opencode.json`, `BRIEF.md`)
+
+### 1. GitHub Actions Setup
+1. Ensure GitHub Actions is enabled on the repository.
+2. *(Optional)* Add QA test credentials in **Settings → Secrets and variables → Actions** so the agent can test authenticated flows against live Cloudflare Workers (`water`, `water-ops`):
+   - `QA_CUSTOMER_PHONE`, `QA_CUSTOMER_PASSWORD`
+   - `QA_VENDOR_CODE`
+   - `QA_RIDER_PHONE`, `QA_RIDER_CODE`
+   - Never add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` — `verify_free_model.py` will fail if paid keys are present.
+
+### 2. Triggering Tests
+1. Go to **Actions → AI Mobile Testing (OpenCode) → Run workflow** (or use `gh workflow run ai-mobile-test.yml`).
+2. Choose `app`: `all` (default — runs Customer, Vendor, and Rider apps on separate emulators), `donor`, `vendor`, or `rider`.
+
+### 3. Configuring Free Primary & Fallback Models
+- Leave `primary_model` and `fallback_model` blank to auto-discover and probe live `opencode/` free models via `opencode models`.
+- To pin specific free models, pass `opencode/<model-id>` in `primary_model` / `fallback_model` when triggering `workflow_dispatch`. Non-`opencode/` models are rejected.
+
+### 4. Retrieving Reports
+Download the per-app artifact (`ai-qa-donor-<run_id>`, `ai-qa-vendor-<run_id>`, `ai-qa-rider-<run_id>`) from the workflow run summary. Each contains:
+- `report.md` and `findings.json`
+- Numbered half-res emulator screenshots (`01.png`, ...) and `ui.xml` dumps (`01.xml`, ...)
+- `opencode-output.jsonl`, `opencode-stderr.log`, and `logcat.txt`
+
+### 5. Known Limitations & Free-Tier Restrictions
+- OpenCode's free `opencode/` model roster rotates and may enforce rate limits on shared GitHub-hosted runner IPs; if no free model responds, the workflow fails cleanly without falling back to paid APIs.
+- Not all free models support multimodal image input; `screen.py` always prints the `uiautomator` element tree (`centre=(X,Y)`) alongside the PNG screenshot so text-only free models can still navigate.
+- Tests point to live Cloudflare Workers (`SHODASHA_API_BASE`); clean up any QA test orders/accounts afterward if using real credentials.
+
 ## License
 
 [License type]

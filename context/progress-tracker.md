@@ -4,6 +4,18 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**OPENCODE AI MOBILE TESTING CI/CD PIPELINE (2026-11-26, ADR-221):** on `main`
+- **1. OpenCode Headless QA Harness (`tools/mobile-tester/`):**
+  - Created `opencode.json` (disabling paid providers, permitting `bash`/`read`/`write`/`edit`), `verify_free_model.py` (dynamic `opencode models` discovery + `opencode run` health probe + strict zero-paid-key gate), `screen.py`, `type.py`, `BRIEF.md`, and `run_android_agent.sh` (with primary→fallback free model retry).
+- **2. GitHub Actions Workflow (`.github/workflows/ai-mobile-test.yml`):**
+  - Configured `workflow_dispatch` matrix testing all 3 Flutter Android apps (`donor`, `vendor`, `rider`) independently on `ubuntu-latest` with JDK 21, Flutter `3.44.9`, live Cloudflare Workers (`SHODASHA_API_BASE`), `reactivecircus/android-emulator-runner@v2` (API 34), and artifact uploads (`report.md`, `findings.json`, screenshots, `logcat.txt`).
+- **3. Verification & Docs:**
+  - Verified `tests/test_mobile_tester.py` (5/5 passed) and workflow YAML syntax locally.
+  - Updated `README.md` with setup, secrets, triggering, model override, artifact retrieval, and free-tier limitations.
+  - Note: Full GitHub Actions `ubuntu-latest` emulator + live `opencode models` execution requires pushing and triggering `workflow_dispatch` on GitHub.
+
+## Previous Phases
+
 **VENDOR & RIDER FLUTTER APPS UNTANGLING — PHASES 4 & 5 `apps/vendor_app` & `apps/rider_app` (2026-11-26, ADR-220):** on `main`
 - **1. `apps/vendor_app` Decomposition & API Coupling Verification:**
   - Verified all `/v1/vendor/*`, `/v1/complaints/*`, and `/v1/quality/*` endpoints in `lib/core/api_client.dart` against `workers/api` (`water-ops` surface).

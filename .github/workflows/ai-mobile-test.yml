@@ -1,0 +1,120 @@
+name: AI Mobile Testing (OpenCode)
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Which Shodasha Flutter app to test"
+        type: choice
+        options:
+          - all
+          - donor
+          - vendor
+          - rider
+        default: all
+      primary_model:
+        description: "Optional free opencode/<model> override (leave blank to auto-detect)"
+        default: ""
+      fallback_model:
+        description: "Optional fallback free opencode/<model> override"
+        default: ""
+      brief:
+        description: "Path to QA brief"
+        default: "tools/mobile-tester/BRIEF.md"
+
+permissions:
+  contents: read
+
+jobs:
+  test-android:
+    name: AI Test — ${{ matrix.label }}
+    if: inputs.app == 'all' || inputs.app == matrix.app
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: donor
+            dir: apps/user_app_donor
+            app_id: com.shodasha.shodasha_donor
+            label: Shodasha Customer App
+            dart_defines: "--dart-define=SHODASHA_API_BASE=https://water.adityathakur452007.workers.dev/v1 --dart-define=RAZORPAY_KEY_ID=rzp_test_Thq4I47cEMIjbF"
+          - app: vendor
+            dir: apps/vendor_app
+            app_id: com.shodasha.vendor_app
+            label: Shodasha Vendor App
+            dart_defines: "--dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev/v1"
+          - app: rider
+            dir: apps/rider_app
+            app_id: com.shodasha.rider_app
+            label: Shodasha Rider App
+            dart_defines: "--dart-define=SHODASHA_API_BASE=https://water-ops.adityathakur452007.workers.dev"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Latest LTS JDK supported by Gradle 9.1.0 & AGP 9.0.1 (bytecode targets Java 17)
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Flutter 3.44.9
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.44.9"
+          cache: true
+          cache-key: ai-${{ matrix.app }}-${{ hashFiles(format('{0}/pubspec.lock', matrix.dir)) }}
+
+      - name: Build debug APK (pointing to live Cloudflare Workers)
+        working-directory: ${{ matrix.dir }}
+        run: |
+          flutter pub get
+          flutter build apk --debug ${{ matrix.dart_defines }}
+
+      - name: Install OpenCode CLI & Python Pillow
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          python3 -m pip install --quiet pillow
+
+      - name: Verify free OpenCode model (no paid APIs allowed)
+        id: models
+        env:
+          PRIMARY_MODEL: ${{ inputs.primary_model }}
+          FALLBACK_MODEL: ${{ inputs.fallback_model }}
+        run: |
+          opencode --version
+          python3 tools/mobile-tester/verify_free_model.py
+
+      - name: Run Android Emulator + OpenCode QA Agent
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash tools/mobile-tester/run_android_agent.sh
+        env:
+          APP_NAME: ${{ matrix.app }}
+          APP_ID: ${{ matrix.app_id }}
+          APK_PATH: ${{ matrix.dir }}/build/app/outputs/flutter-apk/app-debug.apk
+          PRIMARY_MODEL: ${{ steps.models.outputs.primary_model }}
+          FALLBACK_MODEL: ${{ steps.models.outputs.fallback_model }}
+          BRIEF_PATH: ${{ inputs.brief }}
+          QA_PHONE: ${{ matrix.app == 'donor' && secrets.QA_CUSTOMER_PHONE || (matrix.app == 'rider' && secrets.QA_RIDER_PHONE || '') }}
+          QA_PASSWORD: ${{ matrix.app == 'donor' && secrets.QA_CUSTOMER_PASSWORD || '' }}
+          QA_ACCESS_CODE: ${{ matrix.app == 'vendor' && secrets.QA_VENDOR_CODE || (matrix.app == 'rider' && secrets.QA_RIDER_CODE || '') }}
+
+      - name: Upload AI QA screenshots, logs & reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-qa-${{ matrix.app }}-${{ github.run_id }}
+          path: results/${{ matrix.app }}/
+          retention-days: 14
