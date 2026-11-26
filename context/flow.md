@@ -12,6 +12,14 @@
 
 ## Overview
 
+- Customer Flutter App Untangling — Phase 3 `apps/user_app_donor` (2026-11-26, ADR-219):
+  1. Feature-Local Part Decomposition (100% class, route, and widget-key parity):
+     - `subscription_screen.dart` → `widgets/{subscription_cards,subscription_sheets}.dart`
+     - `tracking_screen.dart` → `widgets/tracking_cards.dart`
+     - `address_screen.dart` → `address_controller.dart` + `address_form_sheet.dart`
+     - `orders_controller.dart` → `order_models.dart` + `orders_repositories.dart`
+     - `booking_sheet.dart` → `booking_sheet_widgets.dart`
+
 - Admin Dashboard & Vendor Portal Untangling — Phase 2 `apps/admin_app` (2026-11-26, ADR-218):
   1. Shared BFF Worker Proxy (`apps/admin_app/src/server/worker-client.ts` & `session-core.ts`):
      - `admin-api.ts` (`WATER_API` / `API_URL`) and `vendor-api.ts` (`OPS_API` / `OPS_API_URL`) route all authenticated requests through `fetchEnvelopeWithRefresh` (cookie bearer → 401 → deduplicated silent refresh → single retry → `AdminApiError`/`VendorApiError`).

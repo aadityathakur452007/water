@@ -4,6 +4,20 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**CUSTOMER FLUTTER APP UNTANGLING — PHASE 3 `apps/user_app_donor` (2026-11-26, ADR-219):** on `main`
+- **1. Decomposed Oversized Feature Monoliths (`apps/user_app_donor/lib/features/`):**
+  - `subscriptions/subscription_screen.dart` (1,849L → 547L) + `widgets/subscription_cards.dart` + `widgets/subscription_sheets.dart`
+  - `orders/tracking_screen.dart` (1,739L → 655L) + `widgets/tracking_cards.dart`
+  - `addresses/address_screen.dart` (1,469L → 568L) + `address_controller.dart` + `address_form_sheet.dart`
+  - `orders/orders_controller.dart` (1,427L → 663L) + `order_models.dart` + `orders_repositories.dart`
+  - `booking/booking_sheet.dart` (1,870L → 1,649L) + `booking_sheet_widgets.dart`
+- **2. Worker API Coupling Verified:**
+  - Confirmed all `/v1/*` endpoints in `apps/user_app_donor/lib/core/api_client.dart` match `workers/api` (`water` customer surface).
+- **3. Next:**
+  - Untangle `apps/vendor_app` (Phase 4) and `apps/rider_app` (Phase 5).
+
+## Previous Phases
+
 **ADMIN DASHBOARD & VENDOR PORTAL UNTANGLING — PHASE 2 `apps/admin_app` (2026-11-26, ADR-218):** on `main`
 - **1. Unified BFF Worker Client & Session Core (`apps/admin_app/src/server/`):**
   - Created `worker-client.ts` (`bindingFetch`, `parseEnvelope`, `callPublicEndpoint`, `executeAuthedFetch`, `fetchEnvelopeWithRefresh`, `WorkerApiError`) and `session-core.ts` (`loginWithAccessCode`, `createDeduplicatedRefresher`, `setSessionCookies`, `normalizeOrigin`).
