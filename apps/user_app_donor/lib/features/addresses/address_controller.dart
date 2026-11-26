@@ -91,7 +91,7 @@ enum AddrStatus { initial, loading, loaded, error }
 
 /// Controller over GET/POST/PATCH/DELETE /addresses (owner-scoped).
 class AddressController extends ChangeNotifier {
-  AddressController({required ApiClient api}) : _api = api;
+  AddressController({required this._api});
 
   final ApiClient _api;
 
