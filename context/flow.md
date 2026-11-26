@@ -12,6 +12,14 @@
 
 ## Overview
 
+- Vendor & Rider Flutter Apps Untangling — Phases 4 & 5 `apps/vendor_app` & `apps/rider_app` (2026-11-26, ADR-220):
+  1. `apps/vendor_app`:
+     - `route_screen.dart` → `placed_sheet.dart` (`_PlacedSheet`).
+     - `stop_detail_screen.dart` → `pickup_card.dart` (`_PickupCard`).
+  2. `apps/rider_app`:
+     - `delivery_screen.dart` → `widgets/delivery_badges.dart` (`_FilterTab`, `_Badge`).
+     - `widgets/pod_sheet.dart` → `widgets/handover_mode.dart` (`HandoverMode`, `resolveHandoverMode`).
+
 - Customer Flutter App Untangling — Phase 3 `apps/user_app_donor` (2026-11-26, ADR-219):
   1. Feature-Local Part Decomposition (100% class, route, and widget-key parity):
      - `subscription_screen.dart` → `widgets/{subscription_cards,subscription_sheets}.dart`

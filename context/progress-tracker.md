@@ -4,6 +4,18 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**VENDOR & RIDER FLUTTER APPS UNTANGLING — PHASES 4 & 5 `apps/vendor_app` & `apps/rider_app` (2026-11-26, ADR-220):** on `main`
+- **1. `apps/vendor_app` Decomposition & API Coupling Verification:**
+  - Verified all `/v1/vendor/*`, `/v1/complaints/*`, and `/v1/quality/*` endpoints in `lib/core/api_client.dart` against `workers/api` (`water-ops` surface).
+  - Extracted `features/route/placed_sheet.dart` from `route_screen.dart` and `features/stops/pickup_card.dart` from `stop_detail_screen.dart`.
+- **2. `apps/rider_app` Decomposition & API Coupling Verification:**
+  - Verified all `/v1/rider/*` and `/v1/auth/rider/*` endpoints in `lib/core/api_client.dart` against `workers/api` (`water-ops` surface).
+  - Extracted `features/delivery/widgets/delivery_badges.dart` from `delivery_screen.dart` and `features/delivery/widgets/handover_mode.dart` from `pod_sheet.dart`.
+- **3. All 5 Codebases Untangled:**
+  - `workers/api` (`87fa59b`), `apps/admin_app` (`ed26c20`), `apps/user_app_donor` (`82b5cc3`), `apps/vendor_app`, and `apps/rider_app`.
+
+## Previous Phases
+
 **CUSTOMER FLUTTER APP UNTANGLING — PHASE 3 `apps/user_app_donor` (2026-11-26, ADR-219):** on `main`
 - **1. Decomposed Oversized Feature Monoliths (`apps/user_app_donor/lib/features/`):**
   - `subscriptions/subscription_screen.dart` (1,849L → 547L) + `widgets/subscription_cards.dart` + `widgets/subscription_sheets.dart`
