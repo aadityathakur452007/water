@@ -11,6 +11,9 @@ abstract final class ShodashaTheme {
   static const Color muted = Color(0xFF595959);
   static const Color blue = Color(0xFF0284C7);
   static const Color blueTint = Color(0xFFE6F3FA);
+  static const Color teal = Color(0xFF0D9488);
+  static const Color tealDark = Color(0xFF0F766E);
+  static const Color tealDeep = Color(0xFF115E59);
   static const Color amberTint = Color(0xFFFEF3C7);
   static const Color warning = Color(0xFFD97706);
   static const Color border = Color(0xFFE5E5E5);

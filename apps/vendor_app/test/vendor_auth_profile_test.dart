@@ -63,7 +63,7 @@ class _FakeAuthApi implements AuthApi {
 }
 
 void main() {
-  testWidgets('VendorCodeScreen renders canonical AppButtons for login and WhatsApp', (tester) async {
+  testWidgets('VendorCodeScreen renders Welcome mode and transitions to Sign In', (tester) async {
     final controller = AuthController(
       api: _FakeAuthApi(),
       store: InMemorySessionStore(),
@@ -75,9 +75,19 @@ void main() {
       ),
     );
 
-    expect(find.byType(AppButton), findsNWidgets(2));
-    expect(find.text('Login karein'), findsOneWidget);
-    expect(find.text('Admin WhatsApp Support: $kSupportPhone'), findsOneWidget);
+    // Welcome mode shows Partner branding, Login, and Contact Admin CTAs.
+    expect(find.text('Shodasha Partner'), findsOneWidget);
+    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Need help? Contact Admin'), findsOneWidget);
+
+    // Tapping Login transitions to Sign-In form with phone, code, and AppButton.
+    await tester.tap(find.text('Login'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign in to Partner'), findsOneWidget);
+    expect(find.text('Mobile number'), findsOneWidget);
+    expect(find.text('Access code'), findsOneWidget);
+    expect(find.byType(AppButton), findsOneWidget);
 
     controller.dispose();
   });

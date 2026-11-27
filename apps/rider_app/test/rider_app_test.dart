@@ -65,7 +65,7 @@ class _MockRiderApi extends ApiClient {
 }
 
 void main() {
-  testWidgets('unauthenticated boot mounts LoginScreen with rider branding', (tester) async {
+  testWidgets('unauthenticated boot mounts LoginScreen Welcome and transitions to Sign In', (tester) async {
     final api = _MockRiderApi(authed: false);
 
     await tester.pumpWidget(RiderApp(api: api));
@@ -73,9 +73,18 @@ void main() {
 
     expect(find.byType(LoginScreen), findsOneWidget);
     expect(find.text('Shodasha Rider'), findsOneWidget);
-    expect(find.text('Doorstep Delivery & OTP Verification'), findsOneWidget);
+    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Need your sign-in code?'), findsOneWidget);
+
+    // Tapping Login transitions to the sign-in form.
+    await tester.tap(find.text('Login'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign in to Rider'), findsOneWidget);
     expect(find.text('Your Name'), findsOneWidget);
     expect(find.text('Mobile Number'), findsOneWidget);
+    expect(find.text('Sign-in Code'), findsOneWidget);
+    expect(find.text('Start Delivery Shift'), findsOneWidget);
   });
 
   testWidgets('authenticated boot mounts DeliveryScreen with today stops and lift badge', (tester) async {

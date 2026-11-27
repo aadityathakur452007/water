@@ -4,6 +4,18 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**VENDOR & RIDER LOGIN MODERNIZATION & APP ICON UPDATE (2026-11-27, ADR-230):** on `main`
+- **1. Branded App Icons (`apps/vendor_app`, `apps/rider_app`):**
+  - Generated transparent `assets/logo.png` (512×512), adaptive icon foregrounds (`drawable/ic_launcher_foreground.png`, 432×432), and `mdpi`–`xxxhdpi` legacy/round mipmaps from the uploaded Shodasha Partner and Shodasha Rider emblems.
+- **2. Welcome → Sign-In Login System (`apps/vendor_app`, `apps/rider_app`):**
+  - Updated `VendorCodeScreen` (`apps/vendor_app/lib/features/auth/vendor_code_screen.dart`) and `LoginScreen` (`apps/rider_app/lib/features/auth/login_screen.dart`) to mirror `user_app_donor`'s `AuthMode.welcome` → `AuthMode.signIn` flow with a `ShodashaTheme.teal` hero banner, floating circular back button, pill CTAs (`Login`, `Need help? Contact Admin` / `Need your sign-in code?`), and clean simple English copy (`vendor_strings.dart`), applying `unslop` and `premium-design` rules.
+  - Preserved all `+91` digit formatters, `^[6-9]\d{9}$` validation, `429` gradual countdown lockouts, and code visibility toggles.
+- **3. Verification:**
+  - `apps/vendor_app`: `flutter analyze` clean (0 issues), `flutter test` 96/96 passed.
+  - `apps/rider_app`: `flutter analyze` clean (0 issues), `flutter test` 9/9 passed.
+
+## Previous Phases
+
 **FULL-STACK AUDIT, DEAD-CODE CLEANUP, SYNC & INPUT HARDENING (2026-11-27, ADR-229):** on `main`
 - **1. Critical Backend & Cross-App Sync Fixes (`workers/api`, `apps/vendor_app`, `apps/rider_app`):**
   - Added `fulls_given`, `damaged_empties`, `caps_missing`, and `empty_condition` to `PodIn` in `workers/api/src/app/api/v1/vendor.py` so `VendorService.pod_complete()` actually receives atomic handover fields instead of Pydantic stripping them.

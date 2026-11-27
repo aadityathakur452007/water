@@ -12,6 +12,10 @@
 
 ## Overview
 
+- Vendor & Rider Login Modernization & App Icon Update (2026-11-27, ADR-230):
+  1. `apps/vendor_app/lib/features/auth/vendor_code_screen.dart`: `VendorCodeScreen` boots into `VendorAuthMode.welcome` (teal hero banner with `assets/logo.png` Partner emblem, `Login` pill CTA, `Need help? Contact Admin` support dialog) and transitions to `VendorAuthMode.signIn` (`+91` phone + Admin access code form with `AuthController.codeLogin()`).
+  2. `apps/rider_app/lib/features/auth/login_screen.dart`: `LoginScreen` boots into `RiderAuthMode.welcome` (teal hero banner with `assets/logo.png` Rider emblem, `Login` pill CTA, `Need your sign-in code?` support dialog) and transitions to `RiderAuthMode.signIn` (Name + `+91` phone + 6-digit vendor sign-in code form with `ApiClient.loginRider()`).
+
 - Full-Stack Audit, Dead-Code Cleanup, Sync & Input Hardening (2026-11-27, ADR-229):
   1. `vendor.py:PodIn` now passes `fulls_given`, `damaged_empties`, `caps_missing`, and `empty_condition` through to `VendorService.pod_complete()`.
   2. `RiderService.routes_today()` checks `payment_status in ("paid", "paid_upi", "paid_cash")`; `rider_app` `ApiClient` stores tokens in `FlutterSecureStorage` (one-time migration from `SharedPreferences`), sends `X-Device-Id`, enforces 12s timeouts, and invokes `onUnauthorized` on 401/403.
