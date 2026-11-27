@@ -108,7 +108,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PodSheet), findsOneWidget);
-    expect(find.text('DOORSTEP HANDOVER'), findsOneWidget);
+    expect(find.text('Doorstep handover'), findsOneWidget);
 
     // Verify all 5 user & order details are rendered in PodSheet
     final podFinder = find.byType(PodSheet);

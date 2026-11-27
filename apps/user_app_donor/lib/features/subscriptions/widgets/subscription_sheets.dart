@@ -231,7 +231,7 @@ class _PauseSheetState extends State<_PauseSheet> {
   );
 }
 
-/// Cancellation reason + refund destination; the server computes refunds.
+/// Cancellation reason; the server computes any final settlement.
 class _CancelSheet extends StatefulWidget {
   const _CancelSheet();
 
@@ -240,17 +240,10 @@ class _CancelSheet extends StatefulWidget {
 }
 
 class _CancelSheetState extends State<_CancelSheet> {
-  final _upi = TextEditingController();
-  bool _touched = false;
   String _reason = 'I don\'t need jars anymore';
 
-  bool get _upiOk =>
-      RegExp(r'^[A-Za-z0-9._-]{2,}@[A-Za-z]{2,}$').hasMatch(_upi.text.trim());
-
   void _confirm() {
-    setState(() => _touched = true);
-    if (!_upiOk) return;
-    Navigator.of(context).pop({'reason': _reason, 'upi_id': _upi.text.trim()});
+    Navigator.of(context).pop({'reason': _reason});
   }
 
   static const List<String> _reasons = [
@@ -260,12 +253,6 @@ class _CancelSheetState extends State<_CancelSheet> {
     'Quality or service issue',
     'Something else',
   ];
-
-  @override
-  void dispose() {
-    _upi.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -355,32 +342,6 @@ class _CancelSheetState extends State<_CancelSheet> {
             onChanged: (value) {
               if (value != null) setState(() => _reason = value);
             },
-          ),
-          const SizedBox(height: 14),
-          Text(
-            subStrings['cancelUpi']!,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: ShodashaTheme.ink,
-            ),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _upi,
-            keyboardType: TextInputType.emailAddress,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'e.g. 9876543210@upi',
-              helperText: 'Used only if a refund is due after pickup.',
-              errorText: _touched && !_upiOk
-                  ? 'Enter a valid UPI ID, like 9876543210@upi.'
-                  : null,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-            ),
           ),
           const SizedBox(height: 18),
           AppButton(

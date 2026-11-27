@@ -81,6 +81,6 @@ void main() {
     expect(find.textContaining('Collect'), findsWidgets); // 016 strip + badge
     expect(find.textContaining('Paid'), findsOneWidget);
     // 016 dashboard strip renders above the cards.
-    expect(find.text('Aaj ka hisaab'), findsOneWidget);
+    expect(find.text("Today's summary"), findsOneWidget);
   });
 }

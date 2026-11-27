@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../../shared/ui/app_button.dart';
@@ -69,8 +70,8 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _errorMessage = 'Please enter your name');
       return;
     }
-    if (rawPhone.length < 10) {
-      setState(() => _errorMessage = 'Enter a valid 10-digit mobile number');
+    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(rawPhone)) {
+      setState(() => _errorMessage = 'Enter a valid 10-digit mobile number (starting 6–9)');
       return;
     }
     if (code.length < 4) {
@@ -155,7 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 24,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     color: ShodashaTheme.ink,
                   ),
                 ),
@@ -215,6 +216,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   enabled: !_busy && !rateLocked,
                   keyboardType: TextInputType.phone,
                   maxLength: 10,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   decoration: InputDecoration(
                     hintText: '10-digit registered number',
@@ -252,6 +257,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   enabled: !_busy && !rateLocked,
                   keyboardType: TextInputType.number,
                   maxLength: 8,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(8),
+                  ],
                   style: const TextStyle(
                       fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 2),
                   decoration: InputDecoration(
@@ -303,7 +312,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   style: const TextStyle(
                                     color: ShodashaTheme.dangerDark,
                                     fontSize: 12,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ],

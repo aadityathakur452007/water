@@ -134,7 +134,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                       : (c.stopsDone > 0 ? 'Settlement Pending' : rupees(0)),
                   style: const TextStyle(
                     fontSize: 24,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: ShodashaTheme.blue,
                   ),
                 ),

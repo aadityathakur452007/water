@@ -80,7 +80,7 @@ void main() {
       );
 
       // Verify monthly plan banner is displayed
-      expect(find.text('MONTHLY PLAN (मंथली ग्राहक)'), findsOneWidget);
+      expect(find.text('Monthly plan'), findsOneWidget);
       expect(find.text('Do NOT collect daily cash — ₹0 due today'), findsOneWidget);
 
       // Verify cash collection checkbox is NOT present
@@ -114,7 +114,7 @@ void main() {
       );
 
       // Verify monthly bill text and checkbox are present
-      expect(find.text('Collect ₹84 Monthly Bill (महीने का बिल)'), findsOneWidget);
+      expect(find.text('Collect ₹84 Monthly Bill'), findsOneWidget);
       expect(find.byType(Checkbox), findsOneWidget);
     });
   });

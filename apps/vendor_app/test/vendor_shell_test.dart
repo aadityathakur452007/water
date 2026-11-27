@@ -85,7 +85,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify soft sticky banner appears (DEF-07)
-    expect(find.text('Currently Off Duty (छुट्टी पर हैं)'), findsOneWidget);
+    expect(find.text('Currently Off Duty'), findsOneWidget);
     expect(find.text('You are currently Off Duty'), findsOneWidget);
 
     // Switch to Earnings tab (Tab 1) while off duty
@@ -105,14 +105,14 @@ void main() {
     // Switch back to Route tab (Tab 0)
     await tester.tap(find.byIcon(Icons.route_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('Go On Duty (ड्यूटी शुरू करें)'), findsOneWidget);
+    expect(find.text('Go On Duty'), findsAtLeastNWidgets(1));
 
     // Tap "Go On Duty" to go on duty
-    await tester.tap(find.text('Go On Duty (ड्यूटी शुरू करें)'));
+    await tester.tap(find.text('Go On Duty').last);
     await tester.pumpAndSettle();
 
     // Banner and lock should be gone
-    expect(find.text('Currently Off Duty (छुट्टी पर हैं)'), findsNothing);
+    expect(find.text('Currently Off Duty'), findsNothing);
     expect(find.text('You are currently Off Duty'), findsNothing);
   });
 }

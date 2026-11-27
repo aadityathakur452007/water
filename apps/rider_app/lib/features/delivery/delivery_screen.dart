@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
@@ -38,7 +39,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 45), (_) {
       if (mounted && _dutyStatus == 'on_duty' && !_loading) {
         _loadRoute(silent: true);
       }
@@ -64,7 +65,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
   }
 
   Future<void> _loadRoute({bool silent = false}) async {
-    if (!silent) {
+    if (!silent && _stops.isEmpty) {
       setState(() {
         _loading = true;
         _error = null;
@@ -142,7 +143,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
         onSuccess: () {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Delivery marked as completed successfully!'),
+              content: Text('Delivery marked as completed'),
               backgroundColor: ShodashaTheme.successDark,
             ),
           );
@@ -177,9 +178,14 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                   controller: otpCtrl,
                   keyboardType: TextInputType.number,
                   maxLength: 4,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Cancellation OTP (4-digit)',
                     hintText: 'Enter OTP from Vendor',
+                    counterText: '',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -254,7 +260,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Order cancelled successfully!'),
+                              content: Text('Order cancelled'),
                               backgroundColor: ShodashaTheme.danger,
                             ),
                           );
@@ -326,19 +332,18 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'TODAY\'S DELIVERIES',
+              "Today's deliveries",
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
                 color: ShodashaTheme.muted,
-                letterSpacing: 0.8,
               ),
             ),
             Text(
               riderName,
               style: const TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: ShodashaTheme.ink,
               ),
             ),
@@ -406,7 +411,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                           '$delivered of $total Delivered',
                           style: const TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: ShodashaTheme.ink,
                           ),
                         ),
@@ -436,7 +441,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                                   _dutyStatus == 'on_duty' ? 'ON DUTY' : 'OFF DUTY · Tap to start',
                                   style: TextStyle(
                                     fontSize: 10,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                     color: _dutyStatus == 'on_duty'
                                         ? ShodashaTheme.teal
                                         : ShodashaTheme.warningDark,
@@ -547,8 +552,8 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                           const SizedBox(height: AppSpacing.md),
                           Text(
                             _filter == 'pending'
-                                ? 'All deliveries completed for today!'
-                                : 'No completed deliveries yet.',
+                                ? 'All deliveries completed for today'
+                                : 'No completed deliveries yet',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
@@ -588,7 +593,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                         return Container(
                           decoration: BoxDecoration(
                             color: isCancelled
-                                ? const Color(0xFFFFF5F5)
+                                ? ShodashaTheme.danger.withValues(alpha: 0.06)
                                 : ShodashaTheme.surface,
                             borderRadius: BorderRadius.circular(
                               ShodashaTheme.radius,
@@ -596,12 +601,9 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                             border: Border.all(
                               color: isCancelled
                                   ? ShodashaTheme.danger.withValues(alpha: 0.5)
-                                  : isDelivered
-                                      ? ShodashaTheme.border
-                                      : ShodashaTheme.border,
+                                  : ShodashaTheme.border,
                               width: isCancelled ? 1.5 : 1.0,
                             ),
-                            boxShadow: const [ShodashaTheme.subtleCardShadow],
                           ),
                           padding: const EdgeInsets.all(AppSpacing.lg),
                           child: Column(
@@ -627,7 +629,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                                       '#${stop['seq'] ?? (i + 1)}',
                                       style: TextStyle(
                                         fontSize: 12,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color: isDelivered
                                             ? ShodashaTheme.muted
                                             : ShodashaTheme.tealDark,
@@ -644,7 +646,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                                           customerName,
                                           style: TextStyle(
                                             fontSize: 16,
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w700,
                                             color: isDelivered
                                                 ? ShodashaTheme.muted
                                                 : ShodashaTheme.ink,
@@ -810,12 +812,11 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                                           SizedBox(width: AppSpacing.xs),
                                           Expanded(
                                             child: Text(
-                                              'DO NOT DELIVER — ORDER CANCELLED',
+                                              'Do not deliver — order cancelled',
                                               style: TextStyle(
                                                 color: ShodashaTheme.danger,
-                                                fontWeight: FontWeight.w900,
+                                                fontWeight: FontWeight.w700,
                                                 fontSize: 13,
-                                                letterSpacing: 0.5,
                                               ),
                                             ),
                                           ),

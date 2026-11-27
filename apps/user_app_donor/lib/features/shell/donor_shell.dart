@@ -82,9 +82,20 @@ class _DonorShellState extends State<DonorShell> with WidgetsBindingObserver {
         if (mounted) widget.addresses.load();
       });
     }
-    // Auto-refresh orders every 20s in background to eliminate manual reload (Point 11 & 12)
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted && widget.auth.isAuthenticated) {
+    // Auto-refresh orders every 60s only when the customer has an active order
+    // (cuts idle Worker/D1 load while keeping live delivery status fresh).
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!mounted || !widget.auth.isAuthenticated) return;
+      final hasActive = widget.orders.allOrders.any(
+        (o) =>
+            o.state == OrderState.placed ||
+            o.state == OrderState.accepted ||
+            o.state == OrderState.picked ||
+            o.state == OrderState.packed ||
+            o.state == OrderState.assigned ||
+            o.state == OrderState.dispatched,
+      );
+      if (hasActive) {
         widget.orders.load(silent: true);
       }
     });

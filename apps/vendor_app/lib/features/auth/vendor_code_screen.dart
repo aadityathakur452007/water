@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../../core/api_client.dart' show kSupportPhone;
 import '../../core/theme.dart';
 import '../../shared/ui/app_button.dart';
 import 'auth_controller.dart';
@@ -183,7 +184,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                     icon: Icon(
                       _obscure ? Icons.visibility : Icons.visibility_off,
                     ),
-                    tooltip: _obscure ? 'Code dikhayein' : 'Code chhupayein',
+                    tooltip: _obscure ? 'Show code' : 'Hide code',
                     onPressed: () => setState(() => _obscure = !_obscure),
                   ),
                 ),
@@ -231,7 +232,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                               : 'Try again in $wait seconds',
                           style: const TextStyle(
                             color: ShodashaTheme.danger,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             fontSize: 12,
                           ),
                         ),
@@ -239,8 +240,9 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                       ],
                       InkWell(
                         onTap: () {
+                          final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
                           launchUrlString(
-                            'https://wa.me/917828442476?text=Namaste%20Admin%2C%20mujhe%20login%20me%20problem%20aa%20rahi%20hai',
+                            'https://wa.me/$digits?text=Hello%20Admin%2C%20I%20need%20help%20logging%20into%20the%20Vendor%20app',
                             mode: LaunchMode.externalApplication,
                           );
                         },
@@ -249,7 +251,7 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
                             Icon(Icons.chat, size: 14, color: ShodashaTheme.ink),
                             SizedBox(width: 4),
                             Text(
-                              'Admin WhatsApp: 7828442476 par sampark karein',
+                              'Contact Admin on WhatsApp: $kSupportPhone',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
@@ -284,12 +286,13 @@ class _VendorCodeScreenState extends State<VendorCodeScreen> {
               ),
               const SizedBox(height: AppSpacing.md),
               AppButton(
-                label: 'Admin WhatsApp Support: 7828442476',
+                label: 'Admin WhatsApp Support: $kSupportPhone',
                 kind: AppButtonKind.secondary,
                 icon: Icons.chat_bubble_outline,
                 onPressed: () {
+                  final digits = kSupportPhone.replaceAll(RegExp(r'\D'), '');
                   launchUrlString(
-                    'https://wa.me/917828442476?text=Namaste%20Admin%2C%20mujhe%20Vendor%20app%20me%20madad%20chahiye',
+                    'https://wa.me/$digits?text=Hello%20Admin%2C%20I%20need%20help%20with%20the%20Vendor%20app',
                     mode: LaunchMode.externalApplication,
                   );
                 },

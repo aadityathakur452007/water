@@ -219,7 +219,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
   Widget _buildHeroBanner({required bool showBackButton}) {
     return Container(
       width: double.infinity,
-      color: const Color(0xFF39B867),
+      color: ShodashaTheme.teal,
       child: SafeArea(
         bottom: false,
         child: Column(
@@ -296,24 +296,6 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
               Stack(
                 alignment: Alignment.center,
                 children: [
-                  Positioned(
-                    left: 0,
-                    top: 8,
-                    child: Icon(
-                      Icons.water_drop_rounded,
-                      size: 20,
-                      color: const Color(0xFF64B5F6).withValues(alpha: 0.5),
-                    ),
-                  ),
-                  Positioned(
-                    right: 6,
-                    top: 0,
-                    child: Icon(
-                      Icons.water_drop_rounded,
-                      size: 26,
-                      color: const Color(0xFF42A5F5).withValues(alpha: 0.6),
-                    ),
-                  ),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 26),
                     child: Column(
@@ -323,8 +305,8 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF2E9B55),
+                            fontWeight: FontWeight.w700,
+                            color: ShodashaTheme.tealDeep,
                             letterSpacing: -0.4,
                           ),
                         ),
@@ -346,29 +328,13 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                 ],
               ),
               const SizedBox(height: 28),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Icon(
-                    Icons.water_drop_rounded,
-                    size: 16,
-                    color: const Color(0xFF64B5F6).withValues(alpha: 0.45),
-                  ),
-                  Icon(
-                    Icons.water_drop_rounded,
-                    size: 22,
-                    color: const Color(0xFF42A5F5).withValues(alpha: 0.5),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
                   onPressed: () => _switchMode(AuthMode.signIn),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF39B867),
+                    backgroundColor: ShodashaTheme.teal,
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
@@ -392,8 +358,8 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                   onPressed: () => _switchMode(AuthMode.create),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF39B867),
-                    side: const BorderSide(color: Color(0xFF39B867), width: 1.5),
+                    foregroundColor: ShodashaTheme.tealDeep,
+                    side: const BorderSide(color: ShodashaTheme.teal, width: 1.5),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(26),
@@ -428,7 +394,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
                             text: 'Terms & Privacy Policy',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF2E9B55),
+                              color: ShodashaTheme.tealDeep,
                               decoration: TextDecoration.underline,
                             ),
                           ),
@@ -479,7 +445,7 @@ class _DonorLoginScreenState extends State<DonorLoginScreen> {
           create ? authStrings['createTitle']! : authStrings['signInTitle']!,
           style: const TextStyle(
             fontSize: 20,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             letterSpacing: -0.4,
             color: ShodashaTheme.ink,
           ),

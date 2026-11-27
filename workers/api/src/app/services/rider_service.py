@@ -204,11 +204,13 @@ class RiderService:
             sub_info = subs_by_customer.get(cust_id) if cust_id else None
             is_sub = sub_info is not None and sub_info[0] == "active"
             sub_billing_mode = sub_info[1] if is_sub else None
+            idem_key = str(d.get("idempotency_key") or "")
+            is_sub_order = is_sub and (idem_key.startswith("sub:") or ":sub:" in idem_key)
             dues_paise = dues_by_customer.get(cust_id, 0) if cust_id else 0
             jars_held = held_by_customer.get(cust_id, 0) if cust_id else 0
 
             is_cod = (d.get("payment_mode") or "").lower() == "cod"
-            is_paid = (d.get("payment_status") or "").lower() == "paid"
+            is_paid = (d.get("payment_status") or "").lower() in ("paid", "paid_upi", "paid_cash")
             order_amt = int(d.get("total") or 0) if (is_cod and not is_paid) else 0
 
             stop_status = d["status"]
@@ -217,12 +219,12 @@ class RiderService:
             if order_state == "cancelled" or failure_reason.startswith("CANCELLED"):
                 stop_status = "cancelled"
 
-            # Simplified 3-case payment calculation:
-            # 1. Active monthly/weekly subscription: ₹0 cash (never collect daily)
-            # 2. Cancelled subscription with pending dues: collect once on first pending stop
-            # 3. Regular one-time user: collect order COD total (or ₹0 if prepaid)
+            # 3-case payment resolution (order-scoped, not customer-wide):
+            # 1. Active subscription scheduled refill (`sub:`): ₹0 daily cash
+            # 2. Cancelled/inactive subscription with pending dues: collect dues once + this order's COD
+            # 3. Extra jar or regular one-time order: collect order COD total (or ₹0 if prepaid)
             is_monthly_dues = False
-            if is_sub and sub_billing_mode in ("monthly_postpaid", "monthly_prepaid", "weekly_postpaid"):
+            if is_sub_order and sub_billing_mode in ("monthly_postpaid", "monthly_prepaid", "weekly_postpaid"):
                 amount_due = 0
             elif not is_sub and dues_paise > 0 and stop_status == "pending" and cust_id and cust_id not in seen_dues_customers:
                 amount_due = max(order_amt, dues_paise)
@@ -250,10 +252,11 @@ class RiderService:
                 "payment_mode": "cod" if is_cod else "prepaid",
                 "is_paid": is_paid,
                 "amount_due": amount_due,
-                "is_subscription": is_sub,
+                "order_amount": order_amt,
+                "is_subscription": is_sub_order,
                 "is_monthly_dues": is_monthly_dues,
                 "monthly_dues": dues_paise if is_monthly_dues else 0,
-                "billing_mode": sub_billing_mode or ("monthly_postpaid" if is_sub else "per_delivery"),
+                "billing_mode": sub_billing_mode or ("monthly_postpaid" if is_sub_order else "per_delivery"),
                 "address": {
                     "formatted": d["address_text"] or "Delivery address",
                     "landmark": d["landmark"] or "",

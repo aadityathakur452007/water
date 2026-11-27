@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone, ApiClient;
 import '../../core/theme.dart';
+import '../../core/vendor_locale.dart';
 import '../../shared/ui/app_button.dart';
 import '../auth/auth_controller.dart';
 import '../auth/vendor_strings.dart';
@@ -102,14 +103,21 @@ class _VendorShellState extends State<VendorShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      widget.auth.refreshSession();
-      widget.duty.load();
-      widget.route.load();
-      _syncDiscovery();
+      _onAppResumed();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       widget.route.stopDiscovery();
     }
+  }
+
+  Future<void> _onAppResumed() async {
+    if (widget.auth.session?.isExpired == true) {
+      await widget.auth.refreshSession();
+    }
+    if (!mounted || !widget.auth.isAuthenticated) return;
+    widget.duty.load();
+    widget.route.load(silent: true);
+    _syncDiscovery();
   }
 
   void _onSync() {
@@ -140,7 +148,9 @@ class _VendorShellState extends State<VendorShell> with WidgetsBindingObserver {
           controller: widget.stops,
           stopId: stop.id,
           stopLabel: 'Stop ${stop.seq}: ${stop.customerName}',
+          jarsHeld: stop.jarsHeld,
           outbox: widget.sync,
+          onCompleted: () => widget.route.load(silent: true),
         ),
       ),
     );
@@ -320,20 +330,20 @@ class _OffDutyBanner extends StatelessWidget {
             color: ShodashaTheme.ink,
           ),
           const SizedBox(width: AppSpacing.sm),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Currently Off Duty (छुट्टी पर हैं)',
-                  style: TextStyle(
+                  vtr('अभी ड्यूटी बंद है', 'Currently Off Duty'),
+                  style: const TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,
                     color: ShodashaTheme.ink,
                   ),
                 ),
-                Text(
+                const Text(
                   'Turn On Duty to receive delivery stops',
                   style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
                 ),
@@ -410,7 +420,7 @@ class _OffDutyRouteLock extends StatelessWidget {
               'You are currently Off Duty',
               style: TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: ShodashaTheme.ink,
               ),
             ),
@@ -426,13 +436,13 @@ class _OffDutyRouteLock extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.lg),
             AppButton(
-              label: 'Go On Duty (ड्यूटी शुरू करें)',
+              label: vtr('ड्यूटी शुरू करें', 'Go On Duty'),
               kind: AppButtonKind.primary,
               onPressed: onGoOnDuty,
             ),
             const SizedBox(height: AppSpacing.sm),
             AppButton(
-              label: 'View Earnings (कमाई देखें)',
+              label: vtr('कमाई देखें', 'View Earnings'),
               kind: AppButtonKind.secondary,
               onPressed: onOpenEarnings,
             ),

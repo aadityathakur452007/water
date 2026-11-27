@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/api_client.dart';
@@ -148,12 +149,11 @@ class _PodSheetState extends State<PodSheet> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'DOORSTEP HANDOVER',
+                    'Doorstep handover',
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                       color: ShodashaTheme.muted,
-                      letterSpacing: 0.8,
                     ),
                   ),
                   Container(
@@ -171,7 +171,7 @@ class _PodSheetState extends State<PodSheet> {
                       '$qty × 20L Cane',
                       style: const TextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: ShodashaTheme.tealDark,
                       ),
                     ),
@@ -192,7 +192,7 @@ class _PodSheetState extends State<PodSheet> {
                           customerName,
                           style: const TextStyle(
                             fontSize: 18,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: ShodashaTheme.ink,
                           ),
                         ),
@@ -317,11 +317,15 @@ class _PodSheetState extends State<PodSheet> {
                 controller: _otpController,
                 keyboardType: TextInputType.number,
                 maxLength: 4,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(4),
+                ],
                 textAlign: TextAlign.center,
                 autofocus: true,
                 style: const TextStyle(
                   fontSize: 28,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   letterSpacing: 10,
                   color: ShodashaTheme.ink,
                 ),
@@ -377,7 +381,9 @@ class _PodSheetState extends State<PodSheet> {
                         Text(
                           _maxEmpties == 0
                               ? 'No empty jars to collect'
-                              : 'Doorstep bottle return (max $_maxEmpties)',
+                              : (widget.stop['jars_held'] is int && (widget.stop['jars_held'] as int) > 0)
+                                  ? '${widget.stop['jars_held']} with customer • collect up to $_maxEmpties'
+                                  : 'Doorstep bottle return (max $_maxEmpties)',
                           style: const TextStyle(
                             fontSize: 11,
                             color: ShodashaTheme.muted,
@@ -398,7 +404,7 @@ class _PodSheetState extends State<PodSheet> {
                           '$_emptiesCount',
                           style: const TextStyle(
                             fontSize: 18,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: ShodashaTheme.ink,
                           ),
                         ),
@@ -473,10 +479,10 @@ class _PodSheetState extends State<PodSheet> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'MONTHLY PLAN (मंथली ग्राहक)',
+                              'Monthly plan',
                               style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: ShodashaTheme.tealDark,
                               ),
                             ),
@@ -521,10 +527,10 @@ class _PodSheetState extends State<PodSheet> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Monthly Bill (महीने का बिल)',
+                              'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Monthly Bill',
                               style: const TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: ShodashaTheme.ink,
                               ),
                             ),
@@ -571,7 +577,7 @@ class _PodSheetState extends State<PodSheet> {
                               'Collect ₹${(amountDue / 100).toStringAsFixed(0)} Cash',
                               style: const TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: ShodashaTheme.ink,
                               ),
                             ),

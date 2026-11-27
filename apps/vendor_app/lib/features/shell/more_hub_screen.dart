@@ -58,8 +58,8 @@ class MoreHubScreen extends StatelessWidget {
               ),
               title: Text(
                 onDuty
-                    ? 'Duty: Active (ड्यूटी चालू)'
-                    : 'Duty: Off (ड्यूटी बंद)',
+                    ? vtr('ड्यूटी चालू है', 'Duty: Active')
+                    : vtr('ड्यूटी बंद है', 'Duty: Off'),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               subtitle: Text(
@@ -78,12 +78,11 @@ class MoreHubScreen extends StatelessWidget {
               vertical: AppSpacing.xs,
             ),
             child: Text(
-              'TOOLS & OPERATIONS',
+              'Tools & operations',
               style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w600,
                 color: ShodashaTheme.muted,
-                letterSpacing: 0.5,
               ),
             ),
           ),
@@ -98,7 +97,7 @@ class MoreHubScreen extends StatelessWidget {
                     color: ShodashaTheme.ink,
                   ),
                   title: Text(vtr('ग्राहक', 'Customers')),
-                  subtitle: const Text('Aaj ke grahak, khoj ke saath'),
+                  subtitle: Text(vtr('आज के ग्राहक और खोज', "Today's customers and search")),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenCustomers,
                 ),
@@ -165,12 +164,11 @@ class MoreHubScreen extends StatelessWidget {
               vertical: AppSpacing.xs,
             ),
             child: Text(
-              'ACCOUNT & SUPPORT',
+              'Account & support',
               style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w600,
                 color: ShodashaTheme.muted,
-                letterSpacing: 0.5,
               ),
             ),
           ),
@@ -185,7 +183,7 @@ class MoreHubScreen extends StatelessWidget {
                     color: ShodashaTheme.ink,
                   ),
                   title: Text(vtr('प्रोफ़ाइल', 'Profile')),
-                  subtitle: const Text('Dukaan profile, language & settings'),
+                  subtitle: Text(vtr('दुकान प्रोफ़ाइल, भाषा और सेटिंग्स', 'Shop profile, language & settings')),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: onOpenProfile,
                 ),
@@ -206,9 +204,9 @@ class MoreHubScreen extends StatelessWidget {
                     Icons.logout,
                     color: ShodashaTheme.danger,
                   ),
-                  title: const Text(
-                    'Logout (लॉग आउट)',
-                    style: TextStyle(
+                  title: Text(
+                    vtr('लॉग आउट', 'Log out'),
+                    style: const TextStyle(
                       color: ShodashaTheme.danger,
                       fontWeight: FontWeight.w600,
                     ),
@@ -218,9 +216,9 @@ class MoreHubScreen extends StatelessWidget {
                       context: context,
                       builder: (ctx) => AlertDialog(
                         shape: ShodashaTheme.shape,
-                        title: const Text('Logout karein?'),
-                        content: const Text(
-                          'Kya aap pakka logout karna chahte hain?',
+                        title: Text(vtr('लॉग आउट करें?', 'Log out?')),
+                        content: Text(
+                          vtr('क्या आप लॉग आउट करना चाहते हैं?', 'Are you sure you want to log out?'),
                         ),
                         actions: [
                           TextButton(

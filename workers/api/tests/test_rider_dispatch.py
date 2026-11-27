@@ -305,7 +305,10 @@ def test_rider_active_sub_zero_cash_and_deduped_cancelled_dues():
         "status, pod_otp, pod_otp_expires_at, pod_attempts, rider_id) "
         "VALUES ('stop-2', 'route-1', 'ord-2', 'u1', 2, 1, 1, 'pending', '1234', '2099-01-01T00:00:00+00:00', 0, 'r1')"
     )
-    # Case 1: Active monthly subscription -> ₹0 due on both stops
+    # Case 1: Active monthly subscription -> ₹0 due on scheduled sub order, COD on extra jar
+    conn.execute(
+        "UPDATE orders SET idempotency_key = 'sub:sub-1:2026-11-27' WHERE id = 'o1'"
+    )
     conn.execute(
         "INSERT INTO subscriptions (id, user_id, address_id, qty, status) "
         "VALUES ('sub-1', 'u1', 'addr-1', 1, 'active')"
@@ -315,7 +318,10 @@ def test_rider_active_sub_zero_cash_and_deduped_cancelled_dues():
     res1 = client.get("/v1/rider/routes/today", headers={"Authorization": "Bearer token-rider"})
     assert res1.status_code == 200
     stops1 = res1.json()["stops"]
-    assert all(s["amount_due"] == 0 and not s["is_monthly_dues"] for s in stops1)
+    assert stops1[0]["is_subscription"] is True
+    assert stops1[0]["amount_due"] == 0
+    assert stops1[1]["is_subscription"] is False
+    assert stops1[1]["amount_due"] == 7000  # extra single-jar COD order still collects ₹70!
 
     # Case 2: Inactive/paused/cancelled subscription -> dues shown ONLY on first pending stop, not duplicated
     conn.execute("UPDATE subscriptions SET status = 'paused' WHERE id = 'sub-1'")

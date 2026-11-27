@@ -42,6 +42,7 @@ class RouteStop {
     this.lng,
     this.cashCollectedPaise = 0,
     this.riderName = '',
+    this.jarsHeld,
   });
 
   final String id;
@@ -87,6 +88,7 @@ class RouteStop {
   final double? lng;
   final int cashCollectedPaise;
   final String riderName;
+  final int? jarsHeld;
 
   bool get isDone => status == 'done';
   bool get isFailed => status == 'failed';
@@ -144,6 +146,7 @@ class RouteStop {
         lng: (j['lng'] as num?)?.toDouble(),
         cashCollectedPaise: (j['cash_collected'] as num?)?.toInt() ?? 0,
         riderName: (j['rider_name'] ?? '') as String,
+        jarsHeld: (j['jars_held'] as num?)?.toInt(),
       );
 }
 
@@ -175,10 +178,12 @@ class RouteController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> load() async {
-    _state = RouteState.loading;
-    _error = null;
-    notifyListeners();
+  Future<void> load({bool silent = false}) async {
+    if (!silent || _state != RouteState.loaded) {
+      _state = RouteState.loading;
+      _error = null;
+      notifyListeners();
+    }
     try {
       final raw = await _api.todayRoute();
       final stopsJson = (raw['stops'] as List?) ?? const [];
@@ -254,11 +259,11 @@ class RouteController extends ChangeNotifier {
   /// and on dispose — mobile-native rule). Push stays a documented gap.
   Timer? _discoveryTimer;
 
-  void startDiscovery({Duration interval = const Duration(seconds: 15)}) {
+  void startDiscovery({Duration interval = const Duration(seconds: 45)}) {
     stopDiscovery();
     _discoveryTimer = Timer.periodic(interval, (_) async {
       try {
-        await load();
+        await load(silent: true);
         await refreshPlaced();
       } catch (_) {
         // Next tick retries; poll never crashes the shift.

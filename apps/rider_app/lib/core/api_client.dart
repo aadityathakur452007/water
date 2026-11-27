@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,14 +23,22 @@ class ApiClient {
       defaultValue: 'https://water-ops.adityathakur452007.workers.dev',
     ),
     http.Client? client,
-  }) : _client = client ?? http.Client();
+    FlutterSecureStorage? storage,
+    this.onUnauthorized,
+  }) : _client = client ?? http.Client(),
+       _storage = storage ?? const FlutterSecureStorage();
 
   final String baseUrl;
   final http.Client _client;
+  final FlutterSecureStorage _storage;
+  VoidCallback? onUnauthorized;
+  static const Duration _timeout = Duration(seconds: 12);
 
   String? _accessToken;
   String? _refreshToken;
+  String _deviceId = 'rider-device-default';
   Map<String, dynamic>? _riderUser;
+  Future<bool>? _refreshInFlight;
 
   String? get accessToken => _accessToken;
   String? get refreshToken => _refreshToken;
@@ -36,12 +48,49 @@ class ApiClient {
   static const _tokenKey = 'rider_access_token_v1';
   static const _refreshTokenKey = 'rider_refresh_token_v1';
   static const _userKey = 'rider_user_data_v1';
+  static const _deviceIdKey = 'rider_device_id_v1';
 
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    _accessToken = prefs.getString(_tokenKey);
-    _refreshToken = prefs.getString(_refreshTokenKey);
-    final userJson = prefs.getString(_userKey);
+    var devId = await _storage.read(key: _deviceIdKey);
+    var access = await _storage.read(key: _tokenKey);
+    var refresh = await _storage.read(key: _refreshTokenKey);
+    var userJson = await _storage.read(key: _userKey);
+
+    // Seamless one-time migration from legacy plaintext SharedPreferences.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (devId == null || devId.isEmpty) {
+        final legacyDev = prefs.getString(_deviceIdKey);
+        if (legacyDev != null && legacyDev.isNotEmpty) {
+          devId = legacyDev;
+          await _storage.write(key: _deviceIdKey, value: devId);
+        }
+      }
+      if ((access == null || access.isEmpty) && prefs.containsKey(_tokenKey)) {
+        access = prefs.getString(_tokenKey);
+        refresh = prefs.getString(_refreshTokenKey);
+        userJson = prefs.getString(_userKey);
+        if (access != null) await _storage.write(key: _tokenKey, value: access);
+        if (refresh != null) await _storage.write(key: _refreshTokenKey, value: refresh);
+        if (userJson != null) await _storage.write(key: _userKey, value: userJson);
+      }
+      await prefs.remove(_deviceIdKey);
+      await prefs.remove(_tokenKey);
+      await prefs.remove(_refreshTokenKey);
+      await prefs.remove(_userKey);
+    } catch (_) {
+      // Best-effort legacy cleanup; secure storage remains authoritative.
+    }
+
+    if (devId == null || devId.isEmpty) {
+      final rng = Random.secure();
+      final bytes = List<int>.generate(8, (_) => rng.nextInt(256));
+      devId = 'rider-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+      await _storage.write(key: _deviceIdKey, value: devId);
+    }
+    _deviceId = devId;
+    _accessToken = access;
+    _refreshToken = refresh;
     if (userJson != null) {
       try {
         _riderUser = jsonDecode(userJson) as Map<String, dynamic>;
@@ -55,55 +104,70 @@ class ApiClient {
     required String phone,
     required String name,
     required String code,
-    String deviceId = 'rider-device-default',
+    String? deviceId,
   }) async {
+    final effectiveDeviceId = deviceId ?? _deviceId;
     final url = Uri.parse('$baseUrl/v1/auth/rider/login');
-    final res = await _client.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'phone': phone.trim(),
-        'name': name.trim(),
-        // Vendor-issued sign-in code; the phone number alone is not enough.
-        'code': code.trim(),
-        'device': {'id': deviceId},
-      }),
-    );
+    final res = await _client
+        .post(
+          url,
+          headers: {'Content-Type': 'application/json', 'X-Device-Id': effectiveDeviceId},
+          body: jsonEncode({
+            'phone': phone.trim(),
+            'name': name.trim(),
+            // Vendor-issued sign-in code; the phone number alone is not enough.
+            'code': code.trim(),
+            'device': {'id': effectiveDeviceId},
+          }),
+        )
+        .timeout(_timeout);
 
     final data = _parseResponse(res);
     _accessToken = data['access_token'] as String?;
     _refreshToken = data['refresh_token'] as String?;
-    
+
     // Fetch profile
     final meRes = await getRiderMe();
     _riderUser = meRes;
 
-    final prefs = await SharedPreferences.getInstance();
     if (_accessToken != null) {
-      await prefs.setString(_tokenKey, _accessToken!);
+      await _storage.write(key: _tokenKey, value: _accessToken!);
     }
     if (_refreshToken != null) {
-      await prefs.setString(_refreshTokenKey, _refreshToken!);
+      await _storage.write(key: _refreshTokenKey, value: _refreshToken!);
     }
     if (_riderUser != null) {
-      await prefs.setString(_userKey, jsonEncode(_riderUser));
+      await _storage.write(key: _userKey, value: jsonEncode(_riderUser));
     }
 
     return data;
   }
 
-  Future<bool> refreshSession() async {
+  Future<bool> refreshSession() {
+    final inflight = _refreshInFlight;
+    if (inflight != null) return inflight;
+    final fut = _doRefreshSession();
+    _refreshInFlight = fut;
+    fut.whenComplete(() {
+      if (identical(_refreshInFlight, fut)) _refreshInFlight = null;
+    });
+    return fut;
+  }
+
+  Future<bool> _doRefreshSession() async {
     final ref = _refreshToken;
     if (ref == null || ref.isEmpty) return false;
     try {
-      final res = await _client.post(
-        Uri.parse('$baseUrl/v1/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'refresh_token': ref,
-          'device': {'id': 'rider-device-default'},
-        }),
-      );
+      final res = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/auth/refresh'),
+            headers: {'Content-Type': 'application/json', 'X-Device-Id': _deviceId},
+            body: jsonEncode({
+              'refresh_token': ref,
+              'device': {'id': _deviceId},
+            }),
+          )
+          .timeout(_timeout);
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         _accessToken = data['access_token'] as String?;
@@ -111,12 +175,11 @@ class ApiClient {
         if (rotated != null && rotated.isNotEmpty) {
           _refreshToken = rotated;
         }
-        final prefs = await SharedPreferences.getInstance();
         if (_accessToken != null) {
-          await prefs.setString(_tokenKey, _accessToken!);
+          await _storage.write(key: _tokenKey, value: _accessToken!);
         }
         if (_refreshToken != null) {
-          await prefs.setString(_refreshTokenKey, _refreshToken!);
+          await _storage.write(key: _refreshTokenKey, value: _refreshToken!);
         }
         return true;
       }
@@ -129,12 +192,16 @@ class ApiClient {
   Future<Map<String, dynamic>> _sendAuthed(
     Future<http.Response> Function(Map<String, String> headers) request,
   ) async {
-    var res = await request(_headers);
+    var res = await request(_headers).timeout(_timeout);
     if (res.statusCode == 401) {
       final refreshed = await refreshSession();
       if (refreshed) {
-        res = await request(_headers);
+        res = await request(_headers).timeout(_timeout);
       }
+    }
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      await logout();
+      onUnauthorized?.call();
     }
     return _parseResponse(res);
   }
@@ -217,14 +284,14 @@ class ApiClient {
     _accessToken = null;
     _refreshToken = null;
     _riderUser = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_refreshTokenKey);
-    await prefs.remove(_userKey);
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _refreshTokenKey);
+    await _storage.delete(key: _userKey);
   }
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
+        'X-Device-Id': _deviceId,
         if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
       };
 

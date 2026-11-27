@@ -143,18 +143,19 @@ class _RouteScreenState extends State<RouteScreen> {
         final repooled = res['repooled_stops'] ?? 0;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Stockout report kiya. $repooled stops repool ho gaye.')),
+            SnackBar(content: Text(vtr('स्टॉकआउट रिपोर्ट किया गया। $repooled स्टॉप वापस पूल में गए।', 'Stockout reported. $repooled stops repooled.'))),
           );
           widget.controller.load();
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Report fail ho gaya: $e')),
+            SnackBar(content: Text('Report failed: $e')),
           );
         }
       }
     }
+    reasonController.dispose();
   }
 
   @override
@@ -162,7 +163,7 @@ class _RouteScreenState extends State<RouteScreen> {
     final c = widget.controller;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aaj ka route'),
+        title: Text(vtr('आज का रूट', "Today's route")),
         actions: [
           if (widget.onOpenCustomers != null)
             IconButton(
@@ -302,8 +303,15 @@ class _RouteScreenState extends State<RouteScreen> {
       case RouteState.loaded:
         break;
     }
+    final pendingStops = c.stops
+        .where((s) => !s.isDone && !s.isFailed && !s.isCancelled)
+        .toList();
+    final deliveredStops = c.stops
+        .where((s) => s.isDone || s.isFailed || s.isCancelled)
+        .toList();
+
     return RefreshIndicator(
-      onRefresh: () => c.load(),
+      onRefresh: () => c.load(silent: true),
       child: CascadeScope(
         itemCount: c.stops.length + c.skipped.length,
         child: ListView(
@@ -362,8 +370,56 @@ class _RouteScreenState extends State<RouteScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            for (var i = 0; i < c.stops.length; i++)
-              CascadeItem(index: i, child: _stopCard(c.stops[i])),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Pending',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                Text(
+                  '${pendingStops.length}',
+                  style: const TextStyle(
+                      color: ShodashaTheme.muted, fontSize: 13),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            if (pendingStops.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'All pending stops completed for today',
+                  style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
+                ),
+              )
+            else
+              for (var i = 0; i < pendingStops.length; i++)
+                CascadeItem(index: i, child: _stopCard(pendingStops[i])),
+            if (deliveredStops.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Delivered',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                  Text(
+                    '${deliveredStops.length}',
+                    style: const TextStyle(
+                        color: ShodashaTheme.muted, fontSize: 13),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              for (var i = 0; i < deliveredStops.length; i++)
+                CascadeItem(
+                  index: pendingStops.length + i,
+                  child: _stopCard(deliveredStops[i]),
+                ),
+            ],
             if (c.skipped.isNotEmpty) ...[
               const SizedBox(height: 8),
               Row(
@@ -409,9 +465,9 @@ class _RouteScreenState extends State<RouteScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Aaj ka hisaab',
+              Text(vtr('आज का हिसाब', "Today's summary"),
                   style:
-                      TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               Text('${s.done}/${s.total}',
                   style: const TextStyle(
                       color: ShodashaTheme.muted, fontSize: 13)),
@@ -459,13 +515,13 @@ class _RouteScreenState extends State<RouteScreen> {
         child: ElevatedButton.icon(
           onPressed: () => widget.onOpenStop(first),
           icon: const Icon(Icons.inventory_2_outlined, size: 18),
-          label: Text('Triple: ${first.customerName}',
+          label: Text(vtr('डिलीवरी: ${first.customerName}', 'Deliver: ${first.customerName}'),
               maxLines: 1, overflow: TextOverflow.ellipsis),
         ),
       );
     }
-    return const Text('Sab stops done — badhai',
-        style: TextStyle(color: ShodashaTheme.success, fontSize: 13));
+    return Text(vtr('सभी स्टॉप पूरे हो गए', 'All stops completed'),
+        style: const TextStyle(color: ShodashaTheme.success, fontSize: 13));
   }
 
   /// 016 §3(c): inline money, display-only server paise. Shown only when
@@ -494,10 +550,10 @@ class _RouteScreenState extends State<RouteScreen> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                     color: ShodashaTheme.danger, fontSize: 12)),
-          const Text('Sirf jankari — payout admin clear ke baad.',
+          Text(vtr('एडमिन क्लियर करने के बाद पेआउट होगा', 'Payout is settled after admin verification'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: ShodashaTheme.muted, fontSize: 12)),
+              style: const TextStyle(color: ShodashaTheme.muted, fontSize: 12)),
         ],
       ),
     );
@@ -547,10 +603,11 @@ class _RouteScreenState extends State<RouteScreen> {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(ShodashaTheme.radius),
-          boxShadow: ShodashaTheme.subtleCardShadow,
         ),
         child: Material(
-          color: cancelled ? const Color(0xFFFFF5F5) : ShodashaTheme.bg,
+          color: cancelled
+              ? ShodashaTheme.danger.withValues(alpha: 0.06)
+              : ShodashaTheme.bg,
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
             side: BorderSide(

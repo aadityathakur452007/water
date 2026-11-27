@@ -3,6 +3,7 @@
 // WhatsApp support + logout (own device only, server best-effort).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart' show kSupportPhone, ApiClient;
@@ -204,18 +205,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Chutti request bhej di gayi hai! Admin review karega.')),
+            SnackBar(content: Text(vtr('छुट्टी का अनुरोध भेज दिया गया है।', 'Leave request sent for admin review.'))),
           );
           _loadLeaves();
         }
       } catch (err) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Request fail hui: $err')),
+            SnackBar(content: Text('Request failed: $err')),
           );
         }
       }
     }
+    reasonCtrl.dispose();
   }
 
   Future<void> _whatsapp() async {
@@ -227,6 +229,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _saveProfile() async {
     final saver = widget.profileSaver;
     if (saver == null || _saving) return;
+    final rawPhone = _phone.text.replaceAll(RegExp(r'\D'), '');
+    if (rawPhone.isNotEmpty && !RegExp(r'^[6-9]\d{9}$').hasMatch(rawPhone)) {
+      setState(() => _profileNotice = vtr('सही 10 अंकों का मोबाइल नंबर दर्ज करें', 'Enter a valid 10-digit mobile number'));
+      return;
+    }
     setState(() {
       _saving = true;
       _profileNotice = null;
@@ -234,18 +241,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final saved = await saver({
         'name': _name.text.trim(),
-        'phone': _phone.text.trim(),
+        'phone': rawPhone,
         'address': _address.text.trim(),
         'hours': _hours.text.trim(),
       });
       if (!mounted) return;
       setState(() {
         _profile = saved;
-        _profileNotice = 'Synced — doosre device par dikhega';
+        _profileNotice = vtr('प्रोफ़ाइल सहेजी गई', 'Profile saved');
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _profileNotice = 'Save nahi hua — dobara try karein');
+      setState(() => _profileNotice = vtr('सहेजा नहीं जा सका — फिर से प्रयास करें', 'Could not save — please try again'));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -360,29 +367,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('Dukaan profile (server par synced)',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  Text(vtr('दुकान प्रोफ़ाइल', 'Shop profile'),
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
                   TextField(
                       controller: _name,
                       decoration:
-                          const InputDecoration(labelText: 'Naam')),
+                          InputDecoration(labelText: vtr('नाम', 'Name'))),
                   TextField(
                       controller: _phone,
                       keyboardType: TextInputType.phone,
-                      decoration:
-                          const InputDecoration(labelText: 'Phone')),
+                      maxLength: 10,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10),
+                      ],
+                      decoration: InputDecoration(
+                          labelText: vtr('फ़ोन', 'Phone'),
+                          counterText: '')),
                   TextField(
                       controller: _address,
                       decoration:
-                          const InputDecoration(labelText: 'Pata')),
+                          InputDecoration(labelText: vtr('पता', 'Address'))),
                   TextField(
                       controller: _hours,
-                      decoration: const InputDecoration(
-                          labelText: 'Hours (jaise 8-8)')),
+                      decoration: InputDecoration(
+                          labelText: vtr('समय (जैसे 8 AM - 8 PM)', 'Hours (e.g. 8 AM - 8 PM)'))),
                   const SizedBox(height: AppSpacing.md),
                   AppButton(
-                    label: 'Save karein',
+                    label: vtr('सहेजें', 'Save'),
                     kind: AppButtonKind.primary,
                     busy: _saving,
                     onPressed: _saving ? null : _saveProfile,
@@ -451,10 +464,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       final status = (item['status'] ?? 'pending').toString();
                       final color = status == 'approved'
                           ? ShodashaTheme.success
-                          : (status == 'rejected' ? ShodashaTheme.danger : Colors.orange);
+                          : (status == 'rejected' ? ShodashaTheme.danger : ShodashaTheme.warning);
                       final label = status == 'approved'
-                          ? 'Manzoor (Approved)'
-                          : (status == 'rejected' ? 'Radd (Rejected)' : 'Under Review');
+                          ? vtr('मंज़ूर', 'Approved')
+                          : (status == 'rejected' ? vtr('रद्द', 'Rejected') : vtr('समीक्षा में', 'Under Review'));
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(10),

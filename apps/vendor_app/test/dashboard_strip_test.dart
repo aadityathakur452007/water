@@ -121,12 +121,12 @@ void main() {
     await tester.pump();
 
     // §3(a): banner strip with split (paid-excluded, computed truth).
-    expect(find.text('Aaj ka hisaab'), findsOneWidget);
+    expect(find.text("Today's summary"), findsOneWidget);
     expect(find.textContaining('1 grahak · 2 jars'), findsOneWidget);
     expect(find.textContaining('Collect Rs 86 (UPI Rs 0'), findsOneWidget);
     expect(find.textContaining('COD Rs 86'), findsOneWidget);
-    // One CTA: first pending stop → Triple (no sync backlog).
-    expect(find.textContaining('Triple:'), findsOneWidget);
+    // One CTA: first pending stop → Deliver (no sync backlog).
+    expect(find.textContaining('Deliver:'), findsOneWidget);
     // §3(c): inline display-only money from earnings.
     expect(find.textContaining('Jama Rs 86'), findsOneWidget);
     // §3(d): ledger row only for nonzero held/dues.

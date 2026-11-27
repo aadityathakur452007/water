@@ -77,7 +77,7 @@ void main() {
 
     expect(find.byType(AppButton), findsNWidgets(2));
     expect(find.text('Login karein'), findsOneWidget);
-    expect(find.text('Admin WhatsApp Support: 7828442476'), findsOneWidget);
+    expect(find.text('Admin WhatsApp Support: $kSupportPhone'), findsOneWidget);
 
     controller.dispose();
   });
@@ -126,7 +126,7 @@ void main() {
 
     // Verify AppButtons on ProfileScreen
     expect(find.byType(AppButton), findsWidgets);
-    expect(find.text('Save karein'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
     expect(find.text('Nayi Chutti Request Karein'), findsOneWidget);
     expect(find.text('WhatsApp help ($kSupportPhone)'), findsOneWidget);
     expect(find.text('Logout'), findsOneWidget);

@@ -21,15 +21,19 @@ class StopDetailScreen extends StatefulWidget {
     required this.controller,
     required this.stopId,
     required this.stopLabel,
+    this.jarsHeld,
     this.outbox,
+    this.onCompleted,
   });
 
   final StopsController controller;
   final String stopId;
   final String stopLabel;
+  final int? jarsHeld;
 
   /// Offline outbox (F2 cash ride + offline triple queue).
   final SyncController? outbox;
+  final VoidCallback? onCompleted;
 
   @override
   State<StopDetailScreen> createState() => _StopDetailScreenState();
@@ -44,7 +48,17 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final notice = widget.controller.notice;
+    if (notice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(notice)));
+        widget.controller.clearNotice();
+      });
+    }
+    setState(() {});
   }
 
   @override
@@ -205,7 +219,7 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                     otp,
                     style: const TextStyle(
                       fontSize: 32,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: 8,
                       color: ShodashaTheme.blue,
                     ),
@@ -354,13 +368,6 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
             .where((e) => e.isNotEmpty && e != '0')
             .join(' • ')
         : '';
-    if (c.notice != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(c.notice!)));
-        c.clearNotice();
-      });
-    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -601,10 +608,12 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                         stopId: widget.stopId,
                         fullsExp: fullsExp,
                         emptiesExp: emptiesExp,
+                        jarsHeld: widget.jarsHeld ?? held,
                         outbox: widget.outbox,
                         collectPaise: remainingPaise,
                         paymentMode: paymentMode,
                         tripleAlreadyDone: tripleDone,
+                        onCompleted: widget.onCompleted,
                       ),
                     ),
           ),

@@ -158,6 +158,7 @@ class AuthController extends ChangeNotifier {
   bool _disposed = false;
   DateTime? _rateLimitUntil;
   int _rateLimitStrikes = 0;
+  Future<bool>? _refreshInFlight;
 
   AuthStatus get status => _status;
   String? get errorMessage => _errorMessage;
@@ -301,11 +302,22 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
-  /// Phase 5 §5.1: silent renew with the stored refresh token. Returns true
-  /// when the rotated pair is saved (caller retries the failed request
-  /// once); false on any failure — status untouched, the caller force-
-  /// logouts with the honest cap copy. Never throws.
-  Future<bool> refreshSession() async {
+  /// Phase 5 §5.1: silent renew with the stored refresh token. Single-flight
+  /// deduplicated so concurrent 401s or lifecycle resume never race two
+  /// rotations with the same refresh token (which would trigger burned-token
+  /// family revocation on the backend). Never throws.
+  Future<bool> refreshSession() {
+    final inflight = _refreshInFlight;
+    if (inflight != null) return inflight;
+    final fut = _doRefreshSession();
+    _refreshInFlight = fut;
+    fut.whenComplete(() {
+      if (identical(_refreshInFlight, fut)) _refreshInFlight = null;
+    });
+    return fut;
+  }
+
+  Future<bool> _doRefreshSession() async {
     final refresh = await _store.readRefreshToken();
     if (refresh == null || refresh.isEmpty) return false;
     try {

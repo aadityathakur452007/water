@@ -14,8 +14,7 @@ import '../../shared/ui/app_card.dart';
 import '../../shared/ui/app_icon_button.dart';
 import '../../shared/ui/app_state_view.dart';
 import '../../shared/ui/section_header.dart';
-import '../returns/return_sheet.dart';
-import '../returns/returns_controller.dart';
+import '../returns/return_sheet.dart' show ReturnAddressPicker;
 import 'payment_history_screen.dart';
 import 'wallet_controller.dart';
 
@@ -106,30 +105,6 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
         _paymentsLoading = false;
       });
     }
-  }
-
-  Future<void> _openReturnSheet() async {
-    final held = _controller.ledger?.heldJars ?? 0;
-    if (held <= 0) return;
-    final request = await showModalBottomSheet<ReturnRequest>(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: ShodashaTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(ShodashaTheme.radiusSheet),
-        ),
-      ),
-      builder: (_) => ReturnSheet(
-        api: widget.api,
-        pickAddress: widget.pickAddress,
-        heldJars: held,
-      ),
-    );
-    if (!mounted || request == null) return;
-    await _load();
   }
 
   Future<void> _openPayments() async {
@@ -239,27 +214,6 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                     subtitle: 'UPI and cash receipts, plus deposit refunds',
                     onTap: _openPayments,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  if (ledger.heldJars > 0)
-                    _actionTile(
-                      icon: Icons.recycling_outlined,
-                      color: ShodashaTheme.tealDeep,
-                      title: 'Return empty jars',
-                      subtitle:
-                          '${ledger.heldJars} ${ledger.heldJars == 1 ? 'jar' : 'jars'} '
-                          'ready — request a pickup and refund',
-                      onTap: _openReturnSheet,
-                    )
-                  else
-                    _actionTile(
-                      icon: Icons.recycling_outlined,
-                      color: ShodashaTheme.muted,
-                      title: 'Return empty jars',
-                      subtitle:
-                          '0 jars in custody · Pickup unlocks when you have empty jars',
-                      onTap: () {},
-                      disabled: true,
-                    ),
                   SectionHeader(
                     title: 'Recent receipts',
                     trailing: _payments.isEmpty

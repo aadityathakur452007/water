@@ -27,6 +27,15 @@ class _RiderAppState extends State<RiderApp> {
   void initState() {
     super.initState();
     _isAuthenticated = widget.api.isAuthenticated;
+    widget.api.onUnauthorized = _onLogout;
+  }
+
+  @override
+  void dispose() {
+    if (widget.api.onUnauthorized == _onLogout) {
+      widget.api.onUnauthorized = null;
+    }
+    super.dispose();
   }
 
   void _onLoginSuccess() {

@@ -238,7 +238,16 @@ class SyncController extends ChangeNotifier {
         }
       }
 
-      _rejected = newRejected;
+      // Preserve previously quarantined rejections (and their cash_warning)
+      // until the vendor explicitly dismisses them; newer rejections for the
+      // same stop_id replace older ones.
+      final mergedRejected = <String, Map<String, dynamic>>{
+        for (final prev in _rejected)
+          (prev['stop_id'] ?? '').toString(): prev,
+        for (final item in newRejected)
+          (item['stop_id'] ?? '').toString(): item,
+      };
+      _rejected = mergedRejected.values.toList();
       // Succeeded items leave the queue. Terminal rejections are quarantined
       // (dropped from active queue to avoid infinite retry loops) and surfaced in _rejected.
       _queue = _queue

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -90,7 +91,7 @@ class _RidersScreenState extends State<RidersScreen> {
                         vtr('नया राइडर जोड़ें', 'Add Delivery Rider'),
                         style: const TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: ShodashaTheme.ink,
                         ),
                       ),
@@ -103,8 +104,8 @@ class _RidersScreenState extends State<RidersScreen> {
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     vtr(
-                      'राइडर अपने मोबाइल नंबर से सीधे राइडर ऐप में लॉगिन करेगा।',
-                      'Rider logs in to the Rider App using this mobile number — no password needed.',
+                      'राइडर इस मोबाइल नंबर और 6-अंकीय कोड से राइडर ऐप में लॉगिन करेगा।',
+                      'Rider logs in to the Rider App using this mobile number and the 6-digit sign-in code.',
                     ),
                     style: const TextStyle(
                       fontSize: 12.5,
@@ -132,12 +133,18 @@ class _RidersScreenState extends State<RidersScreen> {
                   TextField(
                     controller: phoneCtrl,
                     keyboardType: TextInputType.phone,
+                    maxLength: 10,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(10),
+                    ],
                     decoration: InputDecoration(
                       labelText: vtr(
                         'मोबाइल नंबर (10 अंक)',
                         'Mobile Number (10 digits)',
                       ),
                       hintText: 'e.g. 9876543210',
+                      counterText: '',
                       prefixText: '+91 ',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(
@@ -182,10 +189,10 @@ class _RidersScreenState extends State<RidersScreen> {
                               );
                               return;
                             }
-                            if (phone.length < 10) {
+                            if (!RegExp(r'^[6-9]\d{9}$').hasMatch(phone)) {
                               setModalState(
                                 () => formError =
-                                    'Enter a valid 10-digit phone number',
+                                    'Enter a valid 10-digit phone number (starting 6–9)',
                               );
                               return;
                             }
@@ -228,7 +235,10 @@ class _RidersScreenState extends State<RidersScreen> {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      nameCtrl.dispose();
+      phoneCtrl.dispose();
+    });
   }
 
   /// Shows a freshly issued sign-in code. It is returned only once, so this
@@ -253,7 +263,7 @@ class _RidersScreenState extends State<RidersScreen> {
               code,
               style: const TextStyle(
                 fontSize: 26,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
                 letterSpacing: 6,
               ),
             ),
@@ -424,7 +434,7 @@ class _RidersScreenState extends State<RidersScreen> {
                             const SizedBox(height: 2),
                             Text(
                               vtr(
-                                'राइडर शोडष राइडर ऐप में अपना रजिस्टर्ड मोबाइल नंबर और साइन-इन कोड डालकर लॉगिन करते हैं। कोड भूल जाने पर यहाँ की चाबी (🔑) से नया कोड बनाएँ।',
+                                'राइडर शोडष राइडर ऐप में अपना रजिस्टर्ड मोबाइल नंबर और साइन-इन कोड डालकर लॉगिन करते हैं। कोड भूल जाने पर यहाँ Key आइकन से नया कोड बनाएँ।',
                                 'Riders log in to the Shodasha Rider App with their registered mobile number and a sign-in code. Use the key icon to issue a new code if it is lost.',
                               ),
                               style: const TextStyle(
@@ -450,12 +460,11 @@ class _RidersScreenState extends State<RidersScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'REGISTERED RIDERS (${_riders.length})',
+                        vtr('पंजीकृत राइडर (${_riders.length})', 'Registered riders (${_riders.length})'),
                         style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                           color: ShodashaTheme.muted,
-                          letterSpacing: 0.6,
                         ),
                       ),
                       TextButton.icon(
@@ -603,15 +612,6 @@ class _RidersScreenState extends State<RidersScreen> {
                   }),
               ],
             ),
-      floatingActionButton: _riders.isNotEmpty
-          ? FloatingActionButton.extended(
-              onPressed: _openAddRiderDialog,
-              backgroundColor: ShodashaTheme.ink,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add),
-              label: Text(vtr('राइडर जोड़ें', 'Add Rider')),
-            )
-          : null,
     );
   }
 }

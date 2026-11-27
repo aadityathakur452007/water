@@ -47,12 +47,9 @@ void main() {
     // Verify empty custody title is rendered
     expect(find.text('No jars with you yet'), findsOneWidget);
 
-    // Verify consistent "Return empty jars" action tile is present and disabled
-    expect(find.text('Return empty jars'), findsOneWidget);
-    expect(
-      find.text('0 jars in custody · Pickup unlocks when you have empty jars'),
-      findsOneWidget,
-    );
+    // Verify standalone "Return empty jars" tile is removed (riders collect empties on delivery)
+    expect(find.text('Return empty jars'), findsNothing);
+    expect(find.text('Payments & deposits'), findsOneWidget);
   });
 
   testWidgets('active custody deduplicates jars count and shows dues action with Plans context', (tester) async {

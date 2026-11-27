@@ -17,7 +17,6 @@ import '../addresses/address_screen.dart';
 import '../booking/booking_controller.dart';
 import '../orders/orders_controller.dart';
 import 'widgets/featured_products.dart';
-import 'widgets/live_purity_card.dart';
 import 'widgets/mode_selection_cards.dart';
 import 'widgets/top_bar.dart';
 
@@ -69,13 +68,6 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
         if (mounted) widget.booking.refreshRates();
       });
     }
-  }
-
-  String get _greeting {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
   }
 
   @override
@@ -138,10 +130,10 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  '$_greeting,',
-                                  style: const TextStyle(
-                                    fontSize: 14,
+                                const Text(
+                                  '20L RO + UV delivery',
+                                  style: TextStyle(
+                                    fontSize: 13,
                                     color: ShodashaTheme.muted,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -267,8 +259,6 @@ class _DonorHomeTabState extends State<DonorHomeTab> {
                         onOrder: widget.onOrderProduct,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.sm),
-                    const LivePurityCard(),
                     const SizedBox(height: AppSpacing.md),
                     Padding(
                       padding: const EdgeInsets.symmetric(

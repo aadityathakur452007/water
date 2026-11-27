@@ -55,6 +55,10 @@ class PodIn(BaseModel):
     seal_ok: bool | None = None
     lat: float | None = None
     lng: float | None = None
+    fulls_given: int | None = Field(ge=0, default=None)
+    damaged_empties: int = Field(ge=0, default=0)
+    caps_missing: int = Field(ge=0, default=0)
+    empty_condition: str | None = None
 
 
 class SyncIn(BaseModel):

@@ -545,11 +545,17 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
               TextField(
                 controller: _phone,
                 keyboardType: TextInputType.phone,
+                maxLength: 10,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ],
                 textInputAction: TextInputAction.done,
                 style: const TextStyle(fontSize: 15),
                 decoration: InputDecoration(
                   labelText: addressStrings['phone'],
-                  hintText: 'Optional contact number for delivery rider',
+                  hintText: 'Optional 10-digit contact number',
+                  counterText: '',
                   prefixIcon: const Icon(Icons.phone_outlined, size: 20),
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 14),

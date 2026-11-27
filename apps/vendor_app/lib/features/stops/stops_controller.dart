@@ -75,6 +75,10 @@ Map<String, dynamic> buildPodBody({
   bool sealOk = true,
   double? lat,
   double? lng,
+  int? fullsGiven,
+  int? damagedEmpties,
+  int? capsMissing,
+  String? emptyCondition,
 }) {
   final body = <String, dynamic>{
     'delivery_otp': deliveryOtp,
@@ -84,6 +88,16 @@ Map<String, dynamic> buildPodBody({
   };
   if (lat != null) body['lat'] = lat;
   if (lng != null) body['lng'] = lng;
+  if (fullsGiven != null) body['fulls_given'] = fullsGiven;
+  if (damagedEmpties != null && damagedEmpties > 0) {
+    body['damaged_empties'] = damagedEmpties;
+  }
+  if (capsMissing != null && capsMissing > 0) {
+    body['caps_missing'] = capsMissing;
+  }
+  if (emptyCondition != null && emptyCondition.isNotEmpty) {
+    body['empty_condition'] = emptyCondition;
+  }
   return body;
 }
 
@@ -180,6 +194,10 @@ class StopsController extends ChangeNotifier {
     bool sealOk = true,
     double? lat,
     double? lng,
+    int? fullsGiven,
+    int? damagedEmpties,
+    int? capsMissing,
+    String? emptyCondition,
   }) async {
     _submitting = true;
     _notice = null;
@@ -192,6 +210,10 @@ class StopsController extends ChangeNotifier {
         sealOk: sealOk,
         lat: lat,
         lng: lng,
+        fullsGiven: fullsGiven,
+        damagedEmpties: damagedEmpties,
+        capsMissing: capsMissing,
+        emptyCondition: emptyCondition,
       );
       final raw = await _api.postPod(
         stopId: stopId,

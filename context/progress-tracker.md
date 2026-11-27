@@ -4,6 +4,53 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**FULL-STACK AUDIT, DEAD-CODE CLEANUP, SYNC & INPUT HARDENING (2026-11-27, ADR-229):** on `main`
+- **1. Critical Backend & Cross-App Sync Fixes (`workers/api`, `apps/vendor_app`, `apps/rider_app`):**
+  - Added `fulls_given`, `damaged_empties`, `caps_missing`, and `empty_condition` to `PodIn` in `workers/api/src/app/api/v1/vendor.py` so `VendorService.pod_complete()` actually receives atomic handover fields instead of Pydantic stripping them.
+  - Fixed `RiderService.routes_today()` `is_paid` check to recognize `paid_upi` and `paid_cash` alongside `paid`, preventing double cash prompts on already-paid orders; aligned `PodSheet` monthly-bill label with `max(order_amt, dues_paise)`.
+  - Fixed `SyncController.syncNow()` in `apps/vendor_app` to merge and preserve prior quarantined `_rejected` cash custody warnings until explicitly dismissed.
+- **2. Rider Secure Storage, Auth Redirect & Input Validation (`apps/rider_app`, `apps/vendor_app`, `apps/user_app_donor`):**
+  - Migrated `rider_app` `ApiClient` from plaintext `SharedPreferences` to `FlutterSecureStorage` with seamless one-time legacy migration in `init()`, added `X-Device-Id` header, 12s HTTP timeouts, and `onUnauthorized` logout redirect wired in `main.dart`.
+  - Enforced `FilteringTextInputFormatter.digitsOnly`, `LengthLimitingTextInputFormatter(10)`, and `^[6-9]\d{9}$` validation across all phone inputs (`riders_screen.dart`, `profile_screen.dart`, `rider_app/login_screen.dart`, `address_form_sheet.dart`) and `digitsOnly` on Rider OTP inputs.
+  - Unified `vendor_code_screen.dart` to use `kSupportPhone` (`+91 93021 90067`) instead of hardcoded `7828442476`, and disposed leaked dialog/sheet `TextEditingController`s.
+- **3. Dead-Code Deletion & UI Unslop (`apps/user_app_donor`, `apps/vendor_app`, `apps/rider_app`):**
+  - Deleted unused `location_service.dart`, `product_detail_sheet.dart`, `first_run_sheet.dart` (+ test), `shared_ui.dart`, and static `live_purity_card.dart` (unmounted from `customer_home_screen.dart`; `notifications_screen.dart` left untouched per user instruction).
+  - Removed dead `UPI (Upcoming)` field in `HandoverSheet`, duplicate `Add Rider` FAB in `riders_screen.dart`, false `"no password needed"` copy, `w800`/`w900` weights, and ad-hoc Hinglish in favor of `vtr()` English/Hindi.
+
+## Previous Phases
+
+**ATOMIC VENDOR POD, CROSS-APP DUES SYNC, WORKER POLLING REDUCTION & RIDER DEVICE ID (2026-11-27, ADR-228):** on `main`
+- **1. Atomic Vendor PoD + Triple Handover (`workers/api`, `apps/vendor_app`):**
+  - Updated `VendorService.pod_complete()` to accept atomic handover fields (`fulls_given`, `damaged_empties`, `caps_missing`, `empty_condition`) and clear `ledger.dues` when `cash_paise > 0`.
+  - Updated `HandoverSheet._submitHandover()` and `StopsController.completePod()` to send one atomic PoD request when online, eliminating half-done states (`stops.status = 'done'` when Step 2 OTP fails) and cutting handover Worker calls in half.
+- **2. Worker & D1 Polling Load Reduction (`apps/vendor_app`, `apps/rider_app`, `apps/user_app_donor`):**
+  - Increased `RouteController.startDiscovery` and `Rider` `DeliveryScreen` polling intervals from 15s to 45s (67% fewer idle Worker/D1 reads).
+  - Updated `DonorShell` background polling from 20s to 60s and gated it to only run when the customer has an active/in-flight order (~95% idle Worker read reduction).
+- **3. Rider Per-Install Device ID & Remaining Unslop (`apps/rider_app`, `apps/user_app_donor`):**
+  - Generated and persisted a per-install random `rider_device_id_v1` in `Rider` `ApiClient.init()` instead of `'rider-device-default'`.
+  - Replaced hardcoded hex colors and decorative floating droplets in `login_screen.dart` with `ShodashaTheme` tokens; cleaned up `delivery_screen.dart` cancelled banner copy.
+
+## Previous Phases
+
+**ECOSYSTEM FLOWS, SESSION PERSISTENCE, HANDOVER BOUNDS & MOBILE UNSLOP (2026-11-27, ADR-227):** on `main`
+- **1. Single-Flight Session Refresh (`apps/vendor_app`, `apps/rider_app`):**
+  - Deduplicated `refreshSession()` with an in-flight `Future<bool>? _refreshInFlight` lock in `vendor_app` `AuthController` and `rider_app` `ApiClient`, and awaited expired-token refresh before firing `duty.load()` / `route.load()` on `AppLifecycleState.resumed` in `vendor_shell.dart`. Eliminates concurrent refresh-token rotation races that triggered burned-token family revocation and auto-logout.
+- **2. Vendor Route Silent Refresh, Pending/Delivered Sections & Handover Bounds (`apps/vendor_app`, `workers/api`):**
+  - Added `load({bool silent = false})` in `RouteController` so 15s discovery polling and lifecycle resume refresh silently without flashing skeleton loaders.
+  - Split `RouteScreen` into explicit `Pending` and `Delivered` sections.
+  - Exposed `jars_held` and `max_empties` in `VendorService.today_route()`, enforced `damaged_empties <= empties_back` and `caps_missing <= empties_back` in `triple_commit()`, bounded `HandoverSheet` steppers (`fulls` <= `fullsExp`, `empties` <= `min(fullsExp, jarsHeld)`, `damaged`/`caps` hidden when `empties == 0`), and surfaced all handover/PoD errors inline inside `HandoverSheet` instead of behind-sheet SnackBars.
+- **3. Rider Extra-Jar & Empty-Jar Clarity (`workers/api`, `apps/rider_app`):**
+  - Scoped `is_subscription` in `RiderService.routes_today()` to actual subscription orders (`sub:` / `:sub:` idempotency key) so extra single-jar COD orders by subscribers collect COD cash instead of showing `Monthly Plan (₹0 Cash)`.
+  - Surfaced `jars_held` and itemized `Order + Bill` copy in `PodSheet`.
+- **4. User App Friction Removal (`apps/user_app_donor`):**
+  - Removed required UPI ID input from `_CancelSheet` (`subscription_sheets.dart`).
+  - Persisted `shodasha.damage_agreement_v1` in `SharedPreferences` (`booking_sheet.dart`, `plan_builder_sheet.dart`) so the ₹650 agreement checkbox is only required once.
+  - Removed the redundant `Return empty jars` action tile from `donor_wallet_screen.dart` (riders collect empty jars on delivery).
+- **5. Mobile UI Unslop (`apps/vendor_app`, `apps/rider_app`, `apps/user_app_donor`):**
+  - Removed uppercase tracked labels, UI emojis (`🔑`), exclamation marks, greeting headline slop, flat-list card shadows, and hardcoded hex colors in favour of theme tokens.
+
+## Previous Phases
+
 **WALLET EMPTY-JAR LEDGER SYNC & VENDOR INVENTORY IMPLICIT STATES (2026-11-26, ADR-226):** on `main`
 - **1. PoD Jar Custody Sync (`workers/api/src/app/services/vendor/routes.py`):**
   - Updated `pod_complete()` to apply `d_held = fulls_exp - empties_count` (clamped `>= -cur_held`, skipped if `triple_commit` already ran) to `ledger.held`, ensuring Customer Wallet and Rider empty-jar limits reflect OTP deliveries.

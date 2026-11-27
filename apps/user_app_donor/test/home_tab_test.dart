@@ -81,11 +81,7 @@ void main() {
       );
       expect(find.text('Includes ₹150 refundable jar deposit'), findsOneWidget);
 
-      // 4. Scroll down to verify Purity Card updated copy
-      await tester.scrollUntilVisible(find.text('On WhatsApp'), 200);
-      expect(find.text('On WhatsApp'), findsOneWidget);
-
-      // 5. Scroll down to verify Support Card updated copy
+      // 4. Scroll down to verify Support Card updated copy
       await tester.scrollUntilVisible(
         find.text('Call or WhatsApp Bhopal support directly'),
         200,

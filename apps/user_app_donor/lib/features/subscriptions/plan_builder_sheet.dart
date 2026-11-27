@@ -16,8 +16,11 @@
 // States.md: addresses/estimate loading (skeleton/bar) → error + retry; submit
 // pending → server error copy or success pop; no amount is ever computed here.
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
@@ -75,6 +78,8 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   String _billing = 'per_delivery';
   String _payment = 'cod';
   bool _agreedToDamage = false;
+  bool _alreadyAcceptedDamage = false;
+  static const _damagePrefKey = 'shodasha.damage_agreement_v1';
 
   /// Regenerated whenever the payload changes so a retry of the same payload
   /// replays, and a changed payload never hits PAYLOAD_MISMATCH (legacy
@@ -109,10 +114,23 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   @override
   void initState() {
     super.initState();
+    _loadDamageAcceptance();
     if (!_signedOut) {
       _loadAddresses();
       _refreshEstimate();
     }
+  }
+
+  Future<void> _loadDamageAcceptance() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_damagePrefKey) == true && mounted) {
+        setState(() {
+          _agreedToDamage = true;
+          _alreadyAcceptedDamage = true;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadAddresses() async {
@@ -260,6 +278,11 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
         idempotencyKey: _idemKey,
       );
       if (!mounted) return;
+      unawaited(
+        SharedPreferences.getInstance()
+            .then((prefs) => prefs.setBool(_damagePrefKey, true))
+            .catchError((_) => false),
+      );
       Navigator.of(context).pop(res);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -862,6 +885,12 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
   );
 
   Widget _damageAgreementCard() {
+    if (_alreadyAcceptedDamage) {
+      return const Text(
+        'Reusable 20L jar terms accepted (₹650 replacement if damaged/lost).',
+        style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(

@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -163,6 +164,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   bool _allowPop = false;
   bool _confirmingLeave = false;
   bool _agreedToDamage = false;
+  bool _alreadyAcceptedDamage = false;
+  static const _damagePrefKey = 'shodasha.damage_agreement_v1';
 
   BookingController get c => widget.controller;
   bool get _isOnce => c.deliveryType == DeliveryType.once;
@@ -179,6 +182,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     super.initState();
     c.paymentMode = PaymentMode.cod;
     c.addListener(_onChange);
+    _loadDamageAcceptance();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_isOnce) {
@@ -415,6 +419,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     // A placed row is only ever paid through _recoverPayment/_switchToCod.
     if (_placed != null) return;
     if (!_canPay(_phase == _Phase.paying)) return;
+    _saveDamageAcceptance();
     setState(() {
       _phase = _Phase.paying;
       _error = '';
@@ -1556,7 +1561,35 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     );
   }
 
+  Future<void> _loadDamageAcceptance() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_damagePrefKey) == true && mounted) {
+        setState(() {
+          _agreedToDamage = true;
+          _alreadyAcceptedDamage = true;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveDamageAcceptance() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_damagePrefKey, true);
+    } catch (_) {}
+  }
+
   Widget _damageAgreementCard(bool busy) {
+    if (_alreadyAcceptedDamage) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 10),
+        child: Text(
+          'Reusable 20L jar terms accepted (₹650 replacement if damaged/lost).',
+          style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
+        ),
+      );
+    }
     return Container(
       margin: const EdgeInsets.only(top: 14),
       padding: const EdgeInsets.all(12),

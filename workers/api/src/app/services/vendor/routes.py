@@ -94,6 +94,8 @@ class VendorRoutesMixin:
                 except Exception:
                     pass
             held = int(held_by_customer.get(s.get("customer_id"), 0))
+            s["jars_held"] = held
+            s["max_empties"] = min(int(s.get("fulls_exp") or 0), max(0, held))
             s["hold_blocked"] = held > HOLD_BLOCK_LIMIT
             if s["hold_blocked"]:
                 s["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
@@ -202,6 +204,16 @@ class VendorRoutesMixin:
                     details={"stop_id": stop_id, "expected": stop["version"], "got": version},
                 )
             damaged_empties = int(payload.get("damaged_empties") or 0)
+            if damaged_empties < 0 or damaged_empties > core["empties_back"]:
+                raise ValidationError(
+                    message="Damaged jars cannot exceed empty jars returned.",
+                    details={"damaged_empties": damaged_empties, "empties_back": core["empties_back"]},
+                )
+            if core["caps_missing"] > core["empties_back"]:
+                raise ValidationError(
+                    message="Missing caps cannot exceed empty jars returned.",
+                    details={"caps_missing": core["caps_missing"], "empties_back": core["empties_back"]},
+                )
             empty_cond = str(payload.get("empty_condition") or "ok").lower()
             usable_empties = max(0, core["empties_back"] - damaged_empties)
             try:
@@ -428,6 +440,34 @@ class VendorRoutesMixin:
                 current["pod"] = {k: v for k, v in pod.items() if v is not None}
                 if cash_paise > 0 and not current.get("cash"):
                     current["cash"] = cash_paise
+
+                # Atomic handover fields when submitted directly in PoD (single-request handover)
+                has_atomic_handover = "fulls_given" in payload and "fulls_given" not in current
+                fulls_given = max(0, int(payload.get("fulls_given") or fresh.get("fulls_exp") or 0))
+                empties_ret = max(0, int(payload.get("empties_count") or 0))
+                damaged_empties = max(0, int(payload.get("damaged_empties") or 0))
+                caps_missing = max(0, int(payload.get("caps_missing") or 0))
+                empty_cond = str(payload.get("empty_condition") or "ok").lower()
+                if has_atomic_handover:
+                    if damaged_empties > empties_ret:
+                        raise ValidationError(
+                            message="Damaged jars cannot exceed empty jars returned.",
+                            details={"damaged_empties": damaged_empties, "empties_back": empties_ret},
+                        )
+                    if caps_missing > empties_ret:
+                        raise ValidationError(
+                            message="Missing caps cannot exceed empty jars returned.",
+                            details={"caps_missing": caps_missing, "empties_back": empties_ret},
+                        )
+                    current["fulls_given"] = fulls_given
+                    current["empties_back"] = empties_ret
+                    if caps_missing > 0:
+                        current["caps_missing"] = caps_missing
+                    if damaged_empties > 0:
+                        current["damaged_empties"] = damaged_empties
+                    if empty_cond != "ok":
+                        current["empty_condition"] = empty_cond
+
                 stop_cols = await stop_columns(self._conn)
                 sets = ["triple = ?", "status = 'done'", "synced_at = ?"]
                 for name in ("pod_otp", "pod_otp_expires_at", "pod_attempts"):
@@ -451,16 +491,15 @@ class VendorRoutesMixin:
                         )
                     except (ConflictError, OverpayError):
                         pass
-                # Sync customer jar custody (held) on PoD completion if triple_commit
-                # did not already apply it for this stop.
+                # Sync customer jar custody (held) and clear dues on PoD completion
                 cust_id = fresh.get("customer_id")
-                if cust_id and "fulls_given" not in current:
+                if cust_id and (has_atomic_handover or "fulls_given" not in current):
                     try:
-                        fulls_deliv = max(0, int(fresh.get("fulls_exp") or 1))
-                        empties_ret = max(0, int(payload.get("empties_count") or 0))
-                        d_held = fulls_deliv - empties_ret
+                        fulls_deliv = fulls_given if has_atomic_handover else max(0, int(fresh.get("fulls_exp") or 1))
+                        usable_empties = max(0, empties_ret - damaged_empties) if has_atomic_handover else empties_ret
+                        d_held = fulls_deliv - usable_empties
                         led_row = (await self._conn.execute(
-                            "SELECT held FROM ledger WHERE customer_id = ?",
+                            "SELECT held, dues FROM ledger WHERE customer_id = ?",
                             (cust_id,),
                         )).fetchone()
                         cur_held = max(0, int(led_row["held"] or 0)) if led_row else 0
@@ -472,6 +511,44 @@ class VendorRoutesMixin:
                                 ref=f"stop:{stop_id}",
                                 actor=vendor_id,
                                 reason="pod delivery",
+                                commit=False,
+                            )
+                    except Exception:
+                        pass
+                if has_atomic_handover and (damaged_empties > 0 or empty_cond != "ok"):
+                    try:
+                        import uuid
+                        await self._conn.execute(
+                            "INSERT INTO damaged_containers (id, order_id, stop_id, customer_id, vendor_id, qty, condition, note, created_at)"
+                            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                uuid.uuid4().hex,
+                                stop.get("order_id"),
+                                stop_id,
+                                cust_id,
+                                vendor_id,
+                                max(1, damaged_empties),
+                                empty_cond,
+                                "",
+                                _now(),
+                            ),
+                        )
+                    except Exception:
+                        pass
+                if cust_id and cash_paise > 0:
+                    try:
+                        led_dues = (await self._conn.execute(
+                            "SELECT dues FROM ledger WHERE customer_id = ?",
+                            (cust_id,),
+                        )).fetchone()
+                        dues_now = max(0, int(led_dues["dues"] or 0)) if led_dues else 0
+                        if dues_now > 0:
+                            await self.ledger.apply_event(
+                                cust_id,
+                                d_dues=-min(cash_paise, dues_now),
+                                ref=f"stop:{stop_id}",
+                                actor=vendor_id,
+                                reason="vendor cash dues collected",
                                 commit=False,
                             )
                     except Exception:

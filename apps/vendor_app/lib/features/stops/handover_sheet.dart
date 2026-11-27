@@ -21,20 +21,24 @@ class HandoverSheet extends StatefulWidget {
     required this.stopId,
     required this.fullsExp,
     required this.emptiesExp,
+    this.jarsHeld,
     this.outbox,
     this.collectPaise = 0,
     this.paymentMode = 'cod',
     this.tripleAlreadyDone = false,
+    this.onCompleted,
   });
 
   final StopsController controller;
   final String stopId;
   final int fullsExp;
   final int emptiesExp;
+  final int? jarsHeld;
   final SyncController? outbox;
   final int collectPaise;
   final String paymentMode;
   final bool tripleAlreadyDone;
+  final VoidCallback? onCompleted;
 
   @override
   State<HandoverSheet> createState() => _HandoverSheetState();
@@ -46,6 +50,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
   // Step 1 state
   late int _fulls;
   late int _empties;
+  late final int _maxEmpties;
   int _caps = 0;
   int _damaged = 0;
   String _damageReason = 'cracked';
@@ -62,7 +67,14 @@ class _HandoverSheetState extends State<HandoverSheet> {
     super.initState();
     _step = widget.tripleAlreadyDone ? 1 : 0;
     _fulls = widget.fullsExp;
-    _empties = widget.emptiesExp;
+    final held = widget.jarsHeld;
+    if (held != null) {
+      final cap = held < widget.fullsExp ? held : widget.fullsExp;
+      _maxEmpties = cap < 0 ? 0 : cap;
+    } else {
+      _maxEmpties = widget.emptiesExp < 0 ? 0 : widget.emptiesExp;
+    }
+    _empties = widget.emptiesExp.clamp(0, _maxEmpties);
 
     final initialCash = (widget.collectPaise > 0 && widget.paymentMode.toLowerCase() == 'cod')
         ? (widget.collectPaise ~/ 100).toString()
@@ -98,7 +110,14 @@ class _HandoverSheetState extends State<HandoverSheet> {
     }
   }
 
-  Widget _stepper(String label, int value, ValueChanged<int> onChanged, {Color? color}) {
+  Widget _stepper(
+    String label,
+    int value,
+    ValueChanged<int> onChanged, {
+    int? maxValue,
+    Color? color,
+  }) {
+    final atMax = maxValue != null && value >= maxValue;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -128,10 +147,13 @@ class _HandoverSheetState extends State<HandoverSheet> {
             ),
           ),
           IconButton(
-            icon: Icon(Icons.add_circle_outline, color: color ?? ShodashaTheme.blue),
+            icon: Icon(
+              Icons.add_circle_outline,
+              color: atMax ? ShodashaTheme.muted : (color ?? ShodashaTheme.blue),
+            ),
             iconSize: 32,
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            onPressed: () => onChanged(value + 1),
+            onPressed: atMax ? null : () => onChanged(value + 1),
           ),
         ],
       ),
@@ -142,57 +164,15 @@ class _HandoverSheetState extends State<HandoverSheet> {
     final c = widget.controller;
     final otpStr = _otp.text.trim();
     if (otpStr.length < 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Customer ka 4-6 digit OTP darj karein')),
-      );
+      setState(() => _errorMessage = 'Enter the 4-digit delivery OTP from customer');
       return;
     }
+    setState(() => _errorMessage = null);
 
     final cashPaise = _rs(_cash) * 100;
-    final upiPaise = _rs(_upi) * 100;
 
-    // 1. Commit Triple if not already recorded
-    if (!widget.tripleAlreadyDone) {
-      late final Map<String, dynamic> tripleBody;
-      try {
-        tripleBody = buildTripleBody(
-          fullsGiven: _fulls,
-          emptiesBack: _empties,
-          cashPaise: cashPaise,
-          upiPaise: upiPaise,
-          capsMissing: _caps,
-          damagedEmpties: _damaged,
-          emptyCondition: _damaged > 0 ? _damageReason : null,
-          version: c.version,
-        );
-      } on ArgumentError catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-        }
-        return;
-      }
-
-      final tripleOk = await c.commitTriple(
-        stopId: widget.stopId,
-        triple: tripleBody,
-      );
-
-      if (!tripleOk) {
-        if ((c.notice ?? '').contains('Sync me queue') && widget.outbox != null) {
-          await widget.outbox!.enqueue(
-            stopId: widget.stopId,
-            triple: tripleBody,
-          );
-        } else {
-          if (mounted && c.notice != null) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(c.notice!)));
-          }
-          return;
-        }
-      }
-    }
-
-    // 2. Complete PoD with OTP and location
+    // Single atomic PoD + bottle handover request: OTP is verified BEFORE
+    // marking stop done or mutating ledger.held (zero half-done states).
     final pos = await _position();
     final podBody = buildPodBody(
       deliveryOtp: otpStr,
@@ -201,6 +181,12 @@ class _HandoverSheetState extends State<HandoverSheet> {
       sealOk: _sealOk,
       lat: pos?.latitude,
       lng: pos?.longitude,
+      fullsGiven: widget.tripleAlreadyDone ? null : _fulls,
+      damagedEmpties: widget.tripleAlreadyDone ? null : _damaged,
+      capsMissing: widget.tripleAlreadyDone ? null : _caps,
+      emptyCondition: (!widget.tripleAlreadyDone && _damaged > 0)
+          ? _damageReason
+          : null,
     );
 
     final podOk = await c.completePod(
@@ -211,6 +197,12 @@ class _HandoverSheetState extends State<HandoverSheet> {
       sealOk: _sealOk,
       lat: pos?.latitude,
       lng: pos?.longitude,
+      fullsGiven: widget.tripleAlreadyDone ? null : _fulls,
+      damagedEmpties: widget.tripleAlreadyDone ? null : _damaged,
+      capsMissing: widget.tripleAlreadyDone ? null : _caps,
+      emptyCondition: (!widget.tripleAlreadyDone && _damaged > 0)
+          ? _damageReason
+          : null,
     );
 
     if (!podOk && (c.notice ?? '').contains('Sync me queue') && widget.outbox != null) {
@@ -223,10 +215,10 @@ class _HandoverSheetState extends State<HandoverSheet> {
 
     if (mounted) {
       if (podOk || (c.notice ?? '').contains('Sync me queue')) {
+        widget.onCompleted?.call();
         Navigator.of(context).pop();
       } else {
         setState(() => _errorMessage = c.notice ?? 'Delivery completion failed. Please verify OTP.');
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_errorMessage!)));
       }
     }
   }
@@ -299,73 +291,78 @@ class _HandoverSheetState extends State<HandoverSheet> {
 
               // Step 0: Bottles, Empties, Caps, Cash/UPI
               if (_step == 0) ...[
-                _stepper(vtr('जार दिए (भरे)', 'Delivered Jars (Full)'), _fulls, (v) => setState(() => _fulls = v)),
-                _stepper(vtr('खाली वापस लिए', 'Empty Jars Returned'), _empties, (v) => setState(() {
-                      _empties = v;
-                      if (_damaged > v) _damaged = v;
-                    })),
-                if (_empties > 0) ...[
-                  _stepper(
-                    vtr('टूटा या खराब जार ($_damaged)', 'Damaged jar ($_damaged)'),
-                    _damaged,
-                    (v) => setState(() => _damaged = v),
-                    color: ShodashaTheme.warning,
-                  ),
-                  if (_damaged > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _damageReason,
-                        decoration: InputDecoration(
-                          labelText: vtr('खराबी की वजह', 'Damage Reason'),
-                          isDense: true,
-                        ),
-                        items: [
-                          DropdownMenuItem(value: 'cracked', child: Text(vtr('फूटा हुआ', 'Cracked'))),
-                          DropdownMenuItem(value: 'leaking', child: Text(vtr('छेद/लीक', 'Leaking'))),
-                          DropdownMenuItem(value: 'dirty_oil', child: Text(vtr('गंदा या तेल लगा', 'Contaminated / Dirty'))),
-                          DropdownMenuItem(value: 'broken_neck', child: Text(vtr('गर्दन टूटी हुई', 'Broken neck'))),
-                        ],
-                        onChanged: (v) => setState(() => _damageReason = v ?? 'cracked'),
-                      ),
-                    ),
-                ],
                 _stepper(
-                  vtr('बिना ढक्कन ($_caps × ₹3 = ₹$capRs)', 'Missing cap ($_caps × ₹3 = ₹$capRs)'),
-                  _caps,
-                  (v) => setState(() => _caps = v),
+                  vtr('जार दिए (भरे)', 'Delivered Jars (Full)'),
+                  _fulls,
+                  (v) => setState(() => _fulls = v.clamp(0, widget.fullsExp)),
+                  maxValue: widget.fullsExp,
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _cash,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: InputDecoration(
-                          labelText: vtr('कैश लिया (₹)', 'Cash Collected (₹)'),
-                          isDense: true,
-                        ),
-                      ),
+                if (_maxEmpties > 0) ...[
+                  _stepper(
+                    vtr('खाली वापस लिए', 'Empty Jars Returned'),
+                    _empties,
+                    (v) => setState(() {
+                      _empties = v.clamp(0, _maxEmpties);
+                      if (_damaged > _empties) _damaged = _empties;
+                      if (_caps > _empties) _caps = _empties;
+                    }),
+                    maxValue: _maxEmpties,
+                  ),
+                  if (_empties > 0) ...[
+                    _stepper(
+                      vtr('टूटा या खराब जार ($_damaged)', 'Damaged jar ($_damaged)'),
+                      _damaged,
+                      (v) => setState(() => _damaged = v.clamp(0, _empties)),
+                      maxValue: _empties,
+                      color: ShodashaTheme.warning,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _upi,
-                        enabled: false,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: InputDecoration(
-                          labelText: vtr('UPI (आगामी)', 'UPI (Upcoming)'),
-                          hintText: '0',
-                          isDense: true,
-                          filled: true,
-                          fillColor: ShodashaTheme.bg,
+                    if (_damaged > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _damageReason,
+                          decoration: InputDecoration(
+                            labelText: vtr('खराबी की वजह', 'Damage Reason'),
+                            isDense: true,
+                          ),
+                          items: [
+                            DropdownMenuItem(value: 'cracked', child: Text(vtr('फूटा हुआ', 'Cracked'))),
+                            DropdownMenuItem(value: 'leaking', child: Text(vtr('छेद/लीक', 'Leaking'))),
+                            DropdownMenuItem(value: 'dirty_oil', child: Text(vtr('गंदा या तेल लगा', 'Contaminated / Dirty'))),
+                            DropdownMenuItem(value: 'broken_neck', child: Text(vtr('गर्दन टूटी हुई', 'Broken neck'))),
+                          ],
+                          onChanged: (v) => setState(() => _damageReason = v ?? 'cracked'),
                         ),
                       ),
+                    _stepper(
+                      vtr('बिना ढक्कन ($_caps × ₹3 = ₹$capRs)', 'Missing cap ($_caps × ₹3 = ₹$capRs)'),
+                      _caps,
+                      (v) => setState(() => _caps = v.clamp(0, _empties)),
+                      maxValue: _empties,
                     ),
                   ],
+                ] else
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Text(
+                      vtr('पहला ऑर्डर — कोई खाली जार वापस नहीं लेना है', 'First-time order — 0 empty jars to collect'),
+                      style: const TextStyle(fontSize: 12, color: ShodashaTheme.muted),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _cash,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  decoration: InputDecoration(
+                    labelText: vtr('कैश लिया (₹)', 'Cash Collected (₹)'),
+                    counterText: '',
+                    isDense: true,
+                  ),
                 ),
                 const SizedBox(height: 18),
                 AppButton(
@@ -414,12 +411,15 @@ class _HandoverSheetState extends State<HandoverSheet> {
                 TextField(
                   controller: _otp,
                   keyboardType: TextInputType.number,
-                  maxLength: 6,
+                  maxLength: 4,
                   autofocus: true,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
                   decoration: InputDecoration(
                     labelText: vtr('कस्टमर डिलीवरी OTP', 'Customer Delivery OTP'),
-                    hintText: vtr('4 या 6 अंकों का OTP दर्ज करें', 'Enter 4-digit customer OTP'),
+                    hintText: vtr('4 अंकों का OTP दर्ज करें', 'Enter 4-digit customer OTP'),
                     counterText: '',
                     prefixIcon: const Icon(Icons.pin_outlined),
                   ),
@@ -438,7 +438,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFEE2E2),
+                      color: ShodashaTheme.danger.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(ShodashaTheme.radius),
                       border: Border.all(color: ShodashaTheme.danger.withValues(alpha: 0.3)),
                     ),

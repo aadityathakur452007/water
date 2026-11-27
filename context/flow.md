@@ -12,6 +12,23 @@
 
 ## Overview
 
+- Full-Stack Audit, Dead-Code Cleanup, Sync & Input Hardening (2026-11-27, ADR-229):
+  1. `vendor.py:PodIn` now passes `fulls_given`, `damaged_empties`, `caps_missing`, and `empty_condition` through to `VendorService.pod_complete()`.
+  2. `RiderService.routes_today()` checks `payment_status in ("paid", "paid_upi", "paid_cash")`; `rider_app` `ApiClient` stores tokens in `FlutterSecureStorage` (one-time migration from `SharedPreferences`), sends `X-Device-Id`, enforces 12s timeouts, and invokes `onUnauthorized` on 401/403.
+  3. `vendor_app` `SyncController.syncNow()` merges `_rejected` entries by `stop_id` so prior cash warnings are never overwritten.
+
+- Atomic Vendor PoD, Cross-App Dues Sync, Worker Polling Reduction & Rider Device ID (2026-11-27, ADR-228):
+  1. `HandoverSheet._submitHandover()` → `StopsController.completePod()` → `VendorService.pod_complete()` verifies OTP first and atomically commits `fulls_given`, `empties_count`, `damaged_empties`, `caps_missing`, `ledger.held`, and `ledger.dues` clearing in one request.
+  2. Background polling: `vendor_app` (45s), `rider_app` (45s), `user_app_donor` (60s, active orders only).
+  3. `rider_app` `ApiClient.init()` persists a per-install `rider_device_id_v1` for `loginRider` and `refreshSession`.
+
+- Ecosystem Flows, Session Persistence, Handover Bounds & Mobile Unslop (2026-11-27, ADR-227):
+  1. `vendor_app` `AuthController.refreshSession()` & `rider_app` `ApiClient.refreshSession()` share a single in-flight `Future<bool>?` lock; `VendorShell._onAppResumed()` awaits expired-token refresh before loading duty/route.
+  2. `RouteController.load(silent: true)` skips `RouteState.loading` during background discovery polls; `RouteScreen` groups stops into `Pending` and `Delivered` sections.
+  3. `VendorService.today_route()` returns `jars_held` and `max_empties`; `triple_commit()` validates `damaged_empties <= empties_back` and `caps_missing <= empties_back`; `HandoverSheet` bounds all steppers and renders errors inline.
+  4. `RiderService.routes_today()` checks `idempotency_key` (`sub:` / `:sub:`) before tagging `is_subscription = True`, so extra one-time COD orders collect cash.
+  5. `user_app_donor`: `_CancelSheet` drops UPI input; `booking_sheet.dart` & `plan_builder_sheet.dart` persist `shodasha.damage_agreement_v1`; `donor_wallet_screen.dart` drops the standalone `Return empty jars` tile.
+
 - Wallet Empty-Jar Ledger Sync & Vendor Inventory Implicit States (2026-11-26, ADR-226):
   1. `VendorService.pod_complete()` applies `d_held = fulls_exp - empties_count` to `ledger.held` (unless `triple_commit` already applied it).
   2. `VendorService.today_route()` excludes `cancelled`/`failed` stops from `loading`; `InventoryScreen` excludes them from `Stop baki`.
