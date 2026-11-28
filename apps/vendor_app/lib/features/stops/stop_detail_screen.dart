@@ -505,16 +505,6 @@ class _StopDetailScreenState extends State<StopDetailScreen> {
                               const TextStyle(color: ShodashaTheme.muted),
                         ),
                       ),
-                    if (holdBlocked)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Hold limit — pehle deposit, phir delivery',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: ShodashaTheme.danger),
-                        ),
-                      ),
                   ],
                 ),
               ),

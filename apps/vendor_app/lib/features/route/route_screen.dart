@@ -692,13 +692,6 @@ class _RouteScreenState extends State<RouteScreen> {
                     ],
                   ),
                 ),
-              if (s.holdBlocked)
-                Text(
-                  s.holdReason ?? 'Hold limit — deposit mangein',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: ShodashaTheme.danger),
-                ),
               if (cancelled)
                 Text(
                   vtr('ऑर्डर रद्द (Cancelled by Customer)', 'Order Cancelled by Customer'),

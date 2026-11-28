@@ -95,10 +95,8 @@ class VendorRoutesMixin:
                     pass
             held = int(held_by_customer.get(s.get("customer_id"), 0))
             s["jars_held"] = held
-            s["max_empties"] = min(int(s.get("fulls_exp") or 0), max(0, held))
-            s["hold_blocked"] = held > HOLD_BLOCK_LIMIT
-            if s["hold_blocked"]:
-                s["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+            s["max_empties"] = max(0, held)
+            s["hold_blocked"] = False
             # Phase 5 §5.2: paid-to-date per stop (return/pickup stops have no
             # order → 0). UI renders Collect total−paid_sum; never the full
             # total on partial/link_sent rows.
@@ -679,15 +677,10 @@ class VendorRoutesMixin:
                         stop["customer_phone"] = snap.get("customer_phone") or snap.get("phone")
             except Exception:
                 pass
-        # F3: same hold rule as the route list (single-stop path).
-        from app.services.order_service import HOLD_BLOCK_LIMIT
-
         held = 0
         if stop.get("customer_id"):
             held = int((await self.ledger.get(stop["customer_id"])).get("held", 0))
-        stop["hold_blocked"] = held > HOLD_BLOCK_LIMIT
-        if stop["hold_blocked"]:
-            stop["hold_reason"] = "Hold limit — pehle deposit, phir delivery"
+        stop["hold_blocked"] = False
         # Phase 5 §5.2: same paid-to-date rule as the route list (single stop).
         from app.repositories.payment_repo import PaymentRepo  # noqa: PLC0415 (lazy, lock-safe)
 

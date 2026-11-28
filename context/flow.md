@@ -12,6 +12,12 @@
 
 ## Overview
 
+- COD-Only Checkout, Hold-Block Removal, Rider Cash/Empty-Jar Fixes & D1 Cleanup (2026-11-28, ADR-231):
+  1. `order_service.py:create()` & `booking_controller.dart`: removed `HOLD_BLOCK_LIMIT` hard block (`holdBlocked => false`); `donor_wallet_screen.dart` surfaces `Request empty jar pickup` → `ReturnSheet(requireUpi: false)` when `heldJars > 0`.
+  2. `booking_sheet.dart` & `plan_builder_sheet.dart`: hid `UPI (Upcoming in future)` chip, updated CTA to `Place Order · ₹X`, and hid `_damageAgreementCard` (`SizedBox.shrink()`) once `shodasha.damage_agreement_v1` is saved.
+  3. `RiderService.routes_today()` & `complete_stop()`: exposes `payment_status`, `cash_collected`, and `max_empties = jars_held`; `handover_mode.dart` adds `HandoverMode.paidCash` so `delivery_screen.dart` renders `Paid in Cash (₹X)` on completed COD stops.
+  4. `VendorService.today_route()` / `stop_detail()`, `route_screen.dart`, `stop_detail_screen.dart`: cleared `hold_blocked` and removed `Hold limit — pehle deposit, phir delivery` warnings.
+
 - Vendor & Rider Login Modernization & App Icon Update (2026-11-27, ADR-230):
   1. `apps/vendor_app/lib/features/auth/vendor_code_screen.dart`: `VendorCodeScreen` boots into `VendorAuthMode.welcome` (teal hero banner with `assets/logo.png` Partner emblem, `Login` pill CTA, `Need help? Contact Admin` support dialog) and transitions to `VendorAuthMode.signIn` (`+91` phone + Admin access code form with `AuthController.codeLogin()`).
   2. `apps/rider_app/lib/features/auth/login_screen.dart`: `LoginScreen` boots into `RiderAuthMode.welcome` (teal hero banner with `assets/logo.png` Rider emblem, `Login` pill CTA, `Need your sign-in code?` support dialog) and transitions to `RiderAuthMode.signIn` (Name + `+91` phone + 6-digit vendor sign-in code form with `ApiClient.loginRider()`).

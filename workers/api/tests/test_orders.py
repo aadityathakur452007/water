@@ -146,9 +146,9 @@ async def test_over_limit_and_hold_blocked_422():
         await s.create("u1", _payload(items=big, e=0), "k1")
     assert e.value.code == "OVER_LIMIT" and e.value.status_code == 422
     await LedgerRepo(_w(c)).apply_event("u2", d_held=4, ref="test:seed", reason="held 4 jars")
-    with pytest.raises(HoldBlockedError) as e2:
-        await s.create("u2", _payload(), "k2")
-    assert e2.value.code == "HOLD_BLOCKED" and e2.value.status_code == 422
+    # Held > 3 no longer blocks new orders; driver collects empties on delivery.
+    o = await s.create("u2", _payload(), "k2")
+    assert o["state"] == "placed"
 
 
 async def test_returned_empties_cannot_exceed_ledger_held():

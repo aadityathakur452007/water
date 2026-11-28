@@ -43,6 +43,7 @@ class ReturnSheet extends StatefulWidget {
     required this.api,
     this.pickAddress,
     this.heldJars = 10,
+    this.requireUpi = false,
   });
 
   final ApiClient api;
@@ -50,6 +51,7 @@ class ReturnSheet extends StatefulWidget {
 
   /// Jars currently held by the customer; the return quantity never exceeds it.
   final int heldJars;
+  final bool requireUpi;
 
   @override
   State<ReturnSheet> createState() => _ReturnSheetState();
@@ -64,7 +66,10 @@ class _ReturnSheetState extends State<ReturnSheet> {
   int get _maxQty => widget.heldJars.clamp(0, 30);
 
   bool get _valid =>
-      _address != null && isValidUpi(_upi.text) && _qty >= 1 && _qty <= _maxQty;
+      _address != null &&
+      (!widget.requireUpi || isValidUpi(_upi.text)) &&
+      _qty >= 1 &&
+      _qty <= _maxQty;
 
   @override
   void dispose() {
@@ -227,24 +232,25 @@ class _ReturnSheetState extends State<ReturnSheet> {
                     onTap: _pickAddress,
                   ),
                   const SizedBox(height: 14),
-                  TextField(
-                    controller: _upi,
-                    enabled: !_controller.busy,
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.done,
-                    onChanged: (_) => setState(() {}),
-                    style: const TextStyle(fontSize: 16),
-                    decoration: InputDecoration(
-                      labelText: 'UPI ID for deposit refund',
-                      hintText: 'name@bank',
-                      errorText:
-                          _upi.text.trim().isNotEmpty && !isValidUpi(_upi.text)
-                          ? 'Enter a valid UPI ID like name@bank'
-                          : null,
-                      helperText:
-                          'Your deposit refund is sent to this UPI after pickup.',
+                  if (widget.requireUpi)
+                    TextField(
+                      controller: _upi,
+                      enabled: !_controller.busy,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.done,
+                      onChanged: (_) => setState(() {}),
+                      style: const TextStyle(fontSize: 16),
+                      decoration: InputDecoration(
+                        labelText: 'UPI ID for deposit refund',
+                        hintText: 'name@bank',
+                        errorText:
+                            _upi.text.trim().isNotEmpty && !isValidUpi(_upi.text)
+                            ? 'Enter a valid UPI ID like name@bank'
+                            : null,
+                        helperText:
+                            'Your deposit refund is sent to this UPI after pickup.',
+                      ),
                     ),
-                  ),
                   if (_controller.error != null) ...[
                     const SizedBox(height: 10),
                     Row(

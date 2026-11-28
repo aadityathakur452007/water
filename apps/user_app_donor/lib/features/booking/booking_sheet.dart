@@ -922,7 +922,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   String get _payLabel {
     if (_isOnce) {
       final total = c.serverTotalPaise;
-      return total == null ? 'Pay' : 'Pay ${rupeesLabel(total)}';
+      return total == null ? 'Place COD Order' : 'Place Order · ${rupeesLabel(total)}';
     }
     // No online subscription payment is collected in this flow. Never imply
     // the first cycle was charged.
@@ -1069,30 +1069,13 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                 enabled: !chipsFrozen,
                 onTap: () => setState(() => c.paymentMode = PaymentMode.cod),
               ),
-              const SizedBox(width: 8),
-              const _PayChip(
-                label: 'UPI (Upcoming in future)',
-                selected: false,
-                enabled: false,
-                onTap: null,
-              ),
             ],
           ),
-          if (!codOk && !c.holdBlocked)
+          if (!codOk)
             const Padding(
               padding: EdgeInsets.only(top: 8),
               child: Text(
-                'Cash on delivery is unavailable over Rs 2,000 or with dues. '
-                'Choose UPI.',
-                style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
-              ),
-            ),
-          if (c.holdBlocked)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text(
-                'More than 3 jars are with you. Return empties before '
-                'ordering again.',
+                'Cash on delivery is unavailable over Rs 2,000 or with dues.',
                 style: TextStyle(color: ShodashaTheme.muted, fontSize: 13),
               ),
             ),
@@ -1582,13 +1565,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   Widget _damageAgreementCard(bool busy) {
     if (_alreadyAcceptedDamage) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 10),
-        child: Text(
-          'Reusable 20L jar terms accepted (₹650 replacement if damaged/lost).',
-          style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
-        ),
-      );
+      return const SizedBox.shrink();
     }
     return Container(
       margin: const EdgeInsets.only(top: 14),

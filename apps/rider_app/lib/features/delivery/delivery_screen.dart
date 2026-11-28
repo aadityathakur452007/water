@@ -757,6 +757,20 @@ class _DeliveryScreenState extends State<DeliveryScreen> with WidgetsBindingObse
                                         fg: ShodashaTheme.warningDark,
                                         icon: Icons.payments_rounded,
                                       ),
+                                    HandoverMode.paidCash => () {
+                                      final cashAmt =
+                                          (stop['cash_collected'] as num?)?.toInt() ??
+                                          (stop['order_amount'] as num?)?.toInt() ??
+                                          0;
+                                      return _Badge(
+                                        label: cashAmt > 0
+                                            ? 'Paid in Cash (₹${(cashAmt / 100).toStringAsFixed(0)})'
+                                            : 'Paid in Cash',
+                                        bg: ShodashaTheme.successTint,
+                                        fg: ShodashaTheme.successDark,
+                                        icon: Icons.payments_rounded,
+                                      );
+                                    }(),
                                     HandoverMode.prepaid =>
                                       const _Badge(
                                         label: 'Paid Online (₹0 Cash)',

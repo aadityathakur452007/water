@@ -14,7 +14,7 @@ import '../../shared/ui/app_card.dart';
 import '../../shared/ui/app_icon_button.dart';
 import '../../shared/ui/app_state_view.dart';
 import '../../shared/ui/section_header.dart';
-import '../returns/return_sheet.dart' show ReturnAddressPicker;
+import '../returns/return_sheet.dart' show ReturnAddressPicker, ReturnSheet;
 import 'payment_history_screen.dart';
 import 'wallet_controller.dart';
 
@@ -207,6 +207,29 @@ class _DonorWalletScreenState extends State<DonorWalletScreen> {
                   ],
                   _ledgerBody(ledger),
                   const SizedBox(height: AppSpacing.md),
+                  if (ledger.heldJars > 0) ...[
+                    _actionTile(
+                      icon: Icons.recycling_outlined,
+                      color: ShodashaTheme.tealDeep,
+                      title: 'Request empty jar pickup',
+                      subtitle:
+                          'Schedule a rider to collect ${ledger.heldJars} empty ${ledger.heldJars == 1 ? 'jar' : 'jars'}',
+                      onTap: () async {
+                        await showModalBottomSheet<void>(
+                          context: context,
+                          isScrollControlled: true,
+                          useSafeArea: true,
+                          builder: (_) => ReturnSheet(
+                            api: widget.api,
+                            pickAddress: widget.pickAddress,
+                            heldJars: ledger.heldJars,
+                          ),
+                        );
+                        if (mounted) _load();
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
                   _actionTile(
                     icon: Icons.receipt_long_outlined,
                     color: ShodashaTheme.blue,

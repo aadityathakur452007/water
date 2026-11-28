@@ -4,6 +4,23 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+**COD-ONLY CHECKOUT, HOLD-BLOCK REMOVAL, RIDER CASH/EMPTY-JAR FIXES & D1 CLEANUP (2026-11-28, ADR-231):** on `main`
+- **1. COD-Only & One-Time ₹650 Terms (`apps/user_app_donor`, `workers/api`):**
+  - Hid `UPI (Upcoming in future)` chip in `booking_sheet.dart` and `plan_builder_sheet.dart`; updated checkout CTA to `Place Order · ₹X` (`Place COD Order`).
+  - Removed `HOLD_BLOCK_LIMIT` hard order block in `order_service.py` and `booking_controller.dart` (`holdBlocked => false`) so customers with >3 jars can continue ordering while riders collect empties at doorstep.
+  - Updated `_damageAgreementCard` in `booking_sheet.dart` and `plan_builder_sheet.dart` to return `SizedBox.shrink()` once `shodasha.damage_agreement_v1` is accepted (no repeated text/checkbox).
+  - Restored `Request empty jar pickup` tile in `donor_wallet_screen.dart` when `ledger.heldJars > 0`, and made UPI optional (`requireUpi: false`) in `return_sheet.dart` for zero-deposit COD returns.
+  - Updated `Order.paymentLabel` in `order_models.dart` so delivered unpaid COD orders show `Cash due` instead of `Cash due on delivery`.
+- **2. Rider Cash Clarity & Full Empty-Jar Collection (`workers/api`, `apps/rider_app`):**
+  - Updated `RiderService.routes_today()` to include `payment_status`, `cash_collected` (from `stops.triple`), and `max_empties = jars_held` (also in `complete_stop()`), allowing riders to record any number of empty jars returned up to the customer's held balance.
+  - Added `HandoverMode.paidCash` in `handover_mode.dart` and rendered `Paid in Cash (₹X)` in `delivery_screen.dart` for completed COD stops instead of `Paid Online (₹0 Cash)`.
+- **3. Vendor Route Hold-Warning Removal (`workers/api`, `apps/vendor_app`):**
+  - Cleared `hold_blocked` in `VendorService.today_route()` and `stop_detail()`, set `max_empties = max(0, held)`, and removed `Hold limit — pehle deposit, phir delivery` warnings from `route_screen.dart` and `stop_detail_screen.dart`.
+- **4. D1 Database Cleanup:**
+  - Purged all synthetic/test users and their dependent rows from remote D1 `shodasha`, retaining only the 5 real authenticated users (`+917828442476` admin, `Aaditya Thakur`, `Kapil`, `Aditya`, `Amit singh`), and normalized `payment_mode = 'upi'` rows to `'cod'`.
+
+## Previous Phases
+
 **VENDOR & RIDER LOGIN MODERNIZATION & APP ICON UPDATE (2026-11-27, ADR-230):** on `main`
 - **1. Branded App Icons (`apps/vendor_app`, `apps/rider_app`):**
   - Generated transparent `assets/logo.png` (512×512), adaptive icon foregrounds (`drawable/ic_launcher_foreground.png`, 432×432), and `mdpi`–`xxxhdpi` legacy/round mipmaps from the uploaded Shodasha Partner and Shodasha Rider emblems.

@@ -570,11 +570,6 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
                 ? null
                 : () => _setPayment('cod'),
           ),
-          _choiceChip(
-            'UPI (Upcoming in future)',
-            false,
-            null,
-          ),
         ],
       ),
       Padding(
@@ -886,10 +881,7 @@ class _PlanBuilderSheetState extends State<PlanBuilderSheet> {
 
   Widget _damageAgreementCard() {
     if (_alreadyAcceptedDamage) {
-      return const Text(
-        'Reusable 20L jar terms accepted (₹650 replacement if damaged/lost).',
-        style: TextStyle(fontSize: 11, color: ShodashaTheme.muted),
-      );
+      return const SizedBox.shrink();
     }
     return Container(
       padding: const EdgeInsets.all(12),

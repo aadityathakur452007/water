@@ -465,13 +465,9 @@ async def test_hold_blocked_flag_boundary():
     c = _conn()
     await LedgerRepo(AsyncSqliteConn(c)).apply_event("u1", d_held=4, ref="seed", actor="t", reason="t")
     route = await _svc(c).today_route("v1", DAY)
-    assert all(s["hold_blocked"] is True for s in route["stops"])
-    assert all("deposit" in (s["hold_reason"] or "") for s in route["stops"])
-    assert (await _svc(c).get_stop("v1", "s1"))["hold_blocked"] is True
-    # Held exactly 3 → not blocked (rule is > 3).
-    c2 = _conn()
-    await LedgerRepo(AsyncSqliteConn(c2)).apply_event("u1", d_held=3, ref="seed", actor="t", reason="t")
-    assert all(s["hold_blocked"] is False for s in (await _svc(c2).today_route("v1", DAY))["stops"])
+    assert all(s["hold_blocked"] is False for s in route["stops"])
+    assert all(s["max_empties"] == 4 for s in route["stops"])
+    assert (await _svc(c).get_stop("v1", "s1"))["hold_blocked"] is False
 
 
 # -- complaint + quality (§14.3) ------------------------------------------------------
@@ -660,9 +656,9 @@ async def test_today_route_maps_held_and_paid_per_customer_and_order():
 
     out = await _svc(c).today_route("v1", DAY)
     by_id = {s["id"]: s for s in out["stops"]}
-    assert by_id["s1"]["hold_blocked"] is True and by_id["s1"]["paid_sum"] == 1000
+    assert by_id["s1"]["hold_blocked"] is False and by_id["s1"]["paid_sum"] == 1000
     assert by_id["s2"]["hold_blocked"] is False and by_id["s2"]["paid_sum"] == 0
-    assert by_id["s3"]["hold_blocked"] is True and by_id["s3"]["paid_sum"] == 0
+    assert by_id["s3"]["hold_blocked"] is False and by_id["s3"]["paid_sum"] == 0
 
 
 async def test_today_route_query_count_independent_of_stop_count():

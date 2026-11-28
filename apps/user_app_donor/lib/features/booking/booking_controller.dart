@@ -449,7 +449,8 @@ class BookingController extends ChangeNotifier {
   /// N > 10 → tanker sheet; never creates an order.
   bool get isTanker => totalJars > kMaxHouseholdJars;
 
-  bool get holdBlocked => heldJars > kHoldBlockLimit;
+  /// Hard block removed: driver collects empty jars during delivery.
+  bool get holdBlocked => false;
 
   /// COD is offered only after a server quote exists, then gated exactly.
   bool get codAllowed =>

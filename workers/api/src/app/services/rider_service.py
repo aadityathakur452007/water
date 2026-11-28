@@ -234,7 +234,17 @@ class RiderService:
                 amount_due = order_amt
 
             qty = int(d["fulls_exp"] or 1)
-            max_empties = min(qty, jars_held)
+            max_empties = jars_held
+            cash_collected = 0
+            try:
+                triple_raw = d.get("triple")
+                triple_obj = json.loads(triple_raw) if isinstance(triple_raw, str) and triple_raw else (
+                    triple_raw if isinstance(triple_raw, dict) else {}
+                )
+                pod_obj = triple_obj.get("pod") if isinstance(triple_obj.get("pod"), dict) else {}
+                cash_collected = int(pod_obj.get("cash") or triple_obj.get("cash") or 0)
+            except Exception:
+                cash_collected = 0
 
             stops.append({
                 "id": d["id"],
@@ -250,7 +260,9 @@ class RiderService:
                 "max_empties": max_empties,
                 "empties_expected": max_empties,
                 "payment_mode": "cod" if is_cod else "prepaid",
+                "payment_status": (d.get("payment_status") or "unpaid").lower(),
                 "is_paid": is_paid,
+                "cash_collected": cash_collected,
                 "amount_due": amount_due,
                 "order_amount": order_amt,
                 "is_subscription": is_sub_order,
@@ -319,10 +331,8 @@ class RiderService:
                 )).fetchone()
                 if led is not None:
                     jars_held = max(0, int(led["held"] or 0))
-                    qty = max(1, int(stop["fulls_exp"] or 1))
-                    max_empties = min(qty, jars_held)
                     req_empties = max(0, int(sanitized_payload.get("empties_count") or 0))
-                    sanitized_payload["empties_count"] = min(req_empties, max_empties)
+                    sanitized_payload["empties_count"] = min(req_empties, jars_held)
             except Exception:
                 pass
 

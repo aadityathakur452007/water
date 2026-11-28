@@ -236,6 +236,9 @@ class Order {
     if (paymentStatus == 'paid_cash') return 'Paid in cash';
     if (paymentStatus == 'partial_dues') return 'Partly paid';
     if (paymentStatus == 'refund_pending') return 'Refund pending';
+    if (state == OrderState.delivered && paymentMode == 'cod') {
+      return 'Cash due';
+    }
     return paymentMode == 'upi' ? 'UPI pending' : 'Cash due on delivery';
   }
 

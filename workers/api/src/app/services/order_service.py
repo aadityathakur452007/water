@@ -241,11 +241,6 @@ class OrderService:
                 message="Maximum 10 jars per order. For larger (tanker) requirements, please contact support.",
                 details={"n": q["n_total"], "max": MAX_JARS_PER_ORDER},
             )
-        if int(led_now.get("held", 0)) > HOLD_BLOCK_LIMIT:
-            raise HoldBlockedError(
-                message="Too many jars held. Return empties to order again.",
-                details={"held": int(led_now.get("held", 0)), "max": HOLD_BLOCK_LIMIT},
-            )
         if payment_mode == "cod" and int(q["total"]) > COD_MAX_PAISE:
             raise CodNotAllowedError(
                 message="Cash on Delivery is available only up to Rs 2,000. "

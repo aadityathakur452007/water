@@ -10,6 +10,9 @@ enum HandoverMode {
   /// One-time Cash on Delivery: cash collection required for order total
   standardCod,
 
+  /// Completed Cash on Delivery: cash already collected at doorstep
+  paidCash,
+
   /// Prepaid (UPI confirmed or ₹0 due): no doorstep cash collection
   prepaid,
 }
@@ -21,13 +24,18 @@ HandoverMode resolveHandoverMode(Map<String, dynamic> stop) {
   final isCod = stop['payment_mode'] == 'cod';
   final amountDue = (stop['amount_due'] as num?)?.toInt() ?? 0;
   final paymentStatus = stop['payment_status']?.toString() ?? '';
-  final isPaid = paymentStatus == 'paid_upi' || paymentStatus == 'paid_cash';
+  final isPaid = paymentStatus == 'paid_upi' ||
+      paymentStatus == 'paid_cash' ||
+      stop['is_paid'] == true;
 
   if (isSub && !isMonthlyDues) {
     return HandoverMode.dailySubscription;
   }
   if (isMonthlyDues && amountDue > 0) {
     return HandoverMode.monthEndDues;
+  }
+  if (isCod && isPaid) {
+    return HandoverMode.paidCash;
   }
   if (!isSub && isCod && amountDue > 0) {
     return HandoverMode.standardCod;
